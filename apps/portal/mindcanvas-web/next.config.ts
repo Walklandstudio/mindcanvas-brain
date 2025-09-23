@@ -1,5 +1,10 @@
 // mindcanvas-web/next.config.ts
-export default {
+const nextConfig = {
   reactStrictMode: true,
-  experimental: { turbo: true },
+  // Turbopack moved out of `experimental`
+  turbopack: { 
+    // you can leave this empty or add options later
+  },
 };
+
+export default nextConfig;
