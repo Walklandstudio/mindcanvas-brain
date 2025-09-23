@@ -1,7 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  /* config options here */
+// mindcanvas-web/next.config.ts
+export default {
+  reactStrictMode: true,
+  experimental: { turbo: true },
 };
-
-export default nextConfig;

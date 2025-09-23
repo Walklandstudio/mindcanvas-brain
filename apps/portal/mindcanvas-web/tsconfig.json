@@ -11,9 +11,10 @@
     "strict": true,
     "baseUrl": ".",
     "paths": { "@/*": ["./*"] },
-    "types": ["node"]   // ✅ add this line
+    "types": ["node"]
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]
 }
+
 
