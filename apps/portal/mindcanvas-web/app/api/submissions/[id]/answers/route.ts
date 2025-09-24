@@ -9,31 +9,33 @@ interface Answer {
   questionId: string;
   value: AnswerValue;
 }
-
 interface SubmissionAnswersPayload {
   answers: Answer[];
 }
 
+function isSubmissionAnswersPayload(x: unknown): x is SubmissionAnswersPayload {
+  if (
+    typeof x !== "object" ||
+    x === null ||
+    !("answers" in x) ||
+    !Array.isArray((x as Record<string, unknown>).answers)
+  ) return false;
+  // (Optional) deeper validation of each answer can go here
+  return true;
+}
+
 export async function POST(
   req: NextRequest,
-  { params }: { params: RouteParams } // <-- no `any`
+  ctx: { params: RouteParams } // <- no "any" here
 ) {
-  const { id } = params;
+  const { id } = ctx.params;
 
-  const json = (await req.json()) as unknown;
-
-  // Runtime guard so we never rely on `any`
-  if (
-    typeof json !== "object" ||
-    json === null ||
-    !("answers" in json) ||
-    !Array.isArray((json as Record<string, unknown>).answers)
-  ) {
+  const bodyUnknown: unknown = await req.json(); // <- unknown, not any
+  if (!isSubmissionAnswersPayload(bodyUnknown)) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
+  const body = bodyUnknown; // typed by the guard
 
-  const payload = json as SubmissionAnswersPayload;
-
-  // TODO: persist `payload.answers` for submission `id`
-  return NextResponse.json({ ok: true, id, count: payload.answers.length });
+  // TODO: persist body.answers for submission "id"
+  return NextResponse.json({ ok: true, id, count: body.answers.length });
 }
