@@ -1,5 +1,3 @@
-import { notFound } from "next/navigation";
-
 export default function TestPage({ params }: { params: { slug: string } }) {
   const { slug } = params;
 
