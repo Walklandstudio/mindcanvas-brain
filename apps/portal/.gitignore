@@ -11,3 +11,9 @@ node_modules
 *.local
 # OS
 .DS_Store
+node_modules
+.next
+.env
+.env.*
+*.local
+.DS_Store
