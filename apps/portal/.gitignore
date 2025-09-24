@@ -2,3 +2,12 @@
 node_modules
 */.next
 */node_modules
+# Node / Next.js
+node_modules
+.next
+# Env
+.env
+.env.*
+*.local
+# OS
+.DS_Store
