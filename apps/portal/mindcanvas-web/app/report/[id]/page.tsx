@@ -1,19 +1,19 @@
-type PageProps = {
+type ReportPageProps = {
   params: { id: string };
-  searchParams?: { [k: string]: string | string[] | undefined };
+  searchParams?: Record<string, string | string[] | undefined>;
 };
 
-export default async function ReportPage({ params }: PageProps) {
+export default async function ReportPage({ params }: ReportPageProps) {
   const { id } = params;
 
-  // Example of typing fetched data (adjust to your shape)
-  interface ReportData {
-    id: string;
-    title?: string;
-    // add fields you actually use
-  }
-
+  // Example: fetch and type your data if needed
+  // interface ReportData { id: string; title?: string }
   // const data: ReportData = await fetch(...).then(r => r.json());
 
-  return <div>Report #{id}</div>;
+  return (
+    <main className="p-6">
+      <h1 className="text-2xl font-semibold">Report #{id}</h1>
+      {/* render data here */}
+    </main>
+  );
 }
