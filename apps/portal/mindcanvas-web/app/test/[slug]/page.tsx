@@ -1,18 +1,23 @@
-import { notFound } from "next/navigation";
+// app/api/tests/[slug]/route.ts
+import { NextResponse } from "next/server";
+// import { supabase } from "@/lib/supabaseServer"; // use later if needed
 
-export default function TestPage({ params }: { params: { slug: string } }) {
-  const { slug } = params;
+function getSlugFromUrl(u: string): string {
+  const parts = new URL(u).pathname.split("/"); // ["", "api", "tests", "{slug}"]
+  const i = parts.indexOf("tests");
+  return i >= 0 ? parts[i + 1] ?? "" : "";
+}
 
-  if (slug !== "competency-coach-dna") {
-    notFound();
-  }
+export async function GET(req: Request) {
+  const slug = getSlugFromUrl(req.url);
+  if (!slug) return NextResponse.json({ error: "Missing slug" }, { status: 400 });
 
-  return (
-    <main className="p-8">
-      <h1 className="text-2xl font-bold">Test: {slug}</h1>
-      <p>This is the dynamic test page ✅</p>
-    </main>
-  );
+  // Example real logic:
+  // const { data, error } = await supabase.from("tests").select("*").eq("slug", slug).single();
+  // if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // return NextResponse.json(data);
+
+  return NextResponse.json({ ok: true, slug });
 }
 
 
