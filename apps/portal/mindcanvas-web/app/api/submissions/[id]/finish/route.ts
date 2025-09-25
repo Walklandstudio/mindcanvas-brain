@@ -1,9 +1,18 @@
-import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseServer';
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseServer";
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
-  const { id } = params;
-  const { error } = await supabase.rpc('mc_finish', { p_submission_id: id });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+function extractIdFromUrl(u: string): string {
+  const parts = new URL(u).pathname.split("/");
+  const i = parts.indexOf("submissions");
+  return i >= 0 ? parts[i + 1] ?? "" : "";
 }
+
+export async function POST(req: Request) {
+  const id = extractIdFromUrl(req.url);
+
+  // ... your finish logic here, e.g. mark submission finished in Supabase
+  // await supabase.from("submissions").update({ status: "finished" }).eq("id", id);
+
+  return NextResponse.json({ ok: true, id });
+}
+

@@ -1,41 +1,31 @@
-import { NextRequest, NextResponse } from "next/server";
-
-type RouteParams = { id: string };
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseServer";
 
 type Primitive = string | number | boolean | null;
 type AnswerValue = Primitive | Primitive[];
+interface Answer { questionId: string; value: AnswerValue; }
+interface SubmissionAnswersPayload { answers: Answer[]; }
 
-interface Answer {
-  questionId: string;
-  value: AnswerValue;
-}
-interface SubmissionAnswersPayload {
-  answers: Answer[];
-}
-
-function isSubmissionAnswersPayload(x: unknown): x is SubmissionAnswersPayload {
-  if (
-    typeof x !== "object" ||
-    x === null ||
-    !("answers" in x) ||
-    !Array.isArray((x as Record<string, unknown>).answers)
-  ) return false;
-  // (Optional) deeper validation of each answer can go here
-  return true;
+function extractIdFromUrl(u: string): string {
+  const parts = new URL(u).pathname.split("/");
+  const i = parts.indexOf("submissions");
+  return i >= 0 ? parts[i + 1] ?? "" : "";
 }
 
-export async function POST(
-  req: NextRequest,
-  ctx: { params: RouteParams } // <- no "any" here
-) {
-  const { id } = ctx.params;
+function isPayload(x: unknown): x is SubmissionAnswersPayload {
+  return !!x && typeof x === "object" && Array.isArray((x as any).answers);
+}
 
-  const bodyUnknown: unknown = await req.json(); // <- unknown, not any
-  if (!isSubmissionAnswersPayload(bodyUnknown)) {
+export async function POST(req: Request) {
+  const id = extractIdFromUrl(req.url);
+  const body: unknown = await req.json();
+  if (!isPayload(body)) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
-  const body = bodyUnknown; // typed by the guard
 
-  // TODO: persist body.answers for submission "id"
+  // Example: store answers
+  // await supabase.from("answers").insert(body.answers.map(a => ({ submission_id: id, ...a })));
+
   return NextResponse.json({ ok: true, id, count: body.answers.length });
 }
+
