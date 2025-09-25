@@ -1,23 +1,18 @@
-// app/api/tests/[slug]/route.ts
-import { NextResponse } from "next/server";
-// import { supabase } from "@/lib/supabaseServer"; // use later if needed
+// app/test/[slug]/page.tsx
+type Params = { slug: string };
 
-function getSlugFromUrl(u: string): string {
-  const parts = new URL(u).pathname.split("/"); // ["", "api", "tests", "{slug}"]
-  const i = parts.indexOf("tests");
-  return i >= 0 ? parts[i + 1] ?? "" : "";
-}
+export default async function TestPage({
+  params,
+}: {
+  params: Promise<Params>;
+}) {
+  const { slug } = await params;
 
-export async function GET(req: Request) {
-  const slug = getSlugFromUrl(req.url);
-  if (!slug) return NextResponse.json({ error: "Missing slug" }, { status: 400 });
-
-  // Example real logic:
-  // const { data, error } = await supabase.from("tests").select("*").eq("slug", slug).single();
-  // if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  // return NextResponse.json(data);
-
-  return NextResponse.json({ ok: true, slug });
+  return (
+    <main className="p-6">
+      <h1 className="text-2xl font-semibold">Test: {slug}</h1>
+    </main>
+  );
 }
 
 
