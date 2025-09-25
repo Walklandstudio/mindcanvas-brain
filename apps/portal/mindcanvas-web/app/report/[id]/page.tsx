@@ -1,11 +1,11 @@
-// app/report/[id]/page.tsx
-type Props = {
-  params: { id: string };
-  searchParams?: Record<string, string | string[] | undefined>;
-};
+type ReportParams = { id: string };
 
-export default async function ReportPage({ params }: Props) {
-  const { id } = params;
+export default async function ReportPage({
+  params,
+}: {
+  params: Promise<ReportParams>;
+}) {
+  const { id } = await params;
 
   return (
     <main className="p-6">
