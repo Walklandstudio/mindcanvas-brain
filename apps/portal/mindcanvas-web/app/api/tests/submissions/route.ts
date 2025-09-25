@@ -1,9 +1,7 @@
-// app/api/tests/submissions/route.ts
 import { NextResponse } from "next/server";
-// import { supabase } from "@/lib/supabaseServer";
 
 export async function POST() {
-  // If you need the body later:
-  // export async function POST(req: Request) { const payload = await req.json(); ... }
+  // You likely already create submissions elsewhere (e.g., in app flow).
+  // Keep this as a stub or wire to your actual creation logic when ready.
   return NextResponse.json({ ok: true });
 }

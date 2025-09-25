@@ -1,10 +1,10 @@
-// app/api/dashboard/distribution/route.ts
 import { NextResponse } from "next/server";
-// import { supabase } from "@/lib/supabaseServer"; // remove or uncomment when used
+import { supabaseServer } from "@/lib/supabaseServer";
 
 export async function GET() {
-  // const { data, error } = await supabase.rpc("dashboard_distribution");
-  // if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, distribution: [] });
+  const supabase = supabaseServer();
+  const { data, error } = await supabase.from("v_profile_distribution").select("*");
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, rows: data ?? [] });
 }
 
