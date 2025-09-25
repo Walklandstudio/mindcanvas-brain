@@ -1,69 +1,134 @@
+// app/api/coach/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getProfileContent } from "@/lib/profileContent";
 
 /** Body: { submissionId: string, message?: string } */
-export async function POST(req: Request) {
-  let submissionId = "", message = "";
-  try {
-    const b = (await req.json()) as Record<string, unknown>;
-    if (typeof b.submissionId === "string") submissionId = b.submissionId;
-    if (typeof b.message === "string") message = b.message.trim();
-  } catch {}
+type CoachRequest = {
+  submissionId: string;
+  message?: string;
+};
 
-  if (!submissionId) return NextResponse.json({ error: "Missing submissionId" }, { status: 400 });
+type ResultJson = {
+  frequency?: string | null;
+  profile?: string | null;
+  frequencies?: unknown; // map of frequency scores (shape can vary)
+} | null;
+
+type ResultRow = {
+  submission_id?: string | null;
+  frequency?: string | null;
+  profile?: string | null;
+  result?: ResultJson;
+  profile_key?: string | null;
+  profile_name?: string | null;
+  scores?: unknown;
+  created_at?: string | null;
+  /** some schemas use `freq` instead of `frequency` */
+  freq?: string | null;
+} | null;
+
+function isObject(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null;
+}
+
+async function parseBody(req: Request): Promise<CoachRequest | null> {
+  try {
+    const raw: unknown = await req.json();
+    if (!isObject(raw)) return null;
+    const sub = raw["submissionId"];
+    const msg = raw["message"];
+    if (typeof sub !== "string") return null;
+    return {
+      submissionId: sub,
+      message: typeof msg === "string" ? msg.trim() : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeResult(row: ResultRow) {
+  const frequency =
+    row?.frequency ??
+    row?.result?.frequency ??
+    row?.freq ??
+    null;
+
+  const profile =
+    row?.profile ??
+    row?.result?.profile ??
+    row?.profile_key ??
+    row?.profile_name ??
+    null;
+
+  const scores =
+    row?.scores ??
+    row?.result?.frequencies ??
+    null;
+
+  return {
+    frequency: frequency ?? "",
+    profile: profile ?? "",
+    scores,
+  };
+}
+
+export async function POST(req: Request) {
+  const body = await parseBody(req);
+  if (!body?.submissionId) {
+    return NextResponse.json({ error: "Missing submissionId" }, { status: 400 });
+  }
 
   const db = supabaseServer();
 
-  // 1) canonical results
+  // 1) Try canonical results table first (select specific columns to keep types narrow)
   const tr = await db
     .from("test_results")
-    .select("*")
-    .eq("submission_id", submissionId)
+    .select(
+      "submission_id, frequency, profile, result, profile_key, profile_name, scores, created_at, freq"
+    )
+    .eq("submission_id", body.submissionId)
     .limit(1)
     .maybeSingle();
 
-  if (tr.error) return NextResponse.json({ error: tr.error.message }, { status: 500 });
-
-  let resultRow = tr.data as Record<string, any> | null;
-
-  // 2) fallback: view
-  if (!resultRow) {
-    const vr = await db
-      .from("v_results_latest")
-      .select("*")
-      .eq("submission_id", submissionId)
-      .limit(1)
-      .maybeSingle();
-    if (vr.error) return NextResponse.json({ error: vr.error.message }, { status: 500 });
-    resultRow = (vr.data as Record<string, any>) ?? null;
+  if (tr.error) {
+    return NextResponse.json({ error: tr.error.message }, { status: 500 });
   }
 
-  if (!resultRow) {
+  let row: ResultRow = tr.data ?? null;
+
+  // 2) Fallback to latest-results view
+  if (!row) {
+    const vr = await db
+      .from("v_results_latest")
+      .select(
+        "submission_id, frequency, profile, result, profile_key, profile_name, scores, created_at, freq"
+      )
+      .eq("submission_id", body.submissionId)
+      .limit(1)
+      .maybeSingle();
+
+    if (vr.error) {
+      return NextResponse.json({ error: vr.error.message }, { status: 500 });
+    }
+    row = vr.data ?? null;
+  }
+
+  if (!row) {
     return NextResponse.json(
-      { error: "No result for this submission. Ensure scoring has run." },
+      { error: "No result for this submission. Ensure scoring has completed." },
       { status: 404 }
     );
   }
 
-  // 3) normalize fields commonly present in result rows
-  const frequency =
-    (resultRow.frequency as string | undefined) ??
-    (resultRow.result?.frequency as string | undefined) ??
-    (resultRow.freq as string | undefined) ??
-    "";
-  const profile =
-    (resultRow.profile as string | undefined) ??
-    (resultRow.result?.profile as string | undefined) ??
-    (resultRow.profile_key as string | undefined) ??
-    (resultRow.profile_name as string | undefined) ??
-    "";
+  const { frequency, profile, scores } = normalizeResult(row);
 
-  // 4) fetch profile content from `profiles` (best-effort)
+  // 3) Load profile content from `profiles` table if present (best-effort)
   const profileContent = profile ? await getProfileContent(db, profile) : null;
 
-  // 5) simple rule-based advice you can extend
-  const m = (message || "").toLowerCase();
+  // 4) Simple rules you can extend (LLM optional)
+  const m = (body.message ?? "").toLowerCase();
   const advice: string[] = [];
   if (m.includes("conflict")) advice.push("Acknowledge interests → propose 2 options → agree next step.");
   if (m.includes("standup")) advice.push("Run 15-min standups: plan, blockers, dependencies, owners.");
@@ -71,10 +136,11 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    submissionId,
+    submissionId: body.submissionId,
     frequency,
     profile,
-    profileContent, // strengths/watchouts/tips if present in table
+    scores,
+    profileContent,
     advice,
   });
 }
