@@ -1,13 +1,11 @@
+// app/api/tests/submissions/route.ts
 import { NextResponse } from "next/server";
-import { extractParamFromUrl } from "@/lib/routeParams";
-// import { supabaseServer } from "@/lib/supabaseServer";
+// import { supabase } from "@/lib/supabaseServer"; // uncomment when you use it
 
-export async function POST(req: Request) {
-  const id = extractParamFromUrl(req.url, "submissions");
-  if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+export async function POST() {
+  // const payload = await req.json();
+  // const { data, error } = await supabase.from("submissions").insert(payload).select().single();
+  // if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // const supabase = supabaseServer();
-  // const { data, error } = await supabase.from("reports").select("*").eq("submission_id", id).single();
-
-  return NextResponse.json({ ok: true, id });
+  return NextResponse.json({ ok: true });
 }
