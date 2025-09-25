@@ -1,16 +1,16 @@
-type ReportParams = { id: string };
+type Params = { slug: string };
 
-export default async function ReportPage({
+export default async function TestPage({
   params,
 }: {
-  params: Promise<ReportParams>;
+  params: Promise<Params>;
 }) {
-  const { id } = await params;
+  const { slug } = await params;
 
   return (
     <main className="p-6">
-      <h1 className="text-2xl font-semibold">Report #{id}</h1>
-      {/* render report details here */}
+      <h1 className="text-2xl font-semibold">Test: {slug}</h1>
     </main>
   );
 }
+
