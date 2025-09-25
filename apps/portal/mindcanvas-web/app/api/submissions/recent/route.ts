@@ -1,3 +1,4 @@
+// app/api/submissions/recent/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 
@@ -22,7 +23,8 @@ function mapSubmissionRows(rows: unknown[]): RecentRow[] {
     if (typeof id !== "string") continue;
     out.push({
       submission_id: id,
-      created_at: r["created_at"] ? String(r["created_at"]) : null, // may be null/absent
+      // we don't select created_at (table doesn't have it); keep null
+      created_at: null,
       first_name: typeof r["first_name"] === "string" ? r["first_name"] : null,
       last_name: typeof r["last_name"] === "string" ? r["last_name"] : null,
       email: typeof r["email"] === "string" ? r["email"] : null,
@@ -33,16 +35,7 @@ function mapSubmissionRows(rows: unknown[]): RecentRow[] {
   return out;
 }
 
-function isMissingColumnErr(err: unknown, col: string) {
-  const msg = String((err as { message?: string } | null)?.message ?? err ?? "");
-  return msg.toLowerCase().includes("column") &&
-         msg.toLowerCase().includes(col.toLowerCase()) &&
-         msg.toLowerCase().includes("does not exist");
-}
-
-/**
- * GET /api/submissions/recent?limit=20&org_id=<uuid>&test_id=<uuid>
- */
+/** GET /api/submissions/recent?limit=20&org_id=<uuid>&test_id=<uuid> */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const limitQ = Number(url.searchParams.get("limit") ?? "20");
@@ -52,35 +45,17 @@ export async function GET(req: Request) {
 
   const db = supabaseServer();
 
-  // Try selecting & ordering by created_at first…
   let q = db
     .from("mc_submissions")
-    .select("id, created_at, first_name, last_name, email, test_id, org_id")
-    .order("created_at", { ascending: false })
+    .select("id, first_name, last_name, email, test_id, org_id") // no created_at
+    .order("id", { ascending: false }) // safe fallback ordering
     .limit(limit);
 
   if (orgId) q = q.eq("org_id", orgId);
   if (testId) q = q.eq("test_id", testId);
 
-  const r1 = await q;
+  const { data, error } = await q;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // …if that column doesn't exist, retry without it (and order by id)
-  if (r1.error && isMissingColumnErr(r1.error, "created_at")) {
-    let q2 = db
-      .from("mc_submissions")
-      .select("id, first_name, last_name, email, test_id, org_id") // no created_at
-      .order("id", { ascending: false }) // fallback ordering
-      .limit(limit);
-
-    if (orgId) q2 = q2.eq("org_id", orgId);
-    if (testId) q2 = q2.eq("test_id", testId);
-
-    const r2 = await q2;
-    if (r2.error) return NextResponse.json({ error: r2.error.message }, { status: 500 });
-
-    return NextResponse.json({ ok: true, rows: mapSubmissionRows((r2.data ?? []) as unknown[]) });
-  }
-
-  if (r1.error) return NextResponse.json({ error: r1.error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, rows: mapSubmissionRows((r1.data ?? []) as unknown[]) });
+  return NextResponse.json({ ok: true, rows: mapSubmissionRows((data ?? []) as unknown[]) });
 }
