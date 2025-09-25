@@ -1,4 +1,3 @@
-// app/api/tests/[slug]/route.ts
 import { NextResponse } from "next/server";
 
 function getSlugFromUrl(u: string): string {
@@ -9,13 +8,7 @@ function getSlugFromUrl(u: string): string {
 
 export async function GET(req: Request) {
   const slug = getSlugFromUrl(req.url);
-  if (!slug) {
-    return NextResponse.json({ error: "Missing slug" }, { status: 400 });
-  }
-
-  // TODO: real logic (e.g., fetch data by slug)
-  // return NextResponse.json(data);
-
+  if (!slug) return NextResponse.json({ error: "Missing slug" }, { status: 400 });
   return NextResponse.json({ ok: true, slug });
 }
 
