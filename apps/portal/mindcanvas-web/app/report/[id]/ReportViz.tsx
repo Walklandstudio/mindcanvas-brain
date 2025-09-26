@@ -15,6 +15,7 @@ import {
   FLOW_LONG,
   type FlowLabel,
   type ProfileKey,
+  toProfileKey,
 } from "@/lib/profileMeta";
 
 type Props = {
@@ -22,19 +23,6 @@ type Props = {
   flows?: Record<string, number>;
 };
 
-// Helpers to narrow strings to our unions
-function isProfileKey(s: string): s is ProfileKey {
-  return (
-    s === "P1" ||
-    s === "P2" ||
-    s === "P3" ||
-    s === "P4" ||
-    s === "P5" ||
-    s === "P6" ||
-    s === "P7" ||
-    s === "P8"
-  );
-}
 type FlowKey = "A" | "B" | "R" | "O";
 function isFlowKey(s: string): s is FlowKey {
   return s === "A" || s === "B" || s === "R" || s === "O";
@@ -46,53 +34,49 @@ const FLOW_ORDER: FlowLabel[] = [
   "Observer Coaching Flow",
 ];
 
-// Neutral greys (your branded colors come via Hero/FlowBlock)
+// Neutral greys for charts
 const CHART_COLORS = ["#6B7280", "#9CA3AF", "#D1D5DB", "#111827"];
 
 export default function ReportViz({ profiles = {}, flows = {} }: Props) {
-  // 1) Derive flow totals either from flows input (A/B/R/O or labels) or from profile scores
-  const flowTotals = FLOW_ORDER.reduce((acc, label) => {
-    acc[label] = 0;
-    return acc;
-  }, {} as Record<FlowLabel, number>);
+  // 1) Build flow totals
+  const totals = FLOW_ORDER.reduce(
+    (acc, label) => ((acc[label] = 0), acc),
+    {} as Record<FlowLabel, number>
+  );
 
   if (Object.keys(flows).length > 0) {
-    for (const [k, vRaw] of Object.entries(flows)) {
-      const v = Number(vRaw) || 0;
+    for (const [k, raw] of Object.entries(flows)) {
+      const val = Number(raw) || 0;
       if (isFlowKey(k)) {
         const label = FLOW_LONG[k];
-        flowTotals[label] += v;
+        totals[label] += val;
       } else if ((FLOW_ORDER as readonly string[]).includes(k)) {
-        // flows object already used long labels
-        flowTotals[k as FlowLabel] += v;
+        totals[k as FlowLabel] += val;
       }
     }
   } else if (Object.keys(profiles).length > 0) {
-    // Derive from profile scores
-    for (const [code, scoreRaw] of Object.entries(profiles)) {
-      const score = Number(scoreRaw) || 0;
-      const up = code.toUpperCase();
-      if (isProfileKey(up)) {
-        const label = PROFILE_TO_FLOW[up]; // FlowLabel
-        flowTotals[label] = (flowTotals[label] ?? 0) + score;
-      }
+    for (const [code, raw] of Object.entries(profiles)) {
+      const key: ProfileKey | undefined = toProfileKey(code);
+      if (!key) continue;
+      const label = PROFILE_TO_FLOW[key];
+      totals[label] = (totals[label] ?? 0) + (Number(raw) || 0);
     }
   }
 
   const flowData = FLOW_ORDER.map((label) => ({
     name: label,
-    value: flowTotals[label] || 0,
+    value: totals[label] || 0,
   }));
 
-  // 2) Profiles list (sorted desc)
+  // 2) Profiles list (sorted)
   const profileRows = Object.entries(profiles)
-    .map(([code, v]) => [code.toUpperCase(), Number(v) || 0] as [string, number])
-    .filter(([code]) => isProfileKey(code))
+    .map(([code, v]) => [toProfileKey(code), Number(v) || 0] as [ProfileKey | undefined, number])
+    .filter(([k]) => !!k)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
-    .map(([code, value]) => ({
-      code,
-      name: PROFILE_NAMES[code as ProfileKey] ?? code,
+    .map(([k, value]) => ({
+      code: k as ProfileKey,
+      name: PROFILE_NAMES[k as ProfileKey],
       value,
     }));
 
