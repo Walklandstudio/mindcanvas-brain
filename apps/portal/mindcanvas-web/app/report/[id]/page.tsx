@@ -3,6 +3,30 @@ import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
+type Scores = Record<string, unknown> | null;
+
+interface ResultPayload {
+  profile?: string | null;
+  frequency?: string | null;
+  total_score?: number;
+  scores?: Scores;
+  raw?: unknown | null;
+}
+interface ResultAPI {
+  source?: string;
+  result?: ResultPayload | null;
+  error?: string;
+}
+
+function pretty(v: unknown): string {
+  try {
+    return JSON.stringify(v, null, 2) ?? "";
+  } catch {
+    // fallback if v contains cycles
+    return String(v);
+  }
+}
+
 export default async function Page({
   params,
 }: {
@@ -10,7 +34,6 @@ export default async function Page({
 }) {
   const { id } = await params;
 
-  // Prefer env if you set it (e.g. https://mindcanvas-web-app.vercel.app)
   const baseEnv = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
@@ -19,15 +42,19 @@ export default async function Page({
 
   const url = `${origin}/api/submissions/${encodeURIComponent(id)}/result`;
 
-  let json: any = null;
+  let payload: ResultAPI | null = null;
   let error: string | null = null;
 
   try {
     const res = await fetch(url, { cache: "no-store" });
-    json = await res.json();
-    if (!res.ok) error = json?.error ?? `HTTP ${res.status}`;
-  } catch (e) {
-    error = (e as Error).message;
+    const j = (await res.json()) as ResultAPI;
+    if (!res.ok) {
+      error = j?.error ?? `HTTP ${res.status}`;
+    } else {
+      payload = j;
+    }
+  } catch (e: unknown) {
+    error = e instanceof Error ? e.message : String(e);
   }
 
   if (error) {
@@ -40,8 +67,8 @@ export default async function Page({
     );
   }
 
-  const src = json?.source ?? "mc_submissions";
-  const r = json?.result ?? null;
+  const src = payload?.source ?? "mc_submissions";
+  const r = payload?.result ?? null;
 
   return (
     <main className="p-6 max-w-3xl mx-auto space-y-4">
@@ -62,27 +89,27 @@ export default async function Page({
             <p>
               Frequency: <strong>{r.frequency ?? "—"}</strong>
             </p>
-            {"total_score" in r && (
+            {typeof r.total_score === "number" && (
               <p>
                 Total Score: <strong>{r.total_score}</strong>
               </p>
             )}
           </div>
 
-          {"scores" in r && r.scores && (
+          {r.scores && (
             <div className="border rounded-xl p-4">
               <h2 className="text-lg font-semibold mb-2">Scores</h2>
               <pre className="text-sm whitespace-pre-wrap">
-                {JSON.stringify(r.scores, null, 2)}
+                {pretty(r.scores)}
               </pre>
             </div>
           )}
 
-          {"raw" in r && r.raw && (
+          {r.raw !== undefined && r.raw !== null && (
             <details className="border rounded-xl p-4">
               <summary className="cursor-pointer font-medium">Raw</summary>
               <pre className="text-xs whitespace-pre-wrap">
-                {JSON.stringify(r.raw, null, 2)}
+                {pretty(r.raw)}
               </pre>
             </details>
           )}

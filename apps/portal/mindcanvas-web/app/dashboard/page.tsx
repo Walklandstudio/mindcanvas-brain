@@ -3,12 +3,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell, Legend
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
 } from "recharts";
 
 type WeeklyRow = { wk?: string; week?: string; tests?: number; total?: number };
 type DistRow = { profile?: string; count?: number; tests?: number };
+
+type WeeklyAPI = { rows?: WeeklyRow[] } | WeeklyRow[];
+type DistAPI = { rows?: DistRow[] } | DistRow[];
 
 export default function DashboardPage() {
   const [weekly, setWeekly] = useState<WeeklyRow[]>([]);
@@ -18,22 +30,34 @@ export default function DashboardPage() {
   useEffect(() => {
     (async () => {
       try {
-        const w = await fetch("/api/dashboard/weekly", { cache: "no-store" }).then(r => r.json());
-        setWeekly(w.rows ?? w ?? []);
-        const d = await fetch("/api/dashboard/distribution", { cache: "no-store" }).then(r => r.json());
-        setDist(d.rows ?? d ?? []);
-      } catch (e: any) {
-        setErr(e.message || "Failed to load data");
+        const wRes = await fetch("/api/dashboard/weekly", { cache: "no-store" });
+        const wJson = (await wRes.json()) as WeeklyAPI;
+        setWeekly(Array.isArray(wJson) ? wJson : wJson.rows ?? []);
+
+        const dRes = await fetch("/api/dashboard/distribution", { cache: "no-store" });
+        const dJson = (await dRes.json()) as DistAPI;
+        setDist(Array.isArray(dJson) ? dJson : dJson.rows ?? []);
+      } catch (e: unknown) {
+        setErr(e instanceof Error ? e.message : String(e));
       }
     })();
   }, []);
 
   const weeklyData = useMemo(
-    () => weekly.map(r => ({ week: r.wk ?? r.week ?? "", tests: r.tests ?? r.total ?? 0 })),
+    () =>
+      weekly.map((r) => ({
+        week: r.wk ?? r.week ?? "",
+        tests: r.tests ?? r.total ?? 0,
+      })),
     [weekly]
   );
+
   const distData = useMemo(
-    () => dist.map(r => ({ name: r.profile ?? "Unknown", value: r.count ?? r.tests ?? 0 })),
+    () =>
+      dist.map((r) => ({
+        name: r.profile ?? "Unknown",
+        value: r.count ?? r.tests ?? 0,
+      })),
     [dist]
   );
 
@@ -69,7 +93,9 @@ export default function DashboardPage() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={distData} dataKey="value" nameKey="name" outerRadius={100} label>
-                  {distData.map((_, i) => <Cell key={i} />)}
+                  {distData.map((_, i) => (
+                    <Cell key={i} />
+                  ))}
                 </Pie>
                 <Tooltip />
               </PieChart>
@@ -79,8 +105,13 @@ export default function DashboardPage() {
       </section>
 
       <div className="text-sm">
-        <a className="underline" href="/tests">Tests</a> ·{" "}
-        <a className="underline" href="/me">My Tests</a>
+        <a className="underline" href="/tests">
+          Tests
+        </a>{" "}
+        ·{" "}
+        <a className="underline" href="/me">
+          My Tests
+        </a>
       </div>
     </main>
   );
