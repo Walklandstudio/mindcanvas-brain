@@ -116,3 +116,10 @@ export default function DashboardPage() {
     </main>
   );
 }
+// inside the return of app/dashboard/page.tsx
+import Link from "next/link";
+// ...
+<div className="text-sm">
+  <Link className="underline" href="/tests">Tests</Link> ·{" "}
+  <Link className="underline" href="/me">My Tests</Link>
+</div>
