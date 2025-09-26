@@ -101,8 +101,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const profileScores = toNumMap(scoresObj?.profiles as Record<string, unknown> | undefined);
   const flowScores    = toNumMap(scoresObj?.flows as Record<string, unknown> | undefined);
   const fullProfile   = profileNameFromCode(r?.profile ?? undefined);
-  const flowLabel     = flowLabelFrom(r?.frequency ?? null, profileScores); // A/B/C/D → label, else derive
-
+  const flowLabel = flowLabelFrom(r?.frequency ?? null, profileScores, r?.profile ?? null);
   return (
     <main className="p-6 max-w-4xl mx-auto space-y-6">
       {/* Greeting */}

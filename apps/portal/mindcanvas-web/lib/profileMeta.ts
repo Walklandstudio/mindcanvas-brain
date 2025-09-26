@@ -1,24 +1,23 @@
 // lib/profileMeta.ts
+export type ProfileKey = "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | "P7" | "P8";
+export type FlowKey = "A" | "B" | "R" | "O"; // Catalyst, Communications, Rhythmic, Observer
 
-// ---- Flow labels (your canonical names) -----------------------------
+// Long names for single flows (used for legends, etc.)
 export type FlowLabel =
   | "Catalyst Coaching Flow"
   | "Communications Coaching Flow"
   | "Rhythmic Coaching Flow"
   | "Observer Coaching Flow";
 
-export const FLOW_LETTER_TO_LABEL: Record<string, FlowLabel> = {
+export const FLOW_LONG: Record<FlowKey, FlowLabel> = {
   A: "Catalyst Coaching Flow",
   B: "Communications Coaching Flow",
-  C: "Rhythmic Coaching Flow",
-  D: "Observer Coaching Flow",
+  R: "Rhythmic Coaching Flow",
+  O: "Observer Coaching Flow",
 };
 
-// ---- Profile code → Display name ------------------------------------
-// Supports both your new P1..P8 codes and legacy short codes we’ve seen
-// in your data (CA, GG, HC, NG, TH, MM, INN, ST).
-export const CODE_TO_NAME: Record<string, string> = {
-  // New canonical codes
+// Full profile names (no abbreviations)
+export const PROFILE_NAMES: Record<ProfileKey, string> = {
   P1: "The Innovator",
   P2: "The Storyteller",
   P3: "The Heart-Centred Coach",
@@ -27,74 +26,83 @@ export const CODE_TO_NAME: Record<string, string> = {
   P6: "The Thinker",
   P7: "The Mastermind",
   P8: "The Change Agent",
-
-  // Legacy/alternate codes (kept for compatibility with existing results)
-  INN: "The Innovator",
-  ST: "The Storyteller",
-  HC: "The Heart-Centred Coach",
-  NG: "The Negotiator",
-  GG: "The Grounded Guide",
-  TH: "The Thinker",
-  MM: "The Mastermind",
-  CA: "The Change Agent",
 };
 
-// Helper: full name or fallback to the code
-export function profileNameFromCode(code?: string | null): string {
-  if (!code) return "—";
-  return CODE_TO_NAME[code] ?? code;
+// Your requested display label per profile (can be combined)
+export const PROFILE_FLOW_DISPLAY: Record<ProfileKey, string> = {
+  P1: "Catalyst Coaching Flow",
+  P2: "Catalyst - Communications Coaching Flow",
+  P3: "Communications Coaching Flow",
+  P4: "Communications - Rhythmic Coaching Flow",
+  P5: "Rhythmic Coaching Flow",
+  P6: "Rhythmic - Observer Coaching Flow",
+  P7: "Observer Coaching Flow",
+  P8: "Catalyst - Observer Coaching Flow",
+};
+
+// Primary flow (single) for bucketing in charts and derivations
+export const PROFILE_PRIMARY_FLOW: Record<ProfileKey, FlowKey> = {
+  P1: "A", // Catalyst
+  P2: "A", // Catalyst (primary), secondary Communications
+  P3: "B", // Communications
+  P4: "B", // Communications (primary), secondary Rhythmic
+  P5: "R", // Rhythmic
+  P6: "R", // Rhythmic (primary), secondary Observer
+  P7: "O", // Observer
+  P8: "A", // Catalyst (primary), secondary Observer
+};
+
+// Back-compat alias (some files import this):
+// maps profile -> primary FlowLabel (single)
+export const PROFILE_TO_FLOW: Record<ProfileKey, FlowLabel> = Object.fromEntries(
+  (Object.keys(PROFILE_PRIMARY_FLOW) as ProfileKey[]).map((k) => [
+    k,
+    FLOW_LONG[PROFILE_PRIMARY_FLOW[k]],
+  ])
+) as Record<ProfileKey, FlowLabel>;
+
+// === Helpers ===
+export function profileNameFromCode(code?: string): string {
+  if (!code) return "";
+  const key = code.toUpperCase() as ProfileKey;
+  return PROFILE_NAMES[key] ?? code;
 }
 
-// ---- Profile → Coaching Flow mapping --------------------------------
-// Best-fit defaults (tweak if any profile maps to a different flow).
-export const PROFILE_TO_FLOW: Record<string, FlowLabel> = {
-  // Canonical P1..P8
-  P1: "Catalyst Coaching Flow",        // Innovator
-  P2: "Catalyst Coaching Flow",        // Storyteller (adjust if needed)
-  P3: "Communications Coaching Flow",  // Heart-Centred Coach
-  P4: "Communications Coaching Flow",  // Negotiator
-  P5: "Rhythmic Coaching Flow",        // Grounded Guide
-  P6: "Observer Coaching Flow",        // Thinker
-  P7: "Observer Coaching Flow",        // Mastermind
-  P8: "Observer Coaching Flow",        // Change Agent
+export function flowLongNameFromKey(k?: string | null): string {
+  if (!k) return "";
+  const key = k.toUpperCase() as FlowKey;
+  return FLOW_LONG[key] ?? "";
+}
 
-  // Legacy codes → same flows
-  INN: "Catalyst Coaching Flow",
-  ST:  "Catalyst Coaching Flow",
-  HC:  "Communications Coaching Flow",
-  NG:  "Communications Coaching Flow",
-  GG:  "Rhythmic Coaching Flow",
-  TH:  "Observer Coaching Flow",
-  MM:  "Observer Coaching Flow",
-  CA:  "Observer Coaching Flow",
-};
-
-// Derive a flow label from letter code (A/B/C/D) or from profile scores.
+/**
+ * Human label to show on the report:
+ * 1) If profileCode is known, show that profile's combined display label.
+ * 2) Otherwise if a frequency letter exists, show its long name.
+ * 3) Otherwise derive dominant profile from scores and show that profile's display label.
+ */
 export function flowLabelFrom(
-  saved: string | null | undefined,
-  profileScores?: Record<string, number>
-): FlowLabel | "—" {
-  // Map A/B/C/D first if present
-  if (saved && FLOW_LETTER_TO_LABEL[saved]) return FLOW_LETTER_TO_LABEL[saved];
-
-  // Otherwise derive from profileScores by summing mapped flows
-  if (profileScores && Object.keys(profileScores).length > 0) {
-    const sums: Record<FlowLabel, number> = {
-      "Catalyst Coaching Flow": 0,
-      "Communications Coaching Flow": 0,
-      "Rhythmic Coaching Flow": 0,
-      "Observer Coaching Flow": 0,
-    };
-    for (const [code, score] of Object.entries(profileScores)) {
-      const flow = PROFILE_TO_FLOW[code];
-      if (flow) sums[flow] = (sums[flow] ?? 0) + (Number(score) || 0);
-    }
-    let best: FlowLabel | null = null;
-    let val = -Infinity;
-    for (const [k, v] of Object.entries(sums)) {
-      if (v > val) { val = v; best = k as FlowLabel; }
-    }
-    if (best) return best;
+  frequency: string | null | undefined,
+  profileScores?: Record<string, number>,
+  profileCode?: string | null
+): string {
+  if (profileCode) {
+    const key = profileCode.toUpperCase() as ProfileKey;
+    if (PROFILE_FLOW_DISPLAY[key]) return PROFILE_FLOW_DISPLAY[key];
   }
-  return "—";
+  if (frequency) {
+    const f = frequency.toUpperCase() as FlowKey;
+    if (FLOW_LONG[f]) return FLOW_LONG[f];
+  }
+  if (profileScores && Object.keys(profileScores).length) {
+    const best = Object.entries(profileScores)
+      .map(([k, v]) => [k.toUpperCase(), Number(v) || 0] as [string, number])
+      .filter(([k]) => k in PROFILE_FLOW_DISPLAY)
+      .sort((a, b) => b[1] - a[1])[0];
+    if (best) {
+      const key = best[0] as ProfileKey;
+      return PROFILE_FLOW_DISPLAY[key];
+    }
+  }
+  return "";
 }
+
