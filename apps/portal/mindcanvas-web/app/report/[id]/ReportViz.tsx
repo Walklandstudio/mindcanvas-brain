@@ -1,7 +1,6 @@
 // app/report/[id]/ReportViz.tsx
 "use client";
 
-import { useMemo } from "react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -12,136 +11,134 @@ import {
 } from "recharts";
 import {
   PROFILE_TO_FLOW,
-  profileNameFromCode,
+  PROFILE_NAMES,
+  FLOW_LONG,
   type FlowLabel,
+  type ProfileKey,
 } from "@/lib/profileMeta";
 
-type NumRec = Record<string, number> | null | undefined;
-
 type Props = {
-  profiles: NumRec; // e.g., { P8: 80, GG: 40, ... }
-  flows: NumRec;    // may be {} and we’ll derive from profiles
+  profiles?: Record<string, number>;
+  flows?: Record<string, number>;
 };
 
-function normalize(
-  rec: Record<string, number>
-): Array<{ name: string; value: number; pct: number }> {
-  const entries = Object.entries(rec).filter(
-    ([, v]) => Number.isFinite(v) && v > 0
+// Helpers to narrow strings to our unions
+function isProfileKey(s: string): s is ProfileKey {
+  return (
+    s === "P1" ||
+    s === "P2" ||
+    s === "P3" ||
+    s === "P4" ||
+    s === "P5" ||
+    s === "P6" ||
+    s === "P7" ||
+    s === "P8"
   );
-  const total = entries.reduce((a, [, v]) => a + v, 0) || 0;
-  return entries
-    .map(([k, v]) => ({
-      name: k,
-      value: v,
-      pct: total ? Math.round((v / total) * 1000) / 10 : 0, // 1 decimal
-    }))
-    .sort((a, b) => b.value - a.value);
 }
+type FlowKey = "A" | "B" | "R" | "O";
+function isFlowKey(s: string): s is FlowKey {
+  return s === "A" || s === "B" || s === "R" || s === "O";
+}
+const FLOW_ORDER: FlowLabel[] = [
+  "Catalyst Coaching Flow",
+  "Communications Coaching Flow",
+  "Rhythmic Coaching Flow",
+  "Observer Coaching Flow",
+];
 
-export default function ReportViz({ profiles, flows }: Props) {
-  // Profile scores → numeric → rename to full profile names
-  const profNamed = useMemo(() => {
-    const numeric = Object.fromEntries(
-      Object.entries(profiles ?? {}).map(([k, v]) => [k, Number(v) || 0])
-    );
-    const named: Record<string, number> = {};
-    for (const [code, score] of Object.entries(numeric)) {
-      const name = profileNameFromCode(code);
-      named[name] = (named[name] ?? 0) + score;
+// Neutral greys (your branded colors come via Hero/FlowBlock)
+const CHART_COLORS = ["#6B7280", "#9CA3AF", "#D1D5DB", "#111827"];
+
+export default function ReportViz({ profiles = {}, flows = {} }: Props) {
+  // 1) Derive flow totals either from flows input (A/B/R/O or labels) or from profile scores
+  const flowTotals = FLOW_ORDER.reduce((acc, label) => {
+    acc[label] = 0;
+    return acc;
+  }, {} as Record<FlowLabel, number>);
+
+  if (Object.keys(flows).length > 0) {
+    for (const [k, vRaw] of Object.entries(flows)) {
+      const v = Number(vRaw) || 0;
+      if (isFlowKey(k)) {
+        const label = FLOW_LONG[k];
+        flowTotals[label] += v;
+      } else if ((FLOW_ORDER as readonly string[]).includes(k)) {
+        // flows object already used long labels
+        flowTotals[k as FlowLabel] += v;
+      }
     }
-    return named;
-  }, [profiles]);
-
-  // Flow scores: use provided; if empty, derive from original profile codes
-  const flowRec = useMemo(() => {
-    const f = Object.fromEntries(
-      Object.entries(flows ?? {}).map(([k, v]) => [k, Number(v) || 0])
-    );
-    const hasAny = Object.values(f).some((v) => v > 0);
-    if (hasAny) return f;
-
-    const original = Object.fromEntries(
-      Object.entries(profiles ?? {}).map(([k, v]) => [k, Number(v) || 0])
-    );
-    const derived: Record<FlowLabel, number> = {
-      "Catalyst Coaching Flow": 0,
-      "Communications Coaching Flow": 0,
-      "Rhythmic Coaching Flow": 0,
-      "Observer Coaching Flow": 0,
-    };
-    for (const [code, score] of Object.entries(original)) {
-      const flow = PROFILE_TO_FLOW[code];
-      if (flow) derived[flow] = (derived[flow] ?? 0) + score;
+  } else if (Object.keys(profiles).length > 0) {
+    // Derive from profile scores
+    for (const [code, scoreRaw] of Object.entries(profiles)) {
+      const score = Number(scoreRaw) || 0;
+      const up = code.toUpperCase();
+      if (isProfileKey(up)) {
+        const label = PROFILE_TO_FLOW[up]; // FlowLabel
+        flowTotals[label] = (flowTotals[label] ?? 0) + score;
+      }
     }
-    return derived as Record<string, number>;
-  }, [flows, profiles]);
+  }
 
-  const profData = useMemo(() => normalize(profNamed), [profNamed]);
-  const flowData = useMemo(() => normalize(flowRec), [flowRec]);
+  const flowData = FLOW_ORDER.map((label) => ({
+    name: label,
+    value: flowTotals[label] || 0,
+  }));
 
-  const main = profData[0];
+  // 2) Profiles list (sorted desc)
+  const profileRows = Object.entries(profiles)
+    .map(([code, v]) => [code.toUpperCase(), Number(v) || 0] as [string, number])
+    .filter(([code]) => isProfileKey(code))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([code, value]) => ({
+      code,
+      name: PROFILE_NAMES[code as ProfileKey] ?? code,
+      value,
+    }));
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      {/* Coaching Flow chart */}
-      <div className="border rounded-xl p-4 overflow-hidden">
-        <h3 className="text-sm font-semibold mb-2">Coaching Flow</h3>
+    <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Coaching Flow Pie */}
+      <div className="border rounded-xl p-4">
+        <h3 className="font-semibold mb-2">Coaching Flow</h3>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart margin={{ top: 8, right: 8, bottom: 32, left: 8 }}>
+          <ResponsiveContainer>
+            <PieChart>
               <Pie
                 data={flowData}
                 dataKey="value"
                 nameKey="name"
-                innerRadius="45%"
-                outerRadius="75%"
-                labelLine={false}
-                label={false}
+                innerRadius={40}
+                outerRadius={70}
+                paddingAngle={2}
               >
                 {flowData.map((_, i) => (
-                  <Cell key={i} />
+                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip />
-              <Legend verticalAlign="bottom" wrapperStyle={{ fontSize: 12 }} />
+              <Legend />
             </PieChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Profile breakdown */}
+      {/* Profiles list */}
       <div className="border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-2">Profiles</h3>
-
-        {main ? (
-          <div className="mb-3">
-            <div className="text-2xl font-semibold">
-              {main.name}{" "}
-              <span className="text-gray-600 text-base font-normal">
-                · {main.pct}%
-              </span>
-            </div>
-            <p className="text-sm text-gray-600">Primary profile</p>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-600">No profile scores available.</p>
-        )}
-
-        {profData.length > 1 && (
-          <ul className="grid grid-cols-2 gap-2">
-            {profData.slice(1, 5).map((p) => (
-              <li
-                key={p.name}
-                className="border rounded px-3 py-2 flex items-center justify-between text-sm"
-              >
-                <span>{p.name}</span>
-                <span className="text-gray-700">{p.pct}%</span>
+        <h3 className="font-semibold mb-2">Profiles</h3>
+        <ul className="space-y-1 text-sm">
+          {profileRows.length === 0 ? (
+            <li className="text-gray-500">No profile scores available.</li>
+          ) : (
+            profileRows.map((r) => (
+              <li key={r.code} className="flex items-center justify-between">
+                <span>{r.name}</span>
+                <span className="tabular-nums">{r.value}</span>
               </li>
-            ))}
-          </ul>
-        )}
+            ))
+          )}
+        </ul>
       </div>
-    </div>
+    </section>
   );
 }
