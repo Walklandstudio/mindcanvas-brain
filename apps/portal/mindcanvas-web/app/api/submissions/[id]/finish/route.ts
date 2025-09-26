@@ -4,24 +4,14 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { extractIdFromUrl } from "@/lib/routeParams";
 import { getTestConfig, type TestConfig } from "@/lib/testConfigs";
 
-type Body = {
-  slug: string;
-  answers: Record<string, string>; // { [questionId]: optionKey }
-};
+type Body = { slug: string; answers: Record<string, string> };
 
 function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
 }
-
 function topKey(rec: Record<string, number>): string | null {
-  let best: string | null = null;
-  let val = -Infinity;
-  for (const [k, v] of Object.entries(rec)) {
-    if (v > val) {
-      val = v;
-      best = k;
-    }
-  }
+  let best: string | null = null, val = -Infinity;
+  for (const [k, v] of Object.entries(rec)) if (v > val) { val = v; best = k; }
   return best;
 }
 
@@ -33,29 +23,22 @@ function score(config: TestConfig, answers: Record<string, string>) {
   for (const q of config.questions) {
     const sel = answers[q.id];
     if (!sel) continue;
-
     const opt = q.options.find((o) => o.key === sel);
     if (!opt) continue;
 
-    // Only count questions that actually have weights
+    // Only weighted options count for scoring
     const w = opt.weight;
     if (!w) continue;
 
     answered++;
 
-    if (w.flows) {
-      for (const [k, v] of Object.entries(w.flows)) {
-        const n = typeof v === "number" ? v : Number(v);
-        if (!Number.isFinite(n)) continue;
-        flows[k] = (flows[k] ?? 0) + n;
-      }
+    if (w.flows) for (const [k, v] of Object.entries(w.flows)) {
+      const n = typeof v === "number" ? v : Number(v);
+      if (Number.isFinite(n)) flows[k] = (flows[k] ?? 0) + n;
     }
-    if (w.profiles) {
-      for (const [k, v] of Object.entries(w.profiles)) {
-        const n = typeof v === "number" ? v : Number(v);
-        if (!Number.isFinite(n)) continue;
-        profiles[k] = (profiles[k] ?? 0) + n;
-      }
+    if (w.profiles) for (const [k, v] of Object.entries(w.profiles)) {
+      const n = typeof v === "number" ? v : Number(v);
+      if (Number.isFinite(n)) profiles[k] = (profiles[k] ?? 0) + n;
     }
   }
 
@@ -65,13 +48,7 @@ function score(config: TestConfig, answers: Record<string, string>) {
     Object.values(flows).reduce((a, b) => a + b, 0) +
     Object.values(profiles).reduce((a, b) => a + b, 0);
 
-  return {
-    full_frequency,
-    full_profile_code,
-    scores_json: { flows, profiles },
-    total_score,
-    answered,
-  };
+  return { full_frequency, full_profile_code, scores_json: { flows, profiles }, total_score, answered };
 }
 
 export async function POST(req: Request) {
@@ -94,22 +71,56 @@ export async function POST(req: Request) {
   const config = getTestConfig(b.slug);
   if (!config) return NextResponse.json({ error: "Unknown test slug" }, { status: 400 });
 
+  // 1) Score weighted questions
   const scored = score(config, b.answers);
 
-  const db = supabaseServer();
-  const { error } = await db
-    .from("mc_submissions")
-    .update({
-      full_profile_code: scored.full_profile_code,
-      full_frequency: scored.full_frequency,
-      scores_json: scored.scores_json as unknown as object,
-      total_score: scored.total_score,
-      taken_at: new Date().toISOString(),
+  // 2) Extract qualification answers (no weight) for Q16–Q20
+  const qualRows = config.questions
+    .filter((q) => q.id >= "q16" && q.id <= "q20") // your IDs are "q16"..."q20"
+    .map((q) => {
+      const key = b.answers[q.id];
+      if (!key) return null;
+      const opt = q.options.find((o) => o.key === key);
+      if (!opt) return null;
+      // Skip if this option actually has weight (defensive)
+      if (opt.weight) return null;
+      return {
+        submission_id: id,
+        qid: q.id,
+        answer_key: key,
+        answer_label: opt.label,
+      };
     })
-    .eq("id", id);
+    .filter((r): r is { submission_id: string; qid: string; answer_key: string; answer_label: string } => !!r);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const db = supabaseServer();
 
-  return NextResponse.json({ ok: true, id, ...scored });
+  // 3) Persist scored fields on the submission
+  {
+    const { error } = await db
+      .from("mc_submissions")
+      .update({
+        full_profile_code: scored.full_profile_code,
+        full_frequency: scored.full_frequency,
+        scores_json: scored.scores_json as unknown as object,
+        total_score: scored.total_score,
+        taken_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // 4) Upsert qualification answers (if any)
+  if (qualRows.length) {
+    const { error } = await db
+      .from("mc_qualification_answers")
+      .upsert(
+        qualRows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),
+        { onConflict: "submission_id,qid" }
+      );
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, id, ...scored, qualifications_saved: qualRows.length });
 }
 

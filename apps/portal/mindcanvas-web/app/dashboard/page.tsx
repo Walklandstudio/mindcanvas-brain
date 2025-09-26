@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ResponsiveContainer,
   LineChart,
@@ -104,22 +105,27 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <div className="text-sm">
-        <a className="underline" href="/tests">
+      <div className="text-sm space-x-2">
+        <Link className="underline" href="/tests">
           Tests
-        </a>{" "}
-        ·{" "}
-        <a className="underline" href="/me">
+        </Link>
+        <span>·</span>
+        <Link className="underline" href="/me">
           My Tests
-        </a>
+        </Link>
+        <span>·</span>
+        <Link className="underline" href="/api/dashboard/export/submissions">
+          Download submissions CSV
+        </Link>
+        <span>·</span>
+        <Link className="underline" href="/api/dashboard/export/weekly">
+          Download weekly CSV
+        </Link>
+        <span>·</span>
+        <Link className="underline" href="/api/dashboard/export/distribution">
+          Download profile CSV
+        </Link>
       </div>
     </main>
   );
 }
-// inside the return of app/dashboard/page.tsx
-import Link from "next/link";
-// ...
-<div className="text-sm">
-  <Link className="underline" href="/tests">Tests</Link> ·{" "}
-  <Link className="underline" href="/me">My Tests</Link>
-</div>
