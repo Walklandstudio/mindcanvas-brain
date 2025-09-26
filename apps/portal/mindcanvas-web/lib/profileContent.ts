@@ -1,279 +1,317 @@
 // lib/profileContent.ts
-import type { SupabaseClient } from "@supabase/supabase-js";
 
-/**
- * Flexible loader for profile metadata from your Supabase `profiles` table.
- * - Works whether you key by `code`, `key`, or `name`
- * - Accepts arrays, JSON objects, or comma/newline-separated strings
- * - Safe (no `any`) and resilient to different column names
- *
- * Usage:
- *   const pc = await getProfileContent(db, "P8");     // by code/key
- *   const pc = await getProfileContent(db, "Builder"); // by name
- */
+// ===== Types =====
+export type FlowKey = "A" | "B" | "R" | "O"; // Catalyst, Communications, Rhythmic, Observer
+export type ProfileKey = "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | "P7" | "P8";
 
-export type ProfileContent = {
-  /** Unique key or code for this profile (e.g., "P8"). */
-  key: string | null;
-  /** Optional separate code column if present. */
-  code: string | null;
-  /** Human-friendly name/title of the profile. */
-  name: string | null;
-  /** Frequency / flow label (e.g., "B", "Creator", etc.). */
-  frequency: string | null;
-  /** Bullet points of strengths. */
-  strengths: string[];
-  /** Bullet points of cautions / watch-outs. */
-  watchouts: string[];
-  /** Practical tips or guidance lines. */
-  tips: string[];
-  /** The full original row for debugging or future use. */
-  raw: Record<string, unknown> | null;
+export interface ProfileContent {
+  code: ProfileKey;
+  name: string;
+  flows: FlowKey[];              // dominant → supporting
+  overview: string;              // 1–2 line summary for hero/welcome
+  strengths: string[];           // bullet points
+  challenges: string[];          // bullet points
+  idealEnvironments: string[];   // where this coach thrives
+  idealClients: string[];        // best-fit client types
+  growthPlan: string[];          // actionable next steps
+  examples?: string[];           // notable exemplars (optional)
+}
+
+// ===== Canonical names (no abbreviations) =====
+export const FLOW_NAMES: Record<FlowKey, string> = {
+  A: "Catalyst Coaching Flow",
+  B: "Communications Coaching Flow",
+  R: "Rhythmic Coaching Flow",
+  O: "Observer Coaching Flow",
 };
 
-export const DEFAULT_PROFILES_TABLE = "profiles";
+export const PROFILE_NAMES: Record<ProfileKey, string> = {
+  P1: "The Innovator",
+  P2: "The Storyteller",
+  P3: "The Heart-Centred Coach",
+  P4: "The Negotiator",
+  P5: "The Grounded Guide",
+  P6: "The Thinker",
+  P7: "The Mastermind",
+  P8: "The Change Agent",
+};
 
-/** Column synonyms this helper knows how to read. Adjust if your schema differs. */
-const COLS = {
-  key: ["key", "slug", "profile_key", "profile", "id", "code"],
-  code: ["code", "profile_code", "key"],
-  name: ["name", "title", "label", "display_name"],
-  frequency: ["frequency", "freq", "flow", "primary_flow"],
-  strengths: ["strengths", "strength", "strength_points", "pros"],
-  watchouts: ["watchouts", "watch_outs", "challenges", "cons", "weaknesses"],
-  tips: ["tips", "guidance", "advice", "actions", "recommendations"],
-  // Some schemas nest fields under a JSON column like "content" or "data"
-  nests: ["content", "data", "meta", "details"],
-} as const;
-
-/** ---------- Small utilities (no `any`) ---------- */
-
-function isObject(x: unknown): x is Record<string, unknown> {
-  return typeof x === "object" && x !== null;
+export function flowLongName(key: FlowKey) {
+  return FLOW_NAMES[key];
+}
+export function profileLongName(code: ProfileKey) {
+  return PROFILE_NAMES[code];
 }
 
-function asString(v: unknown): string | null {
-  return typeof v === "string" ? v : null;
-}
+// ===== Rich content mapped from your PDFs =====
+// Notes:
+// - Overviews for all eight profiles reflect the “Eight Coaching Profiles” sections in your PDFs,
+//   and the deeper bullets for P6–P8 are distilled from their dedicated chapters. :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4} :contentReference[oaicite:5]{index=5}
+export const PROFILE_CONTENT: Record<ProfileKey, ProfileContent> = {
+  // P1 — Innovator (Catalyst)
+  P1: {
+    code: "P1",
+    name: PROFILE_NAMES.P1,
+    flows: ["A"],
+    overview:
+      "A bold, disruption-driven coach who pushes for rapid breakthroughs and action.",
+    strengths: [
+      "High energy and momentum; challenges the status quo",
+      "Inspires decisive movement and rapid change",
+    ],
+    challenges: [
+      "May move too fast and underweight longer-term stability",
+      "Benefits from pairing inspiration with structure and follow-through",
+    ],
+    idealEnvironments: [
+      "High-intensity transformations",
+      "Entrepreneurial or scale-up contexts",
+    ],
+    idealClients: [
+      "Founders and leaders seeking fast change",
+      "Individuals needing a push beyond comfort zones",
+    ],
+    growthPlan: [
+      "Balance speed with simple, repeatable routines",
+      "Define 30-60-90 outcomes to anchor momentum",
+      "Add light governance to sustain wins after big pushes",
+    ],
+  },
 
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return isObject(v) ? (v as Record<string, unknown>) : null;
-}
+  // P2 — Storyteller (Catalyst–Communications)
+  P2: {
+    code: "P2",
+    name: PROFILE_NAMES.P2,
+    flows: ["A", "B"],
+    overview:
+      "A narrative-led coach who shifts perspectives and sparks action through compelling communication.",
+    strengths: [
+      "Charismatic, emotionally engaging",
+      "Reframes challenges via story and dialogue",
+    ],
+    challenges: [
+      "Inspiration may outpace concrete execution",
+      "Needs clear action steps and accountability cadence",
+    ],
+    idealEnvironments: [
+      "Leadership development and brand/story work",
+      "Change programs needing high engagement",
+    ],
+    idealClients: [
+      "Execs and creators refining voice and influence",
+      "Teams needing alignment through narrative",
+    ],
+    growthPlan: [
+      "Attach every story to a measurable outcome",
+      "Use weekly scorecards to track follow-through",
+      "Blend workshops with practice reps and feedback",
+    ],
+  },
 
-function toList(src: unknown): string[] {
-  if (src == null) return [];
-  if (Array.isArray(src)) return src.map(String).map((s) => s.trim()).filter(Boolean);
+  // P3 — Heart-Centred Coach (Communications)
+  P3: {
+    code: "P3",
+    name: PROFILE_NAMES.P3,
+    flows: ["B"],
+    overview:
+      "An empathy-first coach who builds deep trust and facilitates inner growth and alignment.",
+    strengths: [
+      "Compassionate, emotionally intelligent presence",
+      "Creates safety for meaningful, personal change",
+    ],
+    challenges: [
+      "Can absorb too much emotional weight",
+      "Benefits from boundaries and structured outcomes",
+    ],
+    idealEnvironments: [
+      "Purpose/values alignment work",
+      "Culture and wellbeing programs",
+    ],
+    idealClients: [
+      "Leaders seeking clarity of purpose",
+      "Individuals navigating identity or transitions",
+    ],
+    growthPlan: [
+      "Define session contracts and limits up front",
+      "Tie reflection to specific behavior shifts",
+      "Introduce light metrics for progress and momentum",
+    ],
+  },
 
-  // JSON string?
-  if (typeof src === "string") {
-    const s = src.trim();
-    if (!s) return [];
-    try {
-      const parsed = JSON.parse(s);
-      if (Array.isArray(parsed)) return parsed.map(String).map((x) => x.trim()).filter(Boolean);
-      // If not an array, fall through to delimiter split
-    } catch {
-      // not JSON — continue
-    }
-    // Split on newlines or commas
-    return s
-      .split(/\r?\n|,/)
-      .map((t) => t.trim())
-      .filter(Boolean);
-  }
+  // P4 — Negotiator (Communications–Rhythmic)
+  P4: {
+    code: "P4",
+    name: PROFILE_NAMES.P4,
+    flows: ["B", "R"],
+    overview:
+      "A diplomatic coach who resolves complexity, builds harmony, and moves groups forward together.",
+    strengths: [
+      "Balances perspectives and navigates conflict",
+      "Fosters collaboration and durable agreements",
+    ],
+    challenges: [
+      "May hesitate on tough calls",
+      "Needs assertive decision frameworks when stakes are high",
+    ],
+    idealEnvironments: [
+      "Executive and team coaching",
+      "Cross-functional initiatives and mediation",
+    ],
+    idealClients: [
+      "Leadership teams with competing priorities",
+      "Organizations seeking cohesion and clarity",
+    ],
+    growthPlan: [
+      "Use decision matrices to reach timely calls",
+      "Set escalation paths for unresolved issues",
+      "Document agreements as operating principles",
+    ],
+  },
 
-  // Generic object -> take its string values (best-effort)
-  if (isObject(src)) {
-    const out: string[] = [];
-    for (const v of Object.values(src)) {
-      if (v == null) continue;
-      out.push(String(v).trim());
-    }
-    return out.filter(Boolean);
-  }
+  // P5 — Grounded Guide (Rhythmic)
+  P5: {
+    code: "P5",
+    name: PROFILE_NAMES.P5,
+    flows: ["R"],
+    overview:
+      "A structure-first coach who drives steady progress with practical systems and accountability.",
+    strengths: [
+      "Reliable, process-driven, detail-aware",
+      "Installs routines that compound results",
+    ],
+    challenges: [
+      "May resist change or ambiguity",
+      "Benefits from adaptability tools during volatility",
+    ],
+    idealEnvironments: [
+      "Operational excellence and habit formation",
+      "Long-horizon implementation programs",
+    ],
+    idealClients: [
+      "Managers needing consistency",
+      "Teams building execution muscle",
+    ],
+    growthPlan: [
+      "Introduce ‘change windows’ for iteration",
+      "Run monthly retros to prune processes",
+      "Track lead/lag indicators in simple dashboards",
+    ],
+  },
 
-  // number/boolean -> single item list
-  return [String(src)];
-}
+  // P6 — Thinker (Rhythmic–Observer)
+  P6: {
+    code: "P6",
+    name: PROFILE_NAMES.P6,
+    flows: ["R", "O"],
+    overview:
+      "A strategic, analytical coach who brings clarity through research, logic and structured problem-solving.", // :contentReference[oaicite:6]{index=6}
+    strengths: [
+      "Data-driven decisions and risk awareness",
+      "Plans that translate complexity into clear action", // :contentReference[oaicite:7]{index=7}
+    ],
+    challenges: [
+      "Can over-analyze and slow execution",
+      "Needs to balance certainty with timely action", // :contentReference[oaicite:8]{index=8}
+    ],
+    idealEnvironments: [
+      "Strategy, finance, and systems-based coaching",
+      "Structured organizations with measurable goals", // :contentReference[oaicite:9]{index=9}
+    ],
+    idealClients: [
+      "CEOs/executives seeking clear frameworks",
+      "Analysts and teams needing evidence-based plans", // :contentReference[oaicite:10]{index=10}
+    ],
+    growthPlan: [
+      "Adopt ‘good-enough’ decision thresholds",
+      "Pair research sprints with execution sprints",
+      "Instrument progress with lightweight metrics", // :contentReference[oaicite:11]{index=11}
+    ],
+    examples: ["Benjamin Graham", "Elon Musk", "Seth Godin", "Michael Gerber"], // :contentReference[oaicite:12]{index=12}
+  },
 
-function pickFirstString(row: Record<string, unknown>, candidates: readonly string[]): string | null {
-  for (const k of candidates) {
-    const v = row[k];
-    if (typeof v === "string" && v.trim().length > 0) return v;
-  }
-  return null;
-}
+  // P7 — Mastermind (Observer)
+  P7: {
+    code: "P7",
+    name: PROFILE_NAMES.P7,
+    flows: ["O"],
+    overview:
+      "A long-range strategist who architects scalable systems and sustainable success.", // :contentReference[oaicite:13]{index=13}
+    strengths: [
+      "Future-focused, structured, systems thinker",
+      "Excels at resource allocation and risk mitigation", // :contentReference[oaicite:14]{index=14}
+    ],
+    challenges: [
+      "May over-control; delegation and flexibility are growth edges", // :contentReference[oaicite:15]{index=15}
+      "Can over-plan without timely execution",
+    ],
+    idealEnvironments: [
+      "Business strategy, operations, and executive advisory",
+      "Programs needing scale and governance", // :contentReference[oaicite:16]{index=16}
+    ],
+    idealClients: [
+      "CEOs and senior leaders",
+      "Strategy and finance professionals", // :contentReference[oaicite:17]{index=17}
+    ],
+    growthPlan: [
+      "Design decision rights and delegate clearly",
+      "Blend roadmaps with fast feedback loops",
+      "Track outcomes with objective scorecards", // :contentReference[oaicite:18]{index=18}
+    ],
+    examples: ["Steve Jobs", "Larry Page & Sergey Brin", "Christine Lagarde", "Bill Gates"], // :contentReference[oaicite:19]{index=19}
+  },
 
-function pickFirstList(
-  row: Record<string, unknown>,
-  candidates: readonly string[],
-  nestedHolders: readonly string[]
-): string[] {
-  // 1) direct columns first
-  for (const k of candidates) {
-    if (k in row) {
-      const v = (row as Record<string, unknown>)[k];
-      const list = toList(v);
-      if (list.length) return list;
-    }
-  }
-  // 2) try nested JSON holders like content.data.details
-  for (const holder of nestedHolders) {
-    const nest = asRecord(row[holder]);
-    if (!nest) continue;
-    for (const k of candidates) {
-      const v = nest[k];
-      const list = toList(v);
-      if (list.length) return list;
-    }
-  }
-  return [];
-}
+  // P8 — Change Agent (Observer–Catalyst)
+  P8: {
+    code: "P8",
+    name: PROFILE_NAMES.P8,
+    flows: ["O", "A"],
+    overview:
+      "A precision coach who optimizes systems, engineers efficiency, and drives continuous improvement.", // :contentReference[oaicite:20]{index=20}
+    strengths: [
+      "Process optimization and measurable performance",
+      "Meticulous planning and iterative refinement", // :contentReference[oaicite:21]{index=21}
+    ],
+    challenges: [
+      "Can be rigid or perfection-prone; needs adaptability",
+      "Must balance technical focus with human connection", // :contentReference[oaicite:22]{index=22}
+    ],
+    idealEnvironments: [
+      "Operations, workflow design, and technology programs",
+      "Performance-driven transformations", // :contentReference[oaicite:23]{index=23}
+    ],
+    idealClients: [
+      "CEOs/execs improving efficiency",
+      "Tech and systems leaders optimizing processes", // :contentReference[oaicite:24]{index=24}
+    ],
+    growthPlan: [
+      "Couple standards with flexibility guardrails",
+      "Use OKRs/KPIs to track continuous improvement",
+      "Schedule ‘innovation sprints’ to test refinements", // :contentReference[oaicite:25]{index=25}
+    ],
+    examples: ["Jeff Bezos", "Mark Zuckerberg", "Elon Musk", "Sam Walton"], // :contentReference[oaicite:26]{index=26}
+  },
+};
 
-/** Case-insensitive equality helper (database query may be case-sensitive depending on collation). */
-function equalsCI(a: string, b: string): boolean {
-  return a.localeCompare(b, undefined, { sensitivity: "accent" }) === 0;
-}
-
-/** ---------- Row normalization ---------- */
-
-function normalizeProfileRow(row: Record<string, unknown>): ProfileContent {
-  // Strings
-  const name =
-    pickFirstString(row, COLS.name) ??
-    // sometimes nested (content.name / data.name)
-    COLS.nests
-      .map((h) => asRecord(row[h]))
-      .map((r) => (r ? pickFirstString(r, COLS.name) : null))
-      .find((v) => v) ??
-    null;
-
-  const code =
-    pickFirstString(row, COLS.code) ??
-    COLS.nests
-      .map((h) => asRecord(row[h]))
-      .map((r) => (r ? pickFirstString(r, COLS.code) : null))
-      .find((v) => v) ??
-    null;
-
-  const key =
-    pickFirstString(row, COLS.key) ??
-    code ?? // fall back to code if key is absent
-    (name && name.replace(/\s+/g, "-").toLowerCase()) ??
-    null;
-
-  const frequency =
-    pickFirstString(row, COLS.frequency) ??
-    COLS.nests
-      .map((h) => asRecord(row[h]))
-      .map((r) => (r ? pickFirstString(r, COLS.frequency) : null))
-      .find((v) => v) ??
-    null;
-
-  // Lists
-  const strengths = pickFirstList(row, COLS.strengths, COLS.nests);
-  const watchouts = pickFirstList(row, COLS.watchouts, COLS.nests);
-  const tips = pickFirstList(row, COLS.tips, COLS.nests);
-
-  return {
-    key,
-    code,
-    name,
-    frequency,
-    strengths,
-    watchouts,
-    tips,
-    raw: row,
-  };
-}
-
-/** ---------- Database lookups (no assumptions about exact column names) ---------- */
-
-async function findByColumn(
-  db: SupabaseClient,
-  table: string,
-  column: string,
-  value: string
-): Promise<Record<string, unknown> | null> {
-  const r = await db.from(table).select("*").eq(column, value).limit(1).maybeSingle();
-  if (!r.error && r.data && isObject(r.data)) return r.data as Record<string, unknown>;
-  return null;
-}
-
-async function findByColumnILike(
-  db: SupabaseClient,
-  table: string,
-  column: string,
-  value: string
-): Promise<Record<string, unknown> | null> {
-  // Wrap in %value% to be tolerant of spacing/case; change to `${value}` for exact ci match.
-  const r = await db.from(table).select("*").ilike(column, value);
-  if (!r.error && Array.isArray(r.data) && r.data.length && isObject(r.data[0])) {
-    // prefer exact case-insensitive equality among results
-    const exact = r.data.find((row) => {
-      const v = isObject(row) ? asString((row as Record<string, unknown>)[column]) : null;
-      return v ? equalsCI(v, value) : false;
-    });
-    return (exact ?? (r.data[0] as Record<string, unknown>)) || null;
-  }
-  return null;
-}
-
+// ===== Lookup API (code or full name) =====
 /**
- * Get a profile row by a provided key/name. Tries:
- *   1) exact match on code-like columns
- *   2) exact match on key-like columns
- *   3) exact match on name-like columns
- *   4) ilike on code/key/name (best-effort)
+ * Fetch rich profile content by code ('P1'...'P8') or by full name ('The Innovator', etc.).
+ * Default selector is 'code'.
  */
-async function findProfileRow(
-  db: SupabaseClient,
+export function getProfileContent(
   keyOrName: string,
-  table: string
-): Promise<Record<string, unknown> | null> {
-  // 1) code columns
-  for (const c of COLS.code) {
-    const row = await findByColumn(db, table, c, keyOrName);
-    if (row) return row;
+  selector: "code" | "name" = "code"
+): ProfileContent {
+  const byCode = selector === "code";
+  if (byCode) {
+    const code = keyOrName.toUpperCase() as ProfileKey;
+    const hit = PROFILE_CONTENT[code];
+    if (!hit) throw new Error(`Unknown profile code: ${keyOrName}`);
+    return hit;
   }
-  // 2) key columns
-  for (const c of COLS.key) {
-    const row = await findByColumn(db, table, c, keyOrName);
-    if (row) return row;
-  }
-  // 3) name columns
-  for (const c of COLS.name) {
-    const row = await findByColumn(db, table, c, keyOrName);
-    if (row) return row;
-  }
-  // 4) ilike fallbacks (code/key/name)
-  for (const c of [...COLS.code, ...COLS.key, ...COLS.name]) {
-    const row = await findByColumnILike(db, table, c, keyOrName);
-    if (row) return row;
-  }
-  return null;
+  // selector === 'name'
+  const entry = (Object.values(PROFILE_CONTENT) as ProfileContent[]).find(
+    (p) => p.name.toLowerCase() === keyOrName.toLowerCase()
+  );
+  if (!entry) throw new Error(`Unknown profile name: ${keyOrName}`);
+  return entry;
 }
-
-/** ---------- Public API ---------- */
-
-/**
- * Load profile content by `keyOrName` from `table` (default "profiles").
- * Returns `null` if not found. Maps common column names automatically.
- */
-export async function getProfileContent(
-  db: SupabaseClient,
-  keyOrName: string,
-  table: string = DEFAULT_PROFILES_TABLE
-): Promise<ProfileContent | null> {
-  const row = await findProfileRow(db, keyOrName, table);
-  return row ? normalizeProfileRow(row) : null;
-}
-
-/**
- * Convenience: normalize a row you already fetched yourself.
- * (Useful if you join across tables and want to reuse this mapping.)
- */
-export function normalizeProfileContentRow(row: Record<string, unknown>): ProfileContent {
-  return normalizeProfileRow(row);
-}
-
