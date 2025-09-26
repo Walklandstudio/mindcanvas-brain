@@ -1,7 +1,6 @@
-const config = {
+// postcss.config.js  (CommonJS so Next reads it without __esModule noise)
+module.exports = {
   plugins: {
-    "@tailwindcss/postcss": {}
-  }
+    "@tailwindcss/postcss": {},
+  },
 };
-export default config;
-
