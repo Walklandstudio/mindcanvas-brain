@@ -27,6 +27,7 @@ type FlowKey = "A" | "B" | "R" | "O";
 function isFlowKey(s: string): s is FlowKey {
   return s === "A" || s === "B" || s === "R" || s === "O";
 }
+
 const FLOW_ORDER: FlowLabel[] = [
   "Catalyst Coaching Flow",
   "Communications Coaching Flow",
@@ -34,11 +35,16 @@ const FLOW_ORDER: FlowLabel[] = [
   "Observer Coaching Flow",
 ];
 
-// Neutral greys for charts
-const CHART_COLORS = ["#6B7280", "#9CA3AF", "#D1D5DB", "#111827"];
+// YOUR brand colors for the pie
+const FLOW_COLORS: Record<FlowLabel, string> = {
+  "Catalyst Coaching Flow": "#2ecc2f",
+  "Communications Coaching Flow": "#ea430e",
+  "Rhythmic Coaching Flow": "#f3c90d",
+  "Observer Coaching Flow": "#f3c90d",
+};
 
 export default function ReportViz({ profiles = {}, flows = {} }: Props) {
-  // 1) Build flow totals
+  // ----- Derive Flow totals -----
   const totals = FLOW_ORDER.reduce(
     (acc, label) => ((acc[label] = 0), acc),
     {} as Record<FlowLabel, number>
@@ -68,16 +74,21 @@ export default function ReportViz({ profiles = {}, flows = {} }: Props) {
     value: totals[label] || 0,
   }));
 
-  // 2) Profiles list (sorted)
-  const profileRows = Object.entries(profiles)
+  // ----- Profiles (main + auxiliaries as % ) -----
+  const scalars = Object.entries(profiles)
     .map(([code, v]) => [toProfileKey(code), Number(v) || 0] as [ProfileKey | undefined, number])
-    .filter(([k]) => !!k)
+    .filter(([k]) => !!k) as [ProfileKey, number][];
+
+  const total = scalars.reduce((s, [, v]) => s + v, 0) || 1;
+
+  const profileRows = scalars
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
-    .map(([k, value]) => ({
-      code: k as ProfileKey,
-      name: PROFILE_NAMES[k as ProfileKey],
-      value,
+    .map(([k, v]) => ({
+      code: k,
+      name: PROFILE_NAMES[k],
+      raw: v,
+      pct: Math.round((v / total) * 100),
     }));
 
   return (
@@ -96,8 +107,11 @@ export default function ReportViz({ profiles = {}, flows = {} }: Props) {
                 outerRadius={70}
                 paddingAngle={2}
               >
-                {flowData.map((_, i) => (
-                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                {flowData.map((d, i) => (
+                  <Cell
+                    key={i}
+                    fill={FLOW_COLORS[d.name as FlowLabel] ?? "#9CA3AF"}
+                  />
                 ))}
               </Pie>
               <Tooltip />
@@ -107,21 +121,40 @@ export default function ReportViz({ profiles = {}, flows = {} }: Props) {
         </div>
       </div>
 
-      {/* Profiles list */}
+      {/* Profiles: main + auxiliaries as percentages */}
       <div className="border rounded-xl p-4">
         <h3 className="font-semibold mb-2">Profiles</h3>
-        <ul className="space-y-1 text-sm">
-          {profileRows.length === 0 ? (
-            <li className="text-gray-500">No profile scores available.</li>
-          ) : (
-            profileRows.map((r) => (
-              <li key={r.code} className="flex items-center justify-between">
-                <span>{r.name}</span>
-                <span className="tabular-nums">{r.value}</span>
+
+        {profileRows.length === 0 ? (
+          <p className="text-sm text-gray-500">No profile scores available.</p>
+        ) : (
+          <ul className="space-y-2">
+            {profileRows.map((r, i) => (
+              <li key={r.code} className="text-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {i === 0 && (
+                      <span className="inline-flex items-center rounded-full bg-gray-900 text-white text-[10px] px-2 py-0.5">
+                        Main
+                      </span>
+                    )}
+                    <span className={i === 0 ? "font-semibold" : ""}>{r.name}</span>
+                  </div>
+                  <span className="tabular-nums">{r.pct}%</span>
+                </div>
+                <div className="h-2 w-full bg-gray-200 rounded">
+                  <div
+                    className="h-2 rounded"
+                    style={{
+                      width: `${r.pct}%`,
+                      backgroundColor: i === 0 ? "#111827" : "#9CA3AF",
+                    }}
+                  />
+                </div>
               </li>
-            ))
-          )}
-        </ul>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );

@@ -4,7 +4,11 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import ReportViz from "./ReportViz";
 import FlowBlock from "./FlowBlock";
 import ReportHero from "./ReportHero";
-import { flowLabelFrom, profileNameFromCode } from "@/lib/profileMeta";
+import {
+  flowLabelFrom,
+  profileNameFromCode,
+  type FlowLabel,
+} from "@/lib/profileMeta";
 import { getFlowContent, type FlowKey } from "@/lib/flowContent";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +48,7 @@ function textify(x: unknown): string {
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  // Compute base origin for server-side fetch
+  // Absolute origin (for server-side fetch)
   const base = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
@@ -70,7 +74,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     if (t?.name) testName = t.name;
   }
 
-  // NOTE: you said your table is 'organizations'
+  // If you’re storing brand fields on `organizations`, fetch them here:
   let orgName: string | null = null;
   let logoUrl: string | null = null;
   let brandPrimary: string | null = null;
@@ -89,7 +93,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   const firstName = (sub?.first_name || "there").trim();
 
-  // 3) Profile longform content
+  // 3) Profile content (longform)
   let overview = "";
   let strengths: string[] = [];
   let watchouts: string[] = [];
@@ -146,6 +150,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         brandSecondary={brandSecondary}
       />
 
+      {/* Welcome / Overview */}
       {(longWelcome || overview) && (
         <div className="border rounded-xl p-4">
           <h3 className="font-semibold mb-2">Welcome</h3>
@@ -157,8 +162,10 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         <p>Result pending.</p>
       ) : (
         <div className="grid gap-6">
+          {/* Visuals */}
           <ReportViz profiles={profileScores} flows={flowScores} />
 
+          {/* Flow block */}
           {flowContent && (
             <FlowBlock
               name={flowContent.name}
@@ -170,6 +177,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             />
           )}
 
+          {/* Longform: Introduction */}
           {longIntro && (
             <div className="border rounded-xl p-4">
               <h3 className="font-semibold mb-2">Introduction</h3>
@@ -177,6 +185,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             </div>
           )}
 
+          {/* Bullets */}
           {(strengths.length || watchouts.length || tips.length) > 0 && (
             <div className="border rounded-xl p-4 grid gap-4">
               {strengths.length > 0 && (
@@ -206,6 +215,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             </div>
           )}
 
+          {/* Longform: Competencies */}
           {longCompetencies && (
             <div className="border rounded-xl p-4">
               <h3 className="font-semibold mb-2">Competencies</h3>
