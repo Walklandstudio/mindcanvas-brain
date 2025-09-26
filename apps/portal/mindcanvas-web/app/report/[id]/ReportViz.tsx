@@ -2,152 +2,137 @@
 "use client";
 
 import {
-  ResponsiveContainer,
-  PieChart,
   Pie,
+  PieChart,
   Cell,
   Tooltip,
   Legend,
+  ResponsiveContainer,
 } from "recharts";
 import {
-  PROFILE_TO_FLOW,
-  PROFILE_NAMES,
-  FLOW_LONG,
+  FLOW_COLORS,
+  PROFILE_COLORS,
+  PROFILE_PRIMARY_FLOW,
+  PROFILE_HYBRID_WEIGHTS,
+  PROFILE_TITLES,
   type FlowLabel,
   type ProfileKey,
-  toProfileKey,
-} from "@/lib/profileMeta";
+} from "@/lib/profileImages";
 
-type Props = {
-  profiles?: Record<string, number>;
-  flows?: Record<string, number>;
+type NumMap<T extends string> = Partial<Record<T, number>>;
+
+export type VizProps = {
+  profileScores: NumMap<ProfileKey>;
+  flowScores?: NumMap<FlowLabel>;
+  mainProfile?: ProfileKey;
 };
 
-type FlowKey = "A" | "B" | "R" | "O";
-function isFlowKey(s: string): s is FlowKey {
-  return s === "A" || s === "B" || s === "R" || s === "O";
+function sum<T extends string>(m: NumMap<T>): number {
+  return Object.values(m).reduce((a, b) => a + (b ?? 0), 0);
 }
 
-const FLOW_ORDER: FlowLabel[] = [
-  "Catalyst Coaching Flow",
-  "Communications Coaching Flow",
-  "Rhythmic Coaching Flow",
-  "Observer Coaching Flow",
-];
+function deriveFlowsFromProfiles(profiles: NumMap<ProfileKey>): NumMap<FlowLabel> {
+  const out: NumMap<FlowLabel> = {};
+  const keys = Object.keys(PROFILE_TITLES) as ProfileKey[];
 
-// YOUR brand colors for the pie
-const FLOW_COLORS: Record<FlowLabel, string> = {
-  "Catalyst Coaching Flow": "#2ecc2f",
-  "Communications Coaching Flow": "#ea430e",
-  "Rhythmic Coaching Flow": "#f3c90d",
-  "Observer Coaching Flow": "#f3c90d",
-};
+  for (const k of keys) {
+    const score = profiles[k] ?? 0;
+    if (!score) continue;
 
-export default function ReportViz({ profiles = {}, flows = {} }: Props) {
-  // ----- Derive Flow totals -----
-  const totals = FLOW_ORDER.reduce(
-    (acc, label) => ((acc[label] = 0), acc),
-    {} as Record<FlowLabel, number>
-  );
-
-  if (Object.keys(flows).length > 0) {
-    for (const [k, raw] of Object.entries(flows)) {
-      const val = Number(raw) || 0;
-      if (isFlowKey(k)) {
-        const label = FLOW_LONG[k];
-        totals[label] += val;
-      } else if ((FLOW_ORDER as readonly string[]).includes(k)) {
-        totals[k as FlowLabel] += val;
-      }
-    }
-  } else if (Object.keys(profiles).length > 0) {
-    for (const [code, raw] of Object.entries(profiles)) {
-      const key: ProfileKey | undefined = toProfileKey(code);
-      if (!key) continue;
-      const label = PROFILE_TO_FLOW[key];
-      totals[label] = (totals[label] ?? 0) + (Number(raw) || 0);
+    const hybrid = PROFILE_HYBRID_WEIGHTS[k];
+    if (hybrid) {
+      out[hybrid.a] = (out[hybrid.a] ?? 0) + score * hybrid.wA;
+      out[hybrid.b] = (out[hybrid.b] ?? 0) + score * hybrid.wB;
+    } else {
+      const f = PROFILE_PRIMARY_FLOW[k];
+      out[f] = (out[f] ?? 0) + score;
     }
   }
+  return out;
+}
 
+export default function ReportViz({ profileScores, flowScores, mainProfile }: VizProps) {
+  const flows = flowScores ?? deriveFlowsFromProfiles(profileScores);
+
+  // ----- Pie data (4 flows) -----
+  const FLOW_ORDER: FlowLabel[] = [
+    "Catalyst Coaching Flow",
+    "Communications Coaching Flow",
+    "Rhythmic Coaching Flow",
+    "Observer Coaching Flow",
+  ];
+  const flowTotal = Math.max(1, sum(flows));
   const flowData = FLOW_ORDER.map((label) => ({
     name: label,
-    value: totals[label] || 0,
+    value: Math.round(((flows[label] ?? 0) / flowTotal) * 100),
+    color: FLOW_COLORS[label],
   }));
 
-  // ----- Profiles (main + auxiliaries as % ) -----
-  const scalars = Object.entries(profiles)
-    .map(([code, v]) => [toProfileKey(code), Number(v) || 0] as [ProfileKey | undefined, number])
-    .filter(([k]) => !!k) as [ProfileKey, number][];
+  // ----- Profile list with colours & %
+  const PORDER = Object.keys(PROFILE_TITLES) as ProfileKey[];
+  const profTotal = Math.max(1, sum(profileScores));
+  const rows = PORDER
+    .map((code) => ({
+      code,
+      name: PROFILE_TITLES[code],
+      pct: Math.round(((profileScores[code] ?? 0) / profTotal) * 100),
+    }))
+    .filter((r) => r.pct > 0)
+    .sort((a, b) => b.pct - a.pct);
 
-  const total = scalars.reduce((s, [, v]) => s + v, 0) || 1;
-
-  const profileRows = scalars
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([k, v]) => ({
-      code: k,
-      name: PROFILE_NAMES[k],
-      raw: v,
-      pct: Math.round((v / total) * 100),
-    }));
+  const main = (mainProfile && rows.find((r) => r.code === mainProfile)) ? mainProfile : rows[0]?.code;
 
   return (
-    <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Coaching Flow Pie */}
-      <div className="border rounded-xl p-4">
-        <h3 className="font-semibold mb-2">Coaching Flow</h3>
-        <div className="h-64">
-          <ResponsiveContainer>
+    <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Flow pie */}
+      <div className="rounded-2xl border p-5">
+        <h3 className="text-lg font-semibold mb-4">Coaching Flow</h3>
+        <div className="w-full" style={{ height: 280 }}>
+          <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={flowData}
                 dataKey="value"
                 nameKey="name"
-                innerRadius={40}
-                outerRadius={70}
-                paddingAngle={2}
+                cx="50%"
+                cy="55%"
+                innerRadius={60}
+                outerRadius={100}
+                paddingAngle={1}
               >
                 {flowData.map((d, i) => (
-                  <Cell
-                    key={i}
-                    fill={FLOW_COLORS[d.name as FlowLabel] ?? "#9CA3AF"}
-                  />
+                  <Cell key={i} fill={d.color} />
                 ))}
               </Pie>
               <Tooltip />
-              <Legend />
+              <Legend verticalAlign="bottom" height={24} />
             </PieChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Profiles: main + auxiliaries as percentages */}
-      <div className="border rounded-xl p-4">
-        <h3 className="font-semibold mb-2">Profiles</h3>
-
-        {profileRows.length === 0 ? (
-          <p className="text-sm text-gray-500">No profile scores available.</p>
+      {/* Profiles with coloured bars */}
+      <div className="rounded-2xl border p-5">
+        <h3 className="text-lg font-semibold mb-4">Profiles</h3>
+        {rows.length === 0 ? (
+          <p className="text-slate-500">No profile scores available.</p>
         ) : (
-          <ul className="space-y-2">
-            {profileRows.map((r, i) => (
-              <li key={r.code} className="text-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {i === 0 && (
-                      <span className="inline-flex items-center rounded-full bg-gray-900 text-white text-[10px] px-2 py-0.5">
-                        Main
-                      </span>
-                    )}
-                    <span className={i === 0 ? "font-semibold" : ""}>{r.name}</span>
-                  </div>
-                  <span className="tabular-nums">{r.pct}%</span>
+          <ul className="space-y-3">
+            {rows.map((r) => (
+              <li key={r.code}>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <span className={`font-medium ${r.code === main ? "text-slate-900" : "text-slate-600"}`}>
+                    {PROFILE_TITLES[r.code]}
+                  </span>
+                  <span className={`tabular-nums ${r.code === main ? "font-semibold" : ""}`}>{r.pct}%</span>
                 </div>
-                <div className="h-2 w-full bg-gray-200 rounded">
+                <div className="h-2 w-full bg-slate-200 rounded">
                   <div
                     className="h-2 rounded"
                     style={{
                       width: `${r.pct}%`,
-                      backgroundColor: i === 0 ? "#111827" : "#9CA3AF",
+                      backgroundColor: PROFILE_COLORS[r.code],
+                      boxShadow: r.code === main ? "0 0 0 1px rgba(0,0,0,.15) inset" : undefined,
                     }}
                   />
                 </div>

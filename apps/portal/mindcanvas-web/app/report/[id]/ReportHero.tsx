@@ -1,83 +1,48 @@
 // app/report/[id]/ReportHero.tsx
-import Image from "next/image";
+import Image from 'next/image';
+import { PROFILE_IMAGES, PROFILE_TITLES, ProfileKey } from '@/lib/profileImages';
 
-type Props = {
-  firstName: string;
-  testName: string;
-  profileName: string;
-  flowDisplay: string;
-  icon?: string | null;
-  color?: string | null;
-  bgFrom?: string | null;
-  bgTo?: string | null;
-  orgName?: string | null;
-  logoUrl?: string | null;
-  brandPrimary?: string | null;
-  brandSecondary?: string | null;
+export type ReportHeroProps = {
+  firstName?: string | null;
+  profileCode?: ProfileKey | null;  // P1..P8
+  // Optional preloaded content
+  welcomeLong?: string | null;
+  introductionLong?: string | null;
 };
 
-export default function ReportHero({
-  firstName,
-  testName,
-  profileName,
-  flowDisplay,
-  icon,
-  color,
-  bgFrom,
-  bgTo,
-  orgName,
-  logoUrl,
-  brandPrimary,
-  brandSecondary,
-}: Props) {
-  const gradient = `linear-gradient(135deg, ${bgFrom || "#f4f4f5"} 0%, ${
-    bgTo || "#e5e7eb"
-  } 100%)`;
-  const titleColor = brandPrimary || color || "#111827";
-  const badgeColor = color || brandSecondary || "#374151";
+export default function ReportHero({ firstName, profileCode, welcomeLong, introductionLong }: ReportHeroProps) {
+  const titleName = profileCode ? PROFILE_TITLES[profileCode] : null;
+  const imgSrc = profileCode ? PROFILE_IMAGES[profileCode] : null;
 
   return (
-    <section className="rounded-2xl p-6 border" style={{ backgroundImage: gradient }}>
-      <div className="flex items-start gap-4">
-        {logoUrl ? (
-          <div className="relative h-12 w-12 rounded-lg overflow-hidden bg-white/70">
-            <Image
-              src={logoUrl}
-              alt={orgName || "Brand"}
-              fill
-              sizes="48px"
-              className="object-contain p-1"
-              priority
-            />
-          </div>
+    <header className="rounded-2xl border p-6 md:p-8 bg-gradient-to-b from-slate-50 to-white">
+      <div className="flex items-center gap-4">
+        {imgSrc ? (
+          <Image src={imgSrc} alt={titleName ?? 'Profile'} width={72} height={72} className="rounded-xl border" />
         ) : (
-          <div className="h-12 w-12 rounded-lg flex items-center justify-center bg-white/70 text-xl">
-            {icon || "⭐"}
-          </div>
+          <div className="w-16 h-16 rounded-xl border grid place-items-center text-xl">✨</div>
         )}
-
-        <div className="flex-1">
-          <p className="text-sm text-gray-700">
-            Hi <strong>{firstName}</strong>,
+        <div>
+          <p className="text-slate-700">
+            Hi {firstName ?? 'there'},
           </p>
-          <h1 className="text-2xl font-semibold leading-snug" style={{ color: titleColor }}>
-            Your {testName} Profile Report
+          <h1 className="text-2xl md:text-3xl font-semibold">
+            Your Competency Coach Profile Report
           </h1>
-
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span
-              className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium text-white"
-              style={{ backgroundColor: badgeColor }}
-            >
-              {flowDisplay}
-            </span>
-            <span className="text-sm">
-              Profile: <strong>{profileName}</strong>
-            </span>
-            {orgName && <span className="text-sm text-gray-700">• {orgName}</span>}
-          </div>
+          {titleName && (
+            <p className="text-slate-600 mt-1">
+              Profile: <span className="font-medium">{titleName}</span>
+            </p>
+          )}
         </div>
       </div>
-    </section>
+
+      {(welcomeLong || introductionLong) && (
+        <div className="mt-6 prose max-w-none">
+          {welcomeLong && <p>{welcomeLong}</p>}
+          {introductionLong && <p>{introductionLong}</p>}
+        </div>
+      )}
+    </header>
   );
 }
