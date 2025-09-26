@@ -1,7 +1,8 @@
+// app/api/submissions/[id]/finish/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { extractIdFromUrl } from "@/lib/routeParams";
-import { getTestConfig, TestConfig } from "@/lib/testConfigs";
+import { getTestConfig, type TestConfig } from "@/lib/testConfigs";
 
 type Body = {
   slug: string;
@@ -16,7 +17,10 @@ function topKey(rec: Record<string, number>): string | null {
   let best: string | null = null;
   let val = -Infinity;
   for (const [k, v] of Object.entries(rec)) {
-    if (v > val) { val = v; best = k; }
+    if (v > val) {
+      val = v;
+      best = k;
+    }
   }
   return best;
 }
@@ -29,26 +33,37 @@ function score(config: TestConfig, answers: Record<string, string>) {
   for (const q of config.questions) {
     const sel = answers[q.id];
     if (!sel) continue;
-    const opt = q.options.find(o => o.key === sel);
+
+    const opt = q.options.find((o) => o.key === sel);
     if (!opt) continue;
+
+    // Only count questions that actually have weights
+    const w = opt.weight;
+    if (!w) continue;
+
     answered++;
 
-    if (opt.weight.flows) {
-      for (const [k, v] of Object.entries(opt.weight.flows)) {
-        flows[k] = (flows[k] ?? 0) + v;
+    if (w.flows) {
+      for (const [k, v] of Object.entries(w.flows)) {
+        const n = typeof v === "number" ? v : Number(v);
+        if (!Number.isFinite(n)) continue;
+        flows[k] = (flows[k] ?? 0) + n;
       }
     }
-    if (opt.weight.profiles) {
-      for (const [k, v] of Object.entries(opt.weight.profiles)) {
-        profiles[k] = (profiles[k] ?? 0) + v;
+    if (w.profiles) {
+      for (const [k, v] of Object.entries(w.profiles)) {
+        const n = typeof v === "number" ? v : Number(v);
+        if (!Number.isFinite(n)) continue;
+        profiles[k] = (profiles[k] ?? 0) + n;
       }
     }
   }
 
-  const full_frequency = topKey(flows) ?? null;
-  const full_profile_code = topKey(profiles) ?? null;
-  const total_score = Object.values(flows).reduce((a, b) => a + b, 0)
-    + Object.values(profiles).reduce((a, b) => a + b, 0);
+  const full_frequency = topKey(flows);
+  const full_profile_code = topKey(profiles);
+  const total_score =
+    Object.values(flows).reduce((a, b) => a + b, 0) +
+    Object.values(profiles).reduce((a, b) => a + b, 0);
 
   return {
     full_frequency,
@@ -63,7 +78,7 @@ export async function POST(req: Request) {
   const id = extractIdFromUrl(req.url);
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-  let b: Body | null = null;
+  let b: Body;
   try {
     const raw: unknown = await req.json();
     if (!isObj(raw)) throw new Error("bad body");
