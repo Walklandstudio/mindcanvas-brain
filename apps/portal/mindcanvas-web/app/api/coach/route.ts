@@ -1,78 +1,111 @@
+// mindcanvas-web/app/api/coach/route.ts
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { getProfileContent } from "@/lib/profileContent";
+import { getProfileContent, type ProfileContent } from "@/lib/profileContent";
 
-type CoachRequest = { submissionId: string; message?: string };
+type CoachBody = { submissionId?: string; message?: string };
 
-function isObj(x: unknown): x is Record<string, unknown> { return typeof x === "object" && x !== null; }
-function getStr(o: Record<string, unknown>, key: string): string | null { const v = o[key]; return typeof v === "string" ? v : null; }
-function getNestedStr(o: Record<string, unknown>, parent: string, child: string): string | null {
-  const p = o[parent]; if (!isObj(p)) return null; const v = (p as Record<string, unknown>)[child]; return typeof v === "string" ? v : null;
-}
-function getNestedRecord(o: Record<string, unknown>, key: string): Record<string, unknown> | null {
-  const v = o[key]; return isObj(v) ? (v as Record<string, unknown>) : null;
-}
-function topKeyByNumber(rec: Record<string, unknown> | null): string | null {
-  if (!rec) return null; let bestKey: string | null = null; let bestVal = -Infinity;
-  for (const [k, v] of Object.entries(rec)) { const n = typeof v === "number" ? v : Number(v); if (Number.isFinite(n) && n > bestVal) { bestVal = n; bestKey = k; } }
-  return bestKey;
-}
-async function parseBody(req: Request): Promise<CoachRequest | null> {
-  try { const raw: unknown = await req.json(); if (!isObj(raw)) return null;
-    const sub = raw["submissionId"]; const msg = raw["message"];
-    if (typeof sub !== "string") return null;
-    return { submissionId: sub, message: typeof msg === "string" ? msg.trim() : undefined };
-  } catch { return null; }
+type ResultPayload = {
+  profile?: string | null;
+  frequency?: string | null;
+  total_score?: number | null;
+  scores?: Record<string, unknown> | null;
+};
+type ResultAPI = { source?: string; result?: ResultPayload | null; error?: string };
+
+type OkResponse = {
+  ok: true;
+  needsResult?: boolean;
+  frequency: string | null;
+  profile: string | null;
+  profileContent: ProfileContent | null; // ⬅️ nullable
+  advice: string[];
+};
+type ErrResponse = { error: string };
+
+function isObj(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null;
 }
 
 export async function POST(req: Request) {
-  const body = await parseBody(req);
-  if (!body) return NextResponse.json({ error: "Missing submissionId" }, { status: 400 });
+  // 1) parse body
+  let body: CoachBody;
+  try {
+    const raw = (await req.json()) as unknown;
+    if (!isObj(raw)) throw new Error("Invalid JSON");
+    body = {
+      submissionId: typeof raw.submissionId === "string" ? raw.submissionId : undefined,
+      message: typeof raw.message === "string" ? raw.message : undefined,
+    };
+  } catch {
+    return NextResponse.json<ErrResponse>({ error: "Invalid body" }, { status: 400 });
+  }
+  if (!body.submissionId) {
+    return NextResponse.json<ErrResponse>({ error: "Missing submissionId" }, { status: 400 });
+  }
 
   const db = supabaseServer();
-  const idCols = ["submission_id","submissionId","mc_submission_id","submission","id"] as const;
-  const pick = async (table: string) => {
-    for (const col of idCols) {
-      const r = await db.from(table).select("*").eq(col, body.submissionId).limit(1).maybeSingle();
-      if (!r.error && r.data) return r.data as Record<string, unknown>;
-    }
-    return null;
-  };
 
-  // Try results stores first
-  let row = await pick("test_results");
-  if (!row) row = await pick("v_results_latest");
+  // 2) absolute origin for server fetch
+  const base = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  const h = await headers();
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const host = h.get("host") ?? "";
+  const origin = base || (host ? `${proto}://${host}` : "");
 
-  // Fallback: read directly from mc_submissions (you have scoring columns here)
-  if (!row) {
-    const sub = await db.from("mc_submissions").select("*").eq("id", body.submissionId).limit(1).maybeSingle();
-    if (sub.error) return NextResponse.json({ error: sub.error.message }, { status: 500 });
-    if (sub.data) {
-      const s = sub.data as Record<string, unknown>;
-      const frequency = getStr(s, "full_frequency") ?? getNestedStr(s, "result", "frequency") ?? "";
-      let profileKey = getStr(s, "full_profile_code") ?? getNestedStr(s, "result", "profile") ?? "";
-      if (!profileKey) {
-        const scores = getNestedRecord(s, "scores_json");
-        const byProfile = scores ? getNestedRecord(scores, "profiles") : null;
-        profileKey = topKeyByNumber(byProfile) ?? "";
-      }
-      if (frequency || profileKey) {
-        const profileContent = profileKey ? await getProfileContent(db, profileKey) : null;
-        const m = (body.message ?? "").toLowerCase();
-        const advice: string[] = [];
-        if (m.includes("conflict")) advice.push("Acknowledge interests → propose 2 options → agree next step.");
-        if (m.includes("standup")) advice.push("Run 15-min standups: plan, blockers, dependencies, owners.");
-        if (!advice.length) advice.push("Clarify outcome, list 3 actions, assign owner + deadline.");
-        return NextResponse.json({ ok: true, needsResult: false, frequency, profile: profileKey, profileContent, advice });
-      }
+  // 3) basic submission
+  const { data: sub, error: subErr } = await db
+    .from("mc_submissions")
+    .select("id, full_profile_code, full_frequency")
+    .eq("id", body.submissionId)
+    .maybeSingle();
+  if (subErr) return NextResponse.json<ErrResponse>({ error: subErr.message }, { status: 500 });
+  if (!sub) return NextResponse.json<ErrResponse>({ error: "Submission not found" }, { status: 404 });
+
+  // 4) ensure result
+  let profileKey = (sub.full_profile_code as string | null) ?? null;
+  let frequency = (sub.full_frequency as string | null) ?? null;
+  let needsResult = false;
+
+  if (!profileKey || !frequency) {
+    const res = await fetch(
+      `${origin}/api/submissions/${encodeURIComponent(body.submissionId)}/result`,
+      { cache: "no-store" }
+    );
+    const j = (await res.json()) as ResultAPI;
+    if (res.ok && j?.result) {
+      profileKey = j.result.profile ?? profileKey;
+      frequency = j.result.frequency ?? frequency;
+      needsResult = true;
     }
   }
 
-  // Generic fallback
+  // 5) rich content (DB-backed helper: db first)
+  const profileContent = profileKey
+    ? await getProfileContent(db, profileKey, "code")
+    : null;
+
+  // 6) quick advice scaffolding
   const m = (body.message ?? "").toLowerCase();
   const advice: string[] = [];
-  if (m.includes("conflict")) advice.push("Acknowledge interests → propose 2 options → agree next step.");
-  if (m.includes("standup")) advice.push("Run 15-min standups: plan, blockers, dependencies, owners.");
-  if (!advice.length) advice.push("Clarify outcome, list 3 actions, assign owner + deadline.");
-  return NextResponse.json({ ok: true, needsResult: true, frequency: null, profile: null, profileContent: null, advice });
+  if (m.includes("standup"))
+    advice.push("Run 15-minute standups: priorities, blockers, dependencies, owner + deadline.");
+  if (m.includes("conflict"))
+    advice.push("Surface interests, propose 2 options, agree next step + owner.");
+  if (m.includes("feedback"))
+    advice.push("Use SBI: Situation → Behavior → Impact, then feed-forward next step.");
+  if (advice.length === 0)
+    advice.push("Clarify the goal in one sentence, list 3 options, pick one with a next step.");
+
+  const payload: OkResponse = {
+    ok: true,
+    needsResult,
+    frequency: frequency ?? null,
+    profile: profileKey ?? null,
+    profileContent,
+    advice,
+  };
+  return NextResponse.json(payload);
 }
+
