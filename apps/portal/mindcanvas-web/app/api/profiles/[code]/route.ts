@@ -1,5 +1,6 @@
 // app/api/profiles/[code]/route.ts
 import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
 import { getProfileContent } from "@/lib/profileContent";
 
 export async function GET(
@@ -9,8 +10,9 @@ export async function GET(
   const { code } = await ctx.params;
 
   try {
-    // pass the selector explicitly: we're looking up by profile CODE
-    const content = await getProfileContent(code, "code");
+    const db = supabaseServer();
+    // Lookup by profile CODE
+    const content = await getProfileContent(db, code, "code");
     return NextResponse.json({ ok: true, content });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
