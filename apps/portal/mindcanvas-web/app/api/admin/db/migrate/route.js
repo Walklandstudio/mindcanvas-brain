@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';  // do not cache this route
 
 const { Client } = pkg;
 
-// your admin area is already gated by middleware; this is an extra guard
+// extra guard; /api/admin/* is already gated by middleware
 function hasAdminCookie(req) {
   return Boolean(req.cookies.get('admin_token')?.value);
 }
@@ -58,7 +58,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const connStr = process.env.SUPABASE_DB_URL; // postgresql://postgres:*****@db.<ref>.supabase.co:5432/postgres
+  const connStr = process.env.SUPABASE_DB_URL; // postgresql://postgres:***@db.<ref>.supabase.co:5432/postgres
   if (!connStr) {
     return NextResponse.json(
       { error: 'Server misconfiguration: SUPABASE_DB_URL not set' },
