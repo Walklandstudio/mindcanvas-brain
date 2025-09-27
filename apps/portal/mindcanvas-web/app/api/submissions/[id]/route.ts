@@ -3,12 +3,11 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 type Freq = 'A' | 'B' | 'C' | 'D' | null;
 
-// DB rows
 type SubmissionRow = { id: string; test_id: string | null };
 type TestRow = { slug: string };
 type QuestionRow = {
   id: string;
-  index: number;
+  index: number | null; // aliased from order_index
   text: string;
   type: 'single' | 'multi' | 'info';
   is_scored: boolean | null;
@@ -23,7 +22,6 @@ type OptionRow = {
 };
 type AnswerRow = { question_id: string; selected: unknown };
 
-// API payload
 type LoadedSubmission = {
   submissionId: string;
   testSlug: string;
@@ -48,7 +46,7 @@ type LoadedSubmission = {
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // 1) Load submission (id + test_id)
+  // 1) submission (id + test_id)
   const { data: sub, error: subErr } = await supabaseAdmin
     .from('mc_submissions')
     .select('id, test_id')
@@ -64,7 +62,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const testId = sub.test_id;
 
-  // 2) Resolve slug for client display
+  // 2) slug
   let testSlug = 'test';
   {
     const { data: trow } = await supabaseAdmin
@@ -75,45 +73,36 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     if (trow?.slug) testSlug = trow.slug;
   }
 
-  // 3) Load questions
+  // 3) questions (alias order_index → index)
   const { data: qrows, error: qErr } = await supabaseAdmin
     .from('mc_questions')
-    .select('id, index, text, type, is_scored')
+    .select('id, index:order_index, text, type, is_scored')
     .eq('test_id', testId)
-    .order('index', { ascending: true });
-
-  if (qErr) {
-    return NextResponse.json({ error: qErr.message }, { status: 500 });
-  }
+    .order('order_index', { ascending: true });
+  if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 });
 
   const questionsRaw = (qrows ?? []) as QuestionRow[];
   const qIds = questionsRaw.map((q) => q.id);
 
-  // 4) Load options for those questions
+  // 4) options
   const optionsByQ: Record<string, OptionRow[]> = {};
   if (qIds.length) {
     const { data: orows, error: oErr } = await supabaseAdmin
       .from('mc_options')
       .select('id, question_id, label, points, profile_code, frequency')
       .in('question_id', qIds);
-
-    if (oErr) {
-      return NextResponse.json({ error: oErr.message }, { status: 500 });
-    }
+    if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
     for (const o of (orows ?? []) as OptionRow[]) {
       (optionsByQ[o.question_id] ||= []).push(o);
     }
   }
 
-  // 5) Load answers for this submission
+  // 5) answers
   const { data: arows, error: aErr } = await supabaseAdmin
     .from('mc_answers')
     .select('question_id, selected')
     .eq('submission_id', sub.id);
-
-  if (aErr) {
-    return NextResponse.json({ error: aErr.message }, { status: 500 });
-  }
+  if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
 
   const answers: LoadedSubmission['answers'] = {};
   for (const a of (arows ?? []) as AnswerRow[]) {
@@ -126,10 +115,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         : undefined;
   }
 
-  // 6) Shape final questions
+  // 6) shape
   const questions: LoadedSubmission['questions'] = questionsRaw.map((q) => ({
     id: q.id,
-    index: Number(q.index),
+    index: Number(q.index ?? 0),
     text: q.text,
     type: q.type,
     isScored: Boolean(q.is_scored),
@@ -142,13 +131,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     })),
   }));
 
-  const payload: LoadedSubmission = {
+  return NextResponse.json({
     submissionId: sub.id,
     testSlug,
     questions,
     answers,
     finished: false,
-  };
-
-  return NextResponse.json(payload);
+  } as LoadedSubmission);
 }
