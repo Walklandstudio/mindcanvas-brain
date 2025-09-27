@@ -5,25 +5,26 @@ const ADMIN_COOKIE = 'admin_token';
 
 export function middleware(req: NextRequest) {
   const url = req.nextUrl;
-  const isAdminApiOrPage =
-    url.pathname.startsWith('/admin') || url.pathname.startsWith('/api/admin');
+  const { pathname } = url;
 
-  if (!isAdminApiOrPage) return NextResponse.next();
+  const isAdminScope =
+    pathname.startsWith('/admin') || pathname.startsWith('/api/admin');
 
-  // Allow the login page itself
-  if (url.pathname === '/admin/login') return NextResponse.next();
+  if (!isAdminScope) return NextResponse.next();
 
-  // Check cookie
+  // Always allow the login page and the session endpoint (sets cookie)
+  if (pathname === '/admin/login' || pathname === '/api/admin/session') {
+    return NextResponse.next();
+  }
+
+  // Check cookie is present (value check is optional; middleware is just a gate)
   const cookie = req.cookies.get(ADMIN_COOKIE)?.value ?? '';
-
   if (!cookie) {
     const loginUrl = new URL('/admin/login', req.url);
-    loginUrl.searchParams.set('next', url.pathname);
+    loginUrl.searchParams.set('next', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // Basic presence check; the session route will set the correct value
-  // You can rotate the cookie value by changing ADMIN_DASH_TOKEN.
   return NextResponse.next();
 }
 
