@@ -7,7 +7,7 @@ type AnswerRow = { question: string | null; selected: unknown };
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // Submission
+  // 1) Submission
   const { data: sub, error: subErr } = await supabaseAdmin
     .from('mc_submissions')
     .select('id, created_at, report_id, person_id')
@@ -18,21 +18,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: subErr?.message || 'Not found' }, { status: 404 });
   }
 
-  // Person
+  // 2) Person (optional)
   const { data: person } = await supabaseAdmin
     .from('mc_people')
     .select('name, email, phone')
     .eq('id', sub.person_id)
     .maybeSingle();
 
-  // Result
+  // 3) Result (optional)
   const { data: result } = await supabaseAdmin
     .from('mc_results')
     .select('profile_code, flow_a, flow_b, flow_c, flow_d')
     .eq('submission_id', sub.id)
     .maybeSingle();
 
-  // Answers
+  // 4) Answers (0..n)
   const { data: answersRaw } = await supabaseAdmin
     .from('mc_answers')
     .select('question, selected')
@@ -48,14 +48,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       }
     : null;
 
-  const answers = (answersRaw as AnswerRow[] | null | undefined)?.map((a) => ({
-    question: String(a.question ?? ''),
-    selected: Array.isArray(a.selected)
-      ? (a.selected as unknown[]).map((x) => String(x))
-      : typeof a.selected === 'string'
-        ? a.selected
-        : JSON.stringify(a.selected ?? ''),
-  })) ?? [];
+  const rows: AnswerRow[] = (answersRaw ?? []) as AnswerRow[];
+  const answers = rows.map((row: AnswerRow) => ({
+    question: String(row.question ?? ''),
+    selected: Array.isArray(row.selected)
+      ? (row.selected as unknown[]).map((x) => String(x))
+      : typeof row.selected === 'string'
+        ? row.selected
+        : JSON.stringify(row.selected ?? ''),
+  }));
 
   return NextResponse.json({
     id: sub.id,
