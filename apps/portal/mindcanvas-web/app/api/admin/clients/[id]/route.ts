@@ -2,11 +2,20 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 type Flow = { A: number; B: number; C: number; D: number };
+type AnswerRow = { question: string | null; selected: unknown };
+
+function normalizeSelected(sel: unknown): string | string[] {
+  if (Array.isArray(sel)) {
+    return (sel as ReadonlyArray<unknown>).map((x: unknown) => String(x));
+  }
+  if (typeof sel === 'string') return sel;
+  return JSON.stringify(sel ?? '');
+}
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // 1) Submission row (authoritative existence + foreign keys)
+  // 1) Submission
   const { data: sub, error: subErr } = await supabaseAdmin
     .from('mc_submissions')
     .select('id, created_at, report_id, person_id')
@@ -17,22 +26,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: subErr?.message || 'Not found' }, { status: 404 });
   }
 
-  // 2) Person (may be null)
+  // 2) Person (optional)
   const { data: person } = await supabaseAdmin
     .from('mc_people')
     .select('name, email, phone')
     .eq('id', sub.person_id)
     .maybeSingle();
 
-  // 3) Result (may be null until finished)
+  // 3) Result (optional)
   const { data: result } = await supabaseAdmin
     .from('mc_results')
     .select('profile_code, flow_a, flow_b, flow_c, flow_d')
     .eq('submission_id', sub.id)
     .maybeSingle();
 
-  // 4) Answers (zero or more)
-  // Assumes mc_answers has: submission_id, question (text), selected (text[] | jsonb | text)
+  // 4) Answers (0..n)
   const { data: answersRaw } = await supabaseAdmin
     .from('mc_answers')
     .select('question, selected')
@@ -48,15 +56,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       }
     : null;
 
-  const answers = (answersRaw || []).map((a: any) => ({
-    question: String(a.question ?? ''),
-    // normalize selected to string or string[]
-    selected:
-      Array.isArray(a.selected)
-        ? a.selected.map((x: unknown) => String(x))
-        : (typeof a.selected === 'string'
-            ? a.selected
-            : JSON.stringify(a.selected ?? '')),
+  const rows: AnswerRow[] = (answersRaw ?? []) as AnswerRow[];
+  const answers = rows.map((row) => ({
+    question: String(row.question ?? ''),
+    selected: normalizeSelected(row.selected),
   }));
 
   return NextResponse.json({
