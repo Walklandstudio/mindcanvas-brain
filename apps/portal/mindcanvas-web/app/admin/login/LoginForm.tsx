@@ -24,9 +24,9 @@ export default function LoginForm() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ password }),
       });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(j.error ?? 'Login failed');
+      const j = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      if (!res.ok || !j?.ok) {
+        setError(j?.error ?? `Login failed (HTTP ${res.status})`);
         setBusy(false);
         return;
       }

@@ -4,20 +4,22 @@ import { NextRequest, NextResponse } from 'next/server';
 const ADMIN_COOKIE = 'admin_token';
 
 export function middleware(req: NextRequest) {
-  const url = req.nextUrl;
-  const { pathname } = url;
+  const { pathname } = req.nextUrl;
 
-  const isAdminScope =
+  const inAdminScope =
     pathname.startsWith('/admin') || pathname.startsWith('/api/admin');
 
-  if (!isAdminScope) return NextResponse.next();
+  if (!inAdminScope) return NextResponse.next();
 
-  // Always allow the login page and the session endpoint (sets cookie)
-  if (pathname === '/admin/login' || pathname === '/api/admin/session') {
+  // Always allow login page, session setter, and debug endpoint
+  if (
+    pathname === '/admin/login' ||
+    pathname === '/api/admin/session' ||
+    pathname === '/api/admin/debug'
+  ) {
     return NextResponse.next();
   }
 
-  // Check cookie is present (value check is optional; middleware is just a gate)
   const cookie = req.cookies.get(ADMIN_COOKIE)?.value ?? '';
   if (!cookie) {
     const loginUrl = new URL('/admin/login', req.url);
