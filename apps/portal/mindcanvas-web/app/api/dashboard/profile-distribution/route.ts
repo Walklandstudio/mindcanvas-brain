@@ -1,25 +1,36 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type ResultRow = { profile_code: string | null };
+type Timeframe = '7d' | '30d' | '90d';
+type RpcRow = { profile_code: string | null; count: number };
 
-export async function GET() {
-  // Pull profile_code for all computed results and aggregate in Node
-  const { data, error } = await supabaseAdmin
-    .from('mc_results')
-    .select('profile_code');
+function tfToDays(tf: Timeframe): number {
+  switch (tf) {
+    case '7d': return 7;
+    case '90d': return 90;
+    default: return 30;
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const tf = (req.nextUrl.searchParams.get('tf') as Timeframe) || '30d';
+  const days = tfToDays(tf);
+
+  const { data, error } = await supabaseAdmin.rpc('mc_profile_distribution', {
+    days_window: days,
+  });
 
   if (error) {
-    return NextResponse.json({ items: [], error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { items: [], error: error.message },
+      { status: 500 },
+    );
   }
 
-  const rows = (data as ResultRow[]) || [];
-  const counts = rows.reduce<Record<string, number>>((acc, r) => {
-    if (!r.profile_code) return acc;
-    acc[r.profile_code] = (acc[r.profile_code] || 0) + 1;
-    return acc;
-  }, {});
+  const rows = (data ?? []) as RpcRow[];
+  const items = rows
+    .filter((r) => r.profile_code)
+    .map((r) => ({ code: r.profile_code as string, count: Number(r.count ?? 0) }));
 
-  const items = Object.keys(counts).map((code) => ({ code, count: counts[code] }));
   return NextResponse.json({ items });
 }
