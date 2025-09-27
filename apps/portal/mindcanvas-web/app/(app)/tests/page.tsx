@@ -31,7 +31,9 @@ export default function TestsPage() {
       setRows(data.items || []);
       setLoading(false);
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, []);
 
   function openInvite(slug: string) {
@@ -45,35 +47,62 @@ export default function TestsPage() {
     setPhone('');
   }
 
+  // ⬇️ THIS stays inside the component so it can access state
   async function sendInvite() {
     if (!selectedSlug) return;
     setBusy(true);
     setErr(null);
     try {
-      // 1) Create a submission using the existing start endpoint
-      const res = await fetch('/api/submissions/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: selectedSlug }),
-      });
-      if (!res.ok) throw new Error(await res.text());
+      // Try /api/submissions/start first, then fallback to /api/admin/submissions/new
+      async function createSubmissionForSlug(slug: string): Promise<{ submissionId: string; testSlug: string }> {
+        // 1) Primary: start endpoint
+        const r1 = await fetch('/api/submissions/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug }),
+        });
 
-      const payload = (await res.json()) as { submissionId: string; testSlug: string };
+        if (r1.ok) {
+          const j = await r1.json();
+          const submissionId = j.submissionId ?? j.id ?? j.submission_id;
+          const testSlug = j.testSlug ?? j.slug ?? slug;
+          if (!submissionId) throw new Error('Start returned no submissionId');
+          return { submissionId, testSlug };
+        }
+        const t1 = await r1.text();
 
-      // 2) Build query params to prefill contact on the test page
+        // 2) Fallback: admin route
+        const r2 = await fetch('/api/admin/submissions/new', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug }),
+        });
+
+        if (r2.ok) {
+          const j2 = await r2.json();
+          return { submissionId: j2.submissionId, testSlug: j2.testSlug };
+        }
+        const t2 = await r2.text();
+        throw new Error(`[start ${r1.status}]: ${t1 || 'no body'} | [admin/new ${r2.status}]: ${t2 || 'no body'}`);
+      }
+
+      const { submissionId, testSlug } = await createSubmissionForSlug(selectedSlug);
+
+      // Build query params to prefill contact on the test page
       const params = new URLSearchParams();
-      params.set('sid', payload.submissionId);
+      params.set('sid', submissionId);
 
       const fullName = [first.trim(), last.trim()].filter(Boolean).join(' ');
       if (fullName) params.set('name', fullName);
       if (email.trim() && isValidEmail(email.trim())) params.set('email', email.trim());
       if (phone.trim()) params.set('phone', phone.trim());
 
-      // 3) Compose final invite link
-      const full = `${location.origin}/test/${payload.testSlug}?${params.toString()}`;
+      const full = `${location.origin}/test/${testSlug}?${params.toString()}`;
       setInviteUrl(full);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('Create link error:', msg);
+      setErr(msg || 'Failed to create link');
     } finally {
       setBusy(false);
     }
@@ -96,7 +125,7 @@ export default function TestsPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {rows.map((r) => (
               <tr key={r.id} className="border-t">
                 <td className="px-4 py-2">{r.name}</td>
                 <td className="px-4 py-2">{r.slug}</td>
@@ -144,26 +173,26 @@ export default function TestsPage() {
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 placeholder="First name (optional)"
                 value={first}
-                onChange={e => setFirst(e.target.value)}
+                onChange={(e) => setFirst(e.target.value)}
               />
               <input
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 placeholder="Last name (optional)"
                 value={last}
-                onChange={e => setLast(e.target.value)}
+                onChange={(e) => setLast(e.target.value)}
               />
               <input
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 placeholder="Email (optional)"
                 type="email"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value)}
               />
               <input
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 placeholder="Phone (optional)"
                 value={phone}
-                onChange={e => setPhone(e.target.value)}
+                onChange={(e) => setPhone(e.target.value)}
               />
             </div>
 
