@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 type Profile = {
   code: string;
@@ -19,42 +18,53 @@ type Profile = {
 };
 
 export default function ProfilesAdminPage() {
-  // Create a client using your public anon key
-  const supabase: SupabaseClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    const res = await fetch('/api/admin/profiles', { cache: 'no-store' });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(j.error ?? 'Failed to load profiles');
+      setLoading(false);
+      return;
+    }
+    const rows = (await res.json()) as Profile[];
+    setProfiles(rows);
+    setLoading(false);
+  }
 
   useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase
-        .from('mc_profiles')
-        .select('*')
-        .order('code');
-      if (!error && data) setProfiles(data as Profile[]);
-      setLoading(false);
-    })();
-  }, [supabase]);
+    void load();
+  }, []);
 
   const handleChange = (code: string, field: keyof Profile, value: string) => {
-    setProfiles(prev =>
-      prev.map(p => (p.code === code ? { ...p, [field]: value } : p))
+    setProfiles((prev) =>
+      prev.map((p) => (p.code === code ? { ...p, [field]: value } : p))
     );
   };
 
   const handleSave = async () => {
     setSaving(true);
-    for (const p of profiles) {
-      const { error } = await supabase.from('mc_profiles').upsert(p);
-      if (error) {
-        alert(`Error saving ${p.code}: ${error.message}`);
-      }
+    setError(null);
+    const res = await fetch('/api/admin/profiles', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(profiles),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(j.error ?? 'Save failed');
+      setSaving(false);
+      return;
     }
     setSaving(false);
+    // Reload to ensure server canonical data
+    await load();
     alert('Profiles saved!');
   };
 
@@ -63,8 +73,9 @@ export default function ProfilesAdminPage() {
   return (
     <main className="mx-auto max-w-5xl p-6 space-y-8">
       <h1 className="text-2xl font-bold">Profiles Admin</h1>
+      {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {profiles.map(profile => (
+      {profiles.map((profile) => (
         <div
           key={profile.code}
           className="rounded-xl border p-4 shadow-sm space-y-3 bg-white"
@@ -79,7 +90,7 @@ export default function ProfilesAdminPage() {
               className="mt-1 w-full border rounded p-2"
               rows={2}
               value={profile.overview ?? ''}
-              onChange={e => handleChange(profile.code, 'overview', e.target.value)}
+              onChange={(e) => handleChange(profile.code, 'overview', e.target.value)}
             />
           </label>
 
@@ -89,7 +100,9 @@ export default function ProfilesAdminPage() {
               className="mt-1 w-full border rounded p-2"
               rows={3}
               value={profile.welcome_long ?? ''}
-              onChange={e => handleChange(profile.code, 'welcome_long', e.target.value)}
+              onChange={(e) =>
+                handleChange(profile.code, 'welcome_long', e.target.value)
+              }
             />
           </label>
 
@@ -99,7 +112,9 @@ export default function ProfilesAdminPage() {
               className="mt-1 w-full border rounded p-2"
               rows={3}
               value={profile.introduction_long ?? ''}
-              onChange={e => handleChange(profile.code, 'introduction_long', e.target.value)}
+              onChange={(e) =>
+                handleChange(profile.code, 'introduction_long', e.target.value)
+              }
             />
           </label>
 
@@ -109,7 +124,9 @@ export default function ProfilesAdminPage() {
               className="mt-1 w-full border rounded p-2"
               rows={3}
               value={profile.competencies_long ?? ''}
-              onChange={e => handleChange(profile.code, 'competencies_long', e.target.value)}
+              onChange={(e) =>
+                handleChange(profile.code, 'competencies_long', e.target.value)
+              }
             />
           </label>
 
@@ -119,7 +136,9 @@ export default function ProfilesAdminPage() {
               type="color"
               className="ml-2"
               value={profile.brand_color ?? '#000000'}
-              onChange={e => handleChange(profile.code, 'brand_color', e.target.value)}
+              onChange={(e) =>
+                handleChange(profile.code, 'brand_color', e.target.value)
+              }
             />
           </label>
         </div>
