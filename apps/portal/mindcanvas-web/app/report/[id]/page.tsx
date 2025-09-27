@@ -1,6 +1,6 @@
-// app/report/[id]/page.tsx
 import 'server-only';
 import React from 'react';
+import Image from 'next/image';
 import { headers } from 'next/headers';
 import ReportViz, { ResultPayload, ProfileCode, FlowLabel } from './ReportViz';
 
@@ -68,19 +68,27 @@ export default async function ReportPage(props: { params: Promise<Params> }) {
         </p>
         {mainProfile && (
           <div className="mt-4 flex items-center gap-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             {mainProfile.image_url ? (
-              <img
+              <Image
                 alt={mainProfile.name}
                 src={mainProfile.image_url}
-                className="h-16 w-16 rounded-xl object-contain border"
+                width={64}
+                height={64}
+                className="h-16 w-16 rounded-xl border object-contain"
+                unoptimized
+                priority
               />
             ) : null}
             <div>
-              <div className="text-lg font-semibold" style={{ color: mainProfile.brand_color ?? undefined }}>
+              <div
+                className="text-lg font-semibold"
+                style={{ color: mainProfile.brand_color ?? undefined }}
+              >
                 {mainProfile.name}
               </div>
-              <div className="text-xs text-gray-600">Flow: {String(mainProfile.flow)}</div>
+              <div className="text-xs text-gray-600">
+                Flow: {String(mainProfile.flow)}
+              </div>
             </div>
           </div>
         )}
@@ -135,7 +143,9 @@ export default async function ReportPage(props: { params: Promise<Params> }) {
               <div>
                 <h4 className="text-sm font-semibold mb-1">Strengths</h4>
                 <ul className="list-disc pl-5 text-sm space-y-1">
-                  {mainProfile.strengths.map((s, i) => <li key={i}>{s}</li>)}
+                  {mainProfile.strengths.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
                 </ul>
               </div>
             )}
@@ -143,7 +153,9 @@ export default async function ReportPage(props: { params: Promise<Params> }) {
               <div>
                 <h4 className="text-sm font-semibold mb-1">Watch-outs</h4>
                 <ul className="list-disc pl-5 text-sm space-y-1">
-                  {mainProfile.watchouts.map((s, i) => <li key={i}>{s}</li>)}
+                  {mainProfile.watchouts.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
                 </ul>
               </div>
             )}
@@ -151,7 +163,9 @@ export default async function ReportPage(props: { params: Promise<Params> }) {
               <div>
                 <h4 className="text-sm font-semibold mb-1">Tips</h4>
                 <ul className="list-disc pl-5 text-sm space-y-1">
-                  {mainProfile.tips.map((s, i) => <li key={i}>{s}</li>)}
+                  {mainProfile.tips.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
                 </ul>
               </div>
             )}
@@ -168,12 +182,9 @@ export default async function ReportPage(props: { params: Promise<Params> }) {
           >
             View raw JSON
           </a>
-          {/* Place your PDF button here if you have a component for it */}
           {/* <PdfButton targetSelector="main" /> */}
         </div>
       </section>
     </main>
   );
 }
-
-

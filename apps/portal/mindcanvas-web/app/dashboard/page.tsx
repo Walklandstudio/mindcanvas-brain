@@ -1,42 +1,35 @@
-// app/dashboard/page.tsx
-import 'server-only';
-import React from 'react';
-import { headers } from 'next/headers';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
 
-type FlowLabel = 'Catalyst'|'Communications'|'Rhythmic'|'Observer';
+type FlowLabel = 'Catalyst' | 'Communications' | 'Rhythmic' | 'Observer';
 
-interface WeeklyPoint { week: string; submissions: number; }
-interface FlowBucket { flow: FlowLabel; count: number; }
-interface LatestRow { id: string; created_at: string; full_profile_code: string | null; full_frequency: FlowLabel | null; }
-
-function baseUrl(h: Headers) {
-  const proto = h.get('x-forwarded-proto') ?? 'http';
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
-  return `${proto}://${host}`;
+interface WeeklyPoint {
+  week: string;
+  submissions: number;
 }
-
-async function fetchWeekly(): Promise<WeeklyPoint[]> {
-  const h = await headers();
-  const res = await fetch(`${baseUrl(h)}/api/dashboard/weekly`, { cache: 'no-store' });
-  if (!res.ok) return [];
-  return (await res.json()) as WeeklyPoint[];
+interface FlowBucket {
+  flow: FlowLabel;
+  count: number;
 }
-
-async function fetchFlow(): Promise<FlowBucket[]> {
-  const h = await headers();
-  const res = await fetch(`${baseUrl(h)}/api/dashboard/distribution`, { cache: 'no-store' });
-  if (!res.ok) return [];
-  return (await res.json()) as FlowBucket[];
-}
-
-async function fetchLatest(): Promise<LatestRow[]> {
-  const h = await headers();
-  const res = await fetch(`${baseUrl(h)}/api/dashboard/latest`, { cache: 'no-store' });
-  if (!res.ok) return [];
-  return (await res.json()) as LatestRow[];
+interface LatestRow {
+  id: string;
+  created_at: string;
+  full_profile_code: string | null;
+  full_frequency: FlowLabel | null;
 }
 
 const FLOW_COLORS: Record<FlowLabel, string> = {
@@ -46,9 +39,35 @@ const FLOW_COLORS: Record<FlowLabel, string> = {
   Observer: '#00f5d4',
 };
 
-export default async function DashboardPage() {
-  const [weekly, flow, latest] = await Promise.all([fetchWeekly(), fetchFlow(), fetchLatest()]);
-  const pieData = flow.map(f => ({ name: f.flow, value: f.count, color: FLOW_COLORS[f.flow] }));
+export default function DashboardPage() {
+  const [weekly, setWeekly] = useState<WeeklyPoint[]>([]);
+  const [flow, setFlow] = useState<FlowBucket[]>([]);
+  const [latest, setLatest] = useState<LatestRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [w, f, l] = await Promise.all([
+          fetch('/api/dashboard/weekly', { cache: 'no-store' }).then((r) => r.json()),
+          fetch('/api/dashboard/distribution', { cache: 'no-store' }).then((r) => r.json()),
+          fetch('/api/dashboard/latest', { cache: 'no-store' }).then((r) => r.json()),
+        ]);
+        setWeekly(Array.isArray(w) ? w : []);
+        setFlow(Array.isArray(f) ? f : []);
+        setLatest(Array.isArray(l) ? l : []);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) {
+    return <main className="mx-auto max-w-6xl p-6">Loading…</main>;
+  }
+
+  const pieData = flow.map((f) => ({ name: f.flow, value: f.count, color: FLOW_COLORS[f.flow] }));
 
   return (
     <main className="mx-auto max-w-6xl p-6 space-y-8">
@@ -77,7 +96,9 @@ export default async function DashboardPage() {
             <ResponsiveContainer>
               <PieChart>
                 <Pie data={pieData} dataKey="value" nameKey="name" outerRadius="80%">
-                  {pieData.map((p, i) => <Cell key={i} fill={p.color} />)}
+                  {pieData.map((p, i) => (
+                    <Cell key={i} fill={p.color} />
+                  ))}
                 </Pie>
                 <Tooltip />
                 <Legend />
@@ -101,19 +122,27 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {latest.map(row => (
+              {latest.map((row) => (
                 <tr key={row.id} className="border-t">
                   <td className="py-2 pr-4 font-mono">{row.id}</td>
-                  <td className="py-2 pr-4">{new Date(row.created_at).toLocaleString()}</td>
+                  <td className="py-2 pr-4">
+                    {new Date(row.created_at).toLocaleString()}
+                  </td>
                   <td className="py-2 pr-4">{row.full_profile_code ?? '—'}</td>
                   <td className="py-2 pr-4">{row.full_frequency ?? '—'}</td>
                   <td className="py-2 pr-4">
-                    <a className="underline" href={`/report/${row.id}`}>Open</a>
+                    <a className="underline" href={`/report/${row.id}`}>
+                      Open
+                    </a>
                   </td>
                 </tr>
               ))}
               {latest.length === 0 && (
-                <tr><td className="py-3 text-gray-500" colSpan={5}>No submissions yet.</td></tr>
+                <tr>
+                  <td className="py-3 text-gray-500" colSpan={5}>
+                    No submissions yet.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
