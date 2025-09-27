@@ -1,19 +1,25 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-export async function GET(req: Request) {
+type ResultRow = { profile_code: string | null };
+
+export async function GET() {
+  // Pull profile_code for all computed results and aggregate in Node
   const { data, error } = await supabaseAdmin
-    .from('mc_results') // table storing computed results
-    .select('profile_code, count:profile_code', { count: 'exact', head: false })
-    .neq('profile_code', null);
+    .from('mc_results')
+    .select('profile_code');
 
-  if (error) return NextResponse.json({ items: [], error: error.message }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ items: [], error: error.message }, { status: 500 });
+  }
 
-  // supabase-js doesn't alias like SQL; do a manual aggregate if needed
-  const counts: Record<string, number> = {};
-  (data as any[]).forEach((r: any) => {
-    counts[r.profile_code] = (counts[r.profile_code] || 0) + 1;
-  });
-  const items = Object.entries(counts).map(([code, count]) => ({ code, count }));
+  const rows = (data as ResultRow[]) || [];
+  const counts = rows.reduce<Record<string, number>>((acc, r) => {
+    if (!r.profile_code) return acc;
+    acc[r.profile_code] = (acc[r.profile_code] || 0) + 1;
+    return acc;
+  }, {});
+
+  const items = Object.keys(counts).map((code) => ({ code, count: counts[code] }));
   return NextResponse.json({ items });
 }
