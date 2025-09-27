@@ -1,63 +1,56 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { exportElementToPdf } from '@/lib/exportPdf';
 
-type Props = {
-  id: string;
-  autoDownload?: boolean;
-};
+type Props = { id: string; autoDownload?: boolean };
 
 export default function ReportClient({ id, autoDownload = false }: Props) {
-  // Everything you want in the PDF must be inside this container:
   const reportRef = useRef<HTMLDivElement>(null);
-
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleDownload() {
-    if (!reportRef.current) return;
+  const handleDownload = useCallback(async () => {
+    const node = reportRef.current;
+    if (!node) return;
     try {
       setError(null);
       setDownloading(true);
-
-      // Hide UI controls during export
-      reportRef.current.classList.add('pdf-export');
-
-      await exportElementToPdf(
-        reportRef.current,
-        `MindCanvas-Report-${id}.pdf`,
-        { margin: 18, scale: 2, page: 'a4' }
-      );
+      node.classList.add('pdf-export');
+      await exportElementToPdf(node, `MindCanvas-Report-${id}.pdf`, {
+        margin: 18,
+        scale: 2,
+        page: 'a4',
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      // Always restore UI controls
-      reportRef.current?.classList.remove('pdf-export');
+      // use the same captured node to satisfy the linter
+      node.classList.remove('pdf-export');
       setDownloading(false);
     }
-  }
+  }, [id]);
 
-  // 4) Make auto-download also hide controls
-  // => Put this effect right here (it's already wired below):
+  // Auto-download and hide controls using a captured node reference
   useEffect(() => {
-    if (!autoDownload || !reportRef.current) return;
-    // Ensure controls are hidden while auto-export runs
-    reportRef.current.classList.add('pdf-export');
+    if (!autoDownload) return;
+    const node = reportRef.current;
+    if (!node) return;
+
+    node.classList.add('pdf-export');
     const t = setTimeout(() => {
-      // handleDownload() removes the class afterward as well
-      void handleDownload();
-    }, 300); // small delay to ensure fonts/images are ready
+      void handleDownload(); // handleDownload will remove the class
+    }, 300);
 
     return () => {
       clearTimeout(t);
-      reportRef.current?.classList.remove('pdf-export');
+      node.classList.remove('pdf-export');
     };
-  }, [autoDownload]);
+  }, [autoDownload, handleDownload]);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
-      {/* Header (controls marked .no-pdf so they don't appear in the PDF) */}
+      {/* Header controls (hidden from PDF via CSS .no-pdf + .pdf-export on container) */}
       <div className="mb-4 flex items-center justify-between no-pdf">
         <h1 className="text-xl font-semibold">Report</h1>
         <div className="flex gap-2">
@@ -78,12 +71,9 @@ export default function ReportClient({ id, autoDownload = false }: Props) {
         </div>
       )}
 
-      {/* IMPORTANT: Wrap your full report content inside this container */}
+      {/* Everything inside reportRef is captured into the PDF */}
       <div ref={reportRef} id="report-root" className="bg-white">
-        {/* ⬇️ Your existing report markup goes here ⬇️
-            hero, flow pie, profile bars, long-form copy from mc_profiles,
-            strengths/watch-outs/tips, actions, etc.
-        */}
+        {/* ⬇️ Your report content goes here (hero, charts, copy, etc.) ⬇️ */}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 type Row = {
@@ -24,7 +24,7 @@ type Item = {
   flow: { A: number; B: number; C: number; D: number } | null;
 };
 
-export async function GET(_req: NextRequest) {
+export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('v_mc_clients_list')
     .select('*')
@@ -47,12 +47,7 @@ export async function GET(_req: NextRequest) {
     flow:
       r.flow_a === null || r.flow_b === null || r.flow_c === null || r.flow_d === null
         ? null
-        : {
-            A: Number(r.flow_a),
-            B: Number(r.flow_b),
-            C: Number(r.flow_c),
-            D: Number(r.flow_d),
-          },
+        : { A: Number(r.flow_a), B: Number(r.flow_b), C: Number(r.flow_c), D: Number(r.flow_d) },
   }));
 
   return NextResponse.json({ items });
