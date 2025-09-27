@@ -1,126 +1,154 @@
 // app/api/submissions/[id]/finish/route.ts
-import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
-import { extractIdFromUrl } from "@/lib/routeParams";
-import { getTestConfig, type TestConfig } from "@/lib/testConfigs";
+import 'server-only';
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
-type Body = { slug: string; answers: Record<string, string> };
+type ProfileCode = 'P1'|'P2'|'P3'|'P4'|'P5'|'P6'|'P7'|'P8';
+type FlowLabel = 'Catalyst'|'Communications'|'Rhythmic'|'Observer';
 
-function isObj(x: unknown): x is Record<string, unknown> {
-  return typeof x === "object" && x !== null;
+const ALL_PROFILES: ProfileCode[] = ['P1','P2','P3','P4','P5','P6','P7','P8'];
+const ALL_FLOWS: FlowLabel[] = ['Catalyst','Communications','Rhythmic','Observer'];
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+
+function zeroProfileMap(): Record<ProfileCode, number> {
+  return ALL_PROFILES.reduce((acc, code) => { acc[code] = 0; return acc; }, {} as Record<ProfileCode, number>);
 }
-function topKey(rec: Record<string, number>): string | null {
-  let best: string | null = null, val = -Infinity;
-  for (const [k, v] of Object.entries(rec)) if (v > val) { val = v; best = k; }
-  return best;
-}
-
-function score(config: TestConfig, answers: Record<string, string>) {
-  const flows: Record<string, number> = {};
-  const profiles: Record<string, number> = {};
-  let answered = 0;
-
-  for (const q of config.questions) {
-    const sel = answers[q.id];
-    if (!sel) continue;
-    const opt = q.options.find((o) => o.key === sel);
-    if (!opt) continue;
-
-    // Only weighted options count for scoring
-    const w = opt.weight;
-    if (!w) continue;
-
-    answered++;
-
-    if (w.flows) for (const [k, v] of Object.entries(w.flows)) {
-      const n = typeof v === "number" ? v : Number(v);
-      if (Number.isFinite(n)) flows[k] = (flows[k] ?? 0) + n;
-    }
-    if (w.profiles) for (const [k, v] of Object.entries(w.profiles)) {
-      const n = typeof v === "number" ? v : Number(v);
-      if (Number.isFinite(n)) profiles[k] = (profiles[k] ?? 0) + n;
-    }
-  }
-
-  const full_frequency = topKey(flows);
-  const full_profile_code = topKey(profiles);
-  const total_score =
-    Object.values(flows).reduce((a, b) => a + b, 0) +
-    Object.values(profiles).reduce((a, b) => a + b, 0);
-
-  return { full_frequency, full_profile_code, scores_json: { flows, profiles }, total_score, answered };
+function zeroFlowMap(): Record<FlowLabel, number> {
+  return ALL_FLOWS.reduce((acc, f) => { acc[f] = 0; return acc; }, {} as Record<FlowLabel, number>);
 }
 
-export async function POST(req: Request) {
-  const id = extractIdFromUrl(req.url);
-  if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-
-  let b: Body;
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const raw: unknown = await req.json();
-    if (!isObj(raw)) throw new Error("bad body");
-    const slug = raw["slug"];
-    const answers = raw["answers"];
-    if (typeof slug !== "string") throw new Error("Missing slug");
-    if (!isObj(answers)) throw new Error("Missing answers");
-    b = { slug, answers: answers as Record<string, string> };
-  } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
-  }
+    const { id: submissionId } = await ctx.params;
+    if (!submissionId) return NextResponse.json({ error: 'Missing submission id' }, { status: 400 });
 
-  const config = getTestConfig(b.slug);
-  if (!config) return NextResponse.json({ error: "Unknown test slug" }, { status: 400 });
+    // Optional body with quals; tolerate empty body
+    let body: any = null;
+    try { body = await req.json(); } catch { body = null; }
+    const quals = body && typeof body === 'object'
+      ? { q16: body.q16, q17: body.q17, q18: body.q18, q19: body.q19, q20: body.q20 }
+      : {};
 
-  // 1) Score weighted questions
-  const scored = score(config, b.answers);
+    // 1) Answers with option metadata (points, profile_code, flow)
+    const { data: answers, error: answersErr } = await supabase
+      .from('mc_answers')
+      .select(`
+        id,
+        question_id,
+        option_id,
+        value,
+        mc_options (
+          id,
+          points,
+          profile_code,
+          flow
+        )
+      `)
+      .eq('submission_id', submissionId);
 
-  // 2) Extract qualification answers (no weight) for Q16–Q20
-  const qualRows = config.questions
-    .filter((q) => q.id >= "q16" && q.id <= "q20") // your IDs are "q16"..."q20"
-    .map((q) => {
-      const key = b.answers[q.id];
-      if (!key) return null;
-      const opt = q.options.find((o) => o.key === key);
-      if (!opt) return null;
-      // Skip if this option actually has weight (defensive)
-      if (opt.weight) return null;
-      return {
-        submission_id: id,
-        qid: q.id,
-        answer_key: key,
-        answer_label: opt.label,
-      };
-    })
-    .filter((r): r is { submission_id: string; qid: string; answer_key: string; answer_label: string } => !!r);
+    if (answersErr) {
+      return NextResponse.json({ error: 'Failed to fetch answers', details: answersErr.message }, { status: 500 });
+    }
 
-  const db = supabaseServer();
+    // 2) Totals
+    const profileTotals = zeroProfileMap();
+    const flowTotals = zeroFlowMap();
 
-  // 3) Persist scored fields on the submission
-  {
-    const { error } = await db
-      .from("mc_submissions")
+    for (const a of answers ?? []) {
+      const opt = (a as any).mc_options as {
+        id: string;
+        points: number | null;
+        profile_code: ProfileCode | null;
+        flow: FlowLabel | null;
+      } | null;
+
+      const points = opt?.points ?? 0;
+      const pcode = (opt?.profile_code ?? '') as ProfileCode;
+      const flow = (opt?.flow ?? '') as FlowLabel;
+
+      if (ALL_PROFILES.includes(pcode)) profileTotals[pcode] = (profileTotals[pcode] ?? 0) + points;
+      if (ALL_FLOWS.includes(flow)) flowTotals[flow] = (flowTotals[flow] ?? 0) + points;
+    }
+
+    // 3) Winners
+    const winnerProfile = ((): ProfileCode => {
+      let best: ProfileCode = 'P1', bestScore = -Infinity;
+      for (const code of ALL_PROFILES) {
+        const s = profileTotals[code] ?? 0;
+        if (s > bestScore) { best = code; bestScore = s; }
+      }
+      return best;
+    })();
+
+    const winnerFlow = ((): FlowLabel => {
+      let best: FlowLabel = 'Catalyst', bestScore = -Infinity;
+      for (const f of ALL_FLOWS) {
+        const s = flowTotals[f] ?? 0;
+        if (s > bestScore) { best = f; bestScore = s; }
+      }
+      return best;
+    })();
+
+    // 4) Totals/percents
+    const totalScore = ALL_PROFILES.reduce((acc, code) => acc + (profileTotals[code] ?? 0), 0);
+    const flowDenom = ALL_FLOWS.reduce((acc, f) => acc + (flowTotals[f] ?? 0), 0);
+
+    const scores_json = {
+      profiles: profileTotals,
+      flows: flowTotals,
+      total: totalScore,
+      winner: { profileCode: winnerProfile, flow: winnerFlow },
+      percentages: {
+        profiles: ALL_PROFILES.reduce((acc, code) => {
+          const val = profileTotals[code] ?? 0;
+          acc[code] = totalScore > 0 ? Math.round((val / totalScore) * 100) : 0;
+          return acc;
+        }, {} as Record<ProfileCode, number>),
+        flows: ALL_FLOWS.reduce((acc, f) => {
+          const val = flowTotals[f] ?? 0;
+          acc[f] = flowDenom > 0 ? Math.round((val / flowDenom) * 100) : 0;
+          return acc;
+        }, {} as Record<FlowLabel, number>),
+      },
+    };
+
+    // 5) Persist to mc_submissions
+    const { error: upErr } = await supabase
+      .from('mc_submissions')
       .update({
-        full_profile_code: scored.full_profile_code,
-        full_frequency: scored.full_frequency,
-        scores_json: scored.scores_json as unknown as object,
-        total_score: scored.total_score,
-        taken_at: new Date().toISOString(),
+        scores_json,
+        total_score: totalScore,
+        full_profile_code: winnerProfile,
+        full_frequency: winnerFlow,
+        finished_at: new Date().toISOString(),
       })
-      .eq("id", id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+      .eq('id', submissionId);
 
-  // 4) Upsert qualification answers (if any)
-  if (qualRows.length) {
-    const { error } = await db
-      .from("mc_qualification_answers")
-      .upsert(
-        qualRows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),
-        { onConflict: "submission_id,qid" }
-      );
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+    if (upErr) {
+      return NextResponse.json({ error: 'Failed to update submission', details: upErr.message }, { status: 500 });
+    }
 
-  return NextResponse.json({ ok: true, id, ...scored, qualifications_saved: qualRows.length });
+    // 6) Upsert quals if provided (non-fatal on error)
+    if (quals && Object.values(quals).some(v => typeof v !== 'undefined')) {
+      const { error: qualErr } = await supabase
+        .from('mc_qualifications')
+        .upsert({ submission_id: submissionId, ...quals } as any, { onConflict: 'submission_id' } as any);
+      if (qualErr) {
+        return NextResponse.json({
+          submissionId,
+          result: scores_json,
+          warning: 'Results saved, but qualifications upsert failed',
+          details: qualErr.message,
+        }, { status: 207 });
+      }
+    }
+
+    return NextResponse.json({ submissionId, result: scores_json }, { status: 200 });
+  } catch (err: any) {
+    return NextResponse.json({ error: 'Unexpected error finishing submission', details: String(err?.message ?? err) }, { status: 500 });
+  }
 }
 

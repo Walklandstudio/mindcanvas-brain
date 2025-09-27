@@ -1,146 +1,156 @@
-// app/report/[id]/ReportViz.tsx
-"use client";
+'use client';
 
+import React, { useMemo } from 'react';
 import {
-  Pie,
-  PieChart,
-  Cell,
-  Tooltip,
-  Legend,
   ResponsiveContainer,
-} from "recharts";
-import {
-  FLOW_COLORS,
-  PROFILE_COLORS,
-  PROFILE_PRIMARY_FLOW,
-  PROFILE_HYBRID_WEIGHTS,
-  PROFILE_TITLES,
-  type FlowLabel,
-  type ProfileKey,
-} from "@/lib/profileImages";
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip as ReTooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Legend,
+} from 'recharts';
 
-type NumMap<T extends string> = Partial<Record<T, number>>;
+export type ProfileCode = 'P1'|'P2'|'P3'|'P4'|'P5'|'P6'|'P7'|'P8';
+export type FlowLabel = 'Catalyst'|'Communications'|'Rhythmic'|'Observer';
 
-export type VizProps = {
-  profileScores: NumMap<ProfileKey>;
-  flowScores?: NumMap<FlowLabel>;
-  mainProfile?: ProfileKey;
+export interface ResultPayload {
+  profiles: Record<ProfileCode, number>;
+  flows: Record<FlowLabel, number>;
+  total: number;
+  winner: { profileCode: ProfileCode; flow: FlowLabel };
+  percentages: {
+    profiles: Record<ProfileCode, number>;
+    flows: Record<FlowLabel, number>;
+  };
+}
+
+export interface ReportVizProps {
+  result: ResultPayload;
+  profileLabels?: Partial<Record<ProfileCode, string>>;
+  flowColors?: Partial<Record<FlowLabel, string>>;
+  profileColors?: Partial<Record<ProfileCode, string>>;
+}
+
+const ALL_PROFILES: ProfileCode[] = ['P1','P2','P3','P4','P5','P6','P7','P8'];
+const ALL_FLOWS: FlowLabel[] = ['Catalyst','Communications','Rhythmic','Observer'];
+
+const DEFAULT_FLOW_COLORS: Record<FlowLabel, string> = {
+  Catalyst: '#9b5de5',
+  Communications: '#f15bb5',
+  Rhythmic: '#00bbf9',
+  Observer: '#00f5d4',
 };
 
-function sum<T extends string>(m: NumMap<T>): number {
-  return Object.values(m).reduce((a, b) => a + (b ?? 0), 0);
+const DEFAULT_PROFILE_COLORS: Record<ProfileCode, string> = {
+  P1: '#9b5de5', P2: '#f15bb5', P3: '#fee440', P4: '#00bbf9',
+  P5: '#00f5d4', P6: '#277da1', P7: '#577590', P8: '#4d908e',
+};
+
+const DEFAULT_PROFILE_LABELS: Record<ProfileCode, string> = {
+  P1: 'P1', P2: 'P2', P3: 'P3', P4: 'P4', P5: 'P5', P6: 'P6', P7: 'P7', P8: 'P8',
+};
+
+function num(n: unknown, fallback = 0): number {
+  return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
 }
 
-function deriveFlowsFromProfiles(profiles: NumMap<ProfileKey>): NumMap<FlowLabel> {
-  const out: NumMap<FlowLabel> = {};
-  const keys = Object.keys(PROFILE_TITLES) as ProfileKey[];
-
-  for (const k of keys) {
-    const score = profiles[k] ?? 0;
-    if (!score) continue;
-
-    const hybrid = PROFILE_HYBRID_WEIGHTS[k];
-    if (hybrid) {
-      out[hybrid.a] = (out[hybrid.a] ?? 0) + score * hybrid.wA;
-      out[hybrid.b] = (out[hybrid.b] ?? 0) + score * hybrid.wB;
-    } else {
-      const f = PROFILE_PRIMARY_FLOW[k];
-      out[f] = (out[f] ?? 0) + score;
-    }
-  }
-  return out;
+function zeroedProfiles(source?: Partial<Record<ProfileCode, number>>): Record<ProfileCode, number> {
+  return ALL_PROFILES.reduce((acc, code) => {
+    acc[code] = num(source?.[code], 0);
+    return acc;
+  }, {} as Record<ProfileCode, number>);
 }
 
-export default function ReportViz({ profileScores, flowScores, mainProfile }: VizProps) {
-  const flows = flowScores ?? deriveFlowsFromProfiles(profileScores);
+function zeroedFlows(source?: Partial<Record<FlowLabel, number>>): Record<FlowLabel, number> {
+  return ALL_FLOWS.reduce((acc, key) => {
+    acc[key] = num(source?.[key], 0);
+    return acc;
+  }, {} as Record<FlowLabel, number>);
+}
 
-  // ----- Pie data (4 flows) -----
-  const FLOW_ORDER: FlowLabel[] = [
-    "Catalyst Coaching Flow",
-    "Communications Coaching Flow",
-    "Rhythmic Coaching Flow",
-    "Observer Coaching Flow",
-  ];
-  const flowTotal = Math.max(1, sum(flows));
-  const flowData = FLOW_ORDER.map((label) => ({
-    name: label,
-    value: Math.round(((flows[label] ?? 0) / flowTotal) * 100),
-    color: FLOW_COLORS[label],
-  }));
+export default function ReportViz({
+  result,
+  profileLabels,
+  flowColors,
+  profileColors,
+}: ReportVizProps) {
+  const flowsPct = useMemo(() => zeroedFlows(result?.percentages?.flows), [result]);
+  const profilesPct = useMemo(() => zeroedProfiles(result?.percentages?.profiles), [result]);
 
-  // ----- Profile list with colours & %
-  const PORDER = Object.keys(PROFILE_TITLES) as ProfileKey[];
-  const profTotal = Math.max(1, sum(profileScores));
-  const rows = PORDER
-    .map((code) => ({
-      code,
-      name: PROFILE_TITLES[code],
-      pct: Math.round(((profileScores[code] ?? 0) / profTotal) * 100),
-    }))
-    .filter((r) => r.pct > 0)
-    .sort((a, b) => b.pct - a.pct);
+  const flowPieData = useMemo(
+    () =>
+      ALL_FLOWS.map((f) => ({
+        name: f,
+        value: num(flowsPct[f], 0),
+        color: (flowColors?.[f] ?? DEFAULT_FLOW_COLORS[f]) as string,
+      })),
+    [flowsPct, flowColors]
+  );
 
-  const main = (mainProfile && rows.find((r) => r.code === mainProfile)) ? mainProfile : rows[0]?.code;
+  const profileBarData = useMemo(() => {
+    const rows = ALL_PROFILES.map((p) => ({
+      code: p,
+      label: profileLabels?.[p] ?? DEFAULT_PROFILE_LABELS[p],
+      value: num(profilesPct[p], 0),
+      color: (profileColors?.[p] ?? DEFAULT_PROFILE_COLORS[p]) as string,
+    }));
+    rows.sort((a, b) => (b.value - a.value) || a.code.localeCompare(b.code));
+    return rows;
+  }, [profilesPct, profileLabels, profileColors]);
 
   return (
-    <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Flow pie */}
-      <div className="rounded-2xl border p-5">
-        <h3 className="text-lg font-semibold mb-4">Coaching Flow</h3>
-        <div className="w-full" style={{ height: 280 }}>
-          <ResponsiveContainer width="100%" height="100%">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ----- Flow Pie ----- */}
+      <div className="rounded-2xl border p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Your Coaching Flow</h3>
+        <div className="w-full h-72">
+          <ResponsiveContainer>
             <PieChart>
               <Pie
-                data={flowData}
+                data={flowPieData}
                 dataKey="value"
                 nameKey="name"
+                cy="50%"
                 cx="50%"
-                cy="55%"
-                innerRadius={60}
-                outerRadius={100}
-                paddingAngle={1}
+                outerRadius="80%"
+                isAnimationActive={false}
               >
-                {flowData.map((d, i) => (
-                  <Cell key={i} fill={d.color} />
+                {flowPieData.map((entry, idx) => (
+                  <Cell key={`flow-cell-${idx}`} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip />
-              <Legend verticalAlign="bottom" height={24} />
+              <ReTooltip formatter={(val: any, name: any) => [`${num(val,0)}%`, name]} />
+              <Legend />
             </PieChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Profiles with coloured bars */}
-      <div className="rounded-2xl border p-5">
-        <h3 className="text-lg font-semibold mb-4">Profiles</h3>
-        {rows.length === 0 ? (
-          <p className="text-slate-500">No profile scores available.</p>
-        ) : (
-          <ul className="space-y-3">
-            {rows.map((r) => (
-              <li key={r.code}>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className={`font-medium ${r.code === main ? "text-slate-900" : "text-slate-600"}`}>
-                    {PROFILE_TITLES[r.code]}
-                  </span>
-                  <span className={`tabular-nums ${r.code === main ? "font-semibold" : ""}`}>{r.pct}%</span>
-                </div>
-                <div className="h-2 w-full bg-slate-200 rounded">
-                  <div
-                    className="h-2 rounded"
-                    style={{
-                      width: `${r.pct}%`,
-                      backgroundColor: PROFILE_COLORS[r.code],
-                      boxShadow: r.code === main ? "0 0 0 1px rgba(0,0,0,.15) inset" : undefined,
-                    }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+      {/* ----- Profiles Bar ----- */}
+      <div className="rounded-2xl border p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Profile Breakdown</h3>
+        <div className="w-full h-80">
+          <ResponsiveContainer>
+            <BarChart data={profileBarData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" />
+              <YAxis domain={[0, 100]} tickFormatter={(v) => `${num(v,0)}%`} />
+              <ReTooltip formatter={(val: any) => `${num(val,0)}%`} labelFormatter={(label) => `Profile: ${label}`} />
+              <Legend />
+              <Bar dataKey="value" name="Percent">
+                {profileBarData.map((row, idx) => (
+                  <Cell key={`pbar-cell-${idx}`} fill={row.color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
-    </section>
+    </div>
   );
 }
