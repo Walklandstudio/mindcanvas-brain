@@ -73,6 +73,20 @@ function zeroedFlows(source?: Partial<Record<FlowLabel, number>>): Record<FlowLa
   }, {} as Record<FlowLabel, number>);
 }
 
+/** Recharts tooltip formatters are loosely typed; use unknown-friendly signatures. */
+function tooltipValuePercent(value: unknown): string {
+  return `${num(value, 0)}%`;
+}
+function flowTooltipFormatter(value: unknown, name: string): [string, string] {
+  return [tooltipValuePercent(value), name];
+}
+function profileTooltipFormatter(value: unknown): string {
+  return tooltipValuePercent(value);
+}
+function labelFormatter(label: unknown): string {
+  return `Profile: ${String(label)}`;
+}
+
 export default function ReportViz({
   result,
   profileLabels,
@@ -124,7 +138,7 @@ export default function ReportViz({
                   <Cell key={`flow-cell-${idx}`} fill={entry.color} />
                 ))}
               </Pie>
-              <ReTooltip formatter={(val: any, name: any) => [`${num(val,0)}%`, name]} />
+              <ReTooltip formatter={flowTooltipFormatter} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
@@ -139,8 +153,8 @@ export default function ReportViz({
             <BarChart data={profileBarData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" />
-              <YAxis domain={[0, 100]} tickFormatter={(v) => `${num(v,0)}%`} />
-              <ReTooltip formatter={(val: any) => `${num(val,0)}%`} labelFormatter={(label) => `Profile: ${label}`} />
+              <YAxis domain={[0, 100]} tickFormatter={(v: number) => `${num(v, 0)}%`} />
+              <ReTooltip formatter={profileTooltipFormatter} labelFormatter={labelFormatter} />
               <Legend />
               <Bar dataKey="value" name="Percent">
                 {profileBarData.map((row, idx) => (
