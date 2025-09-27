@@ -24,16 +24,16 @@ interface ProfileRow {
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// Service-role client (server-only)
+// Server-only service key client
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
-// Make sure only requests with our admin cookie get through (middleware already enforces this).
 function hasAdminCookie(req: NextRequest): boolean {
   return Boolean(req.cookies.get('admin_token')?.value);
 }
 
+/** GET: list profiles */
 export async function GET(req: NextRequest) {
   if (!hasAdminCookie(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data as ProfileRow[], { status: 200 });
 }
 
+/** PUT: upsert array of profiles */
 export async function PUT(req: NextRequest) {
   if (!hasAdminCookie(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -63,7 +64,6 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Expected an array of profiles' }, { status: 400 });
   }
 
-  // Lightweight validation/narrowing
   const rows: ProfileRow[] = [];
   for (const item of payload) {
     if (

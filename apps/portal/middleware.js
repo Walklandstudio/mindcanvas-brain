@@ -1,9 +1,9 @@
-// middleware.ts
-import { NextRequest, NextResponse } from 'next/server';
+// middleware.js
+import { NextResponse } from 'next/server';
 
 const ADMIN_COOKIE = 'admin_token';
 
-export function middleware(req: NextRequest) {
+export function middleware(req) {
   const { pathname } = req.nextUrl;
 
   const inAdminScope =
@@ -20,7 +20,7 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const cookie = req.cookies.get(ADMIN_COOKIE)?.value ?? '';
+  const cookie = req.cookies.get(ADMIN_COOKIE)?.value || '';
   if (!cookie) {
     const loginUrl = new URL('/admin/login', req.url);
     loginUrl.searchParams.set('next', pathname);
@@ -33,3 +33,4 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: ['/admin/:path*', '/api/admin/:path*'],
 };
+

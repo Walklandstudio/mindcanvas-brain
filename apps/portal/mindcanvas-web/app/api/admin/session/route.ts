@@ -5,6 +5,10 @@ import { NextRequest, NextResponse } from 'next/server';
 const ADMIN_COOKIE = 'admin_token';
 const MAX_AGE_SECONDS = 60 * 60 * 8; // 8 hours
 
+/**
+ * Sets the admin cookie after validating the password against ADMIN_DASH_TOKEN.
+ * Valid route export: POST only.
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => null)) as { password?: string } | null;
@@ -20,10 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (password !== expected) {
-      return NextResponse.json(
-        { ok: false, error: 'Invalid password' },
-        { status: 401 }
-      );
+      return NextResponse.json({ ok: false, error: 'Invalid password' }, { status: 401 });
     }
 
     const res = NextResponse.json({ ok: true });
