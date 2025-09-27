@@ -48,6 +48,19 @@ function getErrorMessage(e: unknown): string {
   }
 }
 
+function splitName(full?: string | null): { first: string; last: string } {
+  const s = (full ?? '').trim();
+  if (!s) return { first: '', last: '' };
+  const parts = s.split(/\s+/);
+  return parts.length === 1
+    ? { first: parts[0], last: '' }
+    : { first: parts[0], last: parts.slice(1).join(' ') };
+}
+
+function isValidEmail(s: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
 /* ---------- API ---------- */
 async function startSubmission(slug: string): Promise<StartSubmissionResponse> {
   const res = await fetch('/api/submissions/start', {
@@ -118,8 +131,10 @@ export default function TestClient({
   const [finishing, startFinishing] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Contact state (initialized from prefill)
-  const [name, setName] = useState(prefill?.name ?? '');
+  // Contact state (first/last/email/phone)
+  const initial = splitName(prefill?.name);
+  const [first, setFirst] = useState(initial.first);
+  const [last, setLast] = useState(initial.last);
   const [email, setEmail] = useState(prefill?.email ?? '');
   const [phone, setPhone] = useState(prefill?.phone ?? '');
   const [contactSaved, setContactSaved] = useState<boolean>(false);
@@ -137,12 +152,14 @@ export default function TestClient({
         const s = sid ? await resumeSubmission(sid) : await startSubmission(slug);
         setSub(s);
 
-        // Load existing contact; if none saved, keep prefill values
+        // Load existing contact (if any) and split to first/last
         try {
           const c = await getContact(s.submissionId);
           const hasAny = Boolean(c.name || c.email || c.phone);
           if (hasAny) {
-            setName(c.name ?? '');
+            const { first: f, last: l } = splitName(c.name);
+            setFirst(f);
+            setLast(l);
             setEmail(c.email ?? '');
             setPhone(c.phone ?? '');
             setContactSaved(true);
@@ -151,7 +168,7 @@ export default function TestClient({
           console.warn('Contact load error:', getErrorMessage(ce));
         }
 
-        // Compute starting question
+        // Compute starting question index
         if (s.questions?.length) {
           const firstUnanswered = s.questions.findIndex(q => {
             const a = s.answers?.[q.id];
@@ -166,7 +183,7 @@ export default function TestClient({
     })();
   }, [slug, sid]);
 
-  // Stable questions reference
+  // Stable questions
   const questions = useMemo<Question[]>(() => (sub ? sub.questions : []), [sub]);
   const total = questions.length;
 
@@ -181,12 +198,19 @@ export default function TestClient({
 
   const progressPct = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
 
+  // Require ALL fields and a valid email
+  const contactValid = useMemo(() => {
+    return (
+      first.trim().length > 0 &&
+      last.trim().length > 0 &&
+      phone.trim().length > 0 &&
+      isValidEmail(email.trim())
+    );
+  }, [first, last, email, phone]);
+
   const onSingleSelect = useCallback((question: Question, optionId: string) => {
     if (!sub) return;
-
-    // Optimistic local update
     setSub(prev => (prev ? { ...prev, answers: { ...prev.answers, [question.id]: optionId } } : prev));
-
     startSaving(() => {
       saveAnswerAPI(sub.submissionId, question.id, optionId).catch((e: unknown) => {
         setError(getErrorMessage(e));
@@ -196,7 +220,6 @@ export default function TestClient({
 
   const onMultiToggle = useCallback((question: Question, optionId: string) => {
     if (!sub) return;
-
     let nextArr: string[] = [];
     setSub(prev => {
       if (!prev) return prev;
@@ -208,7 +231,6 @@ export default function TestClient({
       nextArr = arr;
       return { ...prev, answers: { ...prev.answers, [question.id]: arr } };
     });
-
     startSaving(() => {
       saveAnswerAPI(sub.submissionId, question.id, nextArr).catch((e: unknown) => {
         setError(getErrorMessage(e));
@@ -220,6 +242,7 @@ export default function TestClient({
   const prev = useCallback(() => setCurrent(i => Math.max(i - 1, 0)), []);
 
   function canAdvance(q: Question): boolean {
+    if (!contactSaved || !contactValid) return false; // block until contact saved & valid
     if (q.type === 'info' || !q.isScored) return true;
     const a = sub?.answers?.[q.id];
     if (q.type === 'multi') return Array.isArray(a) && a.length > 0;
@@ -237,18 +260,17 @@ export default function TestClient({
 
   const q = questions[current];
 
-  // Save contact handler
   async function onSaveContact() {
     if (!sub) return;
     setContactSaving(true);
     setError(null);
     try {
       await saveContact(sub.submissionId, {
-        name: name.trim() || null,
-        email: email.trim() || null,
-        phone: phone.trim() || null,
+        name: `${first.trim()} ${last.trim()}`.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
       });
-      setContactSaved(Boolean(name || email || phone));
+      setContactSaved(true);
     } catch (e: unknown) {
       setError(getErrorMessage(e));
     } finally {
@@ -284,22 +306,25 @@ export default function TestClient({
         </div>
       ) : null}
 
-      {/* Participant details */}
+      {/* Participant details (REQUIRED) */}
       <div className="mb-6 rounded-2xl border bg-white p-6 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <div className="text-lg font-medium">Your details</div>
-          {contactSaved ? (
-            <span className="text-xs text-green-600">Saved</span>
-          ) : (
-            <span className="text-xs text-gray-400">Optional</span>
-          )}
+          <span className="text-xs text-gray-500">{contactSaved ? 'Saved' : 'Required'}</span>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <input
             className="rounded-xl border px-3 py-2 text-sm"
-            placeholder="Full name"
-            value={name}
-            onChange={e => setName(e.target.value)}
+            placeholder="First name"
+            value={first}
+            onChange={e => setFirst(e.target.value)}
+          />
+          <input
+            className="rounded-xl border px-3 py-2 text-sm"
+            placeholder="Last name"
+            value={last}
+            onChange={e => setLast(e.target.value)}
           />
           <input
             className="rounded-xl border px-3 py-2 text-sm"
@@ -315,11 +340,18 @@ export default function TestClient({
             onChange={e => setPhone(e.target.value)}
           />
         </div>
+
+        {!contactValid && (
+          <p className="mt-2 text-xs text-amber-700">
+            Please enter first name, last name, phone, and a valid email to begin.
+          </p>
+        )}
+
         <div className="mt-3 flex justify-end">
           <button
             className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
             onClick={onSaveContact}
-            disabled={!sub || contactSaving}
+            disabled={!sub || contactSaving || !contactValid}
           >
             {contactSaving ? 'Saving…' : 'Save details'}
           </button>
@@ -334,14 +366,18 @@ export default function TestClient({
         <div className="rounded-2xl border px-4 py-8 text-center">Preparing your test…</div>
       ) : null}
 
-      {/* Question */}
+      {/* Questions (disabled until contact is saved & valid) */}
       {sub && q ? (
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <div
+          className={`rounded-2xl border bg-white p-6 shadow-sm ${
+            contactSaved && contactValid ? '' : 'opacity-60'
+          }`}
+          style={{ pointerEvents: contactSaved && contactValid ? 'auto' : 'none' }}
+        >
           <h2 className="mb-4 text-lg font-medium">
             {q.index}. {q.text}
           </h2>
 
-          {/* Single choice */}
           {q.type === 'single' ? (
             <div className="space-y-3">
               {q.options.map(opt => {
@@ -361,7 +397,6 @@ export default function TestClient({
             </div>
           ) : null}
 
-          {/* Multi choice */}
           {q.type === 'multi' ? (
             <div className="space-y-3">
               {q.options.map(opt => {
@@ -387,19 +422,17 @@ export default function TestClient({
             </div>
           ) : null}
 
-          {/* Info-only */}
           {q.type === 'info' ? (
             <p className="text-gray-600">
               This question is informational and does not affect your profile.
             </p>
           ) : null}
 
-          {/* Nav */}
           <div className="mt-6 flex items-center justify-between">
             <button
               className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
               onClick={prev}
-              disabled={current === 0 || saving}
+              disabled={current === 0 || saving || !contactSaved || !contactValid}
             >
               ← Back
             </button>
@@ -417,7 +450,7 @@ export default function TestClient({
                 <button
                   className="rounded-xl bg-black px-5 py-2 text-sm text-white disabled:opacity-50"
                   onClick={finish}
-                  disabled={finishing}
+                  disabled={finishing || !contactSaved || !contactValid}
                 >
                   {finishing ? 'Finishing…' : 'Finish & View Report'}
                 </button>
@@ -427,7 +460,6 @@ export default function TestClient({
         </div>
       ) : null}
 
-      {/* Footer hint */}
       <p className="mt-6 text-center text-xs text-gray-500">
         Your choices are saved automatically. You can refresh without losing progress.
       </p>

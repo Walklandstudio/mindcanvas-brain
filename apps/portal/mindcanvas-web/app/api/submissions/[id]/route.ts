@@ -41,17 +41,17 @@ type LoadedSubmission = {
   finished?: boolean;
 };
 
-type SubmissionRow = { id: string; finished: boolean | null; test: { slug: string } | null };
+type SubmissionRow = { id: string; test: { slug: string } | null };
 type TestIdRow = { id: string };
 type AnswerRow = { question_id: string; selected: unknown };
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // 1) Load submission (and slug via relation)
+  // 1) Load submission (NO "finished" column)
   const { data: sub, error: subErr } = await supabaseAdmin
     .from('mc_submissions')
-    .select('id, finished, test:mc_tests(slug)')
+    .select('id, test:mc_tests(slug)')
     .eq('id', id)
     .maybeSingle<SubmissionRow>();
 
@@ -70,7 +70,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: testErr?.message || 'Test not found' }, { status: 404 });
   }
 
-  // 3) Load questions (+ options) for that test
+  // 3) Load questions (+ options)
   const { data: qrows } = await supabaseAdmin
     .from('mc_questions')
     .select(
@@ -94,7 +94,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     })),
   }));
 
-  // 4) Load answers for this submission
+  // 4) Load answers
   const { data: arows } = await supabaseAdmin
     .from('mc_answers')
     .select('question_id, selected')
@@ -116,7 +116,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     testSlug: sub.test.slug,
     questions,
     answers,
-    finished: Boolean(sub.finished),
+    finished: false, // we don't track it in your schema
   };
 
   return NextResponse.json(payload);
