@@ -35,6 +35,7 @@ type LoadedSubmission = {
 
 type StartSubmissionResponse = LoadedSubmission;
 type FinishResponse = { reportId: string };
+type Contact = { name: string | null; email: string | null; phone: string | null };
 
 /* ---------- Utils ---------- */
 function getErrorMessage(e: unknown): string {
@@ -59,6 +60,12 @@ async function startSubmission(slug: string): Promise<StartSubmissionResponse> {
   return (await res.json()) as StartSubmissionResponse;
 }
 
+async function resumeSubmission(submissionId: string): Promise<StartSubmissionResponse> {
+  const res = await fetch(`/api/submissions/${submissionId}`, { method: 'GET', cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load submission: ${await res.text()}`);
+  return (await res.json()) as StartSubmissionResponse;
+}
+
 async function saveAnswerAPI(
   submissionId: string,
   questionId: string,
@@ -78,8 +85,23 @@ async function finishAPI(submissionId: string): Promise<FinishResponse> {
   return (await res.json()) as FinishResponse;
 }
 
+async function getContact(submissionId: string): Promise<Contact> {
+  const res = await fetch(`/api/submissions/${submissionId}/contact`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load contact: ${await res.text()}`);
+  return (await res.json()) as Contact;
+}
+
+async function saveContact(submissionId: string, c: Contact): Promise<void> {
+  const res = await fetch(`/api/submissions/${submissionId}/contact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(c),
+  });
+  if (!res.ok) throw new Error(`Failed to save details: ${await res.text()}`);
+}
+
 /* ---------- Client Component ---------- */
-export default function TestClient({ slug }: { slug: string }) {
+export default function TestClient({ slug, sid }: { slug: string; sid?: string }) {
   const router = useRouter();
 
   const [sub, setSub] = useState<LoadedSubmission | null>(null);
@@ -87,6 +109,13 @@ export default function TestClient({ slug }: { slug: string }) {
   const [saving, startSaving] = useTransition();
   const [finishing, startFinishing] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  // Contact state
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [contactSaved, setContactSaved] = useState<boolean>(false);
+  const [contactSaving, setContactSaving] = useState<boolean>(false);
 
   const mounted = useRef(false);
 
@@ -96,8 +125,23 @@ export default function TestClient({ slug }: { slug: string }) {
 
     (async () => {
       try {
-        const s = await startSubmission(slug);
+        // Start or resume
+        const s = sid ? await resumeSubmission(sid) : await startSubmission(slug);
         setSub(s);
+
+        // Load existing contact (if any)
+        try {
+          const c = await getContact(s.submissionId);
+          setName(c.name ?? '');
+          setEmail(c.email ?? '');
+          setPhone(c.phone ?? '');
+          setContactSaved(Boolean(c.name || c.email || c.phone));
+        } catch (ce: unknown) {
+          // non-fatal; show error banner if you want
+          console.warn('Contact load error:', getErrorMessage(ce));
+        }
+
+        // Compute starting question
         if (s.questions?.length) {
           const firstUnanswered = s.questions.findIndex(q => {
             const a = s.answers?.[q.id];
@@ -110,8 +154,9 @@ export default function TestClient({ slug }: { slug: string }) {
         setError(getErrorMessage(e));
       }
     })();
-  }, [slug]);
+  }, [slug, sid]);
 
+  // Stable questions reference
   const questions = useMemo<Question[]>(() => (sub ? sub.questions : []), [sub]);
   const total = questions.length;
 
@@ -128,7 +173,10 @@ export default function TestClient({ slug }: { slug: string }) {
 
   const onSingleSelect = useCallback((question: Question, optionId: string) => {
     if (!sub) return;
+
+    // Optimistic local update
     setSub(prev => (prev ? { ...prev, answers: { ...prev.answers, [question.id]: optionId } } : prev));
+
     startSaving(() => {
       saveAnswerAPI(sub.submissionId, question.id, optionId).catch((e: unknown) => {
         setError(getErrorMessage(e));
@@ -138,6 +186,7 @@ export default function TestClient({ slug }: { slug: string }) {
 
   const onMultiToggle = useCallback((question: Question, optionId: string) => {
     if (!sub) return;
+
     let nextArr: string[] = [];
     setSub(prev => {
       if (!prev) return prev;
@@ -149,6 +198,7 @@ export default function TestClient({ slug }: { slug: string }) {
       nextArr = arr;
       return { ...prev, answers: { ...prev.answers, [question.id]: arr } };
     });
+
     startSaving(() => {
       saveAnswerAPI(sub.submissionId, question.id, nextArr).catch((e: unknown) => {
         setError(getErrorMessage(e));
@@ -176,6 +226,25 @@ export default function TestClient({ slug }: { slug: string }) {
   }, [router, sub]);
 
   const q = questions[current];
+
+  // Save contact handler
+  async function onSaveContact() {
+    if (!sub) return;
+    setContactSaving(true);
+    setError(null);
+    try {
+      await saveContact(sub.submissionId, {
+        name: name.trim() || null,
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+      });
+      setContactSaved(Boolean(name || email || phone));
+    } catch (e: unknown) {
+      setError(getErrorMessage(e));
+    } finally {
+      setContactSaving(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -205,9 +274,54 @@ export default function TestClient({ slug }: { slug: string }) {
         </div>
       ) : null}
 
+      {/* Participant details */}
+      <div className="mb-6 rounded-2xl border bg-white p-6 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="text-lg font-medium">Your details</div>
+          {contactSaved ? (
+            <span className="text-xs text-green-600">Saved</span>
+          ) : (
+            <span className="text-xs text-gray-400">Optional</span>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <input
+            className="rounded-xl border px-3 py-2 text-sm"
+            placeholder="Full name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+          />
+          <input
+            className="rounded-xl border px-3 py-2 text-sm"
+            placeholder="Email"
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+          />
+          <input
+            className="rounded-xl border px-3 py-2 text-sm"
+            placeholder="Phone"
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+          />
+        </div>
+        <div className="mt-3 flex justify-end">
+          <button
+            className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+            onClick={onSaveContact}
+            disabled={!sub || contactSaving}
+          >
+            {contactSaving ? 'Saving…' : 'Save details'}
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          We use this to attach your report and let you revisit it later.
+        </p>
+      </div>
+
       {/* Loading */}
       {!sub && !error ? (
-        <div className="rounded-xl border px-4 py-8 text-center">Preparing your test…</div>
+        <div className="rounded-2xl border px-4 py-8 text-center">Preparing your test…</div>
       ) : null}
 
       {/* Question */}

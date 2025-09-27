@@ -12,7 +12,7 @@ type Detail = {
   profile_code: string | null;
   flow: { A: number; B: number; C: number; D: number } | null;
   answers: Answer[];
-  report_id?: string;
+  report_id?: string | null;
 };
 
 export default function ClientDetail({ id }: { id: string }) {
@@ -41,12 +41,29 @@ export default function ClientDetail({ id }: { id: string }) {
             <h2 className="text-xl font-semibold">{data.name || 'Client'}</h2>
             <p className="text-sm text-gray-500">{data.email || '—'} • {data.phone || '—'}</p>
           </div>
+
           {data.report_id ? (
-            <a className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-50" href={`/report/${data.report_id}`} target="_blank">
-              View Report
-            </a>
+            <div className="flex gap-2">
+              <a
+                className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-50"
+                href={`/report/${data.report_id}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View Report
+              </a>
+              <a
+                className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-50"
+                href={`/report/${data.report_id}?download=1`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Download Report
+              </a>
+            </div>
           ) : null}
         </div>
+
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="rounded-lg bg-gray-50 p-4">
             <div className="text-xs text-gray-500">Profile</div>
