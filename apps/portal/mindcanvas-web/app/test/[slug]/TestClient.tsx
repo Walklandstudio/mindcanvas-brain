@@ -1,144 +1,308 @@
-// app/test/[slug]/TestClient.tsx
-"use client";
+'use client';
 
-import { useState } from "react";
-import type { TestConfig } from "@/lib/testConfigs";
+import { useEffect, useMemo, useRef, useState, useTransition, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 
-type SubmissionResp = { ok?: boolean; id?: string; error?: string };
-type FinishResp = { ok?: boolean; id?: string; error?: string };
+/* ---------- Types ---------- */
+type Frequency = 'A' | 'B' | 'C' | 'D';
 
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-}: {
+type Option = {
+  id: string;
   label: string;
-  value: string;
-  onChange: (s: string) => void;
-  type?: string;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="text-gray-700">{label}</span>
-      <input
-        className="mt-1 w-full border rounded px-3 py-2"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        type={type}
-      />
-    </label>
-  );
+  points?: number | null;
+  profileCode?: string | null;
+  frequency?: Frequency | null;
+};
+
+type QuestionType = 'single' | 'multi' | 'info';
+
+type Question = {
+  id: string;
+  index: number; // 1..n for ordering
+  text: string;
+  type: QuestionType;
+  options: Option[];
+  isScored: boolean;
+};
+
+type LoadedSubmission = {
+  submissionId: string;
+  testSlug: string;
+  questions: Question[];
+  answers: Record<string, string | string[] | undefined>;
+  finished?: boolean;
+};
+
+type StartSubmissionResponse = LoadedSubmission;
+type FinishResponse = { reportId: string };
+
+/* ---------- Utils ---------- */
+function getErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return 'Unknown error';
+  }
 }
 
-export default function TestClient({ testConfig }: { testConfig: TestConfig }) {
-  const [first, setFirst] = useState("");
-  const [last, setLast] = useState("");
-  const [email, setEmail] = useState("");
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [status, setStatus] = useState<string>("");
-  const [loading, setLoading] = useState(false);
+/* ---------- API ---------- */
+async function startSubmission(slug: string): Promise<StartSubmissionResponse> {
+  const res = await fetch('/api/submissions/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug }),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Failed to start submission: ${await res.text()}`);
+  return (await res.json()) as StartSubmissionResponse;
+}
 
-  const onPick = (qid: string, key: string) => {
-    setAnswers((prev) => ({ ...prev, [qid]: key }));
-  };
+async function saveAnswerAPI(
+  submissionId: string,
+  questionId: string,
+  optionIdOrIds: string | string[],
+): Promise<void> {
+  const res = await fetch(`/api/submissions/${submissionId}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questionId, optionId: optionIdOrIds }),
+  });
+  if (!res.ok) throw new Error(`Failed to save answer: ${await res.text()}`);
+}
 
-  async function submit() {
-    setLoading(true);
-    setStatus("");
-    try {
-      // 1) create submission
-      const subRes = await fetch("/api/tests/submissions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          test_slug: testConfig.slug,
-          first_name: first || undefined,
-          last_name: last || undefined,
-          email: email || undefined,
-        }),
-      });
-      const subJson = (await subRes.json()) as SubmissionResp;
-      if (!subRes.ok || !subJson.id) {
-        setStatus(subJson.error || "Could not create submission");
-        return;
-      }
+async function finishAPI(submissionId: string): Promise<FinishResponse> {
+  const res = await fetch(`/api/submissions/${submissionId}/finish`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to finish: ${await res.text()}`);
+  return (await res.json()) as FinishResponse;
+}
 
-      // 2) finish (score + persist)
-      const finRes = await fetch(
-        `/api/submissions/${encodeURIComponent(subJson.id)}/finish`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slug: testConfig.slug, answers }),
+/* ---------- Client Component ---------- */
+export default function TestClient({ slug }: { slug: string }) {
+  const router = useRouter();
+
+  const [sub, setSub] = useState<LoadedSubmission | null>(null);
+  const [current, setCurrent] = useState(0);
+  const [saving, startSaving] = useTransition();
+  const [finishing, startFinishing] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    if (mounted.current) return;
+    mounted.current = true;
+
+    (async () => {
+      try {
+        const s = await startSubmission(slug);
+        setSub(s);
+        if (s.questions?.length) {
+          const firstUnanswered = s.questions.findIndex(q => {
+            const a = s.answers?.[q.id];
+            if (q.type === 'multi') return !(Array.isArray(a) && a.length > 0);
+            return !a;
+          });
+          setCurrent(firstUnanswered === -1 ? 0 : firstUnanswered);
         }
-      );
-      const finJson = (await finRes.json()) as FinishResp;
-      if (!finRes.ok || !finJson.ok) {
-        setStatus(finJson.error || "Could not save result");
-        return;
+      } catch (e: unknown) {
+        setError(getErrorMessage(e));
       }
+    })();
+  }, [slug]);
 
-      // 3) go to report
-      location.href = `/report/${encodeURIComponent(subJson.id)}`;
-    } catch {
-      setStatus("Network error");
-    } finally {
-      setLoading(false);
-    }
+  const questions = useMemo<Question[]>(() => (sub ? sub.questions : []), [sub]);
+  const total = questions.length;
+
+  const answeredCount = useMemo(() => {
+    if (!sub) return 0;
+    return questions.reduce((acc, q) => {
+      const a = sub.answers?.[q.id];
+      if (q.type === 'multi') return acc + (Array.isArray(a) && a.length > 0 ? 1 : 0);
+      return acc + (typeof a === 'string' && a.length > 0 ? 1 : 0);
+    }, 0);
+  }, [sub, questions]);
+
+  const progressPct = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
+
+  const onSingleSelect = useCallback((question: Question, optionId: string) => {
+    if (!sub) return;
+    setSub(prev => (prev ? { ...prev, answers: { ...prev.answers, [question.id]: optionId } } : prev));
+    startSaving(() => {
+      saveAnswerAPI(sub.submissionId, question.id, optionId).catch((e: unknown) => {
+        setError(getErrorMessage(e));
+      });
+    });
+  }, [sub]);
+
+  const onMultiToggle = useCallback((question: Question, optionId: string) => {
+    if (!sub) return;
+    let nextArr: string[] = [];
+    setSub(prev => {
+      if (!prev) return prev;
+      const existing = prev.answers?.[question.id];
+      const arr = Array.isArray(existing) ? [...existing] : [];
+      const i = arr.indexOf(optionId);
+      if (i === -1) arr.push(optionId);
+      else arr.splice(i, 1);
+      nextArr = arr;
+      return { ...prev, answers: { ...prev.answers, [question.id]: arr } };
+    });
+    startSaving(() => {
+      saveAnswerAPI(sub.submissionId, question.id, nextArr).catch((e: unknown) => {
+        setError(getErrorMessage(e));
+      });
+    });
+  }, [sub]);
+
+  const next = useCallback(() => setCurrent(i => Math.min(i + 1, total - 1)), [total]);
+  const prev = useCallback(() => setCurrent(i => Math.max(i - 1, 0)), []);
+
+  function canAdvance(q: Question): boolean {
+    if (q.type === 'info' || !q.isScored) return true;
+    const a = sub?.answers?.[q.id];
+    if (q.type === 'multi') return Array.isArray(a) && a.length > 0;
+    return typeof a === 'string' && a.length > 0;
   }
 
+  const finish = useCallback(() => {
+    if (!sub) return;
+    startFinishing(() => {
+      finishAPI(sub.submissionId)
+        .then(({ reportId }) => router.push(`/report/${reportId}`))
+        .catch((e: unknown) => setError(getErrorMessage(e)));
+    });
+  }, [router, sub]);
+
+  const q = questions[current];
+
   return (
-    <main className="p-6 max-w-3xl mx-auto space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">{testConfig.title}</h1>
-        {testConfig.intro && (
-          <p className="text-sm text-gray-600">{testConfig.intro}</p>
-        )}
-      </header>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="First name" value={first} onChange={setFirst} />
-        <Field label="Last name" value={last} onChange={setLast} />
-        <Field label="Email" value={email} onChange={setEmail} type="email" />
+    <div className="mx-auto max-w-3xl px-4 py-8">
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Competency Coach — Profile Test</h1>
+          <p className="text-sm text-gray-500">
+            Question {Math.min(current + 1, Math.max(total, 1))} of {Math.max(total, 1)}
+          </p>
+        </div>
+        <div className="w-40">
+          <div className="h-2 w-full rounded-full bg-gray-200">
+            <div
+              className="h-2 rounded-full bg-black transition-all"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <p className="mt-1 text-right text-xs text-gray-500">{progressPct}%</p>
+        </div>
       </div>
 
-      <ol className="space-y-4">
-        {testConfig.questions.map((q, idx) => (
-          <li key={q.id} className="border rounded-xl p-4">
-            <div className="font-medium mb-2">
-              {idx + 1}. {q.prompt}
-            </div>
-            <div className="space-y-2">
-              {q.options.map((o) => (
-                <label key={o.key} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name={q.id}
-                    value={o.key}
-                    checked={answers[q.id] === o.key}
-                    onChange={() => onPick(q.id, o.key)}
-                  />
-                  <span>{o.label}</span>
-                </label>
-              ))}
-            </div>
-          </li>
-        ))}
-      </ol>
+      {/* Error */}
+      {error ? (
+        <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
-      <div className="flex items-center gap-3">
-        <button
-          className="border rounded-lg px-4 py-2"
-          onClick={submit}
-          disabled={
-            loading || Object.keys(answers).length < testConfig.questions.length
-          }
-        >
-          {loading ? "Submitting…" : "Submit"}
-        </button>
-        {status && <span className="text-sm text-red-600">{status}</span>}
-      </div>
-    </main>
+      {/* Loading */}
+      {!sub && !error ? (
+        <div className="rounded-xl border px-4 py-8 text-center">Preparing your test…</div>
+      ) : null}
+
+      {/* Question */}
+      {sub && q ? (
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-medium">
+            {q.index}. {q.text}
+          </h2>
+
+          {/* Single choice */}
+          {q.type === 'single' ? (
+            <div className="space-y-3">
+              {q.options.map(opt => {
+                const selected = sub.answers?.[q.id] === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => onSingleSelect(q, opt.id)}
+                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'}`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
+          {/* Multi choice */}
+          {q.type === 'multi' ? (
+            <div className="space-y-3">
+              {q.options.map(opt => {
+                const arr = sub.answers?.[q.id];
+                const selected = Array.isArray(arr) && arr.includes(opt.id);
+                return (
+                  <label
+                    key={opt.id}
+                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={!!selected}
+                      onChange={() => onMultiToggle(q, opt.id)}
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : null}
+
+          {/* Info-only */}
+          {q.type === 'info' ? (
+            <p className="text-gray-600">
+              This question is informational and does not affect your profile.
+            </p>
+          ) : null}
+
+          {/* Nav */}
+          <div className="mt-6 flex items-center justify-between">
+            <button
+              className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+              onClick={prev}
+              disabled={current === 0 || saving}
+            >
+              ← Back
+            </button>
+
+            <div className="flex items-center gap-3">
+              {current < total - 1 ? (
+                <button
+                  className="rounded-xl bg-black px-5 py-2 text-sm text-white disabled:opacity-50"
+                  onClick={next}
+                  disabled={!canAdvance(q) || saving}
+                >
+                  {saving ? 'Saving…' : 'Next →'}
+                </button>
+              ) : (
+                <button
+                  className="rounded-xl bg-black px-5 py-2 text-sm text-white disabled:opacity-50"
+                  onClick={finish}
+                  disabled={finishing}
+                >
+                  {finishing ? 'Finishing…' : 'Finish & View Report'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Footer hint */}
+      <p className="mt-6 text-center text-xs text-gray-500">
+        Your choices are saved automatically. You can refresh without losing progress.
+      </p>
+    </div>
   );
 }
