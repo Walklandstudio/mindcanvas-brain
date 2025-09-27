@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 /* ---------- Types ---------- */
@@ -49,7 +49,7 @@ function getErrorMessage(e: unknown): string {
 
 /* ---------- API ---------- */
 async function startSubmission(slug: string): Promise<StartSubmissionResponse> {
-  const res = await fetch(`/api/submissions/start`, {
+  const res = await fetch('/api/submissions/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug }),
@@ -113,8 +113,8 @@ export default function TestPage({ params }: { params: { slug: string } }) {
     })();
   }, [slug]);
 
-  // Memoize questions array to keep a stable reference for deps elsewhere.
-  const questions = useMemo<Question[]>(() => sub?.questions ?? [], [sub?.questions]);
+  // Stable questions reference
+  const questions = useMemo<Question[]>(() => (sub ? sub.questions : []), [sub]);
   const total = questions.length;
 
   const answeredCount = useMemo(() => {
@@ -122,33 +122,25 @@ export default function TestPage({ params }: { params: { slug: string } }) {
     return questions.reduce((acc, q) => {
       const a = sub.answers?.[q.id];
       if (q.type === 'multi') return acc + (Array.isArray(a) && a.length > 0 ? 1 : 0);
-      return acc + (a ? 1 : 0);
+      return acc + (typeof a === 'string' && a.length > 0 ? 1 : 0);
     }, 0);
   }, [sub, questions]);
 
   const progressPct = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
 
-  function onSingleSelect(question: Question, optionId: string) {
+  const onSingleSelect = useCallback((question: Question, optionId: string) => {
     if (!sub) return;
-    // optimistic local update
-    setSub(prev => {
-      if (!prev) return prev;
-      return { ...prev, answers: { ...prev.answers, [question.id]: optionId } };
-    });
-
-    startSaving(async () => {
-      try {
-        await saveAnswerAPI(sub.submissionId, question.id, optionId);
-      } catch (e: unknown) {
+    setSub(prev => (prev ? { ...prev, answers: { ...prev.answers, [question.id]: optionId } } : prev));
+    startSaving(() => {
+      saveAnswerAPI(sub.submissionId, question.id, optionId).catch((e: unknown) => {
         setError(getErrorMessage(e));
-      }
+      });
     });
-  }
+  }, [sub]);
 
-  function onMultiToggle(question: Question, optionId: string) {
+  const onMultiToggle = useCallback((question: Question, optionId: string) => {
     if (!sub) return;
-
-    // optimistic local update
+    let nextArr: string[] = [];
     setSub(prev => {
       if (!prev) return prev;
       const existing = prev.answers?.[question.id];
@@ -156,29 +148,18 @@ export default function TestPage({ params }: { params: { slug: string } }) {
       const i = arr.indexOf(optionId);
       if (i === -1) arr.push(optionId);
       else arr.splice(i, 1);
+      nextArr = arr;
       return { ...prev, answers: { ...prev.answers, [question.id]: arr } };
     });
-
-    // persist (use the freshly computed local state on next tick)
-    startSaving(async () => {
-      try {
-        const latest = (qId: string): string[] => {
-          const a = sub.answers?.[qId];
-          return Array.isArray(a) ? a : [];
-        };
-        await saveAnswerAPI(sub.submissionId, question.id, latest(question.id));
-      } catch (e: unknown) {
+    startSaving(() => {
+      saveAnswerAPI(sub.submissionId, question.id, nextArr).catch((e: unknown) => {
         setError(getErrorMessage(e));
-      }
+      });
     });
-  }
+  }, [sub]);
 
-  function next() {
-    setCurrent(i => Math.min(i + 1, total - 1));
-  }
-  function prev() {
-    setCurrent(i => Math.max(i - 1, 0));
-  }
+  const next = useCallback(() => setCurrent(i => Math.min(i + 1, total - 1)), [total]);
+  const prev = useCallback(() => setCurrent(i => Math.max(i - 1, 0)), []);
 
   function canAdvance(q: Question): boolean {
     if (q.type === 'info' || !q.isScored) return true;
@@ -187,17 +168,14 @@ export default function TestPage({ params }: { params: { slug: string } }) {
     return typeof a === 'string' && a.length > 0;
   }
 
-  function finish() {
+  const finish = useCallback(() => {
     if (!sub) return;
-    startFinishing(async () => {
-      try {
-        const { reportId } = await finishAPI(sub.submissionId);
-        router.push(`/report/${reportId}`);
-      } catch (e: unknown) {
-        setError(getErrorMessage(e));
-      }
+    startFinishing(() => {
+      finishAPI(sub.submissionId)
+        .then(({ reportId }) => router.push(`/report/${reportId}`))
+        .catch((e: unknown) => setError(getErrorMessage(e)));
     });
-  }
+  }, [router, sub]);
 
   const q = questions[current];
 
@@ -216,33 +194,33 @@ export default function TestPage({ params }: { params: { slug: string } }) {
             <div
               className="h-2 rounded-full bg-black transition-all"
               style={{ width: `${progressPct}%` }}
-            />
+            ></div>
           </div>
           <p className="mt-1 text-right text-xs text-gray-500">{progressPct}%</p>
         </div>
       </div>
 
       {/* Error */}
-      {error && (
+      {error ? (
         <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </div>
-      )}
+      ) : null}
 
       {/* Loading */}
-      {!sub && !error && (
+      {!sub && !error ? (
         <div className="rounded-xl border px-4 py-8 text-center">Preparing your test…</div>
-      )}
+      ) : null}
 
       {/* Question */}
-      {sub && q && (
+      {sub && q ? (
         <div className="rounded-2xl border bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-lg font-medium">
             {q.index}. {q.text}
           </h2>
 
           {/* Single choice */}
-          {q.type === 'single' && (
+          {q.type === 'single' ? (
             <div className="space-y-3">
               {q.options.map(opt => {
                 const selected = sub.answers?.[q.id] === opt.id;
@@ -250,19 +228,17 @@ export default function TestPage({ params }: { params: { slug: string } }) {
                   <button
                     key={opt.id}
                     onClick={() => onSingleSelect(q, opt.id)}
-                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                      selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'
-                    }`}
+                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'}`}
                   >
                     {opt.label}
                   </button>
                 );
               })}
             </div>
-          )}
+          ) : null}
 
           {/* Multi choice */}
-          {q.type === 'multi' && (
+          {q.type === 'multi' ? (
             <div className="space-y-3">
               {q.options.map(opt => {
                 const arr = sub.answers?.[q.id];
@@ -270,9 +246,7 @@ export default function TestPage({ params }: { params: { slug: string } }) {
                 return (
                   <label
                     key={opt.id}
-                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
-                      selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'
-                    }`}
+                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'}`}
                   >
                     <input
                       type="checkbox"
@@ -285,14 +259,14 @@ export default function TestPage({ params }: { params: { slug: string } }) {
                 );
               })}
             </div>
-          )}
+          ) : null}
 
           {/* Info-only */}
-          {q.type === 'info' && (
+          {q.type === 'info' ? (
             <p className="text-gray-600">
               This question is informational and does not affect your profile.
             </p>
-          )}
+          ) : null}
 
           {/* Nav */}
           <div className="mt-6 flex items-center justify-between">
@@ -325,7 +299,7 @@ export default function TestPage({ params }: { params: { slug: string } }) {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Footer hint */}
       <p className="mt-6 text-center text-xs text-gray-500">
@@ -334,7 +308,3 @@ export default function TestPage({ params }: { params: { slug: string } }) {
     </div>
   );
 }
-
-
-
-
