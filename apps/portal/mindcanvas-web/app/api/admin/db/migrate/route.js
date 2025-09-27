@@ -1,10 +1,15 @@
-// app/api/admin/db/migrate/route.ts
+// app/api/admin/db/migrate/route.js
 import 'server-only';
-import { NextRequest, NextResponse } from 'next/server';
-import { Client } from 'pg';
+import { NextResponse } from 'next/server';
+import pkg from 'pg';
 
-// Protect behind admin cookie (your middleware already gates /api/admin/*)
-function hasAdminCookie(req: NextRequest): boolean {
+export const runtime = 'nodejs';         // required for 'pg'
+export const dynamic = 'force-dynamic';  // do not cache this route
+
+const { Client } = pkg;
+
+// your admin area is already gated by middleware; this is an extra guard
+function hasAdminCookie(req) {
   return Boolean(req.cookies.get('admin_token')?.value);
 }
 
@@ -48,12 +53,12 @@ for each row execute function fn_prevent_delete_base_q();
 commit;
 `;
 
-export async function POST(req: NextRequest) {
+export async function POST(req) {
   if (!hasAdminCookie(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const connStr = process.env.SUPABASE_DB_URL; // e.g. postgresql://postgres:****@db.<ref>.supabase.co:5432/postgres
+  const connStr = process.env.SUPABASE_DB_URL; // postgresql://postgres:*****@db.<ref>.supabase.co:5432/postgres
   if (!connStr) {
     return NextResponse.json(
       { error: 'Server misconfiguration: SUPABASE_DB_URL not set' },
@@ -61,14 +66,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const client = new Client({ connectionString: connStr, ssl: { rejectUnauthorized: false } });
+  const client = new Client({
+    connectionString: connStr,
+    ssl: { rejectUnauthorized: false },
+  });
+
   try {
     await client.connect();
     await client.query(SQL);
-    return NextResponse.json({ ok: true, ran: 'questions/options DDL migration' }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, ran: 'questions/options DDL migration' },
+      { status: 200 }
+    );
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   } finally {
-    await client.end().catch(() => {});
+    try { await client.end(); } catch {}
   }
 }
