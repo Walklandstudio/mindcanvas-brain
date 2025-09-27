@@ -3,22 +3,25 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
+/* ---------- Types ---------- */
+type Frequency = 'A' | 'B' | 'C' | 'D';
+
 type Option = {
   id: string;
   label: string;
-  // optional scoring metadata (server decides what to do with it)
   points?: number | null;
   profileCode?: string | null;
-  frequency?: 'A' | 'B' | 'C' | 'D' | null;
+  frequency?: Frequency | null;
 };
+
+type QuestionType = 'single' | 'multi' | 'info';
 
 type Question = {
   id: string;
   index: number; // 1..n for ordering
   text: string;
-  type: 'single' | 'multi' | 'info';
+  type: QuestionType;
   options: Option[];
-  // if false, still render but don't block progress
   isScored: boolean;
 };
 
@@ -26,48 +29,56 @@ type LoadedSubmission = {
   submissionId: string;
   testSlug: string;
   questions: Question[];
-  answers: Record<string, string | string[]>; // questionId -> optionId(s)
+  answers: Record<string, string | string[] | undefined>;
   finished?: boolean;
 };
 
-async function startSubmission(slug: string): Promise<LoadedSubmission> {
+type StartSubmissionResponse = LoadedSubmission;
+type FinishResponse = { reportId: string };
+
+/* ---------- Utils ---------- */
+function getErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return 'Unknown error';
+  }
+}
+
+/* ---------- API ---------- */
+async function startSubmission(slug: string): Promise<StartSubmissionResponse> {
   const res = await fetch(`/api/submissions/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug }),
     cache: 'no-store',
   });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Failed to start submission: ${t}`);
-  }
-  return res.json();
+  if (!res.ok) throw new Error(`Failed to start submission: ${await res.text()}`);
+  return (await res.json()) as StartSubmissionResponse;
 }
 
-async function saveAnswerAPI(submissionId: string, questionId: string, optionIdOrIds: string | string[]) {
+async function saveAnswerAPI(
+  submissionId: string,
+  questionId: string,
+  optionIdOrIds: string | string[],
+): Promise<void> {
   const res = await fetch(`/api/submissions/${submissionId}/answer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ questionId, optionId: optionIdOrIds }),
   });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Failed to save answer: ${t}`);
-  }
-  return res.json();
+  if (!res.ok) throw new Error(`Failed to save answer: ${await res.text()}`);
 }
 
-async function finishAPI(submissionId: string) {
-  const res = await fetch(`/api/submissions/${submissionId}/finish`, {
-    method: 'POST',
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Failed to finish: ${t}`);
-  }
-  return res.json() as Promise<{ reportId: string }>;
+async function finishAPI(submissionId: string): Promise<FinishResponse> {
+  const res = await fetch(`/api/submissions/${submissionId}/finish`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to finish: ${await res.text()}`);
+  return (await res.json()) as FinishResponse;
 }
 
+/* ---------- Page ---------- */
 export default function TestPage({ params }: { params: { slug: string } }) {
   const router = useRouter();
   const { slug } = params;
@@ -88,22 +99,22 @@ export default function TestPage({ params }: { params: { slug: string } }) {
       try {
         const s = await startSubmission(slug);
         setSub(s);
-        // if resumed and we have partial answers, jump to first unanswered
         if (s.questions?.length) {
-          const idx = s.questions.findIndex(q => {
+          const firstUnanswered = s.questions.findIndex(q => {
             const a = s.answers?.[q.id];
-            if (q.type === 'multi') return !Array.isArray(a) || a.length === 0;
+            if (q.type === 'multi') return !(Array.isArray(a) && a.length > 0);
             return !a;
           });
-          setCurrent(idx === -1 ? 0 : idx);
+          setCurrent(firstUnanswered === -1 ? 0 : firstUnanswered);
         }
-      } catch (e: any) {
-        setError(e?.message || 'Could not start the test.');
+      } catch (e: unknown) {
+        setError(getErrorMessage(e));
       }
     })();
   }, [slug]);
 
-  const questions = sub?.questions ?? [];
+  // Memoize questions array to keep a stable reference for deps elsewhere.
+  const questions = useMemo<Question[]>(() => sub?.questions ?? [], [sub?.questions]);
   const total = questions.length;
 
   const answeredCount = useMemo(() => {
@@ -119,41 +130,45 @@ export default function TestPage({ params }: { params: { slug: string } }) {
 
   function onSingleSelect(question: Question, optionId: string) {
     if (!sub) return;
+    // optimistic local update
     setSub(prev => {
       if (!prev) return prev;
-      const next = { ...prev, answers: { ...prev.answers, [question.id]: optionId } };
-      return next;
+      return { ...prev, answers: { ...prev.answers, [question.id]: optionId } };
     });
 
-    // persist to API (optimistic)
     startSaving(async () => {
       try {
         await saveAnswerAPI(sub.submissionId, question.id, optionId);
-      } catch (e: any) {
-        setError(e?.message || 'Save failed. Trying again…');
+      } catch (e: unknown) {
+        setError(getErrorMessage(e));
       }
     });
   }
 
   function onMultiToggle(question: Question, optionId: string) {
     if (!sub) return;
+
+    // optimistic local update
     setSub(prev => {
       if (!prev) return prev;
       const existing = prev.answers?.[question.id];
-      const arr = Array.isArray(existing) ? existing.slice() : [];
+      const arr = Array.isArray(existing) ? [...existing] : [];
       const i = arr.indexOf(optionId);
       if (i === -1) arr.push(optionId);
       else arr.splice(i, 1);
       return { ...prev, answers: { ...prev.answers, [question.id]: arr } };
     });
 
+    // persist (use the freshly computed local state on next tick)
     startSaving(async () => {
       try {
-        const val = sub.answers?.[question.id];
-        const arr = Array.isArray(val) ? val : [];
-        await saveAnswerAPI(sub.submissionId, question.id, arr);
-      } catch (e: any) {
-        setError(e?.message || 'Save failed. Trying again…');
+        const latest = (qId: string): string[] => {
+          const a = sub.answers?.[qId];
+          return Array.isArray(a) ? a : [];
+        };
+        await saveAnswerAPI(sub.submissionId, question.id, latest(question.id));
+      } catch (e: unknown) {
+        setError(getErrorMessage(e));
       }
     });
   }
@@ -166,21 +181,20 @@ export default function TestPage({ params }: { params: { slug: string } }) {
   }
 
   function canAdvance(q: Question): boolean {
-    // info-only questions don't block progress
     if (q.type === 'info' || !q.isScored) return true;
     const a = sub?.answers?.[q.id];
     if (q.type === 'multi') return Array.isArray(a) && a.length > 0;
-    return !!a;
+    return typeof a === 'string' && a.length > 0;
   }
 
-  async function finish() {
+  function finish() {
     if (!sub) return;
     startFinishing(async () => {
       try {
         const { reportId } = await finishAPI(sub.submissionId);
         router.push(`/report/${reportId}`);
-      } catch (e: any) {
-        setError(e?.message || 'Could not finish. Please try again.');
+      } catch (e: unknown) {
+        setError(getErrorMessage(e));
       }
     });
   }
@@ -193,7 +207,9 @@ export default function TestPage({ params }: { params: { slug: string } }) {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Competency Coach — Profile Test</h1>
-          <p className="text-sm text-gray-500">Question {current + 1} of {total}</p>
+          <p className="text-sm text-gray-500">
+            Question {Math.min(current + 1, Math.max(total, 1))} of {Math.max(total, 1)}
+          </p>
         </div>
         <div className="w-40">
           <div className="h-2 w-full rounded-full bg-gray-200">
@@ -221,7 +237,9 @@ export default function TestPage({ params }: { params: { slug: string } }) {
       {/* Question */}
       {sub && q && (
         <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-medium">{q.index}. {q.text}</h2>
+          <h2 className="mb-4 text-lg font-medium">
+            {q.index}. {q.text}
+          </h2>
 
           {/* Single choice */}
           {q.type === 'single' && (
@@ -269,15 +287,17 @@ export default function TestPage({ params }: { params: { slug: string } }) {
             </div>
           )}
 
-          {/* Info-only text (no options) */}
+          {/* Info-only */}
           {q.type === 'info' && (
-            <p className="text-gray-600">This question is informational and does not affect your profile.</p>
+            <p className="text-gray-600">
+              This question is informational and does not affect your profile.
+            </p>
           )}
 
           {/* Nav */}
           <div className="mt-6 flex items-center justify-between">
             <button
-              className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50"
+              className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
               onClick={prev}
               disabled={current === 0 || saving}
             >
