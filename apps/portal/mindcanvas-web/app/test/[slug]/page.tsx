@@ -5,9 +5,10 @@ export default async function Page({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ sid?: string }>;
+  searchParams: Promise<{ sid?: string; name?: string; email?: string; phone?: string }>;
 }) {
   const { slug } = await params;
-  const { sid } = await searchParams;
-  return <TestClient slug={slug} sid={sid} />;
+  const { sid, name, email, phone } = await searchParams;
+
+  return <TestClient slug={slug} sid={sid} prefill={{ name, email, phone }} />;
 }

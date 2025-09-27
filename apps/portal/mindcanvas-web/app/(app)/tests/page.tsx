@@ -50,28 +50,27 @@ export default function TestsPage() {
     setBusy(true);
     setErr(null);
     try {
-      const name = [first.trim(), last.trim()].filter(Boolean).join(' ') || null;
-      const emailClean = email.trim();
-      const phoneClean = phone.trim();
-      const emailToSend = isValidEmail(emailClean) ? emailClean : null;
-
-      const res = await fetch('/api/admin/tests/invite', {
+      // 1) Create a submission using the existing start endpoint
+      const res = await fetch('/api/submissions/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slug: selectedSlug,
-          name,
-          email: emailToSend, // only send if valid
-          phone: phoneClean || null,
-        }),
+        body: JSON.stringify({ slug: selectedSlug }),
       });
+      if (!res.ok) throw new Error(await res.text());
 
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || 'Failed to create link');
-      }
-      const { url } = await res.json();
-      const full = `${location.origin}${url}`;
+      const payload = (await res.json()) as { submissionId: string; testSlug: string };
+
+      // 2) Build query params to prefill contact on the test page
+      const params = new URLSearchParams();
+      params.set('sid', payload.submissionId);
+
+      const fullName = [first.trim(), last.trim()].filter(Boolean).join(' ');
+      if (fullName) params.set('name', fullName);
+      if (email.trim() && isValidEmail(email.trim())) params.set('email', email.trim());
+      if (phone.trim()) params.set('phone', phone.trim());
+
+      // 3) Compose final invite link
+      const full = `${location.origin}/test/${payload.testSlug}?${params.toString()}`;
       setInviteUrl(full);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -104,10 +103,16 @@ export default function TestsPage() {
                 <td className="px-4 py-2">{new Date(r.created_at).toLocaleString()}</td>
                 <td className="px-4 py-2">
                   <div className="flex gap-2">
-                    <button onClick={() => openInvite(r.slug)} className="rounded-lg border px-3 py-1 hover:bg-gray-50">
+                    <button
+                      onClick={() => openInvite(r.slug)}
+                      className="rounded-lg border px-3 py-1 hover:bg-gray-50"
+                    >
                       Send Test
                     </button>
-                    <a href={`/create-test/framework-preview?slug=${r.slug}`} className="rounded-lg border px-3 py-1 hover:bg-gray-50">
+                    <a
+                      href={`/create-test/framework-preview?slug=${r.slug}`}
+                      className="rounded-lg border px-3 py-1 hover:bg-gray-50"
+                    >
                       Edit
                     </a>
                   </div>
@@ -115,7 +120,11 @@ export default function TestsPage() {
               </tr>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-500">No tests yet.</td></tr>
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
+                  No tests yet.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -134,27 +143,28 @@ export default function TestsPage() {
               <input
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 placeholder="First name (optional)"
-                value={first} onChange={e => setFirst(e.target.value)}
+                value={first}
+                onChange={e => setFirst(e.target.value)}
               />
               <input
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 placeholder="Last name (optional)"
-                value={last} onChange={e => setLast(e.target.value)}
+                value={last}
+                onChange={e => setLast(e.target.value)}
               />
               <input
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 placeholder="Email (optional)"
                 type="email"
-                value={email} onChange={e => setEmail(e.target.value)}
+                value={email}
+                onChange={e => setEmail(e.target.value)}
               />
               <input
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 placeholder="Phone (optional)"
-                value={phone} onChange={e => setPhone(e.target.value)}
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
               />
-              {email && !isValidEmail(email) && (
-                <div className="text-xs text-amber-700">Email doesn’t look valid — we’ll ignore it.</div>
-              )}
             </div>
 
             {err && (
@@ -168,10 +178,17 @@ export default function TestsPage() {
                 <div className="text-xs text-gray-500">Invite link</div>
                 <div className="mt-1 break-all text-sm">{inviteUrl}</div>
                 <div className="mt-3 flex justify-end gap-2">
-                  <button onClick={() => (navigator.clipboard.writeText(inviteUrl))} className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-100">
+                  <button
+                    onClick={() => navigator.clipboard.writeText(inviteUrl)}
+                    className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-100"
+                  >
                     Copy
                   </button>
-                  <a href={inviteUrl} target="_blank" className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-100">
+                  <a
+                    href={inviteUrl}
+                    target="_blank"
+                    className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-100"
+                  >
                     Open
                   </a>
                 </div>
@@ -179,7 +196,12 @@ export default function TestsPage() {
             ) : null}
 
             <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setOpen(false)} className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-100">Close</button>
+              <button
+                onClick={() => setOpen(false)}
+                className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-100"
+              >
+                Close
+              </button>
               <button
                 onClick={sendInvite}
                 disabled={busy || !selectedSlug}

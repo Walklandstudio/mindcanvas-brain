@@ -101,7 +101,15 @@ async function saveContact(submissionId: string, c: Contact): Promise<void> {
 }
 
 /* ---------- Client Component ---------- */
-export default function TestClient({ slug, sid }: { slug: string; sid?: string }) {
+export default function TestClient({
+  slug,
+  sid,
+  prefill,
+}: {
+  slug: string;
+  sid?: string;
+  prefill?: { name?: string; email?: string; phone?: string };
+}) {
   const router = useRouter();
 
   const [sub, setSub] = useState<LoadedSubmission | null>(null);
@@ -110,10 +118,10 @@ export default function TestClient({ slug, sid }: { slug: string; sid?: string }
   const [finishing, startFinishing] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Contact state
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  // Contact state (initialized from prefill)
+  const [name, setName] = useState(prefill?.name ?? '');
+  const [email, setEmail] = useState(prefill?.email ?? '');
+  const [phone, setPhone] = useState(prefill?.phone ?? '');
   const [contactSaved, setContactSaved] = useState<boolean>(false);
   const [contactSaving, setContactSaving] = useState<boolean>(false);
 
@@ -129,15 +137,17 @@ export default function TestClient({ slug, sid }: { slug: string; sid?: string }
         const s = sid ? await resumeSubmission(sid) : await startSubmission(slug);
         setSub(s);
 
-        // Load existing contact (if any)
+        // Load existing contact; if none saved, keep prefill values
         try {
           const c = await getContact(s.submissionId);
-          setName(c.name ?? '');
-          setEmail(c.email ?? '');
-          setPhone(c.phone ?? '');
-          setContactSaved(Boolean(c.name || c.email || c.phone));
+          const hasAny = Boolean(c.name || c.email || c.phone);
+          if (hasAny) {
+            setName(c.name ?? '');
+            setEmail(c.email ?? '');
+            setPhone(c.phone ?? '');
+            setContactSaved(true);
+          }
         } catch (ce: unknown) {
-          // non-fatal; show error banner if you want
           console.warn('Contact load error:', getErrorMessage(ce));
         }
 
@@ -340,7 +350,9 @@ export default function TestClient({ slug, sid }: { slug: string; sid?: string }
                   <button
                     key={opt.id}
                     onClick={() => onSingleSelect(q, opt.id)}
-                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'}`}
+                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                      selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'
+                    }`}
                   >
                     {opt.label}
                   </button>
@@ -358,7 +370,9 @@ export default function TestClient({ slug, sid }: { slug: string; sid?: string }
                 return (
                   <label
                     key={opt.id}
-                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'}`}
+                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
+                      selected ? 'border-black bg-gray-100' : 'hover:bg-gray-50'
+                    }`}
                   >
                     <input
                       type="checkbox"
