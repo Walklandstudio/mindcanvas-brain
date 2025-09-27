@@ -1,75 +1,72 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type Flow = { A: number; B: number; C: number; D: number };
-type AnswerRow = { question: string | null; selected: unknown };
+type ClientRow = {
+  submission_id: string;
+  created_at: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  profile_code: string | null;
+  flow_a: number | null;
+  flow_b: number | null;
+  flow_c: number | null;
+  flow_d: number | null;
+};
 
-function normalizeSelected(sel: unknown): string | string[] {
-  if (Array.isArray(sel)) {
-    return (sel as ReadonlyArray<unknown>).map((x: unknown) => String(x));
-  }
-  if (typeof sel === 'string') return sel;
-  return JSON.stringify(sel ?? '');
-}
+type AnswerRow = { question: string | null; selected_text: string | null };
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // 1) Submission
-  const { data: sub, error: subErr } = await supabaseAdmin
-    .from('mc_submissions')
-    .select('id, created_at, report_id, person_id')
-    .eq('id', id)
-    .single();
+  // 1) Base client row from the view
+  const { data: row, error: rowErr } = await supabaseAdmin
+    .from('v_mc_clients_list')
+    .select('*')
+    .eq('submission_id', id)
+    .maybeSingle<ClientRow>();
 
-  if (subErr || !sub) {
-    return NextResponse.json({ error: subErr?.message || 'Not found' }, { status: 404 });
+  if (rowErr || !row) {
+    return NextResponse.json({ error: rowErr?.message || 'Not found' }, { status: 404 });
   }
 
-  // 2) Person (optional)
-  const { data: person } = await supabaseAdmin
-    .from('mc_people')
-    .select('name, email, phone')
-    .eq('id', sub.person_id)
-    .maybeSingle();
+  // 2) Report id (kept on mc_submissions)
+  const { data: subMeta } = await supabaseAdmin
+    .from('mc_submissions')
+    .select('report_id')
+    .eq('id', id)
+    .maybeSingle<{ report_id: string | null }>();
 
-  // 3) Result (optional)
-  const { data: result } = await supabaseAdmin
-    .from('mc_results')
-    .select('profile_code, flow_a, flow_b, flow_c, flow_d')
-    .eq('submission_id', sub.id)
-    .maybeSingle();
-
-  // 4) Answers (0..n)
-  const { data: answersRaw } = await supabaseAdmin
-    .from('mc_answers')
-    .select('question, selected')
-    .eq('submission_id', sub.id)
+  // 3) Answers from normalized answers view
+  const { data: answersData } = await supabaseAdmin
+    .from('v_mc_answers_flat')
+    .select('question, selected_text')
+    .eq('submission_id', id)
     .order('question', { ascending: true });
 
-  const flow: Flow | null = result
-    ? {
-        A: Number(result.flow_a ?? 0),
-        B: Number(result.flow_b ?? 0),
-        C: Number(result.flow_c ?? 0),
-        D: Number(result.flow_d ?? 0),
-      }
-    : null;
-
-  const rows: AnswerRow[] = (answersRaw ?? []) as AnswerRow[];
-  const answers = rows.map((row) => ({
-    question: String(row.question ?? ''),
-    selected: normalizeSelected(row.selected),
+  const answers = (answersData ?? ([] as AnswerRow[])).map((a) => ({
+    question: a.question ?? '',
+    selected: a.selected_text ?? '',
   }));
 
+  const flow =
+    row.flow_a === null || row.flow_b === null || row.flow_c === null || row.flow_d === null
+      ? null
+      : {
+          A: Number(row.flow_a),
+          B: Number(row.flow_b),
+          C: Number(row.flow_c),
+          D: Number(row.flow_d),
+        };
+
   return NextResponse.json({
-    id: sub.id,
-    created_at: sub.created_at,
-    report_id: sub.report_id ?? null,
-    name: person?.name ?? null,
-    email: person?.email ?? null,
-    phone: person?.phone ?? null,
-    profile_code: result?.profile_code ?? null,
+    id: row.submission_id,
+    created_at: row.created_at,
+    report_id: subMeta?.report_id ?? null,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    profile_code: row.profile_code,
     flow,
     answers,
   });
