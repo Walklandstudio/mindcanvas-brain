@@ -8,7 +8,7 @@ type SubmissionRow = { id: string; test_id: string | null };
 type TestRow = { slug: string };
 type QuestionRow = {
   id: string;
-  index: number; // "index" column in DB
+  index: number;
   text: string;
   type: 'single' | 'multi' | 'info';
   is_scored: boolean | null;
@@ -75,7 +75,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     if (trow?.slug) testSlug = trow.slug;
   }
 
-  // 3) Load questions (no relational select needed)
+  // 3) Load questions
   const { data: qrows, error: qErr } = await supabaseAdmin
     .from('mc_questions')
     .select('id, index, text, type, is_scored')
@@ -89,8 +89,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const questionsRaw = (qrows ?? []) as QuestionRow[];
   const qIds = questionsRaw.map((q) => q.id);
 
-  // 4) Load options for those questions in one go
-  let optionsByQ: Record<string, OptionRow[]> = {};
+  // 4) Load options for those questions
+  const optionsByQ: Record<string, OptionRow[]> = {};
   if (qIds.length) {
     const { data: orows, error: oErr } = await supabaseAdmin
       .from('mc_options')
@@ -147,7 +147,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     testSlug,
     questions,
     answers,
-    finished: false, // not tracked in your schema
+    finished: false,
   };
 
   return NextResponse.json(payload);
