@@ -18,21 +18,35 @@ type Freq = 'A' | 'B' | 'C' | 'D';
 type Props = {
   reportId: string;
   name: string;
-  profileCode: string;
-  profileName: string;
-  profileImage?: string;
-  profileColor?: string;
+  profileCode: string;                    // e.g. P4
+  profileName: string;                    // e.g. "Profile 4 — The Negotiator"
+  profileImage?: string;                  // /public/profiles/p4.png
+  profileColor?: string;                  // HEX
   flow: Record<Freq, number>;
-  topFlowName: string;
+  topFlowName: string;                    // "Communications"
+  // Rich copy
   welcome?: string;
-  outline?: string;
+  overview?: string;
+  strengths?: string[];
+  watchouts?: string[];
+  tips?: string[];
+  competencies?: string;
 };
 
+/** Brand colors for each Flow (HEX) */
 const FLOW_COLORS: Record<Freq, string> = {
-  A: '#0EA5E9',
-  B: '#F59E0B',
-  C: '#10B981',
-  D: '#8B5CF6',
+  A: '#0EA5E9', // Catalyst
+  B: '#F59E0B', // Communications
+  C: '#10B981', // Rhythmic
+  D: '#8B5CF6', // Observer
+};
+
+/** Nicely cased labels for chart/legend */
+const FLOW_LABELS: Record<Freq, string> = {
+  A: 'Catalyst',
+  B: 'Communications',
+  C: 'Rhythmic',
+  D: 'Observer',
 };
 
 export default function ReportClient({
@@ -45,24 +59,25 @@ export default function ReportClient({
   flow,
   topFlowName,
   welcome = '',
-  outline = '',
+  overview = '',
+  strengths = [],
+  watchouts = [],
+  tips = [],
+  competencies = '',
 }: Props) {
   const reportRef = useRef<HTMLDivElement | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const total = Math.max(
-    1,
-    (flow.A ?? 0) + (flow.B ?? 0) + (flow.C ?? 0) + (flow.D ?? 0),
-  );
+  const total = Math.max(1, (flow.A ?? 0) + (flow.B ?? 0) + (flow.C ?? 0) + (flow.D ?? 0));
 
   const pieData = useMemo(
-    () => [
-      { key: 'A' as Freq, name: 'A', value: flow.A ?? 0 },
-      { key: 'B' as Freq, name: 'B', value: flow.B ?? 0 },
-      { key: 'C' as Freq, name: 'C', value: flow.C ?? 0 },
-      { key: 'D' as Freq, name: 'D', value: flow.D ?? 0 },
-    ],
+    () =>
+      (['A', 'B', 'C', 'D'] as Freq[]).map((k) => ({
+        key: k,
+        label: FLOW_LABELS[k],
+        value: flow[k] ?? 0,
+      })),
     [flow.A, flow.B, flow.C, flow.D],
   );
 
@@ -85,9 +100,7 @@ export default function ReportClient({
   };
 
   const toggleExcludes = (root: HTMLElement, hide: boolean) => {
-    const nodes = Array.from(
-      root.querySelectorAll('[data-pdf-exclude="true"]'),
-    ) as HTMLElement[];
+    const nodes = Array.from(root.querySelectorAll('[data-pdf-exclude="true"]')) as HTMLElement[];
     nodes.forEach((el) => {
       el.style.visibility = hide ? 'hidden' : '';
     });
@@ -145,7 +158,7 @@ export default function ReportClient({
 
   return (
     <div className="mx-auto max-w-4xl p-6">
-      {/* Header + actions */}
+      {/* Header actions (excluded from PDF) */}
       <div className="mb-4 flex items-center justify-between" data-pdf-exclude="true">
         <h1 className="text-xl font-semibold">Report</h1>
         <button
@@ -164,18 +177,19 @@ export default function ReportClient({
         </div>
       )}
 
-      {/* ======== CAPTURED AREA ======== */}
+      {/* ======= CAPTURED AREA ======= */}
       <div ref={reportRef} className="rounded-xl bg-white">
-        {/* Hero */}
+        {/* Hero / Summary */}
         <section className="border-b p-6">
           <div className="flex items-center gap-4">
             {profileImage ? (
               <Image
                 src={profileImage}
                 alt={profileName}
-                width={80}
-                height={80}
-                className="h-20 w-20 rounded-xl object-cover"
+                width={84}
+                height={84}
+                className="h-21 w-21 rounded-xl object-cover"
+                priority
               />
             ) : (
               <div
@@ -190,15 +204,14 @@ export default function ReportClient({
                 <span style={{ color: profileColor }}>{profileName}</span>
               </h2>
               <p className="text-sm text-gray-600">
-                and your coaching Flow is{' '}
-                <span className="font-medium">{topFlowName}</span>
+                and your coaching Flow is <span className="font-medium">{topFlowName}</span>
               </p>
               <p className="mt-1 text-xs text-gray-400">({profileCode})</p>
             </div>
           </div>
         </section>
 
-        {/* Pie + legend */}
+        {/* Flow pie (with human labels) */}
         <section className="border-b p-6">
           <h3 className="mb-3 text-base font-semibold">Your Flow Mix</h3>
           <div className="grid gap-6 md:grid-cols-2">
@@ -208,35 +221,34 @@ export default function ReportClient({
                   <Pie
                     data={pieData}
                     dataKey="value"
-                    nameKey="name"
+                    nameKey="label"
                     outerRadius="80%"
                     label={(d) => {
-                      const pct = total
-                        ? Math.round(((d.value as number) / total) * 100)
-                        : 0;
-                      return `${d.name} ${pct}%`;
+                      const val = d.value as number;
+                      const pct = total ? Math.round((val / total) * 100) : 0;
+                      return `${d.label} ${pct}%`;
                     }}
                   >
                     {pieData.map((entry) => (
                       <Cell key={entry.key} fill={FLOW_COLORS[entry.key]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number, n: string) => [`${v}`, `Flow ${n}`]} />
+                  <Tooltip
+                    formatter={(v: number, n: string) => [`${v}`, n]}
+                  />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              {(['A', 'B', 'C', 'D'] as Freq[]).map((k) => {
+            <div className="grid grid-cols-1 gap-3 text-sm">
+              {(Object.keys(FLOW_COLORS) as Freq[]).map((k) => {
                 const pct = total ? Math.round(((flow[k] ?? 0) / total) * 100) : 0;
                 return (
-                  <div key={k} className="flex items-center gap-2">
-                    <span
-                      className="inline-block h-3 w-3 rounded-sm"
-                      style={{ backgroundColor: FLOW_COLORS[k] }}
-                    />
-                    <span className="tabular-nums">Flow {k}: {pct}%</span>
+                  <div key={k} className="flex items-center gap-3">
+                    <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: FLOW_COLORS[k] }} />
+                    <span className="font-medium">{FLOW_LABELS[k]}</span>
+                    <span className="tabular-nums text-gray-600 ml-auto">{pct}%</span>
                   </div>
                 );
               })}
@@ -248,23 +260,59 @@ export default function ReportClient({
         {welcome && (
           <section className="border-b p-6">
             <h3 className="mb-2 text-base font-semibold">Welcome</h3>
-            <p className="whitespace-pre-line text-sm leading-6 text-gray-800">
-              {welcome}
-            </p>
+            <p className="whitespace-pre-line text-sm leading-6 text-gray-800">{welcome}</p>
           </section>
         )}
 
-        {/* Outline */}
-        {outline && (
+        {/* Overview / Introduction */}
+        {(overview || competencies) && (
+          <section className="border-b p-6">
+            <h3 className="mb-2 text-base font-semibold">Overview</h3>
+            {overview && (
+              <p className="mb-4 whitespace-pre-line text-sm leading-6 text-gray-800">{overview}</p>
+            )}
+            {competencies && (
+              <>
+                <h4 className="mb-2 font-medium">Core Competencies</h4>
+                <p className="whitespace-pre-line text-sm leading-6 text-gray-800">{competencies}</p>
+              </>
+            )}
+          </section>
+        )}
+
+        {/* Strengths / Watch-outs / Tips */}
+        {(strengths.length || watchouts.length || tips.length) && (
           <section className="p-6">
-            <h3 className="mb-2 text-base font-semibold">Profile Outline</h3>
-            <p className="whitespace-pre-line text-sm leading-6 text-gray-800">
-              {outline}
-            </p>
+            <div className="grid gap-6 md:grid-cols-3">
+              {strengths.length > 0 && (
+                <div>
+                  <h4 className="mb-2 font-medium">Strengths</h4>
+                  <ul className="list-disc pl-5 text-sm leading-6 text-gray-800">
+                    {strengths.map((s, i) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+              {watchouts.length > 0 && (
+                <div>
+                  <h4 className="mb-2 font-medium">Watch-outs</h4>
+                  <ul className="list-disc pl-5 text-sm leading-6 text-gray-800">
+                    {watchouts.map((w, i) => <li key={i}>{w}</li>)}
+                  </ul>
+                </div>
+              )}
+              {tips.length > 0 && (
+                <div>
+                  <h4 className="mb-2 font-medium">Tips</h4>
+                  <ul className="list-disc pl-5 text-sm leading-6 text-gray-800">
+                    {tips.map((t, i) => <li key={i}>{t}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
           </section>
         )}
       </div>
-      {/* ======== /CAPTURED AREA ======== */}
+      {/* ======= /CAPTURED AREA ======= */}
     </div>
   );
 }
