@@ -44,8 +44,8 @@ const num = (r: Row, k: string, d = 0) => {
 type ProfilesNameRow = { code: string; name: string };
 type ProfilesRichRow = {
   code: string;
-  name: string;
-  flow: string; // e.g., "Communications – Rhythmic Coaching Flow"
+  name: string;   // plain name (no "Profile # —")
+  flow: string;   // e.g. "Communications – Rhythmic Coaching Flow"
   description: string | null;
   overview: string | null;
   strengths: string[] | null;
@@ -61,12 +61,12 @@ export const dynamic = 'force-dynamic';
 export default async function ReportPage({
   params,
 }: {
-  // Keep Promise<...> to match your project’s Next 15 typing (this compiled for you before)
+  // Your project uses Promise-based params (Next 15). Keep this to avoid the build error.
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
 
-  // Person name
+  // 1) Get the participant's name (for greeting)
   const { data: sub } = await supabaseAdmin
     .from('mc_submissions')
     .select('name')
@@ -74,13 +74,14 @@ export default async function ReportPage({
     .maybeSingle<{ name: string | null }>();
   const firstName = (sub?.name ?? '').trim().split(' ')[0] || 'Your';
 
-  // Answers -> chosen option ids (tolerant to different shapes)
+  // 2) Pull this submission's answers
   const { data: answers, error: aErr } = await supabaseAdmin
     .from('mc_answers')
     .select('*')
     .eq('submission_id', id);
   if (aErr) return notFound();
 
+  // Extract chosen option ids from tolerant shapes
   const selectedIds = new Set<string>();
   for (const r of answers ?? []) {
     const row = r as Row;
@@ -97,14 +98,14 @@ export default async function ReportPage({
   }
   if (selectedIds.size === 0) return notFound();
 
-  // Options used (for profile bars) + question ids/points
+  // 3) Options (for profile points) + their question ids/points
   const { data: opts, error: oErr } = await supabaseAdmin
     .from('mc_options')
     .select('id, question_id, profile_code, points')
     .in('id', Array.from(selectedIds));
   if (oErr || !opts) return notFound();
 
-  // Fetch flows for those questions (for the FLOW pie)
+  // 4) Fetch flows for those questions (for the *flow* pie)
   const qIds = Array.from(new Set(opts.map((o) => (o as Row).question_id as string))).filter(Boolean);
   const { data: qrows, error: qErr } = await supabaseAdmin
     .from('mc_questions')
@@ -119,7 +120,7 @@ export default async function ReportPage({
     if (f === 'A' || f === 'B' || f === 'C' || f === 'D') flowByQ.set(String(row.id), f);
   }
 
-  // Tally profiles (bars) and flows (pie) from answers
+  // 5) Tally profiles (bars) and flows (pie) from answers
   const profilePoints: Record<string, number> = {};
   const flowPoints: Record<Flow, number> = { A: 0, B: 0, C: 0, D: 0 };
 
@@ -135,7 +136,7 @@ export default async function ReportPage({
     if (f) flowPoints[f] = (flowPoints[f] ?? 0) + pts;
   }
 
-  // Normalize flow → %
+  // 6) Flow → percentages + dominant flow label
   const flowTotal = (flowPoints.A ?? 0) + (flowPoints.B ?? 0) + (flowPoints.C ?? 0) + (flowPoints.D ?? 0);
   const flowPct: Record<Flow, number> = {
     A: flowTotal ? Math.round((flowPoints.A / flowTotal) * 100) : 0,
@@ -149,13 +150,13 @@ export default async function ReportPage({
   );
   const topFlowName = FLOW_LABELS[topFlow];
 
-  // Primary profile and bars (primary first)
+  // 7) Primary profile and bar data (Primary first)
   const entriesSorted = Object.entries(profilePoints).sort((a, b) => b[1] - a[1]);
   const primaryCode = entriesSorted[0]?.[0] ?? 'P1';
   const totalPts = entriesSorted.reduce((acc, [, v]) => acc + v, 0);
   const orderedCodes = [primaryCode, ...entriesSorted.map(([c]) => c).filter((c) => c !== primaryCode)];
 
-  // Get plain profile names (no "Profile # —")
+  // Names for profiles (plain — no "Profile # —")
   const { data: pnames } = (await supabaseAdmin
     .from('profiles')
     .select('code, name')
@@ -168,7 +169,7 @@ export default async function ReportPage({
     return { code, name: nameByCode.get(code) ?? code, pct, color: PROFILE_COLORS[code] ?? '#444444' };
   });
 
-  // Rich copy for primary profile (incl. its flow descriptor)
+  // 8) Rich copy for primary (and its own flow descriptor)
   const { data: prof } = await supabaseAdmin
     .from('profiles')
     .select(
@@ -189,6 +190,9 @@ export default async function ReportPage({
   const tips = prof?.tips ?? [];
   const competencies = prof?.competencies_long ?? '';
 
+  // 9) Offer a static PDF for this primary profile (if present in /public/reports/pdfs)
+  const staticPdfUrl = `/reports/pdfs/${primaryCode}.pdf`;
+
   const ReportClient = (await import('./ReportClient')).default;
 
   return (
@@ -200,7 +204,7 @@ export default async function ReportPage({
       profileFlowDescriptor={profileFlowDescriptor}
       profileImage={profileImage}
       profileColor={profileColor}
-      flow={flowPct}                 // <- PIE now uses computed flow %
+      flow={flowPct}                 // <- pie uses computed flow %
       topFlowName={topFlowName}
       profileBreakdown={profileBreakdown}
       welcome={welcome}
@@ -209,6 +213,7 @@ export default async function ReportPage({
       watchouts={watchouts}
       tips={tips}
       competencies={competencies}
+      staticPdfUrl={staticPdfUrl}    // <- smart download tries this first
     />
   );
 }

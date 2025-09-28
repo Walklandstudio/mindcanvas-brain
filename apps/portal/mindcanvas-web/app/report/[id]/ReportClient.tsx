@@ -23,7 +23,7 @@ type Freq = 'A' | 'B' | 'C' | 'D';
 
 type ProfileSlice = {
   code: string;
-  name: string;   // plain profile name only
+  name: string;   // plain profile name
   pct: number;
   color: string;
 };
@@ -36,7 +36,7 @@ type Props = {
   profileFlowDescriptor?: string;  // e.g., "Communications – Rhythmic Coaching Flow"
   profileImage?: string;
   profileColor?: string;
-  flow: Record<Freq, number>;      // percentages 0..100 for A/B/C/D
+  flow: Record<Freq, number>;      // percentages for A/B/C/D
   topFlowName: string;
   profileBreakdown: ProfileSlice[];
   welcome?: string;
@@ -45,6 +45,7 @@ type Props = {
   watchouts?: string[];
   tips?: string[];
   competencies?: string;
+  staticPdfUrl?: string;           // /reports/pdfs/P#.pdf
 };
 
 const FLOW_COLORS: Record<Freq, string> = {
@@ -76,12 +77,12 @@ export default function ReportClient({
   watchouts = [],
   tips = [],
   competencies = '',
+  staticPdfUrl,
 }: Props) {
   const reportRef = useRef<HTMLDivElement | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Build pie data without useMemo to silence the deps warning (cheap computation)
   const totalFlow = Math.max(1, (flow.A ?? 0) + (flow.B ?? 0) + (flow.C ?? 0) + (flow.D ?? 0));
   const pieData = (['A', 'B', 'C', 'D'] as Freq[]).map((k) => ({
     key: k,
@@ -99,9 +100,7 @@ export default function ReportClient({
               const done = () => resolve();
               img.onload = done;
               img.onerror = done;
-              try {
-                img.crossOrigin = 'anonymous';
-              } catch {}
+              try { img.crossOrigin = 'anonymous'; } catch {}
             }),
       ),
     );
@@ -109,15 +108,32 @@ export default function ReportClient({
 
   const toggleExcludes = (root: HTMLElement, hide: boolean) => {
     const nodes = Array.from(root.querySelectorAll('[data-pdf-exclude="true"]')) as HTMLElement[];
-    nodes.forEach((el) => {
-      el.style.visibility = hide ? 'hidden' : '';
-    });
+    nodes.forEach((el) => { el.style.visibility = hide ? 'hidden' : ''; });
   };
 
-  const handleDownload = useCallback(async () => {
+  // Try static PDF; if not available, capture HTML
+  const handleSmartDownload = useCallback(async () => {
+    setErr(null);
+    // 1) Attempt static file
+    if (staticPdfUrl) {
+      try {
+        const head = await fetch(staticPdfUrl, { method: 'HEAD' });
+        if (head.ok) {
+          const a = document.createElement('a');
+          a.href = staticPdfUrl;
+          a.download = '';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          return;
+        }
+      } catch {
+        // ignore and fall through to capture
+      }
+    }
+    // 2) Fallback: capture current report
     const el = reportRef.current;
     if (!el) return;
-    setErr(null);
     setDownloading(true);
     try {
       toggleExcludes(el, true);
@@ -155,10 +171,11 @@ export default function ReportClient({
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      toggleExcludes(el, false);
+      const el2 = reportRef.current;
+      if (el2) toggleExcludes(el2, false);
       setDownloading(false);
     }
-  }, [reportId]);
+  }, [reportId, staticPdfUrl]);
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -166,7 +183,7 @@ export default function ReportClient({
       <div className="mb-4 flex items-center justify-between" data-pdf-exclude="true">
         <h1 className="text-xl font-semibold">Report</h1>
         <button
-          onClick={handleDownload}
+          onClick={handleSmartDownload}
           disabled={downloading}
           className="rounded-md bg-black px-4 py-2 text-white disabled:opacity-50"
         >
@@ -211,7 +228,7 @@ export default function ReportClient({
           </div>
         </section>
 
-        {/* FLOW PIE */}
+        {/* FLOW PIE (no labels on slices) */}
         <section className="border-b p-6">
           <h3 className="mb-3 text-base font-semibold">Your Coaching Flow</h3>
           <div className="grid gap-6 md:grid-cols-2">
@@ -223,22 +240,20 @@ export default function ReportClient({
                     dataKey="value"
                     nameKey="label"
                     outerRadius="80%"
-                    label={(d) => {
-                      const val = d.value as number;
-                      const pct = totalFlow ? Math.round((val / totalFlow) * 100) : 0;
-                      return `${d.label} ${pct}%`;
-                    }}
+                    label={false}
+                    labelLine={false}
                   >
                     {pieData.map((entry) => (
                       <Cell key={entry.key} fill={FLOW_COLORS[entry.key as Freq]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number, n: string) => [`${v}`, n]} />
+                  <Tooltip />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
             </div>
 
+            {/* Simple legend list with percentages */}
             <div className="grid grid-cols-1 gap-3 text-sm">
               {(['A', 'B', 'C', 'D'] as Freq[]).map((k) => {
                 const pct = totalFlow ? Math.round(((flow[k] ?? 0) / totalFlow) * 100) : 0;
