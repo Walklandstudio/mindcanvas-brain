@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
 type Frequency = 'A' | 'B' | 'C' | 'D';
-
-type OptionRow = {
-  id: string;
-  label: string;
-  points: number | null;
-  profile_code: string | null;
-  frequency: Frequency | null;
-};
-
-type RawQuestion = Record<string, unknown>;
 
 type SubmissionRow = {
   id: string;
@@ -23,28 +14,29 @@ type SubmissionRow = {
   name: string | null;
   email: string | null;
   phone: string | null;
-  test_slug?: string | null;
+  test_slug?: string | null; // optional if your schema doesn't have it
 };
+
+type RawRecord = Record<string, unknown>;
 
 function okSlug(u: unknown): string | null {
   return typeof u === 'string' && u.trim() ? u.trim() : null;
 }
-
-function pickString(obj: RawQuestion, keys: string[], fallback = ''): string {
+function pickString(obj: RawRecord, keys: string[], fallback = ''): string {
   for (const k of keys) {
     const v = obj[k];
     if (typeof v === 'string' && v.trim()) return v.trim();
   }
   return fallback;
 }
-function pickNumber(obj: RawQuestion, keys: string[], fallback = 0): number {
+function pickNumber(obj: RawRecord, keys: string[], fallback = 0): number {
   for (const k of keys) {
     const v = obj[k];
     if (typeof v === 'number' && Number.isFinite(v)) return v;
   }
   return fallback;
 }
-function pickBoolean(obj: RawQuestion, keys: string[], fallback = true): boolean {
+function pickBoolean(obj: RawRecord, keys: string[], fallback = true): boolean {
   for (const k of keys) {
     const v = obj[k];
     if (typeof v === 'boolean') return v;
@@ -52,7 +44,7 @@ function pickBoolean(obj: RawQuestion, keys: string[], fallback = true): boolean
   return fallback;
 }
 
-/** Create submission; if mc_submissions.test_slug is missing, retry without it. */
+/** Create the submission; retry without test_slug if that column doesn't exist. */
 async function createSubmission(slug: string): Promise<SubmissionRow> {
   const withSlug = await supabaseAdmin
     .from('mc_submissions')
@@ -75,49 +67,80 @@ async function createSubmission(slug: string): Promise<SubmissionRow> {
   return withSlug.data as SubmissionRow;
 }
 
-/** Load questions; tolerate missing columns by selecting * and mapping. */
-async function loadQuestions(slug: string) {
-  // Try with mc_questions.test_slug; if absent, fall back to no filter
-  const baseQ = supabaseAdmin
-    .from('mc_questions')
-    .select(
-      `
-      *,
-      options:mc_options(
-        id,
-        label,
-        points,
-        profile_code,
-        frequency
-      )
-    `,
-    )
-    .order('order_index', { ascending: true });
+/** Load questions and options with ultra-compatible queries (no embedded relations). */
+async function loadQuestionsAndOptions(slug: string) {
+  // 1) Questions: select * and map defensively.
+  const baseQ = supabaseAdmin.from('mc_questions').select('*');
 
+  // Try filter by test_slug; if the column is missing, fall back to no filter
   const tryWith = await baseQ.eq('test_slug', slug);
-
-  let data: RawQuestion[] = [];
+  let qRows: RawRecord[] = [];
   if (tryWith.error) {
     if (/test_slug/i.test(tryWith.error.message)) {
-      const noFilter = await baseQ;
+      const noFilter = await supabaseAdmin.from('mc_questions').select('*');
       if (noFilter.error) throw new Error(`mc_questions query failed: ${noFilter.error.message}`);
-      data = (noFilter.data ?? []) as RawQuestion[];
+      qRows = (noFilter.data ?? []) as RawRecord[];
     } else {
       throw new Error(`mc_questions query failed: ${tryWith.error.message}`);
     }
   } else {
-    data = (tryWith.data ?? []) as RawQuestion[];
+    qRows = (tryWith.data ?? []) as RawRecord[];
   }
 
-  if (!data.length) {
+  if (!qRows.length) {
     throw new Error(
-      `No questions found. Seed mc_questions/mc_options or use an existing slug (e.g. "competency-coach-dna").`,
+      `No questions found. Seed mc_questions/mc_options or use a valid slug (e.g. "competency-coach-dna").`,
     );
   }
 
-  // Map to the TestClient shape defensively
-  const qs = data.map((row) => {
-    const id = pickString(row, ['id']);
+  // 2) Options: fetch by question_id so we don't rely on PostgREST relations
+  const ids = qRows
+    .map((r) => (typeof r.id === 'string' ? r.id : null))
+    .filter((x): x is string => !!x);
+
+  const optRes = ids.length
+    ? await supabaseAdmin
+        .from('mc_options')
+        .select('id, label, points, profile_code, frequency, question_id')
+        .in('question_id', ids)
+    : { data: [] as RawRecord[], error: null };
+
+  if (optRes.error) {
+    throw new Error(`mc_options query failed: ${optRes.error.message}`);
+  }
+
+  // Group options by question_id
+  const byQ = new Map<string, Array<{
+    id: string;
+    label: string;
+    points: number | null;
+    profileCode: string | null;
+    frequency: Frequency | null;
+  }>>();
+
+  for (const r of (optRes.data ?? []) as RawRecord[]) {
+    const qid = typeof r.question_id === 'string' ? r.question_id : '';
+    if (!qid) continue;
+    const arr = byQ.get(qid) ?? [];
+    arr.push({
+      id: String(r.id),
+      label: typeof r.label === 'string' ? r.label : '',
+      points: typeof r.points === 'number' ? r.points : null,
+      profileCode: typeof r.profile_code === 'string' ? r.profile_code : null,
+      frequency:
+        r.frequency === 'A' ||
+        r.frequency === 'B' ||
+        r.frequency === 'C' ||
+        r.frequency === 'D'
+          ? (r.frequency as Frequency)
+          : null,
+    });
+    byQ.set(qid, arr);
+  }
+
+  // Map questions
+  const mapped = qRows.map((row) => {
+    const id = String(row.id);
     const text = pickString(row, ['text', 'question', 'prompt', 'label'], 'Question');
     const index = pickNumber(row, ['order_index', 'index', 'order', 'position', 'sort', 'order_no'], 0);
     const type = pickString(row, ['type', 'question_type', 'q_type', 'kind'], 'single') as
@@ -126,32 +149,23 @@ async function loadQuestions(slug: string) {
       | 'info';
     const isScored = pickBoolean(row, ['is_scored', 'scored'], true);
 
-    const options = Array.isArray(row.options)
-      ? (row.options as OptionRow[]).map((o) => ({
-          id: o.id,
-          label: o.label,
-          points: o.points,
-          profileCode: o.profile_code,
-          frequency: o.frequency,
-        }))
-      : [];
-
+    const options = byQ.get(id) ?? [];
     return { id, index, text, type, isScored, options };
   });
 
-  // Ensure a stable order if order_index wasn’t present
-  qs.sort((a, b) => a.index - b.index || a.text.localeCompare(b.text));
-  return qs;
+  // Stable sort: by index, then text
+  mapped.sort((a, b) => a.index - b.index || a.text.localeCompare(b.text));
+
+  return mapped;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const rawSlug = body?.slug;
-    const slug = okSlug(rawSlug) ?? 'competency-coach-dna';
+    const slug = okSlug(body?.slug) ?? 'competency-coach-dna';
 
     const submission = await createSubmission(slug);
-    const questions = await loadQuestions(slug);
+    const questions = await loadQuestionsAndOptions(slug);
 
     return NextResponse.json({
       submissionId: submission.id,
@@ -162,6 +176,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Always send a body so your red banner can show it
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
