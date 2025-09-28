@@ -21,20 +21,15 @@ type ResultRow = {
 type AnswerRow = {
   submission_id: string;
   question_id: string;
-  option_id: string | null;
-  value: unknown;
-  selected: unknown;
+  // the following may or may not exist in your schema:
+  option_id?: string | null;
+  selected?: unknown;
+  answer?: unknown;
+  value?: unknown;
 };
 
-type QuestionRow = {
-  id: string;
-  text: string;
-};
-
-type OptionRow = {
-  id: string;
-  label: string;
-};
+type QuestionRow = { id: string; text: string };
+type OptionRow = { id: string; label: string };
 
 type AnswerDTO = {
   question_id: string;
@@ -57,15 +52,30 @@ type DetailPayload = {
 };
 
 function toStringArray(value: unknown): string[] {
+  if (value == null) return [];
   if (Array.isArray(value)) return value.map((v) => String(v));
-  if (value === null || value === undefined) return [];
+
+  // Some installs store arrays as text. Try to parse JSON if it looks like JSON.
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if ((s.startsWith('[') && s.endsWith(']')) || (s.startsWith('{') && s.endsWith('}'))) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed.map((v) => String(v));
+      } catch {
+        /* fall through */
+      }
+    }
+    return [s];
+  }
+
   return [String(value)];
 }
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // Submission
+  // 1) Submission (person details)
   const subRes = await supabaseAdmin
     .from('mc_submissions')
     .select('id, created_at, name, email, phone')
@@ -77,7 +87,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   }
   const sub = subRes.data as SubmissionRow;
 
-  // Results
+  // 2) Result (profile + flow)
   const resRes = await supabaseAdmin
     .from('mc_results')
     .select('submission_id, profile_code, flow_a, flow_b, flow_c, flow_d')
@@ -86,10 +96,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   const resRow = (resRes.data ?? null) as ResultRow | null;
 
-  // Answers for this submission
+  // 3) Answers — select * so we don't explode on missing columns
   const ansRes = await supabaseAdmin
     .from('mc_answers')
-    .select('submission_id, question_id, option_id, value, selected')
+    .select('*')
     .eq('submission_id', id);
 
   if (ansRes.error) {
@@ -98,17 +108,17 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   const answers = (ansRes.data ?? []) as AnswerRow[];
 
-  // Collect question ids & option ids we need to hydrate
+  // 4) Collect question ids & option ids to hydrate
   const qIds = new Set<string>();
   const optIds = new Set<string>();
 
   for (const a of answers) {
     qIds.add(a.question_id);
-    const payload = a.value ?? a.selected ?? a.option_id;
-    toStringArray(payload).forEach((oid) => optIds.add(oid));
+    const ids = toStringArray(a.selected ?? a.value ?? a.answer ?? a.option_id ?? null);
+    ids.forEach((oid) => optIds.add(oid));
   }
 
-  // Questions
+  // 5) Questions
   const qRes = qIds.size
     ? await supabaseAdmin.from('mc_questions').select('id, text').in('id', Array.from(qIds))
     : { data: [] as QuestionRow[], error: null };
@@ -120,7 +130,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     ((qRes.data ?? []) as QuestionRow[]).map((q) => [q.id, q.text]),
   );
 
-  // Options (labels)
+  // 6) Options (labels)
   const oRes = optIds.size
     ? await supabaseAdmin.from('mc_options').select('id, label').in('id', Array.from(optIds))
     : { data: [] as OptionRow[], error: null };
@@ -132,9 +142,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     ((oRes.data ?? []) as OptionRow[]).map((o) => [o.id, o.label]),
   );
 
+  // 7) Build DTOs
   const answerDtos: AnswerDTO[] = answers.map((a) => {
-    const raw = a.value ?? a.selected ?? a.option_id;
-    const ids = toStringArray(raw);
+    const ids = toStringArray(a.selected ?? a.value ?? a.answer ?? a.option_id ?? null);
     const labels = ids.map((oid) => oMap.get(oid) ?? oid);
     return {
       question_id: a.question_id,
