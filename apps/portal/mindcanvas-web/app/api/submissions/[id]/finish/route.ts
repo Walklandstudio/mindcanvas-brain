@@ -1,234 +1,78 @@
-// app/api/submissions/[id]/finish/route.ts
-import 'server-only';
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type ProfileCode = 'P1'|'P2'|'P3'|'P4'|'P5'|'P6'|'P7'|'P8';
-type FlowLabel = 'Catalyst'|'Communications'|'Rhythmic'|'Observer';
+type Freq = 'A' | 'B' | 'C' | 'D';
 
-const ALL_PROFILES: ProfileCode[] = ['P1','P2','P3','P4','P5','P6','P7','P8'];
-const ALL_FLOWS: FlowLabel[] = ['Catalyst','Communications','Rhythmic','Observer'];
+export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  // Load submission + test
+  const { data: sub, error: sErr } = await supabaseAdmin
+    .from('mc_submissions')
+    .select('id, test_id')
+    .eq('id', id)
+    .maybeSingle<{ id: string; test_id: string }>();
+  if (sErr || !sub) return NextResponse.json({ error: sErr?.message ?? 'Submission not found' }, { status: 404 });
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  auth: { persistSession: false },
-});
+  // Answers (tolerant)
+  const { data: arows, error: aErr } = await supabaseAdmin
+    .from('mc_answers')
+    .select('*')
+    .eq('submission_id', sub.id);
+  if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
 
-interface OptionRow {
-  id: string;
-  points: number | null;
-  profile_code: ProfileCode | null;
-  flow: FlowLabel | null;
-}
+  // Collect selected option IDs
+  const selectedIds = new Set<string>();
+  for (const r of arows ?? []) {
+    const raw = r as Record<string, unknown>;
+    const candidate =
+      raw.selected ?? raw.answer ?? raw.value ?? raw.option_id ?? raw.selected_ids ?? raw.choices ?? null;
 
-interface AnswerRow {
-  id: string;
-  question_id: string;
-  option_id: string | null;
-  value: unknown;
-  mc_options: OptionRow | null;
-}
-
-interface Quals {
-  q16?: unknown;
-  q17?: unknown;
-  q18?: unknown;
-  q19?: unknown;
-  q20?: unknown;
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null;
-}
-
-function zeroProfileMap(): Record<ProfileCode, number> {
-  return ALL_PROFILES.reduce((acc, code) => {
-    acc[code] = 0;
-    return acc;
-  }, {} as Record<ProfileCode, number>);
-}
-
-function zeroFlowMap(): Record<FlowLabel, number> {
-  return ALL_FLOWS.reduce((acc, f) => {
-    acc[f] = 0;
-    return acc;
-  }, {} as Record<FlowLabel, number>);
-}
-
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  try {
-    const { id: submissionId } = await ctx.params;
-    if (!submissionId) {
-      return NextResponse.json({ error: 'Missing submission id' }, { status: 400 });
+    if (Array.isArray(candidate)) {
+      for (const v of candidate as unknown[]) selectedIds.add(String(v));
+    } else if (candidate != null) {
+      selectedIds.add(String(candidate));
     }
-
-    // Optional quals in body (tolerate empty/invalid JSON)
-    let rawBody: unknown;
-    try {
-      rawBody = await req.json();
-    } catch {
-      rawBody = undefined;
-    }
-
-    const quals: Partial<Quals> = isRecord(rawBody)
-      ? {
-          q16: rawBody.q16,
-          q17: rawBody.q17,
-          q18: rawBody.q18,
-          q19: rawBody.q19,
-          q20: rawBody.q20,
-        }
-      : {};
-
-    // 1) Fetch answers joined to options (points, profile_code, flow)
-    const { data: answersData, error: answersErr } = await supabase
-      .from('mc_answers')
-      .select(`
-        id,
-        question_id,
-        option_id,
-        value,
-        mc_options (
-          id,
-          points,
-          profile_code,
-          flow
-        )
-      `)
-      .eq('submission_id', submissionId);
-
-    if (answersErr) {
-      return NextResponse.json(
-        { error: 'Failed to fetch answers', details: answersErr.message },
-        { status: 500 }
-      );
-    }
-
-    const answers: AnswerRow[] = (answersData ?? []) as unknown as AnswerRow[];
-
-    // 2) Aggregate totals
-    const profileTotals = zeroProfileMap();
-    const flowTotals = zeroFlowMap();
-
-    for (const a of answers) {
-      const opt = a.mc_options;
-      const points = (opt?.points ?? 0) as number;
-      const pcode = (opt?.profile_code ?? undefined) as ProfileCode | undefined;
-      const flow = (opt?.flow ?? undefined) as FlowLabel | undefined;
-
-      if (pcode && ALL_PROFILES.includes(pcode)) {
-        profileTotals[pcode] = profileTotals[pcode] + points;
-      }
-      if (flow && ALL_FLOWS.includes(flow)) {
-        flowTotals[flow] = flowTotals[flow] + points;
-      }
-    }
-
-    // 3) Winners
-    const winnerProfile = ((): ProfileCode => {
-      let best: ProfileCode = 'P1';
-      let bestScore = Number.NEGATIVE_INFINITY;
-      for (const code of ALL_PROFILES) {
-        const s = profileTotals[code];
-        if (s > bestScore) {
-          best = code;
-          bestScore = s;
-        }
-      }
-      return best;
-    })();
-
-    const winnerFlow = ((): FlowLabel => {
-      let best: FlowLabel = 'Catalyst';
-      let bestScore = Number.NEGATIVE_INFINITY;
-      for (const f of ALL_FLOWS) {
-        const s = flowTotals[f];
-        if (s > bestScore) {
-          best = f;
-          bestScore = s;
-        }
-      }
-      return best;
-    })();
-
-    // 4) Totals & percentages
-    const totalScore = ALL_PROFILES.reduce((acc, code) => acc + profileTotals[code], 0);
-    const flowDenom = ALL_FLOWS.reduce((acc, f) => acc + flowTotals[f], 0);
-
-    const scores_json = {
-      profiles: profileTotals,
-      flows: flowTotals,
-      total: totalScore,
-      winner: { profileCode: winnerProfile, flow: winnerFlow },
-      percentages: {
-        profiles: ALL_PROFILES.reduce((acc, code) => {
-          const val = profileTotals[code];
-          acc[code] = totalScore > 0 ? Math.round((val / totalScore) * 100) : 0;
-          return acc;
-        }, {} as Record<ProfileCode, number>),
-        flows: ALL_FLOWS.reduce((acc, f) => {
-          const val = flowTotals[f];
-          acc[f] = flowDenom > 0 ? Math.round((val / flowDenom) * 100) : 0;
-          return acc;
-        }, {} as Record<FlowLabel, number>),
-      },
-    };
-
-    // 5) Persist to mc_submissions
-    const { error: upErr } = await supabase
-      .from('mc_submissions')
-      .update({
-        scores_json,
-        total_score: totalScore,
-        full_profile_code: winnerProfile,
-        full_frequency: winnerFlow,
-        finished_at: new Date().toISOString(),
-      })
-      .eq('id', submissionId);
-
-    if (upErr) {
-      return NextResponse.json(
-        { error: 'Failed to update submission', details: upErr.message },
-        { status: 500 }
-      );
-    }
-
-    // 6) Upsert quals if provided (non-fatal on error)
-    const hasQuals = Object.values(quals).some((v) => typeof v !== 'undefined');
-    if (hasQuals) {
-      const qualRow: { submission_id: string } & Partial<Quals> = {
-        submission_id: submissionId,
-        ...quals,
-      };
-      const { error: qualErr } = await supabase
-        .from('mc_qualifications')
-        .upsert(qualRow, { onConflict: 'submission_id' });
-
-      if (qualErr) {
-        return NextResponse.json(
-          {
-            submissionId,
-            result: scores_json,
-            warning: 'Results saved, but qualifications upsert failed',
-            details: qualErr.message,
-          },
-          { status: 207 }
-        );
-      }
-    }
-
-    return NextResponse.json({ submissionId, result: scores_json }, { status: 200 });
-  } catch (err: unknown) {
-    const message =
-      typeof err === 'object' && err !== null && 'toString' in err
-        ? String(err)
-        : 'Unknown error';
-    return NextResponse.json(
-      { error: 'Unexpected error finishing submission', details: message },
-      { status: 500 }
-    );
   }
+
+  // Fetch those options → get frequency & points
+  let flow: Record<Freq, number> = { A: 0, B: 0, C: 0, D: 0 };
+  if (selectedIds.size) {
+    const { data: orows, error: oErr } = await supabaseAdmin
+      .from('mc_options')
+      .select('id, frequency, points')
+      .in('id', Array.from(selectedIds));
+    if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
+
+    for (const o of orows ?? []) {
+      const f = (o.frequency ?? null) as Freq;
+      if (!f) continue;
+      const pts = typeof o.points === 'number' ? o.points : 1;
+      flow[f] = (flow[f] ?? 0) + pts;
+    }
+  }
+
+  // Choose a profile_code based on max flow (simple heuristic)
+  const top = (Object.entries(flow) as [Freq, number][])
+    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'A';
+  const profile_code = top; // map flow→profile if you have a mapping
+
+  // Upsert result; use submission id as report_id for stable link
+  const payload = {
+    submission_id: sub.id,
+    report_id: sub.id,
+    profile_code,
+    flow_a: flow.A ?? 0,
+    flow_b: flow.B ?? 0,
+    flow_c: flow.C ?? 0,
+    flow_d: flow.D ?? 0,
+  };
+
+  const { error: rErr } = await supabaseAdmin
+    .from('mc_results')
+    .upsert(payload, { onConflict: 'submission_id' });
+  if (rErr) return NextResponse.json({ error: rErr.message }, { status: 500 });
+
+  return NextResponse.json({ reportId: sub.id });
 }
 
