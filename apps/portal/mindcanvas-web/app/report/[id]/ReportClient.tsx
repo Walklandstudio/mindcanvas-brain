@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import {
@@ -36,8 +36,8 @@ type Props = {
   profileFlowDescriptor?: string;  // e.g., "Communications – Rhythmic Coaching Flow"
   profileImage?: string;
   profileColor?: string;
-  flow: Record<Freq, number>;
-  topFlowName: string;             // dominant flow from answers (Catalyst / Communications / etc.)
+  flow: Record<Freq, number>;      // percentages 0..100 for A/B/C/D
+  topFlowName: string;
   profileBreakdown: ProfileSlice[];
   welcome?: string;
   overview?: string;
@@ -81,17 +81,13 @@ export default function ReportClient({
   const [downloading, setDownloading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Build pie data without useMemo to silence the deps warning (cheap computation)
   const totalFlow = Math.max(1, (flow.A ?? 0) + (flow.B ?? 0) + (flow.C ?? 0) + (flow.D ?? 0));
-
-  const pieData = useMemo(
-    () =>
-      (['A', 'B', 'C', 'D'] as Freq[]).map((k) => ({
-        key: k,
-        label: FLOW_LABELS[k],
-        value: flow[k] ?? 0,
-      })),
-    [flow.A, flow.B, flow.C, flow.D],
-  );
+  const pieData = (['A', 'B', 'C', 'D'] as Freq[]).map((k) => ({
+    key: k,
+    label: FLOW_LABELS[k],
+    value: flow[k] ?? 0,
+  }));
 
   const waitForImages = async (root: HTMLElement) => {
     const imgs = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
@@ -103,7 +99,9 @@ export default function ReportClient({
               const done = () => resolve();
               img.onload = done;
               img.onerror = done;
-              try { img.crossOrigin = 'anonymous'; } catch {}
+              try {
+                img.crossOrigin = 'anonymous';
+              } catch {}
             }),
       ),
     );
@@ -111,32 +109,48 @@ export default function ReportClient({
 
   const toggleExcludes = (root: HTMLElement, hide: boolean) => {
     const nodes = Array.from(root.querySelectorAll('[data-pdf-exclude="true"]')) as HTMLElement[];
-    nodes.forEach((el) => { el.style.visibility = hide ? 'hidden' : ''; });
+    nodes.forEach((el) => {
+      el.style.visibility = hide ? 'hidden' : '';
+    });
   };
 
   const handleDownload = useCallback(async () => {
     const el = reportRef.current;
     if (!el) return;
-    setErr(null); setDownloading(true);
+    setErr(null);
+    setDownloading(true);
     try {
       toggleExcludes(el, true);
       await waitForImages(el);
-      const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, windowWidth: el.scrollWidth, windowHeight: el.scrollHeight });
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: el.scrollWidth,
+        windowHeight: el.scrollHeight,
+      });
       const imgData = canvas.toDataURL('image/jpeg', 1.0);
       const pdf = new jsPDF('p', 'pt', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
       const imgWidth = pageWidth;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
       let heightLeft = imgHeight;
       let position = 0;
+
       pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pdf.internal.pageSize.getHeight();
+      heightLeft -= pageHeight;
+
       while (heightLeft > 0) {
         position = -(imgHeight - heightLeft);
         pdf.addPage();
         pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdf.internal.pageSize.getHeight();
+        heightLeft -= pageHeight;
       }
+
       pdf.save(`report_${reportId}.pdf`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -225,9 +239,8 @@ export default function ReportClient({
               </ResponsiveContainer>
             </div>
 
-            {/* simple legend list with percentages */}
             <div className="grid grid-cols-1 gap-3 text-sm">
-              {(['A','B','C','D'] as Freq[]).map((k) => {
+              {(['A', 'B', 'C', 'D'] as Freq[]).map((k) => {
                 const pct = totalFlow ? Math.round(((flow[k] ?? 0) / totalFlow) * 100) : 0;
                 return (
                   <div key={k} className="flex items-center gap-3">
