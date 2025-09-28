@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useTransition, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
 /* ---------- Types ---------- */
@@ -9,20 +9,20 @@ type Frequency = 'A' | 'B' | 'C' | 'D';
 type Option = {
   id: string;
   label: string;
-  points?: number | null;
-  profileCode?: string | null;
-  frequency?: Frequency | null;
+  points: number | null;
+  profileCode: string | null;
+  frequency: Frequency | null;
 };
 
 type QuestionType = 'single' | 'multi' | 'info';
 
 type Question = {
   id: string;
-  index: number; // 1..n for ordering
+  index: number; // 1..n
   text: string;
   type: QuestionType;
-  options: Option[];
   isScored: boolean;
+  options: Option[];
 };
 
 type LoadedSubmission = {
@@ -33,7 +33,6 @@ type LoadedSubmission = {
   finished?: boolean;
 };
 
-type StartSubmissionResponse = LoadedSubmission;
 type FinishResponse = { reportId: string };
 type Contact = { name: string | null; email: string | null; phone: string | null };
 
@@ -62,21 +61,21 @@ function isValidEmail(s: string) {
 }
 
 /* ---------- API ---------- */
-async function startSubmission(slug: string): Promise<StartSubmissionResponse> {
+async function startSubmission(slug: string): Promise<LoadedSubmission> {
   const res = await fetch('/api/submissions/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug }),
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error(`Failed to start submission: ${await res.text()}`);
-  return (await res.json()) as StartSubmissionResponse;
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as LoadedSubmission;
 }
 
-async function resumeSubmission(submissionId: string): Promise<StartSubmissionResponse> {
-  const res = await fetch(`/api/submissions/${submissionId}`, { method: 'GET', cache: 'no-store' });
-  if (!res.ok) throw new Error(`Failed to load submission: ${await res.text()}`);
-  return (await res.json()) as StartSubmissionResponse;
+async function resumeSubmission(submissionId: string): Promise<LoadedSubmission> {
+  const res = await fetch(`/api/submissions/${submissionId}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as LoadedSubmission;
 }
 
 async function saveAnswerAPI(
@@ -89,18 +88,18 @@ async function saveAnswerAPI(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ questionId, optionId: optionIdOrIds }),
   });
-  if (!res.ok) throw new Error(`Failed to save answer: ${await res.text()}`);
+  if (!res.ok) throw new Error(await res.text());
 }
 
 async function finishAPI(submissionId: string): Promise<FinishResponse> {
   const res = await fetch(`/api/submissions/${submissionId}/finish`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Failed to finish: ${await res.text()}`);
+  if (!res.ok) throw new Error(await res.text());
   return (await res.json()) as FinishResponse;
 }
 
 async function getContact(submissionId: string): Promise<Contact> {
   const res = await fetch(`/api/submissions/${submissionId}/contact`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`Failed to load contact: ${await res.text()}`);
+  if (!res.ok) throw new Error(await res.text());
   return (await res.json()) as Contact;
 }
 
@@ -110,10 +109,10 @@ async function saveContact(submissionId: string, c: Contact): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(c),
   });
-  if (!res.ok) throw new Error(`Failed to save details: ${await res.text()}`);
+  if (!res.ok) throw new Error(await res.text());
 }
 
-/* ---------- Client Component ---------- */
+/* ---------- Component ---------- */
 export default function TestClient({
   slug,
   sid,
@@ -131,121 +130,130 @@ export default function TestClient({
   const [finishing, startFinishing] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Contact state (first/last/email/phone)
+  // Contact state (required)
   const initial = splitName(prefill?.name);
   const [first, setFirst] = useState(initial.first);
   const [last, setLast] = useState(initial.last);
   const [email, setEmail] = useState(prefill?.email ?? '');
   const [phone, setPhone] = useState(prefill?.phone ?? '');
-  const [contactSaved, setContactSaved] = useState<boolean>(false);
-  const [contactSaving, setContactSaving] = useState<boolean>(false);
+  const [contactSaved, setContactSaved] = useState(false);
+  const [contactSaving, setContactSaving] = useState(false);
 
-  const mounted = useRef(false);
-
+  // Load/start once (based on slug/sid)
+  const loadedOnce = useRef(false);
   useEffect(() => {
-    if (mounted.current) return;
-    mounted.current = true;
+    if (loadedOnce.current) return;
+    loadedOnce.current = true;
 
     (async () => {
       try {
-        // Start or resume
         const s = sid ? await resumeSubmission(sid) : await startSubmission(slug);
         setSub(s);
 
-        // Load existing contact (if any) and split to first/last
+        // Existing contact (if any)
         try {
           const c = await getContact(s.submissionId);
-          const hasAny = Boolean(c.name || c.email || c.phone);
-          if (hasAny) {
+          if (c) {
             const { first: f, last: l } = splitName(c.name);
-            setFirst(f);
-            setLast(l);
-            setEmail(c.email ?? '');
-            setPhone(c.phone ?? '');
-            setContactSaved(true);
+            if (f || l || c.email || c.phone) {
+              setFirst(f);
+              setLast(l);
+              setEmail(c.email ?? '');
+              setPhone(c.phone ?? '');
+              setContactSaved(true);
+            }
           }
-        } catch (ce: unknown) {
-          console.warn('Contact load error:', getErrorMessage(ce));
+        } catch (e) {
+          // Non-fatal
+          console.warn('Contact load error:', getErrorMessage(e));
         }
 
-        // Compute starting question index
+        // Jump to first unanswered
         if (s.questions?.length) {
-          const firstUnanswered = s.questions.findIndex(q => {
+          const idx = s.questions.findIndex(q => {
             const a = s.answers?.[q.id];
             if (q.type === 'multi') return !(Array.isArray(a) && a.length > 0);
             return !a;
           });
-          setCurrent(firstUnanswered === -1 ? 0 : firstUnanswered);
+          setCurrent(idx === -1 ? 0 : idx);
         }
-      } catch (e: unknown) {
-        setError(getErrorMessage(e));
+      } catch (e) {
+        setError(`Failed to load submission: ${getErrorMessage(e)}`);
       }
     })();
   }, [slug, sid]);
 
-  // Stable questions
-  const questions = useMemo<Question[]>(() => (sub ? sub.questions : []), [sub]);
+  // Stable questions ref
+  const questions = useMemo<Question[]>(() => sub?.questions ?? [], [sub?.questions]);
   const total = questions.length;
+  const q = questions[current];
 
+  // Progress
   const answeredCount = useMemo(() => {
     if (!sub) return 0;
-    return questions.reduce((acc, q) => {
-      const a = sub.answers?.[q.id];
-      if (q.type === 'multi') return acc + (Array.isArray(a) && a.length > 0 ? 1 : 0);
+    return questions.reduce((acc, qq) => {
+      const a = sub.answers?.[qq.id];
+      if (qq.type === 'multi') return acc + (Array.isArray(a) && a.length > 0 ? 1 : 0);
       return acc + (typeof a === 'string' && a.length > 0 ? 1 : 0);
     }, 0);
   }, [sub, questions]);
-
   const progressPct = total > 0 ? Math.round((answeredCount / total) * 100) : 0;
 
-  // Require ALL fields and a valid email
-  const contactValid = useMemo(() => {
-    return (
+  // Require first + last + phone + valid email
+  const contactValid = useMemo(
+    () =>
       first.trim().length > 0 &&
       last.trim().length > 0 &&
       phone.trim().length > 0 &&
-      isValidEmail(email.trim())
-    );
-  }, [first, last, email, phone]);
+      isValidEmail(email.trim()),
+    [first, last, email, phone],
+  );
 
-  const onSingleSelect = useCallback((question: Question, optionId: string) => {
-    if (!sub) return;
-    setSub(prev => (prev ? { ...prev, answers: { ...prev.answers, [question.id]: optionId } } : prev));
-    startSaving(() => {
-      saveAnswerAPI(sub.submissionId, question.id, optionId).catch((e: unknown) => {
-        setError(getErrorMessage(e));
+  // Answer handlers
+  const onSingleSelect = useCallback(
+    (question: Question, optionId: string) => {
+      if (!sub) return;
+      setSub(prev => (prev ? { ...prev, answers: { ...prev.answers, [question.id]: optionId } } : prev));
+      startSaving(() => {
+        saveAnswerAPI(sub.submissionId, question.id, optionId).catch(e =>
+          setError(getErrorMessage(e)),
+        );
       });
-    });
-  }, [sub]);
+    },
+    [sub],
+  );
 
-  const onMultiToggle = useCallback((question: Question, optionId: string) => {
-    if (!sub) return;
-    let nextArr: string[] = [];
-    setSub(prev => {
-      if (!prev) return prev;
-      const existing = prev.answers?.[question.id];
-      const arr = Array.isArray(existing) ? [...existing] : [];
-      const i = arr.indexOf(optionId);
-      if (i === -1) arr.push(optionId);
-      else arr.splice(i, 1);
-      nextArr = arr;
-      return { ...prev, answers: { ...prev.answers, [question.id]: arr } };
-    });
-    startSaving(() => {
-      saveAnswerAPI(sub.submissionId, question.id, nextArr).catch((e: unknown) => {
-        setError(getErrorMessage(e));
+  const onMultiToggle = useCallback(
+    (question: Question, optionId: string) => {
+      if (!sub) return;
+
+      let next: string[] = [];
+      setSub(prev => {
+        if (!prev) return prev;
+        const existing = prev.answers?.[question.id];
+        const arr = Array.isArray(existing) ? [...existing] : [];
+        const i = arr.indexOf(optionId);
+        if (i === -1) arr.push(optionId);
+        else arr.splice(i, 1);
+        next = arr;
+        return { ...prev, answers: { ...prev.answers, [question.id]: arr } };
       });
-    });
-  }, [sub]);
+
+      startSaving(() => {
+        saveAnswerAPI(sub.submissionId, question.id, next).catch(e => setError(getErrorMessage(e)));
+      });
+    },
+    [sub],
+  );
 
   const next = useCallback(() => setCurrent(i => Math.min(i + 1, total - 1)), [total]);
   const prev = useCallback(() => setCurrent(i => Math.max(i - 1, 0)), []);
 
-  function canAdvance(q: Question): boolean {
-    if (!contactSaved || !contactValid) return false; // block until contact saved & valid
-    if (q.type === 'info' || !q.isScored) return true;
-    const a = sub?.answers?.[q.id];
-    if (q.type === 'multi') return Array.isArray(a) && a.length > 0;
+  function canAdvance(qq: Question): boolean {
+    if (!contactSaved || !contactValid) return false;
+    if (qq.type === 'info' || !qq.isScored) return true;
+    const a = sub?.answers?.[qq.id];
+    if (qq.type === 'multi') return Array.isArray(a) && a.length > 0;
     return typeof a === 'string' && a.length > 0;
   }
 
@@ -254,12 +262,11 @@ export default function TestClient({
     startFinishing(() => {
       finishAPI(sub.submissionId)
         .then(({ reportId }) => router.push(`/report/${reportId}`))
-        .catch((e: unknown) => setError(getErrorMessage(e)));
+        .catch(e => setError(getErrorMessage(e)));
     });
   }, [router, sub]);
 
-  const q = questions[current];
-
+  // Save contact
   async function onSaveContact() {
     if (!sub) return;
     setContactSaving(true);
@@ -271,8 +278,8 @@ export default function TestClient({
         phone: phone.trim(),
       });
       setContactSaved(true);
-    } catch (e: unknown) {
-      setError(getErrorMessage(e));
+    } catch (e) {
+      setError(`Failed to save details: ${getErrorMessage(e)}`);
     } finally {
       setContactSaving(false);
     }
@@ -299,14 +306,14 @@ export default function TestClient({
         </div>
       </div>
 
-      {/* Error */}
-      {error ? (
+      {/* Error banner */}
+      {error && (
         <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </div>
-      ) : null}
+      )}
 
-      {/* Participant details (REQUIRED) */}
+      {/* Contact (required) */}
       <div className="mb-6 rounded-2xl border bg-white p-6 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <div className="text-lg font-medium">Your details</div>
@@ -326,7 +333,7 @@ export default function TestClient({
             value={last}
             onChange={e => setLast(e.target.value)}
           />
-          <input
+        <input
             className="rounded-xl border px-3 py-2 text-sm"
             placeholder="Email"
             type="email"
@@ -362,12 +369,23 @@ export default function TestClient({
       </div>
 
       {/* Loading */}
-      {!sub && !error ? (
+      {!sub && !error && (
         <div className="rounded-2xl border px-4 py-8 text-center">Preparing your test…</div>
-      ) : null}
+      )}
 
-      {/* Questions (disabled until contact is saved & valid) */}
-      {sub && q ? (
+      {/* No questions state */}
+      {sub && total === 0 && (
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <h2 className="mb-2 text-lg font-medium">No questions found</h2>
+          <p className="text-sm text-gray-600">
+            This test doesn’t have any questions attached yet. Please check the test’s question
+            bank in Admin.
+          </p>
+        </div>
+      )}
+
+      {/* Question card (disabled until contact saved & valid) */}
+      {sub && q && total > 0 && (
         <div
           className={`rounded-2xl border bg-white p-6 shadow-sm ${
             contactSaved && contactValid ? '' : 'opacity-60'
@@ -378,7 +396,7 @@ export default function TestClient({
             {q.index}. {q.text}
           </h2>
 
-          {q.type === 'single' ? (
+          {q.type === 'single' && (
             <div className="space-y-3">
               {q.options.map(opt => {
                 const selected = sub.answers?.[q.id] === opt.id;
@@ -395,9 +413,9 @@ export default function TestClient({
                 );
               })}
             </div>
-          ) : null}
+          )}
 
-          {q.type === 'multi' ? (
+          {q.type === 'multi' && (
             <div className="space-y-3">
               {q.options.map(opt => {
                 const arr = sub.answers?.[q.id];
@@ -420,14 +438,15 @@ export default function TestClient({
                 );
               })}
             </div>
-          ) : null}
+          )}
 
-          {q.type === 'info' ? (
+          {q.type === 'info' && (
             <p className="text-gray-600">
               This question is informational and does not affect your profile.
             </p>
-          ) : null}
+          )}
 
+          {/* Nav */}
           <div className="mt-6 flex items-center justify-between">
             <button
               className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
@@ -458,8 +477,9 @@ export default function TestClient({
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
+      {/* Footer hint */}
       <p className="mt-6 text-center text-xs text-gray-500">
         Your choices are saved automatically. You can refresh without losing progress.
       </p>
