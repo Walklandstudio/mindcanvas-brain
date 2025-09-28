@@ -6,20 +6,26 @@ type Freq = 'A' | 'B' | 'C' | 'D';
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // Load submission + test
+  // Load submission
   const { data: sub, error: sErr } = await supabaseAdmin
     .from('mc_submissions')
     .select('id, test_id')
     .eq('id', id)
     .maybeSingle<{ id: string; test_id: string }>();
-  if (sErr || !sub) return NextResponse.json({ error: sErr?.message ?? 'Submission not found' }, { status: 404 });
 
-  // Answers (tolerant)
+  if (sErr || !sub) {
+    return NextResponse.json({ error: sErr?.message ?? 'Submission not found' }, { status: 404 });
+  }
+
+  // Answers (tolerant: select * and read whichever column exists)
   const { data: arows, error: aErr } = await supabaseAdmin
     .from('mc_answers')
     .select('*')
     .eq('submission_id', sub.id);
-  if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
+
+  if (aErr) {
+    return NextResponse.json({ error: aErr.message }, { status: 500 });
+  }
 
   // Collect selected option IDs
   const selectedIds = new Set<string>();
@@ -35,14 +41,18 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     }
   }
 
-  // Fetch those options → get frequency & points
-  let flow: Record<Freq, number> = { A: 0, B: 0, C: 0, D: 0 };
+  // Compute flow A/B/C/D
+  const flow: Record<Freq, number> = { A: 0, B: 0, C: 0, D: 0 };
+
   if (selectedIds.size) {
     const { data: orows, error: oErr } = await supabaseAdmin
       .from('mc_options')
       .select('id, frequency, points')
       .in('id', Array.from(selectedIds));
-    if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
+
+    if (oErr) {
+      return NextResponse.json({ error: oErr.message }, { status: 500 });
+    }
 
     for (const o of orows ?? []) {
       const f = (o.frequency ?? null) as Freq;
@@ -52,12 +62,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     }
   }
 
-  // Choose a profile_code based on max flow (simple heuristic)
+  // Pick a profile_code (simple heuristic: max flow)
   const top = (Object.entries(flow) as [Freq, number][])
     .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'A';
-  const profile_code = top; // map flow→profile if you have a mapping
+  const profile_code = top;
 
-  // Upsert result; use submission id as report_id for stable link
+  // Upsert result; use submission id as report_id
   const payload = {
     submission_id: sub.id,
     report_id: sub.id,
@@ -71,7 +81,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const { error: rErr } = await supabaseAdmin
     .from('mc_results')
     .upsert(payload, { onConflict: 'submission_id' });
-  if (rErr) return NextResponse.json({ error: rErr.message }, { status: 500 });
+
+  if (rErr) {
+    return NextResponse.json({ error: rErr.message }, { status: 500 });
+  }
 
   return NextResponse.json({ reportId: sub.id });
 }
