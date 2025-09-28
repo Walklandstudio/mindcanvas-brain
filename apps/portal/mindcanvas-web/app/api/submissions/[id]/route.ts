@@ -3,126 +3,106 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 type Freq = 'A' | 'B' | 'C' | 'D' | null;
 
-type SubmissionRow = { id: string; test_id: string | null };
-type TestRow = { slug: string };
+type Row = Record<string, unknown>;
 
-// We make question row tolerant to different column names
-type QuestionRow = {
-  id: string;
-  text: string;
-  type: 'single' | 'multi' | 'info';
-  is_scored: boolean | null;
-  order_index?: number | null;
-  index?: number | null;
-  position?: number | null;
-};
-
-type OptionRow = {
-  id: string;
-  question_id: string;
-  label: string;
-  points: number | null;
-  profile_code: string | null;
-  frequency: Freq;
-};
-
-type AnswerRow = { question_id: string; selected: unknown };
-
-type LoadedSubmission = {
-  submissionId: string;
-  testSlug: string;
-  questions: {
-    id: string;
-    index: number;
-    text: string;
-    type: 'single' | 'multi' | 'info';
-    isScored: boolean;
-    options: {
-      id: string;
-      label: string;
-      points: number | null;
-      profileCode: string | null;
-      frequency: Freq;
-    }[];
-  }[];
-  answers: Record<string, string | string[] | undefined>;
-  finished?: boolean;
-};
-
-function ord(q: QuestionRow): number {
-  const cands = [q.order_index, q.index, q.position].filter(
-    (v): v is number => typeof v === 'number' && Number.isFinite(v),
-  );
-  return cands.length ? cands[0]! : 0;
+function numFrom(row: Row, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = row[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string') {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
+}
+function str(row: Row, key: string): string | null {
+  const v = row[key];
+  return typeof v === 'string' ? v : v == null ? null : String(v);
+}
+function freq(row: Row, key: string): Freq {
+  const v = str(row, key);
+  return v === 'A' || v === 'B' || v === 'C' || v === 'D' ? v : null;
+}
+function qType(row: Row): 'single' | 'multi' | 'info' {
+  const v = (str(row, 'type') ?? str(row, 'question_type') ?? str(row, 'qtype'))?.toLowerCase();
+  return v === 'multi' || v === 'info' ? (v as 'multi' | 'info') : 'single';
+}
+function isTrue(row: Row, key: string, fallback = true): boolean {
+  const v = row[key];
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  if (typeof v === 'string') return v.toLowerCase() === 'true' || v === '1';
+  return fallback;
+}
+function orderValue(row: Row): number {
+  return numFrom(row, ['order_index', 'index', 'position']) ?? 0;
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // 1) submission (id + test_id)
+  // Submission → test_id
   const { data: sub, error: subErr } = await supabaseAdmin
     .from('mc_submissions')
     .select('id, test_id')
     .eq('id', id)
-    .maybeSingle<SubmissionRow>();
+    .maybeSingle<{ id: string; test_id: string | null }>();
   if (subErr || !sub?.test_id) {
     return NextResponse.json(
-      { error: subErr?.message || 'Submission not found or missing test_id' },
+      { error: subErr?.message ?? 'Submission not found or missing test_id' },
       { status: 404 },
     );
   }
-  const testId = sub.test_id;
 
-  // 2) slug
+  // Test slug (for display)
   let testSlug = 'test';
   const { data: trow } = await supabaseAdmin
     .from('mc_tests')
     .select('slug')
-    .eq('id', testId)
-    .maybeSingle<TestRow>();
+    .eq('id', sub.test_id)
+    .maybeSingle<{ slug: string }>();
   if (trow?.slug) testSlug = trow.slug;
 
-  // 3) questions (don’t rely on a specific order column)
-  const { data: qrows, error: qErr } = await supabaseAdmin
+  // Questions (tolerant: select all, sort in code)
+  const { data: qrowsRaw, error: qErr } = await supabaseAdmin
     .from('mc_questions')
-    .select('id, text, type, is_scored, order_index, index, position')
-    .eq('test_id', testId);
+    .select('*')
+    .eq('test_id', sub.test_id);
   if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 });
 
-  const questionsRaw = (qrows ?? []) as QuestionRow[];
-  // Stable sort using whichever column exists, then by id to avoid ties
-  questionsRaw.sort((a, b) => ord(a) - ord(b) || a.id.localeCompare(b.id));
-  const qIds = questionsRaw.map(q => q.id);
+  const qrows = (qrowsRaw ?? []) as Row[];
+  qrows.sort((a, b) => orderValue(a) - orderValue(b) || String(a.id).localeCompare(String(b.id)));
+  const qIds = qrows.map(r => String(r.id));
 
-  // 4) options (no fragile ordering)
-  const optionsByQ: Record<string, OptionRow[]> = {};
+  // Options
+  const optionsByQ: Record<string, Row[]> = {};
   if (qIds.length) {
-    const { data: orows, error: oErr } = await supabaseAdmin
+    const { data: orowsRaw, error: oErr } = await supabaseAdmin
       .from('mc_options')
-      .select('id, question_id, label, points, profile_code, frequency')
+      .select('*')
       .in('question_id', qIds);
     if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
-
-    for (const o of (orows ?? []) as OptionRow[]) {
-      (optionsByQ[o.question_id] ||= []).push(o);
+    for (const o of (orowsRaw ?? []) as Row[]) {
+      const qid = String(o.question_id);
+      (optionsByQ[qid] ||= []).push(o);
     }
-    // gentle option sort by label to keep things deterministic
     for (const k of Object.keys(optionsByQ)) {
-      optionsByQ[k].sort((a, b) => a.label.localeCompare(b.label));
+      optionsByQ[k].sort((a, b) => (str(a, 'label') ?? '').localeCompare(str(b, 'label') ?? ''));
     }
   }
 
-  // 5) answers
+  // Answers
   const { data: arows, error: aErr } = await supabaseAdmin
     .from('mc_answers')
     .select('question_id, selected')
     .eq('submission_id', sub.id);
   if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
 
-  const answers: LoadedSubmission['answers'] = {};
-  for (const a of (arows ?? []) as AnswerRow[]) {
-    const key = String(a.question_id);
-    const sel = a.selected;
+  const answers: Record<string, string | string[] | undefined> = {};
+  for (const a of arows ?? []) {
+    const key = String((a as Row).question_id);
+    const sel = (a as Row).selected;
     answers[key] = Array.isArray(sel)
       ? (sel as ReadonlyArray<unknown>).map(x => String(x))
       : typeof sel === 'string'
@@ -130,21 +110,25 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         : undefined;
   }
 
-  // 6) shape
-  const questions: LoadedSubmission['questions'] = questionsRaw.map((q, i) => ({
-    id: q.id,
-    index: (Number.isFinite(ord(q)) ? ord(q) : i + 1) as number,
-    text: q.text,
-    type: q.type,
-    isScored: Boolean(q.is_scored),
-    options: (optionsByQ[q.id] ?? []).map(o => ({
-      id: o.id,
-      label: o.label,
-      points: o.points ?? null,
-      profileCode: o.profile_code ?? null,
-      frequency: o.frequency ?? null,
-    })),
-  }));
+  const questions = qrows.map((r, i) => {
+    const qid = String(r.id);
+    const opts = (optionsByQ[qid] ?? []).map(o => ({
+      id: String(o.id),
+      label: str(o, 'label') ?? '',
+      points: numFrom(o, ['points']),
+      profileCode: str(o, 'profile_code'),
+      frequency: freq(o, 'frequency'),
+    }));
+
+    return {
+      id: qid,
+      index: (numFrom(r, ['order_index', 'index', 'position']) ?? i + 1) as number,
+      text: str(r, 'text') ?? '',
+      type: qType(r),
+      isScored: isTrue(r, 'is_scored', true),
+      options: opts,
+    };
+  });
 
   return NextResponse.json({
     submissionId: sub.id,
@@ -152,5 +136,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     questions,
     answers,
     finished: false,
-  } satisfies LoadedSubmission);
+  });
 }
