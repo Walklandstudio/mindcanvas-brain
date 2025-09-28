@@ -22,23 +22,23 @@ import Image from 'next/image';
 type Freq = 'A' | 'B' | 'C' | 'D';
 
 type ProfileSlice = {
-  code: string;         // P1..P8
-  name: string;         // "Profile 4 — The Negotiator"
-  pct: number;          // 0..100
-  color: string;        // hex
+  code: string;
+  name: string;   // plain profile name only
+  pct: number;
+  color: string;
 };
 
 type Props = {
   reportId: string;
   name: string;
   profileCode: string;
-  profileName: string;
+  profileName: string;             // plain name (no number)
+  profileFlowDescriptor?: string;  // e.g., "Communications – Rhythmic Coaching Flow"
   profileImage?: string;
   profileColor?: string;
   flow: Record<Freq, number>;
-  topFlowName: string;
+  topFlowName: string;             // dominant flow from answers (Catalyst / Communications / etc.)
   profileBreakdown: ProfileSlice[];
-  // Rich copy
   welcome?: string;
   overview?: string;
   strengths?: string[];
@@ -63,8 +63,8 @@ const FLOW_LABELS: Record<Freq, string> = {
 export default function ReportClient({
   reportId,
   name,
-  profileCode,
   profileName,
+  profileFlowDescriptor,
   profileImage,
   profileColor = '#111111',
   flow,
@@ -166,7 +166,7 @@ export default function ReportClient({
         </div>
       )}
 
-      {/* ===== CAPTURED ===== */}
+      {/* ===== Captured area ===== */}
       <div ref={reportRef} className="rounded-xl bg-white">
         {/* HERO */}
         <section className="border-b p-6">
@@ -187,10 +187,12 @@ export default function ReportClient({
               <h2 className="text-2xl font-semibold">
                 {name}, your Profile is <span style={{ color: profileColor }}>{profileName}</span>
               </h2>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-700">
                 and your coaching Flow is <span className="font-medium">{topFlowName}</span>
               </p>
-              <p className="mt-1 text-xs text-gray-400">({profileCode})</p>
+              {profileFlowDescriptor && (
+                <p className="mt-1 text-xs text-gray-500">{profileFlowDescriptor}</p>
+              )}
             </div>
           </div>
         </section>
@@ -214,7 +216,7 @@ export default function ReportClient({
                     }}
                   >
                     {pieData.map((entry) => (
-                      <Cell key={entry.key} fill={FLOW_COLORS[entry.key]} />
+                      <Cell key={entry.key} fill={FLOW_COLORS[entry.key as Freq]} />
                     ))}
                   </Pie>
                   <Tooltip formatter={(v: number, n: string) => [`${v}`, n]} />
@@ -243,7 +245,6 @@ export default function ReportClient({
         <section className="border-b p-6">
           <h3 className="mb-3 text-base font-semibold">Primary & Auxiliary Profiles</h3>
 
-          {/* primary callout */}
           {profileBreakdown.length > 0 && (
             <div className="mb-3 flex items-center gap-3 text-sm">
               <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: profileBreakdown[0].color }} />
@@ -255,14 +256,10 @@ export default function ReportClient({
 
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={profileBreakdown}
-                layout="vertical"
-                margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-              >
+              <BarChart data={profileBreakdown} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                <YAxis type="category" dataKey="name" width={220} />
+                <YAxis type="category" dataKey="name" width={260} />
                 <Tooltip formatter={(v: number) => [`${v}%`, 'Percentage']} />
                 <Bar dataKey="pct" isAnimationActive={false}>
                   {profileBreakdown.map((d) => (
@@ -275,7 +272,7 @@ export default function ReportClient({
           </div>
         </section>
 
-        {/* COPY SECTIONS */}
+        {/* COPY */}
         {welcome && (
           <section className="border-b p-6">
             <h3 className="mb-2 text-base font-semibold">Welcome</h3>
@@ -327,7 +324,7 @@ export default function ReportClient({
           </section>
         )}
       </div>
-      {/* ===== /CAPTURED ===== */}
+      {/* ===== /Captured area ===== */}
     </div>
   );
 }

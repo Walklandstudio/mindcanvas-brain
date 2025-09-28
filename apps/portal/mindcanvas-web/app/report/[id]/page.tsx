@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import ReportClient from './ReportClient';
 
 type Flow = 'A' | 'B' | 'C' | 'D';
 
@@ -11,7 +10,7 @@ const FLOW_LABELS: Record<Flow, string> = {
   D: 'Observer',
 };
 
-// P1–P8 profile brand colors (HEX)
+// P1–P8 brand colors
 const PROFILE_COLORS: Record<string, string> = {
   P1: '#175f15',
   P2: '#2ecc2f',
@@ -23,7 +22,6 @@ const PROFILE_COLORS: Record<string, string> = {
   P8: '#8a8583',
 };
 
-// expects /public/profiles/p1.png ... p8.png
 function profileImagePath(code?: string | null) {
   const c = (code ?? '').toUpperCase();
   const n = c.startsWith('P') ? c.slice(1) : '';
@@ -41,18 +39,29 @@ type ResultRow = {
 type SubRow = { name: string | null };
 type ProfilesNameRow = { code: string; name: string };
 type ProfilesRichRow = {
-  code: string; name: string; flow: string;
-  description: string | null; overview: string | null;
-  strengths: string[] | null; watchouts: string[] | null; tips: string[] | null;
-  welcome_long: string | null; introduction_long: string | null; competencies_long: string | null;
+  code: string;
+  name: string;
+  flow: string; // e.g., "Communications – Rhythmic Coaching Flow"
+  description: string | null;
+  overview: string | null;
+  strengths: string[] | null;
+  watchouts: string[] | null;
+  tips: string[] | null;
+  welcome_long: string | null;
+  introduction_long: string | null;
+  competencies_long: string | null;
 };
 
 type Row = Record<string, unknown>;
-const str = (r: Row, k: string) => (typeof r[k] === 'string' ? (r[k] as string) : r[k] == null ? null : String(r[k]));
+const str = (r: Row, k: string) =>
+  typeof r[k] === 'string' ? (r[k] as string) : r[k] == null ? null : String(r[k]);
 const num = (r: Row, k: string, d = 0) => {
   const v = r[k];
   if (typeof v === 'number') return v;
-  if (typeof v === 'string') { const n = Number(v); if (Number.isFinite(n)) return n; }
+  if (typeof v === 'string') {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
   return d;
 };
 
@@ -61,7 +70,7 @@ export const dynamic = 'force-dynamic';
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  // 1) Results (flow + primary profile)
+  // 1) Flow + primary profile (computed by /finish)
   const { data: res } = await supabaseAdmin
     .from('mc_results')
     .select('submission_id, profile_code, flow_a, flow_b, flow_c, flow_d')
@@ -69,7 +78,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     .maybeSingle<ResultRow>();
   if (!res) return notFound();
 
-  // 2) Name
+  // 2) Person name
   const { data: sub } = await supabaseAdmin
     .from('mc_submissions')
     .select('name')
@@ -77,7 +86,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     .maybeSingle<SubRow>();
   const firstName = (sub?.name ?? '').trim().split(' ')[0] || 'Your';
 
-  // 3) Flow (for pie)
+  // 3) Flow structure for pie + dominant flow label
   const flow: Record<Flow, number> = {
     A: Number(res.flow_a ?? 0),
     B: Number(res.flow_b ?? 0),
@@ -88,7 +97,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const topFlow: Flow = flowKeys.reduce<Flow>((best, k) => (flow[k] > flow[best] ? k : best), 'A');
   const topFlowName = FLOW_LABELS[topFlow];
 
-  // 4) Profile breakdown: re-tally options chosen -> profile_code points
+  // 4) Profile breakdown (re-tally options → profile_code for bars)
   const { data: answers } = await supabaseAdmin
     .from('mc_answers')
     .select('*')
@@ -98,7 +107,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   for (const r of answers ?? []) {
     const row = r as Row;
     const candidate =
-      row.selected ?? row.answer ?? row.value ?? row.option_id ?? row.selected_ids ?? row.choices ?? null;
+      row['value'] ?? row['selected'] ?? row['answer'] ?? row['option_id'] ?? row['selected_ids'] ?? row['choices'] ?? null;
     if (Array.isArray(candidate)) for (const v of candidate as unknown[]) selectedIds.add(String(v));
     else if (candidate != null) selectedIds.add(String(candidate));
   }
@@ -117,7 +126,6 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     }
   }
 
-  // Include primary profile even if options lacked profile_code
   const primaryCode = (res.profile_code ?? '').toUpperCase() || 'P1';
   if (!profilePoints[primaryCode]) profilePoints[primaryCode] = profilePoints[primaryCode] ?? 0;
 
@@ -125,16 +133,13 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const codesSorted = Object.entries(profilePoints)
     .sort((a, b) => b[1] - a[1])
     .map(([code]) => code);
-
-  // Ensure primary is first
   const orderedCodes = [primaryCode, ...codesSorted.filter((c) => c !== primaryCode)];
 
-  // Fetch names for the codes we’re going to show
+  // Fetch plain names (no "Profile # —")
   const { data: nameRows } = await supabaseAdmin
     .from('profiles')
     .select('code, name')
-    .in('code', orderedCodes)
-    .order('code', { ascending: true }) as unknown as { data: ProfilesNameRow[] | null };
+    .in('code', orderedCodes) as unknown as { data: ProfilesNameRow[] | null };
 
   const nameByCode = new Map<string, string>(
     (nameRows ?? []).map((r) => [r.code.toUpperCase(), r.name]),
@@ -145,13 +150,14 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     const pct = totalPts > 0 ? Math.round((pts / totalPts) * 100) : code === primaryCode ? 100 : 0;
     return {
       code,
-      name: nameByCode.get(code) ? `Profile ${code.slice(1)} — ${nameByCode.get(code)}` : code,
+      // IMPORTANT: just the name (no "Profile # —")
+      name: nameByCode.get(code) ?? code,
       pct,
       color: PROFILE_COLORS[code] ?? '#444444',
     };
   });
 
-  // 5) Rich copy for the profile header/sections
+  // 5) Rich copy + the profile’s own coaching-flow descriptor
   const { data: prof } = await supabaseAdmin
     .from('profiles')
     .select(
@@ -160,10 +166,19 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     .eq('code', primaryCode)
     .maybeSingle<ProfilesRichRow>();
 
-  const profileName =
-    prof?.name ? `Profile ${primaryCode.slice(1)} — ${prof.name}` : `Profile ${primaryCode}`;
+  const profileName = prof?.name ?? `Profile ${primaryCode.slice(1)}`;
+  const profileFlowDescriptor = prof?.flow ?? '';
   const profileImage = profileImagePath(primaryCode);
   const profileColor = PROFILE_COLORS[primaryCode] ?? '#111111';
+
+  const welcome = prof?.welcome_long ?? prof?.introduction_long ?? '';
+  const overview = prof?.overview ?? prof?.description ?? '';
+  const strengths = prof?.strengths ?? [];
+  const watchouts = prof?.watchouts ?? [];
+  const tips = prof?.tips ?? [];
+  const competencies = prof?.competencies_long ?? '';
+
+  const ReportClient = (await import('./ReportClient')).default;
 
   return (
     <ReportClient
@@ -171,18 +186,18 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
       name={firstName}
       profileCode={primaryCode}
       profileName={profileName}
+      profileFlowDescriptor={profileFlowDescriptor}
       profileImage={profileImage}
       profileColor={profileColor}
       flow={flow}
       topFlowName={topFlowName}
       profileBreakdown={profileBreakdown}
-      // rich copy
-      welcome={prof?.welcome_long ?? prof?.introduction_long ?? ''}
-      overview={prof?.overview ?? prof?.description ?? ''}
-      strengths={prof?.strengths ?? []}
-      watchouts={prof?.watchouts ?? []}
-      tips={prof?.tips ?? []}
-      competencies={prof?.competencies_long ?? ''}
+      welcome={welcome}
+      overview={overview}
+      strengths={strengths}
+      watchouts={watchouts}
+      tips={tips}
+      competencies={competencies}
     />
   );
 }
