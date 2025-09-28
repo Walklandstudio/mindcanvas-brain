@@ -1,54 +1,26 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type Row = {
-  submission_id: string;
-  created_at: string;
-  name: string | null;
-  email: string | null;
-  phone: string | null;
-  profile_code: string | null;
-  flow_a: number | null;
-  flow_b: number | null;
-  flow_c: number | null;
-  flow_d: number | null;
-};
-
-type Item = {
-  id: string;
-  created_at: string;
-  name: string | null;
-  email: string | null;
-  phone: string | null;
-  profile_code: string | null;
-  flow: { A: number; B: number; C: number; D: number } | null;
-};
-
-export async function GET() {
+export async function GET(_req: NextRequest) {
   const { data, error } = await supabaseAdmin
-    .from('v_mc_clients_list')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(200);
+    .from('mc_submissions')
+    .select('id, created_at, name, email, phone, mc_results:mc_results (profile_code, flow_a, flow_b, flow_c, flow_d)')
+    .order('created_at', { ascending: false });
 
-  if (error) {
-    return NextResponse.json({ items: [], error: error.message }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows: Row[] = (data ?? []) as Row[];
-
-  const items: Item[] = rows.map((r) => ({
-    id: r.submission_id,
-    created_at: r.created_at,
-    name: r.name,
-    email: r.email,
-    phone: r.phone,
-    profile_code: r.profile_code,
-    flow:
-      r.flow_a === null || r.flow_b === null || r.flow_c === null || r.flow_d === null
-        ? null
-        : { A: Number(r.flow_a), B: Number(r.flow_b), C: Number(r.flow_c), D: Number(r.flow_d) },
+  const rows = (data ?? []).map((r: any) => ({
+    id: r.id as string,
+    created_at: r.created_at as string,
+    name: r.name ?? '',
+    email: r.email ?? '',
+    phone: r.phone ?? '',
+    profile_code: r.mc_results?.profile_code ?? null,
+    flow_a: r.mc_results?.flow_a ?? 0,
+    flow_b: r.mc_results?.flow_b ?? 0,
+    flow_c: r.mc_results?.flow_c ?? 0,
+    flow_d: r.mc_results?.flow_d ?? 0,
   }));
 
-  return NextResponse.json({ items });
+  return NextResponse.json(rows);
 }

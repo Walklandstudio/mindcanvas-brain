@@ -1,73 +1,90 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type ClientRow = {
-  submission_id: string;
-  created_at: string;
-  name: string | null;
-  email: string | null;
-  phone: string | null;
-  profile_code: string | null;
-  flow_a: number | null;
-  flow_b: number | null;
-  flow_c: number | null;
-  flow_d: number | null;
-};
-
-type AnswerRow = { question: string | null; selected_text: string | null };
-
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // 1) Base client row from the view
-  const { data: row, error: rowErr } = await supabaseAdmin
-    .from('v_mc_clients_list')
-    .select('*')
-    .eq('submission_id', id)
-    .maybeSingle<ClientRow>();
-
-  if (rowErr || !row) {
-    return NextResponse.json({ error: rowErr?.message || 'Not found' }, { status: 404 });
-  }
-
-  // 2) Report id (kept on mc_submissions)
-  const { data: subMeta } = await supabaseAdmin
+  const { data: sub, error: sErr } = await supabaseAdmin
     .from('mc_submissions')
-    .select('report_id')
+    .select('id, created_at, name, email, phone')
     .eq('id', id)
-    .maybeSingle<{ report_id: string | null }>();
+    .maybeSingle();
 
-  // 3) Answers from normalized answers view
-  const { data: answersData } = await supabaseAdmin
-    .from('v_mc_answers_flat')
-    .select('question, selected_text')
+  if (sErr || !sub) return NextResponse.json({ error: sErr?.message ?? 'Not found' }, { status: 404 });
+
+  const { data: res } = await supabaseAdmin
+    .from('mc_results')
+    .select('profile_code, flow_a, flow_b, flow_c, flow_d')
     .eq('submission_id', id)
-    .order('question', { ascending: true });
+    .maybeSingle();
 
-  const answers = (answersData ?? ([] as AnswerRow[])).map((a) => ({
-    question: a.question ?? '',
-    selected: a.selected_text ?? '',
-  }));
+  // answers + question text + option labels (best effort for multi/single)
+  const { data: answers } = await supabaseAdmin
+    .from('mc_answers')
+    .select('question_id, option_id, value, selected');
 
-  const flow =
-    row.flow_a === null || row.flow_b === null || row.flow_c === null || row.flow_d === null
-      ? null
-      : {
-          A: Number(row.flow_a),
-          B: Number(row.flow_b),
-          C: Number(row.flow_c),
-          D: Number(row.flow_d),
-        };
+  const chosen = (answers ?? []).filter((a) => a && (a as any).question_id && (a as any).submission_id === id);
+
+  // hydrate with question & option text
+  const qIds = [...new Set(chosen.map((a: any) => a.question_id))];
+  const { data: qs } = await supabaseAdmin
+    .from('mc_questions')
+    .select('id, text')
+    .in('id', qIds as string[]);
+
+  const qText = new Map((qs ?? []).map((q: any) => [q.id, q.text]));
+
+  // We’ll pull all option ids we see in answers
+  const optIds: string[] = [];
+  for (const a of chosen as any[]) {
+    const payload = a.value ?? a.selected ?? a.option_id ?? null;
+    if (Array.isArray(payload)) payload.forEach((v: any) => optIds.push(String(v)));
+    else if (payload != null) optIds.push(String(payload));
+  }
+  const uniqueOptIds = [...new Set(optIds)];
+  const { data: opts } = uniqueOptIds.length
+    ? await supabaseAdmin.from('mc_options').select('id, label').in('id', uniqueOptIds)
+    : { data: [] as any[] };
+
+  const optLabel = new Map((opts ?? []).map((o: any) => [String(o.id), o.label as string]));
+
+  const answerDtos = (chosen as any[]).map((a) => {
+    const payload = a.value ?? a.selected ?? a.option_id ?? null;
+    const labels: string[] = Array.isArray(payload)
+      ? (payload as any[]).map((x) => optLabel.get(String(x)) ?? String(x))
+      : payload != null
+        ? [optLabel.get(String(payload)) ?? String(payload)]
+        : [];
+    return {
+      question_id: a.question_id as string,
+      question: qText.get(a.question_id) ?? '',
+      answers: labels,
+    };
+  });
 
   return NextResponse.json({
-    id: row.submission_id,
-    created_at: row.created_at,
-    report_id: subMeta?.report_id ?? null,
-    name: row.name,
-    email: row.email,
-    phone: row.phone,
-    profile_code: row.profile_code,
-    flow,
-    answers,
+    id: sub.id,
+    created_at: sub.created_at,
+    name: sub.name ?? '',
+    email: sub.email ?? '',
+    phone: sub.phone ?? '',
+    profile_code: res?.profile_code ?? null,
+    flow_a: res?.flow_a ?? 0,
+    flow_b: res?.flow_b ?? 0,
+    flow_c: res?.flow_c ?? 0,
+    flow_d: res?.flow_d ?? 0,
+    answers: answerDtos,
   });
+}
+
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+
+  // delete children first to avoid FK issues
+  await supabaseAdmin.from('mc_answers').delete().eq('submission_id', id);
+  await supabaseAdmin.from('mc_results').delete().eq('submission_id', id);
+  const { error } = await supabaseAdmin.from('mc_submissions').delete().eq('id', id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
