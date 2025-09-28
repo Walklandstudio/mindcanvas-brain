@@ -5,10 +5,12 @@ type Freq = 'A' | 'B' | 'C' | 'D' | null;
 
 type QuestionRow = {
   id: string;
-  index: number | null; // aliased from order_index
   text: string;
   type: 'single' | 'multi' | 'info';
   is_scored: boolean | null;
+  order_index?: number | null;
+  index?: number | null;
+  position?: number | null;
 };
 
 type OptionRow = {
@@ -41,6 +43,13 @@ type LoadedSubmission = {
   finished?: boolean;
 };
 
+function ord(q: QuestionRow): number {
+  const cands = [q.order_index, q.index, q.position].filter(
+    (v): v is number => typeof v === 'number' && Number.isFinite(v),
+  );
+  return cands.length ? cands[0]! : 0;
+}
+
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { slug?: string };
   const slug = body?.slug?.trim();
@@ -52,7 +61,6 @@ export async function POST(req: NextRequest) {
     .select('id, slug')
     .eq('slug', slug)
     .maybeSingle<{ id: string; slug: string }>();
-
   if (tErr || !test) {
     return NextResponse.json({ error: tErr?.message || 'Test not found' }, { status: 404 });
   }
@@ -63,21 +71,19 @@ export async function POST(req: NextRequest) {
     .insert({ test_id: test.id })
     .select('id')
     .single<{ id: string }>();
-
   if (sErr || !sub) {
     return NextResponse.json({ error: sErr?.message || 'Failed to create submission' }, { status: 500 });
   }
 
-  // 3) questions
+  // 3) questions (tolerant)
   const { data: qrows, error: qErr } = await supabaseAdmin
     .from('mc_questions')
-    .select('id, index:order_index, text, type, is_scored')
-    .eq('test_id', test.id)
-    .order('order_index', { ascending: true });
-
+    .select('id, text, type, is_scored, order_index, index, position')
+    .eq('test_id', test.id);
   if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 });
 
   const questionsRaw = (qrows ?? []) as QuestionRow[];
+  questionsRaw.sort((a, b) => ord(a) - ord(b) || a.id.localeCompare(b.id));
   const qIds = questionsRaw.map(q => q.id);
 
   // 4) options
@@ -92,12 +98,15 @@ export async function POST(req: NextRequest) {
     for (const o of (orows ?? []) as OptionRow[]) {
       (optionsByQ[o.question_id] ||= []).push(o);
     }
+    for (const k of Object.keys(optionsByQ)) {
+      optionsByQ[k].sort((a, b) => a.label.localeCompare(b.label));
+    }
   }
 
   // 5) assemble
-  const questions: LoadedSubmission['questions'] = questionsRaw.map(q => ({
+  const questions: LoadedSubmission['questions'] = questionsRaw.map((q, i) => ({
     id: q.id,
-    index: Number(q.index ?? 0),
+    index: (Number.isFinite(ord(q)) ? ord(q) : i + 1) as number,
     text: q.text,
     type: q.type,
     isScored: Boolean(q.is_scored),
@@ -110,13 +119,11 @@ export async function POST(req: NextRequest) {
     })),
   }));
 
-  const payload: LoadedSubmission = {
+  return NextResponse.json({
     submissionId: sub.id,
     testSlug: test.slug,
     questions,
     answers: {},
     finished: false,
-  };
-
-  return NextResponse.json(payload);
+  } satisfies LoadedSubmission);
 }
