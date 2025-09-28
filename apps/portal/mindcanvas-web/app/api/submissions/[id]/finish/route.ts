@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { PROFILE_META, type Flow } from '@/lib/profileMeta';
 
+type Flow = 'A' | 'B' | 'C' | 'D';
 type Row = Record<string, unknown>;
 const s = (r: Row, k: string) =>
   typeof r[k] === 'string' ? (r[k] as string) : r[k] == null ? null : String(r[k]);
@@ -18,93 +18,90 @@ const n = (r: Row, k: string, d = 0) => {
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
 
-  // Submission
+  // Ensure submission exists
   const { data: sub, error: sErr } = await supabaseAdmin
     .from('mc_submissions')
     .select('id, test_id')
     .eq('id', id)
     .maybeSingle<{ id: string; test_id: string }>();
-  if (sErr || !sub) return NextResponse.json({ error: sErr?.message ?? 'Submission not found' }, { status: 404 });
+  if (sErr || !sub) {
+    return NextResponse.json({ error: sErr?.message ?? 'Submission not found' }, { status: 404 });
+  }
 
-  // Answers (tolerant)
+  // Answers → chosen option ids (supports single or multi across various column shapes)
   const { data: arows, error: aErr } = await supabaseAdmin
     .from('mc_answers')
     .select('*')
     .eq('submission_id', sub.id);
   if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
 
-  // Collect selected option IDs
-  const selectedIds = new Set<string>();
+  const selected = new Set<string>();
   for (const r of arows ?? []) {
     const row = r as Row;
-    const candidate =
-      row.selected ?? row.answer ?? row.value ?? row.option_id ?? row.selected_ids ?? row.choices ?? null;
+    const payload =
+      row['value'] ?? row['selected'] ?? row['answer'] ?? row['option_id'] ?? row['selected_ids'] ?? row['choices'] ?? null;
 
-    if (Array.isArray(candidate)) {
-      for (const v of candidate as unknown[]) selectedIds.add(String(v));
-    } else if (candidate != null) {
-      selectedIds.add(String(candidate));
+    if (Array.isArray(payload)) {
+      for (const v of payload as unknown[]) selected.add(String(v));
+    } else if (payload != null) {
+      selected.add(String(payload));
     }
   }
 
-  // Tally points by profile + flow
+  // Options metadata used
+  const { data: orows, error: oErr } = await supabaseAdmin
+    .from('mc_options')
+    .select('id, question_id, points, profile_code')
+    .in('id', Array.from(selected));
+  if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
+
+  // Fetch flow tag for touched questions
+  const qIds = Array.from(new Set((orows ?? []).map((o) => (o as Row).question_id as string))).filter(Boolean);
+  const { data: qrows, error: qErr } = await supabaseAdmin
+    .from('mc_questions')
+    .select('id, flow')
+    .in('id', qIds);
+  if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 });
+
+  const flowByQ = new Map<string, Flow>();
+  for (const q of qrows ?? []) {
+    const row = q as Row;
+    const f = (s(row, 'flow') ?? '') as string;
+    if (f === 'A' || f === 'B' || f === 'C' || f === 'D') flowByQ.set(String(row.id), f);
+  }
+
+  // Tally profile points & flow points
   const profilePts: Record<string, number> = {};
-  const flow: Record<Flow, number> = { A: 0, B: 0, C: 0, D: 0 };
+  const flowPts: Record<Flow, number> = { A: 0, B: 0, C: 0, D: 0 };
 
-  if (selectedIds.size) {
-    const { data: orows, error: oErr } = await supabaseAdmin
-      .from('mc_options')
-      .select('*') // tolerant
-      .in('id', Array.from(selectedIds));
-    if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
+  for (const o of orows ?? []) {
+    const row = o as Row;
+    const qid = s(row, 'question_id');
+    const pts = n(row, 'points', 1);
 
-    for (const r of orows ?? []) {
-      const row = r as Row;
-      const pts = n(row, 'points', 1);
+    const pcode = (s(row, 'profile_code') ?? '').toUpperCase();
+    if (pcode) profilePts[pcode] = (profilePts[pcode] ?? 0) + pts;
 
-      // profile tally
-      const pcode = (s(row, 'profile_code') ?? '').toUpperCase();
-      if (pcode) profilePts[pcode] = (profilePts[pcode] ?? 0) + pts;
-
-      // flow tally (explicit frequency; else infer from profile’s primary flow)
-      let f = (s(row, 'frequency') ?? s(row, 'freq') ?? s(row, 'flow') ?? s(row, 'dimension') ?? '').toUpperCase();
-      if (f !== 'A' && f !== 'B' && f !== 'C' && f !== 'D' && pcode) {
-        const meta = PROFILE_META[pcode as keyof typeof PROFILE_META];
-        if (meta) f = meta.flow;
-      }
-      if (f === 'A' || f === 'B' || f === 'C' || f === 'D') {
-        const ff = f as Flow;
-        flow[ff] = (flow[ff] ?? 0) + pts;
-      }
-    }
+    const f = qid ? flowByQ.get(qid) : undefined;
+    if (f) flowPts[f] = (flowPts[f] ?? 0) + pts;
   }
 
-  // Pick top profile; fallback to one that matches top flow
+  // Choose top profile
   const topProfile =
-    Object.entries(profilePts).sort((a, b) => b[1] - a[1])[0]?.[0] ??
-    (() => {
-      const keys: Flow[] = ['A', 'B', 'C', 'D'];
-      const topFlow = keys.reduce<Flow>((best, k) => (flow[k] > flow[best] ? k : best), 'A');
-      const match = (Object.entries(PROFILE_META) as Array<[keyof typeof PROFILE_META, { flow: Flow }]>)
-        .find(([, v]) => v.flow === topFlow)?.[0];
-      return match ?? 'P1';
-    })();
+    Object.entries(profilePts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'P1';
 
-  // If all-zero, seed the primary flow of the topProfile so the pie isn’t empty
-  if ((flow.A + flow.B + flow.C + flow.D) === 0) {
-    const meta = PROFILE_META[topProfile as keyof typeof PROFILE_META];
-    const pf: Flow = (meta?.flow ?? 'A') as Flow;
-    flow[pf] = 100;
-  }
+  // Normalize flow 0..100
+  const flowTotal = (flowPts.A ?? 0) + (flowPts.B ?? 0) + (flowPts.C ?? 0) + (flowPts.D ?? 0);
+  const toPct = (v: number) => (flowTotal > 0 ? Math.round((v / flowTotal) * 100) : 0);
 
   const payload = {
     submission_id: sub.id,
     report_id: sub.id,
     profile_code: topProfile,
-    flow_a: flow.A ?? 0,
-    flow_b: flow.B ?? 0,
-    flow_c: flow.C ?? 0,
-    flow_d: flow.D ?? 0,
+    flow_a: toPct(flowPts.A ?? 0),
+    flow_b: toPct(flowPts.B ?? 0),
+    flow_c: toPct(flowPts.C ?? 0),
+    flow_d: toPct(flowPts.D ?? 0),
   };
 
   const { error: rErr } = await supabaseAdmin
