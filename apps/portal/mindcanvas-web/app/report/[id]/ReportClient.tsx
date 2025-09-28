@@ -11,29 +11,28 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
+import Image from 'next/image';
 
 type Freq = 'A' | 'B' | 'C' | 'D';
 
 type Props = {
   reportId: string;
-  name: string;                          // first name
-  profileCode: string;                   // e.g. "P1"
-  profileName: string;                   // e.g. "Profile 1 — The Innovator"
-  profileImage?: string;                 // /profiles/p1.png
-  profileColor?: string;                 // HEX only
-  flow: Record<Freq, number>;            // numeric scores
-  topFlow: Freq;                         // 'A' | 'B' | 'C' | 'D'
-  topFlowName: string;                   // e.g. "Catalyst"
+  name: string;
+  profileCode: string;
+  profileName: string;
+  profileImage?: string;
+  profileColor?: string;
+  flow: Record<Freq, number>;
+  topFlowName: string;
   welcome?: string;
   outline?: string;
 };
 
-/** Update to your brand’s Flow palette (HEX only). */
 const FLOW_COLORS: Record<Freq, string> = {
-  A: '#0EA5E9', // Catalyst
-  B: '#F59E0B', // Communications
-  C: '#10B981', // Rhythmic
-  D: '#8B5CF6', // Observer
+  A: '#0EA5E9',
+  B: '#F59E0B',
+  C: '#10B981',
+  D: '#8B5CF6',
 };
 
 export default function ReportClient({
@@ -44,7 +43,6 @@ export default function ReportClient({
   profileImage,
   profileColor = '#111111',
   flow,
-  topFlow,
   topFlowName,
   welcome = '',
   outline = '',
@@ -106,7 +104,6 @@ export default function ReportClient({
       toggleExcludes(el, true);
       await waitForImages(el);
 
-      // High-res capture
       const canvas = await html2canvas(el, {
         scale: 2,
         useCORS: true,
@@ -116,7 +113,6 @@ export default function ReportClient({
         windowHeight: el.scrollHeight,
       });
 
-      // Use JPEG to avoid PNG header issues
       const imgData = canvas.toDataURL('image/jpeg', 1.0);
       const pdf = new jsPDF('p', 'pt', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -149,7 +145,7 @@ export default function ReportClient({
 
   return (
     <div className="mx-auto max-w-4xl p-6">
-      {/* Header + actions (excluded from PDF) */}
+      {/* Header + actions */}
       <div className="mb-4 flex items-center justify-between" data-pdf-exclude="true">
         <h1 className="text-xl font-semibold">Report</h1>
         <button
@@ -162,7 +158,6 @@ export default function ReportClient({
         </button>
       </div>
 
-      {/* Error banner */}
       {err && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {err}
@@ -175,12 +170,12 @@ export default function ReportClient({
         <section className="border-b p-6">
           <div className="flex items-center gap-4">
             {profileImage ? (
-              <img
+              <Image
                 src={profileImage}
                 alt={profileName}
-                className="h-20 w-20 rounded-xl object-cover"
                 width={80}
                 height={80}
+                className="h-20 w-20 rounded-xl object-cover"
               />
             ) : (
               <div
@@ -198,14 +193,12 @@ export default function ReportClient({
                 and your coaching Flow is{' '}
                 <span className="font-medium">{topFlowName}</span>
               </p>
-              <p className="mt-1 text-xs text-gray-400">
-                ({profileCode})
-              </p>
+              <p className="mt-1 text-xs text-gray-400">({profileCode})</p>
             </div>
           </div>
         </section>
 
-        {/* Flow chart */}
+        {/* Pie + legend */}
         <section className="border-b p-6">
           <h3 className="mb-3 text-base font-semibold">Your Flow Mix</h3>
           <div className="grid gap-6 md:grid-cols-2">
@@ -228,9 +221,7 @@ export default function ReportClient({
                       <Cell key={entry.key} fill={FLOW_COLORS[entry.key]} />
                     ))}
                   </Pie>
-                  <Tooltip
-                    formatter={(v: number, n: string) => [`${v}`, `Flow ${n}`]}
-                  />
+                  <Tooltip formatter={(v: number, n: string) => [`${v}`, `Flow ${n}`]} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -238,18 +229,14 @@ export default function ReportClient({
 
             <div className="grid grid-cols-2 gap-3 text-sm">
               {(['A', 'B', 'C', 'D'] as Freq[]).map((k) => {
-                const pct = total
-                  ? Math.round(((flow[k] ?? 0) / total) * 100)
-                  : 0;
+                const pct = total ? Math.round(((flow[k] ?? 0) / total) * 100) : 0;
                 return (
                   <div key={k} className="flex items-center gap-2">
                     <span
                       className="inline-block h-3 w-3 rounded-sm"
                       style={{ backgroundColor: FLOW_COLORS[k] }}
                     />
-                    <span className="tabular-nums">
-                      Flow {k}: {pct}%
-                    </span>
+                    <span className="tabular-nums">Flow {k}: {pct}%</span>
                   </div>
                 );
               })}

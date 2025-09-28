@@ -1,18 +1,25 @@
 import { notFound } from 'next/navigation';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import ReportClient from './ReportClient';
-import { PROFILE_META, FLOW_LABELS, safeHex, profileImagePath } from '@/lib/profileMeta';
+import { PROFILE_META, FLOW_LABELS, safeHex, profileImagePath, type Flow } from '@/lib/profileMeta';
 
 type ResultRow = {
   submission_id: string;
   profile_code: string | null;
-  flow_a: number | null; flow_b: number | null; flow_c: number | null; flow_d: number | null;
+  flow_a: number | null;
+  flow_b: number | null;
+  flow_c: number | null;
+  flow_d: number | null;
 };
 type SubRow = { name: string | null };
 
 export const dynamic = 'force-dynamic';
 
-export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ReportPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
 
   const { data: res } = await supabaseAdmin
@@ -28,24 +35,28 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     .eq('id', id)
     .maybeSingle<SubRow>();
 
-  const fullName = (sub?.name ?? '').trim();
-  const firstName = fullName.split(' ')[0] || 'Your';
+  const firstName = (sub?.name ?? '').trim().split(' ')[0] || 'Your';
 
   const code = (res.profile_code ?? '').toUpperCase();
   const meta = PROFILE_META[code as keyof typeof PROFILE_META];
 
-  const profileName = meta?.name ? `Profile ${code.slice(1)} — ${meta.name}` : `Profile ${code || '—'}`;
+  const profileName = meta ? `Profile ${code.slice(1)} — ${meta.name}` : `Profile ${code || '—'}`;
   const profileColor = safeHex(meta?.color);
   const imageUrl = profileImagePath(code);
 
-  const flow = {
+  const flow: Record<Flow, number> = {
     A: Number(res.flow_a ?? 0),
     B: Number(res.flow_b ?? 0),
     C: Number(res.flow_c ?? 0),
     D: Number(res.flow_d ?? 0),
   };
-  const topFlow = (Object.entries(flow) as any[]).sort((a,b)=>b[1]-a[1])[0]?.[0] ?? 'A';
-  const topFlowName = FLOW_LABELS[topFlow as keyof typeof FLOW_LABELS];
+
+  const flowKeys: Flow[] = ['A', 'B', 'C', 'D'];
+  const topFlow: Flow = flowKeys.reduce<Flow>(
+    (best, k) => (flow[k] > flow[best] ? k : best),
+    'A',
+  );
+  const topFlowName = FLOW_LABELS[topFlow];
 
   return (
     <ReportClient
@@ -56,10 +67,9 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
       profileImage={imageUrl}
       profileColor={profileColor}
       flow={flow}
-      topFlow={topFlow as any}
       topFlowName={topFlowName}
-      welcome={`Welcome, ${firstName}!`}        // replace if you store custom copy per profile
-      outline={`This profile reflects your core coaching style.`} // replace with db copy if available
+      welcome={`Welcome, ${firstName}!`}
+      outline="This profile reflects your core coaching style."
     />
   );
 }
