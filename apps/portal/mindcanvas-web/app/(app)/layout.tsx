@@ -1,33 +1,30 @@
-import Link from 'next/link';
+import { ReactNode } from 'react';
+import NavClient from './NavClient';
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+const SIDEBAR_BG = '#110b79';
+const APP_BG = '#484995';
+
+export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="flex">
+    <div style={{ backgroundColor: APP_BG, minHeight: '100vh' }}>
+      <div className="mx-auto flex max-w-7xl gap-0 px-4 py-6 md:gap-6 md:px-6">
         {/* Sidebar */}
-        <aside className="w-64 shrink-0 border-r bg-white">
-          <div className="px-4 py-5">
-            <div className="text-xl font-semibold">MindCanvas</div>
-            <div className="mt-1 text-xs text-gray-500">Competency Coach</div>
+        <aside
+          className="hidden w-64 shrink-0 rounded-2xl p-5 md:block"
+          style={{ backgroundColor: SIDEBAR_BG }}
+        >
+          <div className="mb-6">
+            <div className="text-lg font-semibold text-white">MindCanvas</div>
+            <div className="text-xs text-white/70">Competency Coach</div>
           </div>
-          <nav className="mt-4 space-y-1 px-2">
-            <Link href="/dashboard" className="block rounded-lg px-3 py-2 text-sm hover:bg-gray-100">Dashboard</Link>
-            <Link href="/clients" className="block rounded-lg px-3 py-2 text-sm hover:bg-gray-100">Clients</Link>
-            <Link href="/tests" className="block rounded-lg px-3 py-2 text-sm hover:bg-gray-100">Tests</Link>
-          </nav>
+
+          {/* Client nav handles active link highlighting */}
+          <NavClient />
         </aside>
 
-        {/* Main */}
-        <main className="flex-1">
-          <header className="flex items-center justify-between border-b bg-white px-6 py-4">
-            <div>
-              <h1 className="text-lg font-semibold">Welcome</h1>
-              <p className="text-sm text-gray-500">Your profile testing hub</p>
-            </div>
-            {/* User chip placeholder (hook to auth later) */}
-            <div className="rounded-full border px-3 py-1 text-sm">Logged in: Admin</div>
-          </header>
-          <div className="px-6 py-6">{children}</div>
+        {/* Content card */}
+        <main className="w-full">
+          <div className="rounded-2xl bg-white shadow-sm">{children}</div>
         </main>
       </div>
     </div>
