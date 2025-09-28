@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+/** Force runtime to execute on every request (no caching). */
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 type Frequency = 'A' | 'B' | 'C' | 'D';
 
 type OptionRow = {
@@ -22,11 +27,11 @@ type QuestionRow = {
 
 type SubmissionRow = {
   id: string;
-  created_at: string;
+  created_at: string | null;
   name: string | null;
   email: string | null;
   phone: string | null;
-  test_slug?: string | null; // optional (schema might not have this)
+  test_slug?: string | null; // optional if your schema doesn't have it
 };
 
 function okSlug(u: unknown): string | null {
@@ -58,19 +63,17 @@ async function loadQuestions(slug: string): Promise<QuestionRow[]> {
   const tryWith = await baseQ.eq('test_slug', slug);
 
   if (tryWith.error) {
-    // If mc_questions.test_slug is missing, run without the filter
-    if (/test_slug/.test(tryWith.error.message)) {
+    if (/test_slug/i.test(tryWith.error.message)) {
       const noFilter = await baseQ;
-      if (noFilter.error) throw new Error(noFilter.error.message);
+      if (noFilter.error) throw new Error(`mc_questions query failed: ${noFilter.error.message}`);
       return (noFilter.data ?? []) as QuestionRow[];
     }
-    throw new Error(tryWith.error.message);
+    throw new Error(`mc_questions query failed: ${tryWith.error.message}`);
   }
-
   return (tryWith.data ?? []) as QuestionRow[];
 }
 
-/** Create a submission; if mc_submissions.test_slug doesn't exist, retry without it. */
+/** Create submission; if mc_submissions.test_slug doesn't exist, retry without it. */
 async function createSubmission(slug: string): Promise<SubmissionRow> {
   const withSlug = await supabaseAdmin
     .from('mc_submissions')
@@ -79,18 +82,17 @@ async function createSubmission(slug: string): Promise<SubmissionRow> {
     .single<SubmissionRow>();
 
   if (withSlug.error) {
-    if (/test_slug/.test(withSlug.error.message)) {
+    if (/test_slug/i.test(withSlug.error.message)) {
       const noSlug = await supabaseAdmin
         .from('mc_submissions')
         .insert([{}])
         .select('id, created_at, name, email, phone')
         .single<SubmissionRow>();
-      if (noSlug.error) throw new Error(noSlug.error.message);
+      if (noSlug.error) throw new Error(`mc_submissions insert failed: ${noSlug.error.message}`);
       return noSlug.data as SubmissionRow;
     }
-    throw new Error(withSlug.error.message);
+    throw new Error(`mc_submissions insert failed: ${withSlug.error.message}`);
   }
-
   return withSlug.data as SubmissionRow;
 }
 
@@ -100,13 +102,19 @@ export async function POST(req: NextRequest) {
     const rawSlug = body?.slug;
     const slug = okSlug(rawSlug) ?? 'competency-coach-dna';
 
-    // 1) Create submission (with fallback if test_slug column missing)
+    // Create the submission row
     const submission = await createSubmission(slug);
 
-    // 2) Load questions for the slug (or all if mc_questions has no test_slug)
+    // Load questions
     const questions = await loadQuestions(slug);
+    if (!questions.length) {
+      // Be explicit so the UI shows something useful
+      throw new Error(
+        `No questions found for slug "${slug}". Seed mc_questions (and mc_options) or use a slug that exists.`,
+      );
+    }
 
-    // 3) Normalize to the shape your Test page expects
+    // Normalize to the Test page schema
     const normalized = questions.map((q) => ({
       id: q.id,
       index: q.order_index,
@@ -130,12 +138,13 @@ export async function POST(req: NextRequest) {
       finished: false,
     });
   } catch (e: unknown) {
+    // Always return a clear error string for the red banner
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
-// Optional GET so you can ping the endpoint quickly if needed.
+/** Handy ping for quick checks in the browser. */
 export async function GET() {
-  return NextResponse.json({ ok: true, info: 'POST a JSON body { slug } to start a submission.' });
+  return NextResponse.json({ ok: true, info: 'POST { slug } to create a submission.' });
 }
