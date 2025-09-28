@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type SubRow = { created_at: string; test_slug: string | null };
+type SubRow = {
+  id: string;
+  created_at: string;
+  email: string | null;
+  name?: string | null;
+  phone?: string | null;
+  test_slug: string | null;
+};
 
 function sinceDays(days: number): string {
   const d = new Date();
@@ -9,20 +16,16 @@ function sinceDays(days: number): string {
   return d.toISOString();
 }
 
-function fmtDay(d: Date): string {
-  // yyyy-mm-dd
-  return d.toISOString().slice(0, 10);
-}
-
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const days = Number(sp.get('days') ?? '30');
   const slug = sp.get('slug') ?? undefined;
+
   const from = sinceDays(Number.isFinite(days) && days > 0 ? days : 30);
 
   let q = supabaseAdmin
     .from('mc_submissions')
-    .select('created_at, test_slug')
+    .select('id, created_at, email, name, phone, test_slug')
     .gte('created_at', from);
 
   if (slug) q = q.eq('test_slug', slug);
@@ -35,19 +38,21 @@ export async function GET(req: NextRequest) {
 
   const rows = (r.data ?? []) as SubRow[];
 
-  // Build day buckets
-  const buckets = new Map<string, number>();
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    buckets.set(fmtDay(d), 0);
+  // Submissions
+  const submissions = rows.length;
+
+  // Unique clients (prefer email, then phone, then name+created_at day)
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const key =
+      (row.email && `e:${row.email.toLowerCase()}`) ||
+      (row.phone && `p:${row.phone}`) ||
+      (row.name &&
+        `n:${row.name.toLowerCase()}@${new Date(row.created_at).toISOString().slice(0, 10)}`) ||
+      `id:${row.id}`;
+    seen.add(key);
   }
+  const uniqueClients = seen.size;
 
-  rows.forEach((row) => {
-    const day = fmtDay(new Date(row.created_at));
-    if (buckets.has(day)) buckets.set(day, (buckets.get(day) ?? 0) + 1);
-  });
-
-  const series = Array.from(buckets.entries()).map(([date, count]) => ({ date, count }));
-  return NextResponse.json({ series });
+  return NextResponse.json({ submissions, uniqueClients });
 }

@@ -1,36 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type Timeframe = '7d' | '30d' | '90d';
-type RpcRow = { profile_code: string | null; count: number };
+type SubRow = { id: string; created_at: string; test_slug: string | null };
+type ResRow = { submission_id: string; profile_code: string | null };
 
-function tfToDays(tf: Timeframe): number {
-  switch (tf) {
-    case '7d': return 7;
-    case '90d': return 90;
-    default: return 30;
-  }
+function sinceDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString();
 }
 
 export async function GET(req: NextRequest) {
-  const tf = (req.nextUrl.searchParams.get('tf') as Timeframe) || '30d';
-  const days = tfToDays(tf);
+  const sp = req.nextUrl.searchParams;
+  const days = Number(sp.get('days') ?? '30');
+  const slug = sp.get('slug') ?? undefined;
+  const from = sinceDays(Number.isFinite(days) && days > 0 ? days : 30);
 
-  const { data, error } = await supabaseAdmin.rpc('mc_profile_distribution', {
-    days_window: days,
-  });
+  // 1) Gather submission ids for time window (+ optional slug)
+  let q = supabaseAdmin
+    .from('mc_submissions')
+    .select('id, created_at, test_slug')
+    .gte('created_at', from);
 
-  if (error) {
-    return NextResponse.json(
-      { items: [], error: error.message },
-      { status: 500 },
-    );
+  if (slug) q = q.eq('test_slug', slug);
+
+  const subs = await q;
+  if (subs.error) {
+    return NextResponse.json({ error: subs.error.message }, { status: 500 });
   }
 
-  const rows = (data ?? []) as RpcRow[];
-  const items = rows
-    .filter((r) => r.profile_code)
-    .map((r) => ({ code: r.profile_code as string, count: Number(r.count ?? 0) }));
+  const ids = (subs.data ?? []).map((r) => (r as SubRow).id);
+  if (ids.length === 0) return NextResponse.json({ rows: [] });
 
-  return NextResponse.json({ items });
+  // 2) Pull results for those submissions
+  const res = await supabaseAdmin
+    .from('mc_results')
+    .select('submission_id, profile_code')
+    .in('submission_id', ids);
+
+  if (res.error) {
+    return NextResponse.json({ error: res.error.message }, { status: 500 });
+  }
+
+  const counts = new Map<string, number>();
+  ((res.data ?? []) as ResRow[]).forEach((r) => {
+    const code = r.profile_code ?? 'Unknown';
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+  });
+
+  const rows = Array.from(counts.entries())
+    .map(([code, count]) => ({ code, count }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+
+  return NextResponse.json({ rows });
 }
