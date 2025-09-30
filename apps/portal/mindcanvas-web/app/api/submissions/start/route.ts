@@ -83,7 +83,7 @@ function detectOptionFK(row: Raw): string | null {
 
 /** Load questions + options without assuming column names. */
 async function loadQuestionsAndOptions(slug: string) {
-  // QUESTIONS
+  // QUESTIONS (tolerate missing test_slug)
   const tryWith = await supabaseAdmin.from('mc_questions').select('*').eq('test_slug', slug);
   let qRows: Raw[] = [];
   if (tryWith.error) {
@@ -103,14 +103,16 @@ async function loadQuestionsAndOptions(slug: string) {
     );
   }
 
-  // OPTIONS (select *; detect the FK name; then group by it)
+  // OPTIONS (select * and detect FK; if not detected we won't throw)
   let optionsData: Raw[] = [];
   if (qRows.length) {
     const optRes: PostgrestResponse<Raw> = await supabaseAdmin.from('mc_options').select('*');
     if (optRes.error) {
-      throw new Error(`mc_options query failed: ${optRes.error.message ?? 'unknown error'}`);
+      // Options failing shouldn’t block the whole test from loading
+      optionsData = [];
+    } else {
+      optionsData = (optRes.data ?? []) as Raw[];
     }
-    optionsData = (optRes.data ?? []) as Raw[];
   }
 
   // Detect FK name (from first row that has any of the candidates)
@@ -119,13 +121,7 @@ async function loadQuestionsAndOptions(slug: string) {
     fkName = detectOptionFK(r);
     if (fkName) break;
   }
-  if (!fkName && optionsData.length) {
-    throw new Error(
-      `Could not detect the question foreign key on mc_options (looked for question_id, questionId, q_id, mc_question_id, question, question_uuid, qid).`,
-    );
-  }
 
-  // Build set of question IDs to filter options client-side
   const qIdSet = new Set(
     qRows
       .map((r) => (typeof r.id === 'string' ? r.id : null))
@@ -206,3 +202,4 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   return NextResponse.json({ ok: true, info: 'POST { slug } to create a submission.' });
 }
+
