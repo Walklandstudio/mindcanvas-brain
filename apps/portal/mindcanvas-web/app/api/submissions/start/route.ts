@@ -7,7 +7,6 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
-type Frequency = 'A' | 'B' | 'C' | 'D';
 type Raw = Record<string, unknown>;
 
 type SubmissionRow = {
@@ -44,7 +43,7 @@ function pickBoolean(obj: Raw, keys: string[], fallback = true): boolean {
   return fallback;
 }
 
-/** Create submission; retry without test_slug if the column doesn't exist. */
+/** Create submission; retry without test_slug if that column doesn't exist. */
 async function createSubmission(slug: string): Promise<SubmissionRow> {
   const withSlug = await supabaseAdmin
     .from('mc_submissions')
@@ -67,101 +66,18 @@ async function createSubmission(slug: string): Promise<SubmissionRow> {
   return withSlug.data as SubmissionRow;
 }
 
-function detectOptionFK(row: Raw): string | null {
-  const candidates = [
-    'question_id',
-    'questionId',
-    'q_id',
-    'mc_question_id',
-    'question',
-    'question_uuid',
-    'qid',
-  ];
-  for (const k of candidates) if (k in row) return k;
-  return null;
-}
-
-/** Load questions + options without assuming column names. */
-async function loadQuestionsAndOptions(slug: string) {
-  // QUESTIONS (tolerate missing test_slug)
-  const tryWith = await supabaseAdmin.from('mc_questions').select('*').eq('test_slug', slug);
-  let qRows: Raw[] = [];
-  if (tryWith.error) {
-    if (/test_slug/i.test(tryWith.error.message)) {
-      const noFilter = await supabaseAdmin.from('mc_questions').select('*');
-      if (noFilter.error) throw new Error(`mc_questions query failed: ${noFilter.error.message}`);
-      qRows = (noFilter.data ?? []) as Raw[];
-    } else {
-      throw new Error(`mc_questions query failed: ${tryWith.error.message}`);
-    }
-  } else {
-    qRows = (tryWith.data ?? []) as Raw[];
+/** Ultra-tolerant: read questions only, no options, no slug filtering. */
+async function loadQuestionsSuperSafe() {
+  const qRes: PostgrestResponse<Raw> = await supabaseAdmin.from('mc_questions').select('*');
+  if (qRes.error) {
+    throw new Error(`mc_questions query failed: ${qRes.error.message ?? 'unknown error'}`);
   }
-  if (!qRows.length) {
-    throw new Error(
-      `No questions found. Seed mc_questions/mc_options or use a valid slug (e.g. "competency-coach-dna").`,
-    );
+  const rows = (qRes.data ?? []) as Raw[];
+  if (!rows.length) {
+    throw new Error(`No questions found in mc_questions.`);
   }
 
-  // OPTIONS (select * and detect FK; if not detected we won't throw)
-  let optionsData: Raw[] = [];
-  if (qRows.length) {
-    const optRes: PostgrestResponse<Raw> = await supabaseAdmin.from('mc_options').select('*');
-    if (optRes.error) {
-      // Options failing shouldn’t block the whole test from loading
-      optionsData = [];
-    } else {
-      optionsData = (optRes.data ?? []) as Raw[];
-    }
-  }
-
-  // Detect FK name (from first row that has any of the candidates)
-  let fkName: string | null = null;
-  for (const r of optionsData) {
-    fkName = detectOptionFK(r);
-    if (fkName) break;
-  }
-
-  const qIdSet = new Set(
-    qRows
-      .map((r) => (typeof r.id === 'string' ? r.id : null))
-      .filter((x): x is string => !!x),
-  );
-
-  const byQ = new Map<
-    string,
-    Array<{ id: string; label: string; points: number | null; profileCode: string | null; frequency: Frequency | null }>
-  >();
-
-  if (fkName) {
-    for (const r of optionsData) {
-      const qrefRaw = r[fkName];
-      const qref =
-        typeof qrefRaw === 'string'
-          ? qrefRaw
-          : typeof qrefRaw === 'number'
-          ? String(qrefRaw)
-          : '';
-      if (!qref || !qIdSet.has(qref)) continue;
-
-      const opt = {
-        id: String(r.id),
-        label: typeof r.label === 'string' ? r.label : '',
-        points: typeof r.points === 'number' ? r.points : null,
-        profileCode: typeof r.profile_code === 'string' ? r.profile_code : null,
-        frequency:
-          r.frequency === 'A' || r.frequency === 'B' || r.frequency === 'C' || r.frequency === 'D'
-            ? (r.frequency as Frequency)
-            : null,
-      };
-      const arr = byQ.get(qref) ?? [];
-      arr.push(opt);
-      byQ.set(qref, arr);
-    }
-  }
-
-  // Map to frontend shape
-  const mapped = qRows.map((row) => {
+  const mapped = rows.map((row) => {
     const id = String(row.id);
     const text = pickString(row, ['text', 'question', 'prompt', 'label'], 'Question');
     const index = pickNumber(row, ['order_index', 'index', 'order', 'position', 'sort', 'order_no'], 0);
@@ -170,10 +86,10 @@ async function loadQuestionsAndOptions(slug: string) {
       | 'multi'
       | 'info';
     const isScored = pickBoolean(row, ['is_scored', 'scored'], true);
-    const options = byQ.get(id) ?? [];
-    return { id, index, text, type, isScored, options };
+    return { id, index, text, type, isScored, options: [] as Array<never> };
   });
 
+  // keep order stable even if order_index is missing
   mapped.sort((a, b) => a.index - b.index || a.text.localeCompare(b.text));
   return mapped;
 }
@@ -184,7 +100,7 @@ export async function POST(req: NextRequest) {
     const slug = okSlug(body?.slug) ?? 'competency-coach-dna';
 
     const submission = await createSubmission(slug);
-    const questions = await loadQuestionsAndOptions(slug);
+    const questions = await loadQuestionsSuperSafe();
 
     return NextResponse.json({
       submissionId: submission.id,
@@ -202,4 +118,5 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   return NextResponse.json({ ok: true, info: 'POST { slug } to create a submission.' });
 }
+
 
