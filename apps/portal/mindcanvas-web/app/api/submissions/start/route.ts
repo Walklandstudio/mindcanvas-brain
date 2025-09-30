@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import type { PostgrestResponse } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,7 +73,7 @@ function detectOptionFK(row: Raw): string | null {
     'questionId',
     'q_id',
     'mc_question_id',
-    'question',     // sometimes stored as id only
+    'question',
     'question_uuid',
     'qid',
   ];
@@ -102,23 +103,17 @@ async function loadQuestionsAndOptions(slug: string) {
     );
   }
 
-  // OPTIONS (select * so we can detect the FK name)
-  const qIds = qRows
-    .map((r) => (typeof r.id === 'string' ? r.id : null))
-    .filter((x): x is string => !!x);
-
-  const optRes = qIds.length
-    ? await supabaseAdmin.from('mc_options').select('*')
-    : ({ data: [], error: null } as { data: Raw[]; error: null });
-
-  if ((optRes as any).error) {
-    const err = (optRes as any).error;
-    throw new Error(`mc_options query failed: ${err.message ?? String(err)}`);
+  // OPTIONS (select *; detect the FK name; then group by it)
+  let optionsData: Raw[] = [];
+  if (qRows.length) {
+    const optRes: PostgrestResponse<Raw> = await supabaseAdmin.from('mc_options').select('*');
+    if (optRes.error) {
+      throw new Error(`mc_options query failed: ${optRes.error.message ?? 'unknown error'}`);
+    }
+    optionsData = (optRes.data ?? []) as Raw[];
   }
 
-  const optionsData = ((optRes as any).data ?? []) as Raw[];
-
-  // Detect FK once (from first row) and build a map questionId -> options[]
+  // Detect FK name (from first row that has any of the candidates)
   let fkName: string | null = null;
   for (const r of optionsData) {
     fkName = detectOptionFK(r);
@@ -129,6 +124,13 @@ async function loadQuestionsAndOptions(slug: string) {
       `Could not detect the question foreign key on mc_options (looked for question_id, questionId, q_id, mc_question_id, question, question_uuid, qid).`,
     );
   }
+
+  // Build set of question IDs to filter options client-side
+  const qIdSet = new Set(
+    qRows
+      .map((r) => (typeof r.id === 'string' ? r.id : null))
+      .filter((x): x is string => !!x),
+  );
 
   const byQ = new Map<
     string,
@@ -144,7 +146,7 @@ async function loadQuestionsAndOptions(slug: string) {
           : typeof qrefRaw === 'number'
           ? String(qrefRaw)
           : '';
-      if (!qref) continue;
+      if (!qref || !qIdSet.has(qref)) continue;
 
       const opt = {
         id: String(r.id),
