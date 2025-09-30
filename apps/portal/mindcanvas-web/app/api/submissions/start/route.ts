@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
+/* ---------- Helpers ---------- */
+
 type Raw = Record<string, unknown>;
+type Frequency = 'A' | 'B' | 'C' | 'D';
 
 type SubmissionRow = {
   id: string;
@@ -43,7 +46,8 @@ function pickBoolean(obj: Raw, keys: string[], fallback = true): boolean {
   return fallback;
 }
 
-/** Create submission; retry without test_slug if that column doesn't exist. */
+/* ---------- Submission create (safe with/without test_slug) ---------- */
+
 async function createSubmission(slug: string): Promise<SubmissionRow> {
   const withSlug = await supabaseAdmin
     .from('mc_submissions')
@@ -66,18 +70,81 @@ async function createSubmission(slug: string): Promise<SubmissionRow> {
   return withSlug.data as SubmissionRow;
 }
 
-/** Ultra-tolerant: read questions only, no options, no slug filtering. */
-async function loadQuestionsSuperSafe() {
-  const qRes: PostgrestResponse<Raw> = await supabaseAdmin.from('mc_questions').select('*');
-  if (qRes.error) {
-    throw new Error(`mc_questions query failed: ${qRes.error.message ?? 'unknown error'}`);
+/* ---------- Load questions & options (explicit columns) ---------- */
+
+async function loadQuestionsAndOptions(slug: string) {
+  // Try to filter by test_slug; fall back if that column doesn't exist.
+  const qTry = await supabaseAdmin.from('mc_questions').select('*').eq('test_slug', slug);
+  let qRows: Raw[] = [];
+  if (qTry.error) {
+    if (/test_slug/i.test(qTry.error.message)) {
+      const qAll: PostgrestResponse<Raw> = await supabaseAdmin.from('mc_questions').select('*');
+      if (qAll.error) throw new Error(`mc_questions query failed: ${qAll.error.message}`);
+      qRows = (qAll.data ?? []) as Raw[];
+    } else {
+      throw new Error(`mc_questions query failed: ${qTry.error.message}`);
+    }
+  } else {
+    qRows = (qTry.data ?? []) as Raw[];
   }
-  const rows = (qRes.data ?? []) as Raw[];
-  if (!rows.length) {
-    throw new Error(`No questions found in mc_questions.`);
+  if (!qRows.length) throw new Error('No questions found in mc_questions.');
+
+  // Collect question ids
+  const qIds = qRows
+    .map((r) => (typeof r.id === 'string' ? r.id : null))
+    .filter((x): x is string => !!x);
+
+  // Pull options explicitly with question_id / idx / label / points / profile_code / flow_code / flow
+  let optionsData: Raw[] = [];
+  if (qIds.length) {
+    const oRes: PostgrestResponse<Raw> = await supabaseAdmin
+      .from('mc_options')
+      .select('id,question_id,idx,label,points,profile_code,flow_code,flow');
+
+    if (!oRes.error) optionsData = (oRes.data ?? []) as Raw[];
+    // (If options query errors, we still return questions without options so the page loads.)
   }
 
-  const mapped = rows.map((row) => {
+  // Group options by question_id
+  const byQ = new Map<
+    string,
+    Array<{
+      id: string;
+      label: string;
+      points: number | null;
+      profileCode: string | null;
+      frequency: Frequency | null;
+      idx: number;
+    }>
+  >();
+
+  for (const r of optionsData) {
+    const qid = typeof r.question_id === 'string' ? r.question_id : '';
+    if (!qid || !qIds.includes(qid)) continue;
+
+    // Flow detection: prefer flow_code (A/B/C/D), else flow if it matches
+    let freq: Frequency | null = null;
+    const fc = typeof r.flow_code === 'string' ? r.flow_code : null;
+    const ftxt = typeof r.flow === 'string' ? r.flow : null;
+    if (fc === 'A' || fc === 'B' || fc === 'C' || fc === 'D') freq = fc;
+    else if (ftxt === 'A' || ftxt === 'B' || ftxt === 'C' || ftxt === 'D') freq = ftxt;
+
+    const item = {
+      id: String(r.id),
+      label: typeof r.label === 'string' ? r.label : '',
+      points: typeof r.points === 'number' ? r.points : null,
+      profileCode: typeof r.profile_code === 'string' ? r.profile_code : null,
+      frequency: freq,
+      idx: typeof r.idx === 'number' && Number.isFinite(r.idx) ? r.idx : 0,
+    };
+
+    const arr = byQ.get(qid) ?? [];
+    arr.push(item);
+    byQ.set(qid, arr);
+  }
+
+  // Map question shape the UI expects
+  const mapped = qRows.map((row) => {
     const id = String(row.id);
     const text = pickString(row, ['text', 'question', 'prompt', 'label'], 'Question');
     const index = pickNumber(row, ['order_index', 'index', 'order', 'position', 'sort', 'order_no'], 0);
@@ -86,13 +153,31 @@ async function loadQuestionsSuperSafe() {
       | 'multi'
       | 'info';
     const isScored = pickBoolean(row, ['is_scored', 'scored'], true);
-    return { id, index, text, type, isScored, options: [] as Array<never> };
+
+    const options = (byQ.get(id) ?? []).sort((a, b) => a.idx - b.idx || a.label.localeCompare(b.label));
+
+    return {
+      id,
+      index,
+      text,
+      type,
+      isScored,
+      options: options.map((o) => ({
+        id: o.id,
+        label: o.label,
+        points: o.points,
+        profileCode: o.profileCode,
+        frequency: o.frequency,
+      })),
+    };
   });
 
-  // keep order stable even if order_index is missing
+  // Stable order
   mapped.sort((a, b) => a.index - b.index || a.text.localeCompare(b.text));
   return mapped;
 }
+
+/* ---------- Route handlers ---------- */
 
 export async function POST(req: NextRequest) {
   try {
@@ -100,7 +185,7 @@ export async function POST(req: NextRequest) {
     const slug = okSlug(body?.slug) ?? 'competency-coach-dna';
 
     const submission = await createSubmission(slug);
-    const questions = await loadQuestionsSuperSafe();
+    const questions = await loadQuestionsAndOptions(slug);
 
     return NextResponse.json({
       submissionId: submission.id,
@@ -110,8 +195,8 @@ export async function POST(req: NextRequest) {
       finished: false,
     });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const message = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
