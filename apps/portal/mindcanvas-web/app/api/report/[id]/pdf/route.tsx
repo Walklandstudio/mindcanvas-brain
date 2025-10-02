@@ -1,214 +1,166 @@
-/* Render a downloadable PDF using @react-pdf/renderer
-   Install once:  npm i @react-pdf/renderer
-*/
-
-import type { NextRequest } from 'next/server';
+/* app/api/report/[id]/pdf/route.tsx */
 import { NextResponse } from 'next/server';
-import * as PDF from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, pdf } from '@react-pdf/renderer';
 
-/** react-pdf needs Node APIs */
+/** Force Node runtime – react-pdf requires Node APIs. */
 export const runtime = 'nodejs';
+/** This endpoint must run dynamically (no static rendering). */
 export const dynamic = 'force-dynamic';
 
-/* ---------- Types ---------- */
-type FlowKey = 'Catalyst' | 'Communications' | 'Rhythmic' | 'Observer';
-
-type ProfileSlice = {
-  code: string;
-  name: string;
-  percent: number;
-};
+/* ----------------------------------------------------------------------------
+ Types – keep these minimal and aligned with /api/report/[id] response.
+---------------------------------------------------------------------------- */
+type FlowSlice = { label: string; value: number };
+type ProfileSlice = { label: string; value: number };
 
 type ReportPayload = {
-  id?: string;
-  person?: { firstName?: string; lastName?: string; email?: string };
-  primaryProfile?: { code: string; name: string };
-  flow?: Partial<Record<FlowKey, number>>;
-  profiles?: ProfileSlice[];
-  welcome?: string;
-  outline?: string[];
+  id: string;
+  person: {
+    first_name?: string | null;
+    last_name?: string | null;
+  };
+  profileName?: string | null;
+  profileCode?: string | null;
+  flow?: FlowSlice[];       // Coaching flow distribution (A/B/C/D etc.)
+  profiles?: ProfileSlice[]; // Primary & auxiliary profiles + %
 };
 
-/* ---------- Fonts & Styles ---------- */
-PDF.Font.register({
-  family: 'Inter',
-  fonts: [
-    {
-      src: 'https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvJA.woff2',
-    },
-  ],
-});
-
-const styles = PDF.StyleSheet.create({
-  page: { padding: 32, fontFamily: 'Inter', fontSize: 11, color: '#111827' },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
+/* ----------------------------------------------------------------------------
+ PDF styles
+---------------------------------------------------------------------------- */
+const styles = StyleSheet.create({
+  page: {
+    padding: 36,
+    fontSize: 11,
+    fontFamily: 'Helvetica',
+    color: '#111',
+  },
+  h1: {
+    fontSize: 18,
+    fontWeight: 700,
+    marginBottom: 6,
+  },
+  sub: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 12,
+  },
+  hr: {
+    height: 1,
+    backgroundColor: '#e5e5e5',
+    marginVertical: 12,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: 700,
     marginBottom: 8,
   },
-  h1: { fontSize: 20, fontWeight: 700 },
-  h2: { fontSize: 14, marginTop: 16, marginBottom: 8, fontWeight: 600 },
-  sub: { fontSize: 11, color: '#6B7280' },
-  hr: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 12 },
-  row: { flexDirection: 'row', gap: 16 },
-  col: { flexGrow: 1, flexBasis: 0 },
-  box: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 6,
-    padding: 12,
-    marginTop: 8,
+  row: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: 16,
   },
-  pill: {
-    backgroundColor: '#111827',
-    color: '#fff',
-    fontSize: 10,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 999,
+  col: {
+    flexGrow: 1,
+    flexBasis: 0,
   },
-  listItem: { marginBottom: 4 },
+  listItem: {
+    marginBottom: 4,
+  },
 });
 
-/* ---------- PDF Component ---------- */
-function PdfDoc({ data }: { data: ReportPayload }) {
-  const name =
-    (data.person?.firstName || '') +
-    (data.person?.lastName ? ` ${data.person.lastName}` : '');
-
-  const flowEntries: Array<{ key: FlowKey; value: number }> = ([
-    'Catalyst',
-    'Communications',
-    'Rhythmic',
-    'Observer',
-  ] as const)
-    .map((k) => ({ key: k, value: data.flow?.[k] ?? 0 }))
-    .sort((a, b) => b.value - a.value);
-
-  const primary = data.primaryProfile?.name ?? '—';
+/* ----------------------------------------------------------------------------
+ PDF component
+---------------------------------------------------------------------------- */
+function ReportPDF({ data }: { data: ReportPayload }) {
+  const name = [data.person?.first_name, data.person?.last_name].filter(Boolean).join(' ').trim() || 'Your';
+  const headlineProfile = data.profileName ?? 'Profile';
+  const flow = (data.flow ?? []).slice().sort((a, b) => b.value - a.value);
+  const profiles = (data.profiles ?? []).slice().sort((a, b) => b.value - a.value);
 
   return (
-    <PDF.Document title={`MindCanvas Report ${data.id ?? ''}`}>
-      <PDF.Page size="A4" style={styles.page}>
-        <PDF.View style={styles.headerRow}>
-          <PDF.Text style={styles.h1}>Report</PDF.Text>
-          <PDF.Text style={styles.sub}>{data.id ?? ''}</PDF.Text>
-        </PDF.View>
-        <PDF.View style={styles.hr} />
+    <Document>
+      <Page size="A4" style={styles.page}>
+        <Text style={styles.h1}>
+          {name}, your Profile is {headlineProfile}
+        </Text>
+        <Text style={styles.sub}>
+          Report ID: {data.id}
+        </Text>
+        <View style={styles.hr} />
 
-        <PDF.View style={{ marginBottom: 8 }}>
-          <PDF.Text style={{ fontSize: 16, marginBottom: 4 }}>
-            {name ? `${name}, your Profile is ${primary}` : `Primary Profile: ${primary}`}
-          </PDF.Text>
-          {data.primaryProfile?.code ? (
-            <PDF.Text style={styles.sub}>({data.primaryProfile.code})</PDF.Text>
-          ) : null}
-        </PDF.View>
+        <View style={styles.row}>
+          {/* Coaching Flow (ordered, no pie) */}
+          <View style={styles.col}>
+            <Text style={styles.sectionTitle}>Your Coaching Flow</Text>
+            {flow.length === 0 ? (
+              <Text>No flow data available.</Text>
+            ) : (
+              flow.map((s, i) => (
+                <Text key={`${s.label}-${i}`} style={styles.listItem}>
+                  {s.label}: {s.value}%
+                </Text>
+              ))
+            )}
+          </View>
 
-        <PDF.View style={[styles.row, { marginTop: 8 }]}>
-          <PDF.View style={styles.col}>
-            <PDF.Text style={styles.h2}>Your Coaching Flow</PDF.Text>
-            <PDF.View style={styles.box}>
-              {flowEntries.map((f) => (
-                <PDF.View
-                  key={f.key}
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    marginBottom: 6,
-                  }}
-                >
-                  <PDF.Text>{f.key}</PDF.Text>
-                  <PDF.Text>{`${f.value}%`}</PDF.Text>
-                </PDF.View>
-              ))}
-            </PDF.View>
-          </PDF.View>
+          {/* Primary & Auxiliary Profiles */}
+          <View style={styles.col}>
+            <Text style={styles.sectionTitle}>Primary & Auxiliary Profiles</Text>
+            {profiles.length === 0 ? (
+              <Text>No profile distribution available.</Text>
+            ) : (
+              profiles.map((p, i) => (
+                <Text key={`${p.label}-${i}`} style={styles.listItem}>
+                  {p.label}: {p.value}%
+                </Text>
+              ))
+            )}
+          </View>
+        </View>
 
-          <PDF.View style={styles.col}>
-            <PDF.Text style={styles.h2}>Primary & Auxiliary Profiles</PDF.Text>
-            <PDF.View style={styles.box}>
-              {(data.profiles ?? []).map((p, i) => (
-                <PDF.View
-                  key={`${p.code}-${i}`}
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    marginBottom: 6,
-                  }}
-                >
-                  <PDF.Text>
-                    {i === 0 ? 'Primary: ' : ''}
-                    {p.name}
-                    {p.code ? ` (${p.code})` : ''}
-                  </PDF.Text>
-                  <PDF.Text>{`${p.percent}%`}</PDF.Text>
-                </PDF.View>
-              ))}
-              {(!data.profiles || data.profiles.length === 0) && (
-                <PDF.Text style={styles.sub}>
-                  No profile breakdown available.
-                </PDF.Text>
-              )}
-            </PDF.View>
-          </PDF.View>
-        </PDF.View>
-
-        {data.welcome ? (
-          <>
-            <PDF.Text style={styles.h2}>Welcome</PDF.Text>
-            <PDF.View style={styles.box}>
-              <PDF.Text>{data.welcome}</PDF.Text>
-            </PDF.View>
-          </>
-        ) : null}
-
-        {data.outline && data.outline.length > 0 ? (
-          <>
-            <PDF.Text style={styles.h2}>Profile Outline</PDF.Text>
-            <PDF.View style={styles.box}>
-              {data.outline.map((line, idx) => (
-                <PDF.Text key={idx} style={styles.listItem}>
-                  • {line}
-                </PDF.Text>
-              ))}
-            </PDF.View>
-          </>
-        ) : null}
-
-        <PDF.View
-          style={{
-            marginTop: 16,
-            flexDirection: 'row',
-            justifyContent: 'flex-end',
-          }}
-        >
-          <PDF.Text style={styles.pill}>MindCanvas</PDF.Text>
-        </PDF.View>
-      </PDF.Page>
-    </PDF.Document>
+        <View style={styles.hr} />
+        <Text>This PDF was generated by MindCanvas.</Text>
+      </Page>
+    </Document>
   );
 }
 
-/* ---------- Handlers ---------- */
-export async function POST(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> },
-) {
-  const { id } = await ctx.params;
-
-  let data: ReportPayload = {};
-  try {
-    data = (await req.json()) as ReportPayload;
-  } catch {
-    // allow empty body
+/* ----------------------------------------------------------------------------
+ Helper: fetch JSON for this report from your existing API
+---------------------------------------------------------------------------- */
+async function fetchReportJson(request: Request, id: string): Promise<ReportPayload> {
+  const origin = new URL(request.url).origin;
+  const res = await fetch(`${origin}/api/report/${encodeURIComponent(id)}`, {
+    // ensure fresh data and allow internal call on the same deployment
+    cache: 'no-store',
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load report JSON (${res.status})`);
   }
-  data.id = data.id ?? id;
+  const data = (await res.json()) as ReportPayload;
+  // make sure id is present
+  return { id, ...data };
+}
 
+/* ----------------------------------------------------------------------------
+ GET /api/report/[id]/pdf – single export
+---------------------------------------------------------------------------- */
+type RouteParams = { id: string };
+
+export async function GET(request: Request, ctx: { params: Promise<RouteParams> }) {
   try {
-    const bytes = await PDF.pdf(<PdfDoc data={data} />).toBuffer();
-    return new Response(bytes, {
+    const { id } = await ctx.params;
+
+    // 1) Load the same payload used by the HTML report
+    const data = await fetchReportJson(request, id);
+
+    // 2) Build a PDF buffer
+    const pdfBuffer = await pdf(<ReportPDF data={data} />).toBuffer();
+
+    // 3) Return as a downloadable file
+    return new NextResponse(pdfBuffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
@@ -216,26 +168,8 @@ export async function POST(
         'Cache-Control': 'no-store',
       },
     });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json(
-      { error: 'PDF render failed', details: msg },
-      { status: 500 },
-    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ error: 'PDF render failed', details: msg }, { status: 500 });
   }
-}
-
-export async function GET() {
-  return NextResponse.json(
-    { ok: false, error: 'Use POST with JSON payload to generate a PDF.' },
-    { status: 405 },
-  );
-}
-
-
-export async function GET() {
-  return NextResponse.json(
-    { ok: false, error: 'Use POST with JSON payload to generate a PDF.' },
-    { status: 405 },
-  );
 }
