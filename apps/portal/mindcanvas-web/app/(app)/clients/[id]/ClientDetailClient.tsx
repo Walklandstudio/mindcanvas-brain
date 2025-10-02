@@ -1,150 +1,93 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList,
+} from 'recharts';
 
-type AnswerDTO = {
-  question_id: string;
-  question: string;
-  answers: string[];
-};
+type Flow = { A: number; B: number; C: number; D: number };
+type ProfileRow = { code: string; name: string; pct: number };
 
-type DetailPayload = {
-  id: string;
-  created_at: string;
-  name: string;
-  email: string;
-  phone: string;
-  profile_code: string | null;
-  flow_a: number;
-  flow_b: number;
-  flow_c: number;
-  flow_d: number;
-  answers: AnswerDTO[];
-};
-
-export default function ClientDetailClient({ id }: { id: string }) {
-  const router = useRouter();
-  const [data, setData] = useState<DetailPayload | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setErr(null);
-        setData(null);
-        const res = await fetch(`/api/admin/clients/${id}`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(await res.text());
-        const json = (await res.json()) as DetailPayload;
-        if (alive) setData(json);
-      } catch (e) {
-        if (alive) setErr(e instanceof Error ? e.message : String(e));
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [id]);
-
-  const flowStr = useMemo(() => {
-    if (!data) return '0/0/0/0';
-    return `${data.flow_a ?? 0}/${data.flow_b ?? 0}/${data.flow_c ?? 0}/${data.flow_d ?? 0}`;
-  }, [data]);
-
-  const onDelete = async () => {
-    if (!confirm('Delete this client and all their answers? This cannot be undone.')) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/admin/clients/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(await res.text());
-      router.replace('/clients');
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
+export default function ClientDetailClient({
+  data,
+}: {
+  data: {
+    submissionId: string;
+    person: { name: string; email: string; company: string; team: string; position: string; createdAt: string | null };
+    flow: Flow;
+    profiles: ProfileRow[];
+    qualifications: { q_key: string; q_label: string; answer_text: string | null }[];
   };
+}) {
+  const flowRows = [
+    { label: 'Catalyst', value: data.flow.A },
+    { label: 'Communications', value: data.flow.B },
+    { label: 'Rhythmic', value: data.flow.C },
+    { label: 'Observer', value: data.flow.D },
+  ].sort((a, b) => b.value - a.value);
+
+  const profileRows = [...data.profiles].sort((a, b) => b.pct - a.pct).map(p => ({
+    label: p.name,
+    value: p.pct,
+  }));
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Client</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => router.back()}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
-          >
-            ← Back
-          </button>
-          <button
-            onClick={onDelete}
-            disabled={busy}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-          >
-            {busy ? 'Deleting…' : 'Delete'}
-          </button>
-        </div>
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">Client</h1>
+        <p className="text-sm text-gray-600">
+          {data.person.name} • {data.person.email} {data.person.company ? `• ${data.person.company}` : ''}
+          {data.person.team ? ` • ${data.person.team}` : ''} {data.person.position ? ` • ${data.person.position}` : ''}
+        </p>
       </div>
 
-      {err && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {err}
-        </div>
-      )}
-
-      {!data && !err && (
-        <div className="rounded-xl border px-4 py-8 text-center text-sm text-gray-600">
-          Loading…
-        </div>
-      )}
-
-      {data && (
-        <>
-          <div className="mb-6 rounded-xl border p-4">
-            <div className="mb-3">
-              <div className="text-sm text-gray-500">
-                {new Date(data.created_at).toLocaleString()}
-              </div>
-              <div className="mt-1 text-lg font-medium">{data.name || '—'}</div>
-              <div className="text-sm text-gray-700">{data.email || '—'}</div>
-              <div className="text-sm text-gray-700">{data.phone || '—'}</div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-lg border p-3">
-                <div className="text-xs text-gray-500">Profile</div>
-                <div className="mt-1 text-base font-medium">
-                  {data.profile_code ?? '—'}
-                </div>
-              </div>
-
-              <div className="rounded-lg border p-3">
-                <div className="text-xs text-gray-500">Flow (A/B/C/D)</div>
-                <div className="mt-1 text-base font-medium">{flowStr}</div>
-              </div>
-            </div>
+      <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+        <section>
+          <h2 className="mb-3 text-lg font-medium">Coaching Flow</h2>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart layout="vertical" data={flowRows} margin={{ left: 16, right: 16 }}>
+                <XAxis type="number" domain={[0, 100]} hide />
+                <YAxis type="category" dataKey="label" width={160} />
+                <Tooltip formatter={(v: number) => `${v}%`} />
+                <Bar dataKey="value" radius={[6, 6, 6, 6]}>
+                  <LabelList dataKey="value" position="right" formatter={(v: number) => `${v}%`} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
+        </section>
 
-          <details className="rounded-xl border p-4" open>
-            <summary className="cursor-pointer text-sm font-medium">Answers</summary>
-            <div className="mt-3 space-y-3">
-              {data.answers.length === 0 && (
-                <div className="text-sm text-gray-600">No answers recorded.</div>
-              )}
-              {data.answers.map((a) => (
-                <div key={a.question_id} className="rounded-lg border p-3">
-                  <div className="text-sm font-medium">
-                    {a.question || a.question_id}
-                  </div>
-                  <div className="mt-1 text-sm text-gray-700">
-                    {a.answers.length ? a.answers.join(', ') : '—'}
-                  </div>
+        <section>
+          <h2 className="mb-3 text-lg font-medium">Profiles</h2>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart layout="vertical" data={profileRows} margin={{ left: 16, right: 16 }}>
+                <XAxis type="number" domain={[0, 100]} hide />
+                <YAxis type="category" dataKey="label" width={220} />
+                <Tooltip formatter={(v: number) => `${v}%`} />
+                <Bar dataKey="value" radius={[6, 6, 6, 6]}>
+                  <LabelList dataKey="value" position="right" formatter={(v: number) => `${v}%`} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      </div>
+
+      {data.qualifications.length > 0 && (
+        <>
+          <hr className="my-8 border-gray-200" />
+          <section>
+            <h2 className="mb-3 text-lg font-medium">Additional Answers</h2>
+            <div className="space-y-3">
+              {data.qualifications.map(q => (
+                <div key={q.q_key} className="rounded-lg border p-3">
+                  <div className="text-sm font-medium">{q.q_label}</div>
+                  <div className="text-sm text-gray-700">{q.answer_text || '—'}</div>
                 </div>
               ))}
             </div>
-          </details>
+          </section>
         </>
       )}
     </div>

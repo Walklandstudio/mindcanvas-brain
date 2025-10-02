@@ -1,358 +1,106 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { useMemo } from 'react';
 import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  LabelList,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList,
 } from 'recharts';
-import Image from 'next/image';
 
-type Freq = 'A' | 'B' | 'C' | 'D';
+type Flow = { A: number; B: number; C: number; D: number };
+type ProfileRow = { code: string; name: string; pct: number; colorHex?: string };
 
-type ProfileSlice = {
-  code: string;
-  name: string;   // plain profile name
-  pct: number;
-  color: string;
+export type ReportData = {
+  person?: { name?: string | null };
+  profile?: { code?: string; name?: string; colorHex?: string } | null;
+  flow: Flow;
+  profiles: ProfileRow[];
 };
 
-type Props = {
-  reportId: string;
-  name: string;
-  profileCode: string;
-  profileName: string;             // plain name (no number)
-  profileFlowDescriptor?: string;  // e.g., "Communications – Rhythmic Coaching Flow"
-  profileImage?: string;
-  profileColor?: string;
-  flow: Record<Freq, number>;      // percentages for A/B/C/D
-  topFlowName: string;
-  profileBreakdown: ProfileSlice[];
-  welcome?: string;
-  overview?: string;
-  strengths?: string[];
-  watchouts?: string[];
-  tips?: string[];
-  competencies?: string;
-  staticPdfUrl?: string;           // /reports/pdfs/P#.pdf
-};
+export default function ReportClient({ data, reportId }: { data: ReportData; reportId: string }) {
+  const personName = data.person?.name ?? '—';
 
-const FLOW_COLORS: Record<Freq, string> = {
-  A: '#0EA5E9', // Catalyst
-  B: '#F59E0B', // Communications
-  C: '#10B981', // Rhythmic
-  D: '#8B5CF6', // Observer
-};
-const FLOW_LABELS: Record<Freq, string> = {
-  A: 'Catalyst',
-  B: 'Communications',
-  C: 'Rhythmic',
-  D: 'Observer',
-};
+  const flowRows = useMemo(() => {
+    const arr = [
+      { key: 'A', label: 'Catalyst', value: data.flow?.A ?? 0, color: '#4ea5ff' },
+      { key: 'B', label: 'Communications', value: data.flow?.B ?? 0, color: '#f2a31b' },
+      { key: 'C', label: 'Rhythmic', value: data.flow?.C ?? 0, color: '#1fb874' },
+      { key: 'D', label: 'Observer', value: data.flow?.D ?? 0, color: '#7e5bef' },
+    ];
+    return arr.sort((a, b) => b.value - a.value);
+  }, [data.flow]);
 
-export default function ReportClient({
-  reportId,
-  name,
-  profileName,
-  profileFlowDescriptor,
-  profileImage,
-  profileColor = '#111111',
-  flow,
-  topFlowName,
-  profileBreakdown,
-  welcome = '',
-  overview = '',
-  strengths = [],
-  watchouts = [],
-  tips = [],
-  competencies = '',
-  staticPdfUrl,
-}: Props) {
-  const reportRef = useRef<HTMLDivElement | null>(null);
-  const [downloading, setDownloading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const totalFlow = Math.max(1, (flow.A ?? 0) + (flow.B ?? 0) + (flow.C ?? 0) + (flow.D ?? 0));
-  const pieData = (['A', 'B', 'C', 'D'] as Freq[]).map((k) => ({
-    key: k,
-    label: FLOW_LABELS[k],
-    value: flow[k] ?? 0,
-  }));
-
-  const waitForImages = async (root: HTMLElement) => {
-    const imgs = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
-    await Promise.all(
-      imgs.map((img) =>
-        img.complete && img.naturalWidth > 0
-          ? Promise.resolve()
-          : new Promise<void>((resolve) => {
-              const done = () => resolve();
-              img.onload = done;
-              img.onerror = done;
-              try { img.crossOrigin = 'anonymous'; } catch {}
-            }),
-      ),
-    );
-  };
-
-  const toggleExcludes = (root: HTMLElement, hide: boolean) => {
-    const nodes = Array.from(root.querySelectorAll('[data-pdf-exclude="true"]')) as HTMLElement[];
-    nodes.forEach((el) => { el.style.visibility = hide ? 'hidden' : ''; });
-  };
-
-  // Try static PDF; if not available, capture HTML
-  const handleSmartDownload = useCallback(async () => {
-    setErr(null);
-    // 1) Attempt static file
-    if (staticPdfUrl) {
-      try {
-        const head = await fetch(staticPdfUrl, { method: 'HEAD' });
-        if (head.ok) {
-          const a = document.createElement('a');
-          a.href = staticPdfUrl;
-          a.download = '';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          return;
-        }
-      } catch {
-        // ignore and fall through to capture
-      }
-    }
-    // 2) Fallback: capture current report
-    const el = reportRef.current;
-    if (!el) return;
-    setDownloading(true);
-    try {
-      toggleExcludes(el, true);
-      await waitForImages(el);
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        windowWidth: el.scrollWidth,
-        windowHeight: el.scrollHeight,
-      });
-      const imgData = canvas.toDataURL('image/jpeg', 1.0);
-      const pdf = new jsPDF('p', 'pt', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-
-      const imgWidth = pageWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      while (heightLeft > 0) {
-        position = -(imgHeight - heightLeft);
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-
-      pdf.save(`report_${reportId}.pdf`);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      const el2 = reportRef.current;
-      if (el2) toggleExcludes(el2, false);
-      setDownloading(false);
-    }
-  }, [reportId, staticPdfUrl]);
+  const profileRows = useMemo(() => {
+    const order = [...(data.profiles ?? [])].sort((a, b) => b.pct - a.pct);
+    const palette = {
+      P1: '#175f15',
+      P2: '#2ecc2f',
+      P3: '#ea430e',
+      P4: '#f52905',
+      P5: '#f3c90d',
+      P6: '#f8ee18',
+      P7: '#5d5d5d',
+      P8: '#8a8583',
+    } as Record<string, string>;
+    return order.map(p => ({
+      label: p.name,
+      value: p.pct,
+      color: p.colorHex || palette[p.code] || '#111827',
+    }));
+  }, [data.profiles]);
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      {/* Actions */}
-      <div className="mb-4 flex items-center justify-between" data-pdf-exclude="true">
-        <h1 className="text-xl font-semibold">Report</h1>
-        <button
-          onClick={handleSmartDownload}
-          disabled={downloading}
-          className="rounded-md bg-black px-4 py-2 text-white disabled:opacity-50"
+    <div className="mx-auto max-w-5xl px-4 py-8">
+      {/* Header with Download */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Report</h1>
+          <p className="text-sm text-gray-600">Welcome, {personName}.</p>
+        </div>
+        <a
+          href={`/api/report/${reportId}/pdf`}
+          className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:opacity-90"
         >
-          {downloading ? 'Preparing…' : 'Download PDF'}
-        </button>
+          Download PDF
+        </a>
       </div>
 
-      {err && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {err}
-        </div>
-      )}
+      <hr className="mb-6 border-gray-200" />
 
-      {/* ===== Captured area ===== */}
-      <div ref={reportRef} className="rounded-xl bg-white">
-        {/* HERO */}
-        <section className="border-b p-6">
-          <div className="flex items-center gap-4">
-            {profileImage ? (
-              <Image
-                src={profileImage}
-                alt={profileName}
-                width={84}
-                height={84}
-                className="h-21 w-21 rounded-xl object-cover"
-                priority
-              />
-            ) : (
-              <div className="h-20 w-20 rounded-xl" style={{ backgroundColor: profileColor }} aria-hidden />
-            )}
-            <div>
-              <h2 className="text-2xl font-semibold">
-                {name}, your Profile is <span style={{ color: profileColor }}>{profileName}</span>
-              </h2>
-              <p className="text-sm text-gray-700">
-                and your coaching Flow is <span className="font-medium">{topFlowName}</span>
-              </p>
-              {profileFlowDescriptor && (
-                <p className="mt-1 text-xs text-gray-500">{profileFlowDescriptor}</p>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* FLOW PIE (no labels on slices) */}
-        <section className="border-b p-6">
-          <h3 className="mb-3 text-base font-semibold">Your Coaching Flow</h3>
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="label"
-                    outerRadius="80%"
-                    label={false}
-                    labelLine={false}
-                  >
-                    {pieData.map((entry) => (
-                      <Cell key={entry.key} fill={FLOW_COLORS[entry.key as Freq]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Simple legend list with percentages */}
-            <div className="grid grid-cols-1 gap-3 text-sm">
-              {(['A', 'B', 'C', 'D'] as Freq[]).map((k) => {
-                const pct = totalFlow ? Math.round(((flow[k] ?? 0) / totalFlow) * 100) : 0;
-                return (
-                  <div key={k} className="flex items-center gap-3">
-                    <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: FLOW_COLORS[k] }} />
-                    <span className="font-medium">{FLOW_LABELS[k]}</span>
-                    <span className="ml-auto tabular-nums text-gray-600">{pct}%</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        {/* PROFILE BREAKDOWN BAR */}
-        <section className="border-b p-6">
-          <h3 className="mb-3 text-base font-semibold">Primary & Auxiliary Profiles</h3>
-
-          {profileBreakdown.length > 0 && (
-            <div className="mb-3 flex items-center gap-3 text-sm">
-              <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: profileBreakdown[0].color }} />
-              <span className="font-medium">Primary:</span>
-              <span>{profileBreakdown[0].name}</span>
-              <span className="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs">{profileBreakdown[0].pct}%</span>
-            </div>
-          )}
-
-          <div className="h-72">
+      <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+        <section>
+          <h2 className="mb-3 text-lg font-medium">Your Coaching Flow</h2>
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={profileBreakdown} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                <YAxis type="category" dataKey="name" width={260} />
-                <Tooltip formatter={(v: number) => [`${v}%`, 'Percentage']} />
-                <Bar dataKey="pct" isAnimationActive={false}>
-                  {profileBreakdown.map((d) => (
-                    <Cell key={d.code} fill={d.color} />
-                  ))}
-                  <LabelList dataKey="pct" position="right" formatter={(v: number) => `${v}%`} />
+              <BarChart layout="vertical" data={flowRows} margin={{ left: 16, right: 16 }}>
+                <XAxis type="number" domain={[0, 100]} hide />
+                <YAxis type="category" dataKey="label" tick={{ fontSize: 12 }} width={140} />
+                <Tooltip formatter={(v: number) => `${v}%`} />
+                <Bar dataKey="value" radius={[6, 6, 6, 6]} isAnimationActive>
+                  <LabelList dataKey="value" position="right" formatter={(v: number) => `${v}%`} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </section>
 
-        {/* COPY */}
-        {welcome && (
-          <section className="border-b p-6">
-            <h3 className="mb-2 text-base font-semibold">Welcome</h3>
-            <p className="whitespace-pre-line text-sm leading-6 text-gray-800">{welcome}</p>
-          </section>
-        )}
-
-        {(overview || competencies) && (
-          <section className="border-b p-6">
-            <h3 className="mb-2 text-base font-semibold">Overview</h3>
-            {overview && <p className="mb-4 whitespace-pre-line text-sm leading-6 text-gray-800">{overview}</p>}
-            {competencies && (
-              <>
-                <h4 className="mb-2 font-medium">Core Competencies</h4>
-                <p className="whitespace-pre-line text-sm leading-6 text-gray-800">{competencies}</p>
-              </>
-            )}
-          </section>
-        )}
-
-        {(strengths.length || watchouts.length || tips.length) && (
-          <section className="p-6">
-            <div className="grid gap-6 md:grid-cols-3">
-              {strengths.length > 0 && (
-                <div>
-                  <h4 className="mb-2 font-medium">Strengths</h4>
-                  <ul className="list-disc pl-5 text-sm leading-6 text-gray-800">
-                    {strengths.map((s, i) => <li key={i}>{s}</li>)}
-                  </ul>
-                </div>
-              )}
-              {watchouts.length > 0 && (
-                <div>
-                  <h4 className="mb-2 font-medium">Watch-outs</h4>
-                  <ul className="list-disc pl-5 text-sm leading-6 text-gray-800">
-                    {watchouts.map((w, i) => <li key={i}>{w}</li>)}
-                  </ul>
-                </div>
-              )}
-              {tips.length > 0 && (
-                <div>
-                  <h4 className="mb-2 font-medium">Tips</h4>
-                  <ul className="list-disc pl-5 text-sm leading-6 text-gray-800">
-                    {tips.map((t, i) => <li key={i}>{t}</li>)}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+        <section>
+          <h2 className="mb-3 text-lg font-medium">Primary & Auxiliary Profiles</h2>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart layout="vertical" data={profileRows} margin={{ left: 16, right: 16 }}>
+                <XAxis type="number" domain={[0, 100]} hide />
+                <YAxis type="category" dataKey="label" tick={{ fontSize: 12 }} width={220} />
+                <Tooltip formatter={(v: number) => `${v}%`} />
+                <Bar dataKey="value" radius={[6, 6, 6, 6]}>
+                  <LabelList dataKey="value" position="right" formatter={(v: number) => `${v}%`} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
       </div>
-      {/* ===== /Captured area ===== */}
+
+      <hr className="my-8 border-gray-200" />
+      {/* Add Welcome/Outline copy below if desired */}
     </div>
   );
 }

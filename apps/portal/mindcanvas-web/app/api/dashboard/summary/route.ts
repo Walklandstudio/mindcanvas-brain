@@ -1,89 +1,57 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+/* app/api/dashboard/summary/route.ts */
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-type SubRow = {
-  id: string;
-  created_at: string;
-  email: string | null;
-  name: string | null;
-  phone: string | null;
-  test_slug?: string | null; // optional for installs without the column
-};
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-function sinceDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString();
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-function asString(u: unknown): string | null {
-  return typeof u === 'string' ? u : null;
-}
-function asStringRequired(u: unknown, fallback = ''): string {
-  return typeof u === 'string' ? u : fallback;
-}
-function toSubRow(rec: Record<string, unknown>): SubRow {
-  return {
-    id: asStringRequired(rec.id),
-    created_at: asStringRequired(rec.created_at),
-    email: asString(rec.email),
-    name: asString(rec.name),
-    phone: asString(rec.phone),
-    // present only if your schema has it
-    ...(Object.prototype.hasOwnProperty.call(rec, 'test_slug')
-      ? { test_slug: asString(rec.test_slug) }
-      : {}),
-  };
-}
+/**
+ * Returns totals for:
+ * - submissions in the last N days (default 30)
+ * - unique clients in the last N days
+ * Optional query param: ?days=7|30|90
+ * Optional query param: ?test=slug (if you later add test_slug, otherwise we just ignore the filter)
+ */
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const days = Number(url.searchParams.get("days") ?? 30);
+    const fromISO = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const test = url.searchParams.get("test") || ""; // kept for forward compatibility
 
-export async function GET(req: NextRequest) {
-  const sp = req.nextUrl.searchParams;
-  const days = Number(sp.get('days') ?? '30');
-  const slug = sp.get('slug') ?? undefined;
+    // Submissions count
+    const { count: submissionsCount, error: subErr } = await supabase
+      .from("mc_submissions")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", fromISO);
 
-  const from = sinceDays(Number.isFinite(days) && days > 0 ? days : 30);
+    if (subErr) throw subErr;
 
-  // 1) Try with test_slug
-  let rows: SubRow[] = [];
-  const qWith = supabaseAdmin
-    .from('mc_submissions')
-    .select('id, created_at, email, name, phone, test_slug')
-    .gte('created_at', from);
+    // Unique clients (by email if present, else by submission id as a fallback)
+    const { data: uniqRows, error: uniqErr } = await supabase
+      .from("mc_submissions")
+      .select("id, email")
+      .gte("created_at", fromISO);
 
-  const rWith =
-    slug ? await qWith.eq('test_slug', slug) : await qWith;
+    if (uniqErr) throw uniqErr;
 
-  if (rWith.error && /test_slug/.test(rWith.error.message)) {
-    // 2) Fallback without test_slug
-    const rNo = await supabaseAdmin
-      .from('mc_submissions')
-      .select('id, created_at, email, name, phone')
-      .gte('created_at', from);
+    const uniq = new Set(
+      (uniqRows ?? []).map((r: any) => (r.email?.trim()?.toLowerCase() || `sid:${r.id}`))
+    ).size;
 
-    if (rNo.error) {
-      return NextResponse.json({ error: rNo.error.message }, { status: 500 });
-    }
-    rows = (rNo.data ?? []).map((d) => toSubRow(d as Record<string, unknown>));
-  } else if (rWith.error) {
-    return NextResponse.json({ error: rWith.error.message }, { status: 500 });
-  } else {
-    rows = (rWith.data ?? []).map((d) => toSubRow(d as Record<string, unknown>));
+    return NextResponse.json({
+      ok: true,
+      days,
+      submissions: submissionsCount ?? 0,
+      unique_clients: uniq,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
-
-  // Submissions count
-  const submissions = rows.length;
-
-  // Unique clients: prefer email > phone > name+date > id
-  const seen = new Set<string>();
-  for (const r of rows) {
-    const key =
-      (r.email && `e:${r.email.toLowerCase()}`) ||
-      (r.phone && `p:${r.phone}`) ||
-      (r.name &&
-        `n:${r.name.toLowerCase()}@${new Date(r.created_at).toISOString().slice(0, 10)}`) ||
-      `id:${r.id}`;
-    seen.add(key);
-  }
-
-  return NextResponse.json({ submissions, uniqueClients: seen.size });
 }

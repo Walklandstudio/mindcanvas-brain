@@ -1,56 +1,80 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-type SubRow = { id: string; created_at: string; test_slug: string | null };
-type ResRow = { submission_id: string; profile_code: string | null };
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-function sinceDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString();
-}
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const days = Number(searchParams.get('days') || 30);
+  const testSlug = (searchParams.get('testSlug') || '').trim();
+  const company = (searchParams.get('company') || '').trim();
+  const team = (searchParams.get('team') || '').trim();
 
-export async function GET(req: NextRequest) {
-  const sp = req.nextUrl.searchParams;
-  const days = Number(sp.get('days') ?? '30');
-  const slug = sp.get('slug') ?? undefined;
-  const from = sinceDays(Number.isFinite(days) && days > 0 ? days : 30);
+  const since = new Date();
+  since.setDate(since.getDate() - Math.max(1, days));
 
-  // 1) Gather submission ids for time window (+ optional slug)
-  let q = supabaseAdmin
+  // submissions
+  let s = supabaseAdmin
     .from('mc_submissions')
-    .select('id, created_at, test_slug')
-    .gte('created_at', from);
+    .select('id')
+    .gte('created_at', since.toISOString());
 
-  if (slug) q = q.eq('test_slug', slug);
+  if (testSlug && testSlug !== 'all') s = s.eq('test_slug', testSlug);
+  if (company) s = s.eq('company', company);
+  if (team) s = s.eq('team', team);
 
-  const subs = await q;
-  if (subs.error) {
-    return NextResponse.json({ error: subs.error.message }, { status: 500 });
-  }
+  const subRes = await s;
+  if (subRes.error) return NextResponse.json({ buckets: [], total: 0 });
 
-  const ids = (subs.data ?? []).map((r) => (r as SubRow).id);
-  if (ids.length === 0) return NextResponse.json({ rows: [] });
+  const ids = (subRes.data ?? []).map((r) => r.id as string).filter(Boolean);
+  if (!ids.length) return NextResponse.json({ buckets: [], total: 0 });
 
-  // 2) Pull results for those submissions
-  const res = await supabaseAdmin
-    .from('mc_results')
-    .select('submission_id, profile_code')
+  // answers
+  const ansRes = await supabaseAdmin
+    .from('mc_answers')
+    .select('submission_id, points, profile_code')
     .in('submission_id', ids);
 
-  if (res.error) {
-    return NextResponse.json({ error: res.error.message }, { status: 500 });
+  if (ansRes.error) return NextResponse.json({ buckets: [], total: 0 });
+
+  // profile names
+  const profRes = await supabaseAdmin.from('profiles').select('code,name');
+  const nameMap = new Map<string, string>();
+  for (const p of profRes.data ?? []) {
+    nameMap.set(String(p.code), String(p.name ?? p.code));
   }
 
-  const counts = new Map<string, number>();
-  ((res.data ?? []) as ResRow[]).forEach((r) => {
-    const code = r.profile_code ?? 'Unknown';
-    counts.set(code, (counts.get(code) ?? 0) + 1);
-  });
+  // aggregate per submission → pick primary profile
+  const bySub = new Map<string, Record<string, number>>();
+  for (const a of ansRes.data ?? []) {
+    const sid = String(a.submission_id);
+    const pc = String(a.profile_code ?? '');
+    const pts = Number(a.points || 0);
+    if (!pc) continue;
+    const agg = bySub.get(sid) ?? {};
+    agg[pc] = (agg[pc] ?? 0) + pts;
+    bySub.set(sid, agg);
+  }
 
-  const rows = Array.from(counts.entries())
-    .map(([code, count]) => ({ code, count }))
-    .sort((a, b) => a.code.localeCompare(b.code));
+  const counts: Record<string, number> = {};
+  for (const agg of bySub.values()) {
+    const entries = Object.entries(agg).sort((x, y) => y[1] - x[1]);
+    if (entries.length && entries[0][1] > 0) {
+      const top = entries[0][0];
+      counts[top] = (counts[top] ?? 0) + 1;
+    }
+  }
 
-  return NextResponse.json({ rows });
+  const buckets = Object.entries(counts)
+    .map(([code, count]) => ({
+      code,
+      name: nameMap.get(code) || code,
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const total = buckets.reduce((a, b) => a + b.count, 0);
+  return NextResponse.json({ buckets, total });
 }
