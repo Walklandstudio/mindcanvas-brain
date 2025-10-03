@@ -1,84 +1,247 @@
-import ClientDetailClient from './ClientDetailClient';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
-
+// app/(app)/clients/[id]/page.tsx
 export const revalidate = 0;
-export const dynamic = 'force-dynamic';
 
-type Flow = { A: number; B: number; C: number; D: number };
+import Link from "next/link";
 
-async function loadClient(submissionId: string) {
-  const sub = await supabaseAdmin
-    .from('mc_submissions')
-    .select('id, person_name, person_email, created_at, company, team, position')
-    .eq('id', submissionId)
-    .maybeSingle();
+/* ---------------- Types ---------------- */
+type PageProps = { params: Promise<{ id: string }> };
 
-  if (sub.error) throw new Error(sub.error.message);
+type Person = {
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+};
 
-  const ans = await supabaseAdmin
-    .from('mc_answers')
-    .select('points, profile_code, flow_code, flow')
-    .eq('submission_id', submissionId);
+type Result = {
+  report_id?: string;
+  profile_code?: string;
+  profile_name?: string;
+  flow_a?: number;
+  flow_b?: number;
+  flow_c?: number;
+  flow_d?: number;
+};
 
-  if (ans.error) throw new Error(ans.error.message);
+type Answer = {
+  question?: string;
+  // display-labels selected by the user (already localized/expanded)
+  options?: string[];
+  // raw selected keys/ids if your API returns them
+  selected?: string[];
+};
 
-  const prof = await supabaseAdmin
-    .from('profiles')
-    .select('code, name');
+type ClientDetail = {
+  id: string;
+  created_at?: string;
+  person?: Person;
+  result?: Result | null;
+  answers?: Answer[];
+};
 
-  if (prof.error) throw new Error(prof.error.message);
+/* ---------------- Small guards/helpers ---------------- */
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null;
 
-  const quals = await supabaseAdmin
-    .from('mc_qualifications')
-    .select('q_key, q_label, answer_text, created_at')
-    .eq('submission_id', submissionId)
-    .order('created_at', { ascending: true });
+const asStr = (v: unknown): string | undefined =>
+  typeof v === "string" && v.trim().length > 0 ? v : undefined;
 
-  if (quals.error) throw new Error(quals.error.message);
-
-  const flowTotals: Flow = { A: 0, B: 0, C: 0, D: 0 };
-  const profileTotals: Record<string, number> = {};
-  for (const a of ans.data ?? []) {
-    const pts = Number(a.points || 0);
-    const f = (a.flow_code as string) || (a.flow as string) || '';
-    if (f && (f === 'A' || f === 'B' || f === 'C' || f === 'D')) (flowTotals as any)[f] += pts;
-    const pc = (a.profile_code as string) || '';
-    if (pc) profileTotals[pc] = (profileTotals[pc] || 0) + pts;
+const asNum = (v: unknown): number | undefined => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
   }
-  const total = Object.values(flowTotals).reduce((a, b) => a + b, 0) || 1;
-  const flow = {
-    A: Math.round((flowTotals.A / total) * 100),
-    B: Math.round((flowTotals.B / total) * 100),
-    C: Math.round((flowTotals.C / total) * 100),
-    D: Math.round((flowTotals.D / total) * 100),
+  return undefined;
+};
+
+function normalizeDetail(u: unknown): ClientDetail | null {
+  if (!isRecord(u)) return null;
+  const id = asStr(u.id);
+  if (!id) return null;
+
+  const p = isRecord(u.person) ? u.person : {};
+  const person: Person = {
+    first_name: asStr(p.first_name),
+    last_name: asStr(p.last_name),
+    name: asStr(p.name),
+    email: asStr(p.email),
+    phone: asStr(p.phone),
   };
-  const names = new Map((prof.data ?? []).map(p => [p.code, p.name as string]));
-  const profiles = Object.entries(profileTotals)
-    .map(([code, pts]) => ({
-      code,
-      name: names.get(code) || code,
-      pct: Math.round((Number(pts) / total) * 100),
-    }))
-    .sort((a, b) => b.pct - a.pct);
+
+  const r = isRecord(u.result) ? u.result : undefined;
+  const result: Result | null = r
+    ? {
+        report_id: asStr(r.report_id),
+        profile_code: asStr(r.profile_code),
+        profile_name: asStr(r.profile_name),
+        flow_a: asNum(r.flow_a) ?? 0,
+        flow_b: asNum(r.flow_b) ?? 0,
+        flow_c: asNum(r.flow_c) ?? 0,
+        flow_d: asNum(r.flow_d) ?? 0,
+      }
+    : null;
+
+  const answers: Answer[] = Array.isArray(u.answers)
+    ? u.answers.map((a) => {
+        const ar = isRecord(a) ? a : {};
+        return {
+          question: asStr(ar.question),
+          options: Array.isArray(ar.options)
+            ? ar.options
+                .map((x) => asStr(x))
+                .filter((x): x is string => !!x)
+            : undefined,
+          selected: Array.isArray(ar.selected)
+            ? ar.selected
+                .map((x) => asStr(x))
+                .filter((x): x is string => !!x)
+            : undefined,
+        };
+      })
+    : [];
 
   return {
-    submissionId,
-    person: {
-      name: sub.data?.person_name ?? '—',
-      email: sub.data?.person_email ?? '',
-      company: sub.data?.company ?? '',
-      team: sub.data?.team ?? '',
-      position: sub.data?.position ?? '',
-      createdAt: sub.data?.created_at ?? null,
-    },
-    flow,
-    profiles,
-    qualifications: quals.data ?? [],
+    id,
+    created_at: asStr(u.created_at),
+    person,
+    result,
+    answers,
   };
 }
 
-export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+/* ---------------- Page ---------------- */
+export default async function ClientDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const data = await loadClient(id);
-  return <ClientDetailClient data={data} />;
+
+  const baseRaw = process.env.NEXT_PUBLIC_BASE_URL;
+  const base = (baseRaw ?? "").trim();
+  const res = await fetch(`${base}/api/admin/clients/${id}`, { cache: "no-store" });
+  if (!res.ok) {
+    return (
+      <div className="p-6 text-red-600">
+        Failed to load client: {await res.text().catch(() => "")}
+      </div>
+    );
+  }
+
+  const raw: unknown = await res.json();
+  const detail = normalizeDetail(raw);
+  if (!detail) {
+    return <div className="p-6 text-red-600">Invalid client payload.</div>;
+  }
+
+  const fullName =
+    detail.person?.name ||
+    [detail.person?.first_name, detail.person?.last_name]
+      .filter((x): x is string => !!x && x.length > 0)
+      .join(" ")
+      .trim();
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold">Client</h1>
+          <p className="text-sm text-gray-500">{detail.id}</p>
+        </div>
+        <Link
+          href="/clients"
+          className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
+        >
+          ← Back
+        </Link>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl border p-4">
+          <h2 className="mb-3 font-medium">Profile</h2>
+          <div className="space-y-1 text-sm">
+            <div>
+              <span className="text-gray-500">Name: </span>
+              <span>{fullName || "—"}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Email: </span>
+              <span>{detail.person?.email || "—"}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Phone: </span>
+              <span>{detail.person?.phone || "—"}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Created: </span>
+              <span>
+                {detail.created_at
+                  ? new Date(detail.created_at).toLocaleString()
+                  : "—"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border p-4">
+          <h2 className="mb-3 font-medium">Scores</h2>
+          <div className="text-sm space-y-1">
+            <div>
+              <span className="text-gray-500">Profile: </span>
+              <span>
+                {detail.result?.profile_name ||
+                  detail.result?.profile_code ||
+                  "—"}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">Flow (A/B/C/D): </span>
+              <span>
+                {(detail.result?.flow_a ?? 0)}/{detail.result?.flow_b ?? 0}/
+                {detail.result?.flow_c ?? 0}/{detail.result?.flow_d ?? 0}
+              </span>
+            </div>
+            {detail.result?.report_id && (
+              <div className="pt-2">
+                <Link
+                  href={`/report/${detail.result.report_id}`}
+                  className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
+                >
+                  View Report
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border">
+        <details open>
+          <summary className="cursor-pointer list-none px-4 py-3 font-medium">
+            Answers
+          </summary>
+          <div className="divide-y">
+            {detail.answers && detail.answers.length > 0 ? (
+              detail.answers.map((a, i) => (
+                <div key={i} className="px-4 py-3 text-sm">
+                  <div className="font-medium">{a.question || "—"}</div>
+                  {a.options && a.options.length > 0 ? (
+                    <ul className="mt-1 list-disc pl-5 text-gray-700">
+                      {a.options.map((o, j) => (
+                        <li key={j}>{o}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-gray-500">—</div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="px-4 py-6 text-center text-sm text-gray-500">
+                No answers found.
+              </div>
+            )}
+          </div>
+        </details>
+      </div>
+    </div>
+  );
 }
