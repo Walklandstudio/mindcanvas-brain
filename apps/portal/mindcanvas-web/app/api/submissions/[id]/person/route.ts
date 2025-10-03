@@ -1,14 +1,18 @@
 /* app/api/submissions/[id]/person/route.ts
- * Compatibility endpoint for saving a test-taker's details at:
- *   PATCH /api/submissions/:id/person
- * This mirrors the logic in /api/submissions/[id] so existing clients that call
- * “…/person” continue to work.
+ * Save/patch the test-taker's details for a submission.
+ * Accepts POST and PATCH with JSON:
+ * {
+ *   "first_name": "Lisa",
+ *   "last_name": "Walker",
+ *   "email": "lisa@studiods.co.za",
+ *   "phone": "0608288181"
+ * }
  */
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-type RouteParams = { params: Promise<{ id: string }> };
+type Params = { params: Promise<{ id: string }> };
 
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -16,66 +20,66 @@ function supabaseAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-type BodyShape = Partial<{
+type Body = Partial<{
   first_name: string;
   last_name: string;
-  first: string;
+  first: string; // tolerate alternate field names
   last: string;
   email: string;
   phone: string;
 }>;
 
-function isRecord(x: unknown): x is Record<string, unknown> {
+function asRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
 }
+const toStr = (v: unknown) => (typeof v === 'string' ? v : '');
 
-function toStr(x: unknown): string {
-  return typeof x === 'string' ? x : '';
-}
-
-function normalizeBody(body: unknown) {
-  const src: BodyShape = isRecord(body) ? (body as BodyShape) : {};
-  const first_name = toStr(src.first_name ?? src.first).trim();
-  const last_name = toStr(src.last_name ?? src.last).trim();
-  const email = toStr(src.email).trim();
-  const phone = toStr(src.phone).trim();
+function normalize(body: unknown) {
+  const b: Body = asRecord(body) ? (body as Body) : {};
+  const first_name = toStr(b.first_name ?? b.first).trim();
+  const last_name = toStr(b.last_name ?? b.last).trim();
+  const email = toStr(b.email).trim();
+  const phone = toStr(b.phone).trim();
   return { first_name, last_name, email, phone };
 }
 
-export async function PATCH(req: Request, { params }: RouteParams) {
-  try {
-    const { id } = await params;
-    if (!id) {
-      return NextResponse.json({ error: 'Missing submission id' }, { status: 400 });
-    }
-
-    const raw = (await req.json().catch(() => ({}))) as unknown;
-    const { first_name, last_name, email, phone } = normalizeBody(raw);
-
-    if (!first_name && !last_name && !email && !phone) {
-      return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
-    }
-
-    const sb = supabaseAdmin();
-
-    const { error } = await sb
-      .from('mc_submissions')
-      .update({
-        ...(first_name ? { first_name } : {}),
-        ...(last_name ? { last_name } : {}),
-        ...(email ? { email } : {}),
-        ...(phone ? { phone } : {}),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+async function upsertPerson(req: Request, { params }: Params) {
+  const { id } = await params;
+  if (!id) {
+    return NextResponse.json({ error: 'Missing submission id' }, { status: 400 });
   }
+
+  const raw = (await req.json().catch(() => ({}))) as unknown;
+  const { first_name, last_name, email, phone } = normalize(raw);
+
+  if (!first_name && !last_name && !email && !phone) {
+    return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+  }
+
+  const sb = supabaseAdmin();
+
+  const { error } = await sb
+    .from('mc_submissions')
+    .update({
+      ...(first_name ? { first_name } : {}),
+      ...(last_name ? { last_name } : {}),
+      ...(email ? { email } : {}),
+      ...(phone ? { phone } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+// Support both POST and PATCH so the UI works either way.
+export async function POST(req: Request, p: Params) {
+  return upsertPerson(req, p);
+}
+export async function PATCH(req: Request, p: Params) {
+  return upsertPerson(req, p);
 }
