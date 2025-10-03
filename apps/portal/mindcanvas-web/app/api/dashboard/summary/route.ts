@@ -1,57 +1,79 @@
-/* app/api/dashboard/summary/route.ts */
+// app/api/dashboard/summary/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+type Summary = {
+  submissions: number;
+  unique_clients: number;
+  from: string;
+  to: string;
+  test: string | null;
+};
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-/**
- * Returns totals for:
- * - submissions in the last N days (default 30)
- * - unique clients in the last N days
- * Optional query param: ?days=7|30|90
- * Optional query param: ?test=slug (if you later add test_slug, otherwise we just ignore the filter)
- */
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  const test = url.searchParams.get("test");
+
+  const toIso = (to ? new Date(to) : new Date()).toISOString();
+  const fromIso = (from ? new Date(from) : new Date(Date.now() - 30 * 864e5)).toISOString();
+
+  // Default payload in case of any DB hiccup
+  const empty: Summary = {
+    submissions: 0,
+    unique_clients: 0,
+    from: fromIso,
+    to: toIso,
+    test: test || null,
+  };
+
   try {
-    const url = new URL(req.url);
-    const days = Number(url.searchParams.get("days") ?? 30);
-    const fromISO = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const test = url.searchParams.get("test") || ""; // kept for forward compatibility
-
-    // Submissions count
-    const { count: submissionsCount, error: subErr } = await supabase
+    // Count submissions
+    const base = supabase
       .from("mc_submissions")
-      .select("id", { count: "exact", head: true })
-      .gte("created_at", fromISO);
+      .select("id, person_email, created_at, test_slug", { count: "exact", head: true })
+      .gte("created_at", fromIso)
+      .lte("created_at", toIso);
 
-    if (subErr) throw subErr;
+    const subQ = test ? base.eq("test_slug", test) : base;
+    const { count: submissionsCount, error: subErr } = await subQ;
 
-    // Unique clients (by email if present, else by submission id as a fallback)
-    const { data: uniqRows, error: uniqErr } = await supabase
+    if (subErr) return NextResponse.json(empty);
+
+    // Distinct people by email (or by id fallback)
+    const peopleQ = supabase
       .from("mc_submissions")
-      .select("id, email")
-      .gte("created_at", fromISO);
+      .select("person_email, id, created_at, test_slug")
+      .gte("created_at", fromIso)
+      .lte("created_at", toIso);
 
-    if (uniqErr) throw uniqErr;
+    const peopleRes = test ? await peopleQ.eq("test_slug", test) : await peopleQ;
+    const emails = new Set<string>();
+    if (peopleRes.data) {
+      for (const row of peopleRes.data) {
+        const key = (row as { person_email?: string | null }).person_email ?? `sid:${row.id}`;
+        emails.add(key);
+      }
+    }
 
-    const uniq = new Set(
-      (uniqRows ?? []).map((r: any) => (r.email?.trim()?.toLowerCase() || `sid:${r.id}`))
-    ).size;
-
-    return NextResponse.json({
-      ok: true,
-      days,
+    const out: Summary = {
       submissions: submissionsCount ?? 0,
-      unique_clients: uniq,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+      unique_clients: emails.size,
+      from: fromIso,
+      to: toIso,
+      test: test || null,
+    };
+
+    return NextResponse.json(out);
+  } catch {
+    return NextResponse.json(empty);
   }
 }

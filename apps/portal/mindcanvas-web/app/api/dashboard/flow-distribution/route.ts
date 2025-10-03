@@ -1,71 +1,79 @@
-import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+// app/api/dashboard/flow-distribution/route.ts
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+type FlowKey = "A" | "B" | "C" | "D";
+type Bucket = { key: FlowKey; count: number };
+type Ok = { buckets: Bucket[]; from: string; to: string; test: string | null };
 
-type FlowCode = 'A' | 'B' | 'C' | 'D';
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const days = Number(searchParams.get('days') || 30);
-  const testSlug = (searchParams.get('testSlug') || '').trim();
-  const company = (searchParams.get('company') || '').trim();
-  const team = (searchParams.get('team') || '').trim();
+export const dynamic = "force-dynamic";
 
-  const since = new Date();
-  since.setDate(since.getDate() - Math.max(1, days));
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  const test = url.searchParams.get("test");
 
-  // 1) pick submissions in window + filters
-  let s = supabaseAdmin
-    .from('mc_submissions')
-    .select('id, created_at')
-    .gte('created_at', since.toISOString());
+  // Default 30d window
+  const toIso = (to ? new Date(to) : new Date()).toISOString();
+  const fromIso = (from ? new Date(from) : new Date(Date.now() - 30 * 864e5)).toISOString();
 
-  if (testSlug && testSlug !== 'all') s = s.eq('test_slug', testSlug);
-  if (company) s = s.eq('company', company);
-  if (team) s = s.eq('team', team);
+  // We try to read summed flow columns from a results table/view.
+  // If the query fails (missing table/cols), we still return a typed zero payload.
+  const zero: Ok = {
+    from: fromIso,
+    to: toIso,
+    test: test || null,
+    buckets: [
+      { key: "A", count: 0 },
+      { key: "B", count: 0 },
+      { key: "C", count: 0 },
+      { key: "D", count: 0 },
+    ],
+  };
 
-  const subRes = await s;
-  if (subRes.error) return NextResponse.json({ flow: { A: 0, B: 0, C: 0, D: 0 }, total: 0 });
+  try {
+    // Prefer a view like `mc_results` that already contains one row per submission/result
+    // with flow_a..flow_d integers and created_at/test_slug.
+    const q = supabase
+      .from("mc_results")
+      .select("flow_a, flow_b, flow_c, flow_d, created_at, test_slug")
+      .gte("created_at", fromIso)
+      .lte("created_at", toIso);
 
-  const ids = (subRes.data ?? []).map((r) => r.id as string).filter(Boolean);
-  if (!ids.length) return NextResponse.json({ flow: { A: 0, B: 0, C: 0, D: 0 }, total: 0 });
+    const { data, error } = test ? await q.eq("test_slug", test) : await q;
 
-  // 2) answers for those submissions
-  const ansRes = await supabaseAdmin
-    .from('mc_answers')
-    .select('submission_id, points, flow_code, flow')
-    .in('submission_id', ids);
+    if (error || !data) return NextResponse.json(zero);
 
-  if (ansRes.error) return NextResponse.json({ flow: { A: 0, B: 0, C: 0, D: 0 }, total: 0 });
+    let A = 0,
+      B = 0,
+      C = 0,
+      D = 0;
+    for (const row of data) {
+      A += Number(row.flow_a ?? 0);
+      B += Number(row.flow_b ?? 0);
+      C += Number(row.flow_c ?? 0);
+      D += Number(row.flow_d ?? 0);
+    }
 
-  // 3) For each submission, find top flow by summed points
-  const counts: Record<FlowCode, number> = { A: 0, B: 0, C: 0, D: 0 };
-  const bySub = new Map<string, { A: number; B: number; C: number; D: number }>();
-
-  for (const a of ansRes.data ?? []) {
-    const sid = String(a.submission_id);
-    const pts = Number(a.points || 0);
-    const f = (a.flow_code as string) || (a.flow as string) || '';
-    if (!['A', 'B', 'C', 'D'].includes(f)) continue;
-    const agg = bySub.get(sid) ?? { A: 0, B: 0, C: 0, D: 0 };
-    (agg as any)[f] += pts;
-    bySub.set(sid, agg);
+    const out: Ok = {
+      from: fromIso,
+      to: toIso,
+      test: test || null,
+      buckets: [
+        { key: "A", count: A },
+        { key: "B", count: B },
+        { key: "C", count: C },
+        { key: "D", count: D },
+      ],
+    };
+    return NextResponse.json(out);
+  } catch {
+    return NextResponse.json(zero);
   }
-
-  for (const agg of bySub.values()) {
-    const entries: [FlowCode, number][] = [
-      ['A', agg.A],
-      ['B', agg.B],
-      ['C', agg.C],
-      ['D', agg.D],
-    ];
-    entries.sort((x, y) => y[1] - x[1]);
-    if (entries[0][1] > 0) counts[entries[0][0]] += 1;
-  }
-
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  return NextResponse.json({ flow: counts, total });
 }

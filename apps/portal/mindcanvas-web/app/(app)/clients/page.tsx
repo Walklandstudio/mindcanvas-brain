@@ -1,127 +1,137 @@
-'use client';
+// app/(app)/clients/[id]/page.tsx
+import Link from "next/link";
 
-import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+/** Next 15: params is a Promise */
+type PageProps = { params: Promise<{ id: string }> };
 
-type ClientListItem = {
-  id: string;
-  created_at: string;
-  name: string;
-  email: string;
-  phone: string;
-  profile_code: string | null;
-  flow_a: number;
-  flow_b: number;
-  flow_c: number;
-  flow_d: number;
+type Answer = {
+  question_id: string;
+  question?: string | null;
+  option_id?: string | null;
+  option_label?: string | null;
+  points?: number | null;
 };
 
-export default function ClientsPage() {
-  const [data, setData] = useState<ClientListItem[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState('');
+type ClientResult = {
+  id: string;
+  created_at?: string | null;
+  report_id?: string | null;
+  person?: {
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  } | null;
+  result?: {
+    profile_code?: string | null;
+    flow_a?: number | null;
+    flow_b?: number | null;
+    flow_c?: number | null;
+    flow_d?: number | null;
+  } | null;
+  answers: Answer[];
+};
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setErr(null);
-        setData(null);
-        const res = await fetch('/api/admin/clients', { cache: 'no-store' });
-        if (!res.ok) throw new Error(await res.text());
-        const rows = (await res.json()) as ClientListItem[];
-        if (alive) setData(rows);
-      } catch (e) {
-        if (alive) setErr(e instanceof Error ? e.message : String(e));
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+export const dynamic = "force-dynamic";
 
-  const rows = useMemo(() => {
-    if (!data) return [];
-    const needle = q.trim().toLowerCase();
-    if (!needle) return data;
-    return data.filter((r) => {
-      const hay = `${r.name} ${r.email} ${r.phone}`.toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [data, q]);
+export default async function ClientPage(props: PageProps) {
+  const { id } = await props.params;
+
+  const r = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/api/admin/clients/${id}`, {
+    cache: "no-store",
+  });
+
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    return (
+      <div className="p-6">
+        <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          Failed to load client: {text || r.statusText}
+        </div>
+        <Link href="/clients" className="rounded border px-3 py-2 text-sm hover:bg-gray-50">
+          ← Back
+        </Link>
+      </div>
+    );
+  }
+
+  const data: ClientResult | { error: string } = await r.json();
+
+  if ("error" in data) {
+    return (
+      <div className="p-6">
+        <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {data.error}
+        </div>
+        <Link href="/clients" className="rounded border px-3 py-2 text-sm hover:bg-gray-50">
+          ← Back
+        </Link>
+      </div>
+    );
+  }
+
+  const person = data.person ?? {};
+  const res = data.result ?? {};
 
   return (
     <div className="p-6">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Clients</h1>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search name or email"
-          className="w-80 rounded-md border px-3 py-2 text-sm"
-        />
+        <Link href="/clients" className="rounded border px-3 py-2 text-sm hover:bg-gray-50">
+          ← Back
+        </Link>
+        {data.report_id ? (
+          <a
+            className="rounded bg-black px-4 py-2 text-sm text-white"
+            href={`/report/${data.report_id}`}
+          >
+            View report
+          </a>
+        ) : null}
       </div>
 
-      {err && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {err}
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="mb-4 text-lg font-semibold">Client</h2>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded-xl border p-4">
+            <div className="text-xs text-gray-500">Name</div>
+            <div className="text-sm">
+              {(person.first_name ?? "—") + " " + (person.last_name ?? "")}
+            </div>
+            <div className="mt-3 text-xs text-gray-500">Email</div>
+            <div className="text-sm">{person.email ?? "—"}</div>
+            <div className="mt-3 text-xs text-gray-500">Phone</div>
+            <div className="text-sm">{person.phone ?? "—"}</div>
+          </div>
+
+          <div className="rounded-xl border p-4">
+            <div className="text-xs text-gray-500">Profile</div>
+            <div className="text-sm">{res.profile_code ?? "—"}</div>
+
+            <div className="mt-3 text-xs text-gray-500">Flow (A/B/C/D)</div>
+            <div className="text-sm">
+              {(res.flow_a ?? 0)}/{(res.flow_b ?? 0)}/{(res.flow_c ?? 0)}/{(res.flow_d ?? 0)}
+            </div>
+          </div>
         </div>
-      )}
 
-      <div className="overflow-hidden rounded-xl border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr className="text-left">
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Email</th>
-              <th className="px-4 py-3 font-medium">Profile</th>
-              <th className="px-4 py-3 font-medium">Date</th>
-              <th className="px-4 py-3 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {data === null && (
-              <tr>
-                <td className="px-4 py-4 text-gray-500" colSpan={5}>
-                  Loading…
-                </td>
-              </tr>
-            )}
-
-            {data && rows.length === 0 && (
-              <tr>
-                <td className="px-4 py-10 text-center text-gray-500" colSpan={5}>
-                  No results
-                </td>
-              </tr>
-            )}
-
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="px-4 py-3">{r.name || '—'}</td>
-                <td className="px-4 py-3">{r.email || '—'}</td>
-                <td className="px-4 py-3">{r.profile_code ?? '—'}</td>
-                <td className="px-4 py-3">
-                  {new Date(r.created_at).toLocaleString([], {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <Link
-                    href={`/clients/${r.id}`}
-                    className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50"
-                  >
-                    View
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <details className="mt-6 rounded-xl border p-4">
+          <summary className="cursor-pointer text-sm font-medium">Answers</summary>
+          {data.answers?.length ? (
+            <ul className="mt-3 space-y-2 text-sm">
+              {data.answers.map((a) => (
+                <li key={a.question_id} className="rounded border p-2">
+                  <div className="text-gray-700">{a.question ?? a.question_id}</div>
+                  <div className="text-gray-500">
+                    {a.option_label ?? a.option_id} {typeof a.points === "number" ? `• ${a.points} pts` : ""}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-gray-500">No answers captured.</p>
+          )}
+        </details>
       </div>
     </div>
   );

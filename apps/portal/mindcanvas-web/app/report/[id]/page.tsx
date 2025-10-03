@@ -1,72 +1,67 @@
-import ReportClient from './ReportClient';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+// app/report/[id]/page.tsx
+import ReportClient, { ReportData } from './ReportClient';
 
 export const revalidate = 0;
-export const dynamic = 'force-dynamic';
 
-type Flow = { A: number; B: number; C: number; D: number };
-type ProfileRow = { code: string; name: string; pct: number; colorHex?: string };
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
 
-async function loadReportData(submissionId: string) {
-  const person = await supabaseAdmin
-    .from('mc_submissions')
-    .select('person_name, person_email')
-    .eq('id', submissionId)
-    .maybeSingle();
+export default async function ReportPage({ params }: PageProps) {
+  const { id } = await params;
 
-  if (person.error) throw new Error(person.error.message);
+  const base = process.env.NEXT_PUBLIC_BASE_URL?.trim() || '';
+  const res = await fetch(`${base}/api/submissions/${id}/result`, { cache: 'no-store' });
 
-  const ans = await supabaseAdmin
-    .from('mc_answers')
-    .select('points, profile_code, flow_code, flow')
-    .eq('submission_id', submissionId);
-
-  if (ans.error) throw new Error(ans.error.message);
-
-  const prof = await supabaseAdmin
-    .from('profiles')
-    .select('code, name')
-    .order('code');
-
-  if (prof.error) throw new Error(prof.error.message);
-
-  const sumBy = (arr: number[]) => arr.reduce((a, b) => a + (b || 0), 0);
-
-  const flowTotals: Flow = { A: 0, B: 0, C: 0, D: 0 };
-  const profileTotals: Record<string, number> = {};
-
-  for (const a of ans.data ?? []) {
-    const pts = Number(a.points || 0);
-    const f = (a.flow_code as string) || (a.flow as string) || '';
-    if (f && (f === 'A' || f === 'B' || f === 'C' || f === 'D')) (flowTotals as any)[f] += pts;
-    const pc = (a.profile_code as string) || '';
-    if (pc) profileTotals[pc] = (profileTotals[pc] || 0) + pts;
+  if (!res.ok) {
+    const msg = await res.text().catch(() => '');
+    return (
+      <div className="p-6 text-red-600">
+        Failed to load report. {msg && <span className="text-xs opacity-70">({msg})</span>}
+      </div>
+    );
   }
 
-  const flowSum = sumBy(Object.values(flowTotals));
-  const flow: Flow = {
-    A: flowSum ? Math.round((flowTotals.A / flowSum) * 100) : 0,
-    B: flowSum ? Math.round((flowTotals.B / flowSum) * 100) : 0,
-    C: flowSum ? Math.round((flowTotals.C / flowSum) * 100) : 0,
-    D: flowSum ? Math.round((flowTotals.D / flowSum) * 100) : 0,
+  const payload = (await res.json()) as any;
+
+  // Build display name if you store person fields split
+  const personName = [
+    payload?.person?.first_name ?? '',
+    payload?.person?.last_name ?? '',
+  ]
+    .map((s: string) => s?.trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
+  // Normalize flow: API might be { a,b,c,d } or { A,B,C,D }
+  const flow = {
+    A: Number(payload?.flow?.A ?? payload?.flow?.a ?? 0),
+    B: Number(payload?.flow?.B ?? payload?.flow?.b ?? 0),
+    C: Number(payload?.flow?.C ?? payload?.flow?.c ?? 0),
+    D: Number(payload?.flow?.D ?? payload?.flow?.d ?? 0),
   };
 
-  const profilesIndex = new Map((prof.data ?? []).map(p => [p.code, p.name as string]));
-  const profiles: ProfileRow[] = Object.entries(profileTotals).map(([code, pts]) => ({
-    code,
-    name: profilesIndex.get(code) || code,
-    pct: flowSum ? Math.round((Number(pts) / flowSum) * 100) : 0,
-  })).sort((a, b) => b.pct - a.pct);
+  // Map profiles → requires "pct" (not "percent")
+  const profiles = Array.isArray(payload?.profiles)
+    ? (payload.profiles as any[]).map((p) => ({
+        code: String(p.code ?? p.profile_code ?? ''),
+        name: String(p.name ?? p.profile_name ?? ''),
+        pct: Number(p.pct ?? p.percent ?? p.percentage ?? 0),
+        color:
+          typeof p.color === 'string'
+            ? p.color
+            : typeof p.profile_color === 'string'
+            ? p.profile_color
+            : undefined,
+      }))
+    : [];
 
-  return {
-    person: { name: person.data?.person_name ?? '—' },
+  const data: ReportData = {
+    person: personName ? { name: personName } : undefined,
     flow,
     profiles,
   };
-}
 
-export default async function Page({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const data = await loadReportData(id);
   return <ReportClient data={data} reportId={id} />;
 }
