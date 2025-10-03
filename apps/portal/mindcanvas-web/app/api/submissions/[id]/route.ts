@@ -1,12 +1,12 @@
 /* app/api/submissions/[id]/route.ts
  * Saves test-taker details into mc_submissions (first_name, last_name, email, phone)
- * Accepts both { first, last } and { first_name, last_name }.
+ * Accepts both { first, last } and { first_name, last_name } in the request body.
  */
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-type Params = { params: Promise<{ id: string }> };
+type RouteParams = { params: Promise<{ id: string }> };
 
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -14,27 +14,50 @@ function supabaseAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function normalizeBody(body: any) {
-  // Accept both first/last and first_name/last_name
-  const first_name = (body.first_name ?? body.first ?? '').toString().trim();
-  const last_name  = (body.last_name  ?? body.last  ?? '').toString().trim();
-  const email      = (body.email ?? '').toString().trim();
-  const phone      = (body.phone ?? '').toString().trim();
+type BodyShape = Partial<{
+  first_name: string;
+  last_name: string;
+  first: string;
+  last: string;
+  email: string;
+  phone: string;
+}>;
 
+type NormalizedContact = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+};
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null;
+}
+
+function toStr(x: unknown): string {
+  return typeof x === 'string' ? x : '';
+}
+
+function normalizeBody(body: unknown): NormalizedContact {
+  const src: BodyShape = isRecord(body) ? (body as BodyShape) : {};
+  const first_name = toStr(src.first_name ?? src.first).trim();
+  const last_name = toStr(src.last_name ?? src.last).trim();
+  const email = toStr(src.email).trim();
+  const phone = toStr(src.phone).trim();
   return { first_name, last_name, email, phone };
 }
 
-export async function PATCH(req: Request, { params }: Params) {
+export async function PATCH(req: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: 'Missing submission id' }, { status: 400 });
     }
 
-    const payload = await req.json().catch(() => ({}));
-    const { first_name, last_name, email, phone } = normalizeBody(payload);
+    const raw = (await req.json().catch(() => ({}))) as unknown;
+    const { first_name, last_name, email, phone } = normalizeBody(raw);
 
-    // Basic guard so empty payloads don’t wipe values
+    // Avoid writing empty payloads
     if (!first_name && !last_name && !email && !phone) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
@@ -45,9 +68,9 @@ export async function PATCH(req: Request, { params }: Params) {
       .from('mc_submissions')
       .update({
         ...(first_name ? { first_name } : {}),
-        ...(last_name  ? { last_name }  : {}),
-        ...(email      ? { email }      : {}),
-        ...(phone      ? { phone }      : {}),
+        ...(last_name ? { last_name } : {}),
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {}),
         updated_at: new Date().toISOString(),
       })
       .eq('id', id);
@@ -63,8 +86,8 @@ export async function PATCH(req: Request, { params }: Params) {
   }
 }
 
-/* Optional GET (handy for debugging from the client)
-export async function GET(_req: Request, { params }: Params) {
+/* Optional: handy for debugging
+export async function GET(_req: Request, { params }: RouteParams) {
   const { id } = await params;
   const sb = supabaseAdmin();
   const { data, error } = await sb
