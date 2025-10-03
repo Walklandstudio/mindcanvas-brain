@@ -1,10 +1,10 @@
-// app/test/[slug]/TestClient.tsx
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 
+/* ---------- Types ---------- */
 type Frequency = 'A' | 'B' | 'C' | 'D';
-type QuestionType = 'single' | 'multi' | 'info';
 
 type Option = {
   id: string;
@@ -14,9 +14,11 @@ type Option = {
   frequency?: Frequency | null;
 };
 
+type QuestionType = 'single' | 'multi' | 'info';
+
 type Question = {
   id: string;
-  index: number;         // 1..n
+  index: number;
   text: string;
   type: QuestionType;
   options: Option[];
@@ -28,13 +30,21 @@ type LoadedSubmission = {
   testSlug: string;
   questions: Question[];
   answers: Record<string, string | string[] | undefined>;
-  person?: { first_name?: string; last_name?: string; email?: string; phone?: string };
   finished?: boolean;
 };
 
 type StartSubmissionResponse = LoadedSubmission;
 type FinishResponse = { reportId: string };
 
+type Prefill = { name?: string; email?: string; phone?: string };
+
+type Props = {
+  slug: string;
+  sid?: string;
+  prefill?: Prefill;
+};
+
+/* ---------- Utils ---------- */
 function getErrorMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
@@ -45,7 +55,14 @@ function getErrorMessage(e: unknown): string {
   }
 }
 
-/** ---- API helpers (browser fetch) ---- **/
+function splitName(name?: string): { first: string; last: string } {
+  if (!name) return { first: '', last: '' };
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return { first: parts[0], last: '' };
+  return { first: parts.slice(0, -1).join(' '), last: parts.at(-1) ?? '' };
+}
+
+/* ---------- API ---------- */
 async function startSubmission(slug: string): Promise<StartSubmissionResponse> {
   const res = await fetch(`/api/submissions/start`, {
     method: 'POST',
@@ -55,6 +72,12 @@ async function startSubmission(slug: string): Promise<StartSubmissionResponse> {
   });
   if (!res.ok) throw new Error(`Failed to start submission: ${await res.text()}`);
   return (await res.json()) as StartSubmissionResponse;
+}
+
+async function loadSubmission(submissionId: string): Promise<LoadedSubmission> {
+  const res = await fetch(`/api/submissions/${submissionId}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load submission: ${await res.text()}`);
+  return (await res.json()) as LoadedSubmission;
 }
 
 async function saveAnswerAPI(
@@ -72,13 +95,12 @@ async function saveAnswerAPI(
 
 async function saveDetailsAPI(
   submissionId: string,
-  person: { first_name: string; last_name: string; email: string; phone: string },
+  details: { first: string; last: string; email: string; phone: string },
 ): Promise<void> {
-  // If your project uses a different route, adjust here (e.g. PUT /api/submissions/:id)
-  const res = await fetch(`/api/submissions/${submissionId}`, {
-    method: 'PUT',
+  const res = await fetch(`/api/submissions/${submissionId}/person`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ person }),
+    body: JSON.stringify(details),
   });
   if (!res.ok) throw new Error(`Failed to save details: ${await res.text()}`);
 }
@@ -89,33 +111,34 @@ async function finishAPI(submissionId: string): Promise<FinishResponse> {
   return (await res.json()) as FinishResponse;
 }
 
-/** ---- Component ---- **/
-export default function TestClient({ slug }: { slug: string }) {
+/* ---------- Component ---------- */
+export default function TestClient({ slug, sid, prefill }: Props) {
+  const router = useRouter();
+
   const [sub, setSub] = useState<LoadedSubmission | null>(null);
   const [current, setCurrent] = useState(0);
   const [saving, startSaving] = useTransition();
   const [finishing, startFinishing] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // local contact fields
-  const [first, setFirst] = useState('');
-  const [last, setLast] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-
   const mounted = useRef(false);
+
+  // Details form state (prefill supported)
+  const initialNames = splitName(prefill?.name);
+  const [first, setFirst] = useState(initialNames.first);
+  const [last, setLast] = useState(initialNames.last);
+  const [email, setEmail] = useState(prefill?.email ?? '');
+  const [phone, setPhone] = useState(prefill?.phone ?? '');
+  const [detailsSaved, setDetailsSaved] = useState(false);
 
   useEffect(() => {
     if (mounted.current) return;
     mounted.current = true;
     (async () => {
       try {
-        const s = await startSubmission(slug);
+        const s = sid ? await loadSubmission(sid) : await startSubmission(slug);
         setSub(s);
-        setFirst(s.person?.first_name ?? '');
-        setLast(s.person?.last_name ?? '');
-        setEmail(s.person?.email ?? '');
-        setPhone(s.person?.phone ?? '');
+
         if (s.questions?.length) {
           const firstUnanswered = s.questions.findIndex(q => {
             const a = s.answers?.[q.id];
@@ -128,8 +151,9 @@ export default function TestClient({ slug }: { slug: string }) {
         setError(getErrorMessage(e));
       }
     })();
-  }, [slug]);
+  }, [sid, slug]);
 
+  // Keep questions list stable
   const questions = useMemo<Question[]>(() => sub?.questions ?? [], [sub?.questions]);
   const total = questions.length;
 
@@ -146,11 +170,12 @@ export default function TestClient({ slug }: { slug: string }) {
 
   function onSingleSelect(question: Question, optionId: string) {
     if (!sub) return;
-    // optimistic
+    // optimistic local update
     setSub(prev => {
       if (!prev) return prev;
       return { ...prev, answers: { ...prev.answers, [question.id]: optionId } };
     });
+
     startSaving(async () => {
       try {
         await saveAnswerAPI(sub.submissionId, question.id, optionId);
@@ -172,12 +197,13 @@ export default function TestClient({ slug }: { slug: string }) {
       else arr.splice(i, 1);
       return { ...prev, answers: { ...prev.answers, [question.id]: arr } };
     });
-    // persist based on latest state
+
     startSaving(async () => {
       try {
+        // read back from local state after optimistic update
         const a = sub.answers?.[question.id];
-        const arr = Array.isArray(a) ? a : [];
-        await saveAnswerAPI(sub.submissionId, question.id, arr);
+        const latest = Array.isArray(a) ? a : [];
+        await saveAnswerAPI(sub.submissionId, question.id, latest);
       } catch (e: unknown) {
         setError(getErrorMessage(e));
       }
@@ -200,32 +226,27 @@ export default function TestClient({ slug }: { slug: string }) {
 
   function saveDetails() {
     if (!sub) return;
-    if (!first || !last || !email || !phone) {
-      setError('Please complete first name, last name, email and phone.');
-      return;
-    }
-    setError(null);
     startSaving(async () => {
       try {
         await saveDetailsAPI(sub.submissionId, {
-          first_name: first,
-          last_name: last,
+          first,
+          last,
           email,
           phone,
         });
-        setSub(prev => (prev ? { ...prev, person: { first_name: first, last_name: last, email, phone } } : prev));
+        setDetailsSaved(true);
       } catch (e: unknown) {
         setError(getErrorMessage(e));
       }
     });
   }
 
-  async function finish() {
+  function finish() {
     if (!sub) return;
     startFinishing(async () => {
       try {
         const { reportId } = await finishAPI(sub.submissionId);
-        window.location.assign(`/report/${reportId}`);
+        router.push(`/report/${reportId}`);
       } catch (e: unknown) {
         setError(getErrorMessage(e));
       }
@@ -246,7 +267,10 @@ export default function TestClient({ slug }: { slug: string }) {
         </div>
         <div className="w-40">
           <div className="h-2 w-full rounded-full bg-gray-200">
-            <div className="h-2 rounded-full bg-black transition-all" style={{ width: `${progressPct}%` }} />
+            <div
+              className="h-2 rounded-full bg-black transition-all"
+              style={{ width: `${progressPct}%` }}
+            />
           </div>
           <p className="mt-1 text-right text-xs text-gray-500">{progressPct}%</p>
         </div>
@@ -264,35 +288,56 @@ export default function TestClient({ slug }: { slug: string }) {
         <div className="rounded-xl border px-4 py-8 text-center">Preparing your test…</div>
       )}
 
-      {/* Contact block */}
+      {/* Details */}
       {sub && (
         <div className="mb-6 rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-2 flex items-center gap-2">
             <h2 className="text-lg font-medium">Your details</h2>
-            <span className="text-xs text-gray-400">Required</span>
+            <span className="ml-auto text-xs text-gray-500">
+              {detailsSaved ? 'Saved' : 'Required'}
+            </span>
           </div>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-            <input className="rounded-xl border px-3 py-2" placeholder="First name"
-              value={first} onChange={(e) => setFirst(e.target.value)} />
-            <input className="rounded-xl border px-3 py-2" placeholder="Last name"
-              value={last} onChange={(e) => setLast(e.target.value)} />
-            <input className="rounded-xl border px-3 py-2" placeholder="Email"
-              value={email} onChange={(e) => setEmail(e.target.value)} />
-            <input className="rounded-xl border px-3 py-2" placeholder="Phone"
-              value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <input
+              placeholder="First name"
+              className="rounded-xl border px-4 py-2"
+              value={first}
+              onChange={e => setFirst(e.target.value)}
+            />
+            <input
+              placeholder="Last name"
+              className="rounded-xl border px-4 py-2"
+              value={last}
+              onChange={e => setLast(e.target.value)}
+            />
+            <input
+              placeholder="Email"
+              className="rounded-xl border px-4 py-2"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+            <input
+              placeholder="Phone"
+              className="rounded-xl border px-4 py-2"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+            />
           </div>
-          <div className="mt-3 flex items-center justify-between">
-            <p className="text-xs text-gray-500">
-              We use this to attach your report and let you revisit it later.
-            </p>
+
+          <div className="mt-3">
             <button
+              className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
               onClick={saveDetails}
               disabled={saving}
-              className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save details'}
             </button>
           </div>
+
+          <p className="mt-3 text-xs text-gray-500">
+            We use this to attach your report and let you revisit it later.
+          </p>
         </div>
       )}
 
@@ -303,6 +348,7 @@ export default function TestClient({ slug }: { slug: string }) {
             {q.index}. {q.text}
           </h2>
 
+          {/* Single choice */}
           {q.type === 'single' && (
             <div className="space-y-3">
               {q.options.map(opt => {
@@ -322,11 +368,12 @@ export default function TestClient({ slug }: { slug: string }) {
             </div>
           )}
 
+          {/* Multi choice */}
           {q.type === 'multi' && (
             <div className="space-y-3">
               {q.options.map(opt => {
-                const a = sub.answers?.[q.id];
-                const selected = Array.isArray(a) && a.includes(opt.id);
+                const arr = sub.answers?.[q.id];
+                const selected = Array.isArray(arr) && arr.includes(opt.id);
                 return (
                   <label
                     key={opt.id}
@@ -347,12 +394,14 @@ export default function TestClient({ slug }: { slug: string }) {
             </div>
           )}
 
+          {/* Info-only */}
           {q.type === 'info' && (
             <p className="text-gray-600">
               This question is informational and does not affect your profile.
             </p>
           )}
 
+          {/* Nav */}
           <div className="mt-6 flex items-center justify-between">
             <button
               className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
@@ -385,6 +434,7 @@ export default function TestClient({ slug }: { slug: string }) {
         </div>
       )}
 
+      {/* Footer hint */}
       <p className="mt-6 text-center text-xs text-gray-500">
         Your choices are saved automatically. You can refresh without losing progress.
       </p>

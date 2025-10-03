@@ -1,16 +1,8 @@
-/* eslint-disable @typescript-eslint/consistent-type-definitions */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import React from 'react';
-import {
-  Document,
-  Page,
-  Text,
-  View,
-  StyleSheet,
-  pdf,
-} from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, pdf } from '@react-pdf/renderer';
 
 /* ----------------------------------------------------------------------------
  * Types
@@ -42,28 +34,19 @@ type ReportPayload = {
 };
 
 /* ----------------------------------------------------------------------------
- * Helpers
+ * Utils
  * -------------------------------------------------------------------------- */
 function colorOfProfile(code?: string): string | undefined {
   switch (code) {
-    case 'P1':
-      return '#175f15';
-    case 'P2':
-      return '#2ecc2f';
-    case 'P3':
-      return '#ea430e';
-    case 'P4':
-      return '#f52905';
-    case 'P5':
-      return '#f3c90d';
-    case 'P6':
-      return '#f8ee18';
-    case 'P7':
-      return '#5d5d5d';
-    case 'P8':
-      return '#8a8583';
-    default:
-      return undefined;
+    case 'P1': return '#175f15';
+    case 'P2': return '#2ecc2f';
+    case 'P3': return '#ea430e';
+    case 'P4': return '#f52905';
+    case 'P5': return '#f3c90d';
+    case 'P6': return '#f8ee18';
+    case 'P7': return '#5d5d5d';
+    case 'P8': return '#8a8583';
+    default:   return undefined;
   }
 }
 
@@ -76,25 +59,19 @@ const styles = StyleSheet.create({
   row: { display: 'flex', flexDirection: 'row', gap: 8 },
   col: { display: 'flex', flexDirection: 'column', gap: 4, flexGrow: 1 },
   pill: {
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-    color: '#fff',
-    fontSize: 10,
-    alignSelf: 'flex-start',
+    paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4,
+    color: '#fff', fontSize: 10, alignSelf: 'flex-start',
   },
   listItem: { marginBottom: 3 },
 });
 
 /* ----------------------------------------------------------------------------
- * PDF document
+ * PDF
  * -------------------------------------------------------------------------- */
 function ReportDoc({ data }: { data: ReportPayload }) {
   const fullName =
     data.person?.name ||
-    [data.person?.first_name, data.person?.last_name]
-      .filter(Boolean)
-      .join(' ');
+    [data.person?.first_name, data.person?.last_name].filter(Boolean).join(' ');
 
   const primaryName = data.profile?.name || data.profile?.code || 'Profile';
   const primaryColor = colorOfProfile(data.profile?.code) ?? '#111827';
@@ -129,12 +106,7 @@ function ReportDoc({ data }: { data: ReportPayload }) {
 
           <View style={styles.col}>
             <Text style={styles.sectionTitle}>Primary & Auxiliary Profiles</Text>
-            <Text
-              style={{
-                ...styles.pill,
-                backgroundColor: primaryColor,
-              }}
-            >
+            <Text style={{ ...styles.pill, backgroundColor: primaryColor }}>
               Primary: {primaryName}
             </Text>
             <View style={{ marginTop: 6 }}>
@@ -151,30 +123,26 @@ function ReportDoc({ data }: { data: ReportPayload }) {
   );
 }
 
-/* ----------------------------------------------------------------------------
- * Render to Blob (BodyInit-friendly)
- * -------------------------------------------------------------------------- */
-async function buildPDFBlob(data: ReportPayload): Promise<Blob> {
-  const instance = pdf(<ReportDoc data={data} />);
-  // Node: toBuffer() returns a Buffer/Uint8Array. We turn it into a *real* ArrayBuffer slice.
-  const nodeBuf = (await instance.toBuffer()) as unknown as Uint8Array;
-  const ab: ArrayBuffer = nodeBuf.buffer.slice(
-    nodeBuf.byteOffset,
-    nodeBuf.byteOffset + nodeBuf.byteLength
-  ) as ArrayBuffer;
+/* Convert any Uint8Array/Buffer into a *fresh* ArrayBuffer (never SAB) */
+function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
+  const ab = new ArrayBuffer(u8.byteLength);
+  new Uint8Array(ab).set(u8);
+  return ab;
+}
 
-  // BlobPart is fine with a genuine ArrayBuffer
-  return new Blob([ab], { type: 'application/pdf' });
+async function renderPDFArrayBuffer(data: ReportPayload): Promise<ArrayBuffer> {
+  const instance = pdf(<ReportDoc data={data} />);
+  // react-pdf returns a Node Buffer (subclass of Uint8Array). Treat it as Uint8Array.
+  const u8 = (await instance.toBuffer()) as unknown as Uint8Array;
+  return toArrayBuffer(u8); // guaranteed ArrayBuffer (no SharedArrayBuffer)
 }
 
 /* ----------------------------------------------------------------------------
- * Fetch report JSON and ensure id
+ * Fetch JSON result and ensure id is present
  * -------------------------------------------------------------------------- */
 async function fetchReportJSON(id: string): Promise<ReportPayload> {
   const base = (process.env.NEXT_PUBLIC_BASE_URL ?? '').trim();
-  const res = await fetch(`${base}/api/submissions/${id}/result`, {
-    cache: 'no-store',
-  });
+  const res = await fetch(`${base}/api/submissions/${id}/result`, { cache: 'no-store' });
   if (!res.ok) {
     const msg = await res.text().catch(() => '');
     throw new Error(`Failed to fetch report JSON: ${msg || res.status}`);
@@ -193,9 +161,10 @@ export async function GET(
   try {
     const { id } = await ctx.params;
     const json = await fetchReportJSON(id);
-    const blob = await buildPDFBlob(json);
+    const ab = await renderPDFArrayBuffer(json);
 
-    return new Response(blob, {
+    // Send ArrayBuffer directly (valid BodyInit), avoids Blob typing.
+    return new Response(ab, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
@@ -205,12 +174,9 @@ export async function GET(
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return new Response(
-      JSON.stringify({ error: 'PDF render failed', details: msg }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'PDF render failed', details: msg }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }
