@@ -12,7 +12,6 @@ type Props = {
 type StartOk = { submissionId: string; testSlug: string }
 type StartErr = { error: string }
 
-// Strict type guard without `any`
 function isStartOk(x: unknown): x is StartOk {
   if (typeof x !== 'object' || x === null) return false
   const r = x as Record<string, unknown>
@@ -28,7 +27,6 @@ export default function TestClient({ slug, initialSid, prefill }: Props) {
   const [busy, setBusy] = React.useState(false)
   const [err, setErr] = React.useState<string | null>(null)
 
-  // Ensure we have a submission id
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -37,13 +35,11 @@ export default function TestClient({ slug, initialSid, prefill }: Props) {
       setErr(null)
       try {
         const cacheKey = `mc_sid_${slug}`
-        const cached =
-          typeof window !== 'undefined' ? window.localStorage.getItem(cacheKey) : null
+        const cached = typeof window !== 'undefined' ? window.localStorage.getItem(cacheKey) : null
         if (cached) {
           if (!cancelled) setSid(cached)
           return
         }
-
         const r = await fetch(`/api/submissions/start?slug=${encodeURIComponent(slug)}`)
         const json: unknown = await r.json()
         if (!isStartOk(json)) {
@@ -56,7 +52,6 @@ export default function TestClient({ slug, initialSid, prefill }: Props) {
               : 'Failed to start test'
           throw new Error(message)
         }
-
         if (!cancelled) {
           setSid(json.submissionId)
           if (typeof window !== 'undefined') {
@@ -110,7 +105,7 @@ export default function TestClient({ slug, initialSid, prefill }: Props) {
             message = String((j as { error: string }).error)
           }
         } catch {
-          /* ignore JSON parse errors */
+          /* ignore */
         }
         throw new Error(message)
       }
