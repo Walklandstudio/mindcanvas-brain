@@ -1,175 +1,216 @@
-/* app/api/report/[id]/pdf/route.tsx */
-import { NextResponse } from 'next/server';
-import { Document, Page, Text, View, StyleSheet, pdf } from '@react-pdf/renderer';
-
-/** Force Node runtime – react-pdf requires Node APIs. */
+/* eslint-disable @typescript-eslint/consistent-type-definitions */
 export const runtime = 'nodejs';
-/** This endpoint must run dynamically (no static rendering). */
 export const dynamic = 'force-dynamic';
 
+import React from 'react';
+import {
+  Document,
+  Page,
+  Text,
+  View,
+  StyleSheet,
+  pdf,
+} from '@react-pdf/renderer';
+
 /* ----------------------------------------------------------------------------
- Types – keep these minimal and aligned with /api/report/[id] response.
----------------------------------------------------------------------------- */
-type FlowSlice = { label: string; value: number };
-type ProfileSlice = { label: string; value: number };
+ * Types
+ * -------------------------------------------------------------------------- */
+type Flow = { A: number; B: number; C: number; D: number };
+
+type Person = {
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+};
+
+type ProfileRow = {
+  code: string;
+  name: string;
+  percent: number;
+  pct: number;
+  color?: string;
+};
 
 type ReportPayload = {
   id: string;
-  person: {
-    first_name?: string | null;
-    last_name?: string | null;
-  };
-  profileName?: string | null;
-  profileCode?: string | null;
-  flow?: FlowSlice[];       // Coaching flow distribution (A/B/C/D etc.)
-  profiles?: ProfileSlice[]; // Primary & auxiliary profiles + %
+  person?: Person;
+  flow: Flow;
+  profiles: ProfileRow[];
+  profile?: { code?: string; name?: string };
 };
 
 /* ----------------------------------------------------------------------------
- PDF styles
----------------------------------------------------------------------------- */
+ * Helpers
+ * -------------------------------------------------------------------------- */
+function colorOfProfile(code?: string): string | undefined {
+  switch (code) {
+    case 'P1':
+      return '#175f15';
+    case 'P2':
+      return '#2ecc2f';
+    case 'P3':
+      return '#ea430e';
+    case 'P4':
+      return '#f52905';
+    case 'P5':
+      return '#f3c90d';
+    case 'P6':
+      return '#f8ee18';
+    case 'P7':
+      return '#5d5d5d';
+    case 'P8':
+      return '#8a8583';
+    default:
+      return undefined;
+  }
+}
+
 const styles = StyleSheet.create({
-  page: {
-    padding: 36,
-    fontSize: 11,
-    fontFamily: 'Helvetica',
-    color: '#111',
+  page: { padding: 32, fontSize: 12 },
+  h1: { fontSize: 18, marginBottom: 6 },
+  sub: { fontSize: 10, color: '#666', marginBottom: 12 },
+  hr: { borderBottomWidth: 1, borderBottomColor: '#e5e7eb', marginVertical: 12 },
+  sectionTitle: { fontSize: 14, marginBottom: 6 },
+  row: { display: 'flex', flexDirection: 'row', gap: 8 },
+  col: { display: 'flex', flexDirection: 'column', gap: 4, flexGrow: 1 },
+  pill: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    color: '#fff',
+    fontSize: 10,
+    alignSelf: 'flex-start',
   },
-  h1: {
-    fontSize: 18,
-    fontWeight: 700,
-    marginBottom: 6,
-  },
-  sub: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 12,
-  },
-  hr: {
-    height: 1,
-    backgroundColor: '#e5e5e5',
-    marginVertical: 12,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: 700,
-    marginBottom: 8,
-  },
-  row: {
-    display: 'flex',
-    flexDirection: 'row',
-    gap: 16,
-  },
-  col: {
-    flexGrow: 1,
-    flexBasis: 0,
-  },
-  listItem: {
-    marginBottom: 4,
-  },
+  listItem: { marginBottom: 3 },
 });
 
 /* ----------------------------------------------------------------------------
- PDF component
----------------------------------------------------------------------------- */
-function ReportPDF({ data }: { data: ReportPayload }) {
-  const name = [data.person?.first_name, data.person?.last_name].filter(Boolean).join(' ').trim() || 'Your';
-  const headlineProfile = data.profileName ?? 'Profile';
-  const flow = (data.flow ?? []).slice().sort((a, b) => b.value - a.value);
-  const profiles = (data.profiles ?? []).slice().sort((a, b) => b.value - a.value);
+ * PDF document
+ * -------------------------------------------------------------------------- */
+function ReportDoc({ data }: { data: ReportPayload }) {
+  const fullName =
+    data.person?.name ||
+    [data.person?.first_name, data.person?.last_name]
+      .filter(Boolean)
+      .join(' ');
+
+  const primaryName = data.profile?.name || data.profile?.code || 'Profile';
+  const primaryColor = colorOfProfile(data.profile?.code) ?? '#111827';
+
+  const flows = [
+    { k: 'A', v: data.flow.A },
+    { k: 'B', v: data.flow.B },
+    { k: 'C', v: data.flow.C },
+    { k: 'D', v: data.flow.D },
+  ];
+
+  const profiles = [...data.profiles].sort((a, b) => b.percent - a.percent);
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <Text style={styles.h1}>
-          {name}, your Profile is {headlineProfile}
+          {fullName ? `${fullName}, your Profile is ${primaryName}` : 'Report'}
         </Text>
-        <Text style={styles.sub}>
-          Report ID: {data.id}
-        </Text>
+        <Text style={styles.sub}>Report ID: {data.id}</Text>
         <View style={styles.hr} />
 
         <View style={styles.row}>
-          {/* Coaching Flow (ordered, no pie) */}
           <View style={styles.col}>
             <Text style={styles.sectionTitle}>Your Coaching Flow</Text>
-            {flow.length === 0 ? (
-              <Text>No flow data available.</Text>
-            ) : (
-              flow.map((s, i) => (
-                <Text key={`${s.label}-${i}`} style={styles.listItem}>
-                  {s.label}: {s.value}%
-                </Text>
-              ))
-            )}
+            {flows.map((f) => (
+              <Text key={f.k} style={styles.listItem}>
+                Flow {f.k}: {f.v}%
+              </Text>
+            ))}
           </View>
 
-          {/* Primary & Auxiliary Profiles */}
           <View style={styles.col}>
             <Text style={styles.sectionTitle}>Primary & Auxiliary Profiles</Text>
-            {profiles.length === 0 ? (
-              <Text>No profile distribution available.</Text>
-            ) : (
-              profiles.map((p, i) => (
-                <Text key={`${p.label}-${i}`} style={styles.listItem}>
-                  {p.label}: {p.value}%
+            <Text
+              style={{
+                ...styles.pill,
+                backgroundColor: primaryColor,
+              }}
+            >
+              Primary: {primaryName}
+            </Text>
+            <View style={{ marginTop: 6 }}>
+              {profiles.map((p) => (
+                <Text key={p.code} style={styles.listItem}>
+                  {p.name} — {p.percent}%
                 </Text>
-              ))
-            )}
+              ))}
+            </View>
           </View>
         </View>
-
-        <View style={styles.hr} />
-        <Text>This PDF was generated by MindCanvas.</Text>
       </Page>
     </Document>
   );
 }
 
 /* ----------------------------------------------------------------------------
- Helper: fetch JSON for this report from your existing API
----------------------------------------------------------------------------- */
-async function fetchReportJson(request: Request, id: string): Promise<ReportPayload> {
-  const origin = new URL(request.url).origin;
-  const res = await fetch(`${origin}/api/report/${encodeURIComponent(id)}`, {
-    // ensure fresh data and allow internal call on the same deployment
-    cache: 'no-store',
-    headers: { 'Accept': 'application/json' },
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to load report JSON (${res.status})`);
-  }
-  const data = (await res.json()) as ReportPayload;
-  // make sure id is present
-  return { id, ...data };
+ * Render to Blob (BodyInit-friendly)
+ * -------------------------------------------------------------------------- */
+async function buildPDFBlob(data: ReportPayload): Promise<Blob> {
+  const instance = pdf(<ReportDoc data={data} />);
+  // Node: toBuffer() returns a Buffer/Uint8Array. We turn it into a *real* ArrayBuffer slice.
+  const nodeBuf = (await instance.toBuffer()) as unknown as Uint8Array;
+  const ab: ArrayBuffer = nodeBuf.buffer.slice(
+    nodeBuf.byteOffset,
+    nodeBuf.byteOffset + nodeBuf.byteLength
+  ) as ArrayBuffer;
+
+  // BlobPart is fine with a genuine ArrayBuffer
+  return new Blob([ab], { type: 'application/pdf' });
 }
 
 /* ----------------------------------------------------------------------------
- GET /api/report/[id]/pdf – single export
----------------------------------------------------------------------------- */
-type RouteParams = { id: string };
+ * Fetch report JSON and ensure id
+ * -------------------------------------------------------------------------- */
+async function fetchReportJSON(id: string): Promise<ReportPayload> {
+  const base = (process.env.NEXT_PUBLIC_BASE_URL ?? '').trim();
+  const res = await fetch(`${base}/api/submissions/${id}/result`, {
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const msg = await res.text().catch(() => '');
+    throw new Error(`Failed to fetch report JSON: ${msg || res.status}`);
+  }
+  const data = (await res.json()) as ReportPayload;
+  return { ...data, id: data.id ?? id };
+}
 
-export async function GET(request: Request, ctx: { params: Promise<RouteParams> }) {
+/* ----------------------------------------------------------------------------
+ * Route
+ * -------------------------------------------------------------------------- */
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
   try {
     const { id } = await ctx.params;
+    const json = await fetchReportJSON(id);
+    const blob = await buildPDFBlob(json);
 
-    // 1) Load the same payload used by the HTML report
-    const data = await fetchReportJson(request, id);
-
-    // 2) Build a PDF buffer
-    const pdfBuffer = await pdf(<ReportPDF data={data} />).toBuffer();
-
-    // 3) Return as a downloadable file
-    return new NextResponse(pdfBuffer, {
+    return new Response(blob, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="MindCanvas_Report_${id}.pdf"`,
+        'Content-Disposition': `attachment; filename="MindCanvas_Report_${json.id}.pdf"`,
         'Cache-Control': 'no-store',
       },
     });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: 'PDF render failed', details: msg }, { status: 500 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return new Response(
+      JSON.stringify({ error: 'PDF render failed', details: msg }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
   }
 }
