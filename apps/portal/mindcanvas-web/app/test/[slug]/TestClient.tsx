@@ -12,13 +12,11 @@ type Props = {
 type StartOk = { submissionId: string; testSlug: string }
 type StartErr = { error: string }
 
+// Strict type guard without `any`
 function isStartOk(x: unknown): x is StartOk {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    'submissionId' in x &&
-    typeof (x as any).submissionId === 'string'
-  )
+  if (typeof x !== 'object' || x === null) return false
+  const r = x as Record<string, unknown>
+  return typeof r.submissionId === 'string'
 }
 
 export default function TestClient({ slug, initialSid, prefill }: Props) {
@@ -39,31 +37,35 @@ export default function TestClient({ slug, initialSid, prefill }: Props) {
       setErr(null)
       try {
         const cacheKey = `mc_sid_${slug}`
-        const cached = typeof window !== 'undefined' ? localStorage.getItem(cacheKey) : null
+        const cached =
+          typeof window !== 'undefined' ? window.localStorage.getItem(cacheKey) : null
         if (cached) {
           if (!cancelled) setSid(cached)
           return
         }
 
         const r = await fetch(`/api/submissions/start?slug=${encodeURIComponent(slug)}`)
-        const json = (await r.json()) as unknown
+        const json: unknown = await r.json()
         if (!isStartOk(json)) {
-          const msg =
-            typeof json === 'object' && json && 'error' in json
-              ? String((json as StartErr).error)
+          const message =
+            typeof json === 'object' &&
+            json !== null &&
+            'error' in (json as Record<string, unknown>) &&
+            typeof (json as Record<string, unknown>).error === 'string'
+              ? (json as StartErr).error
               : 'Failed to start test'
-          throw new Error(msg)
+          throw new Error(message)
         }
 
         if (!cancelled) {
           setSid(json.submissionId)
-          localStorage.setItem(cacheKey, json.submissionId)
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(cacheKey, json.submissionId)
+          }
         }
-      } catch (err: unknown) {
-        if (!cancelled) {
-          const message = err instanceof Error ? err.message : 'Failed to start test'
-          setErr(message)
-        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Failed to start test'
+        if (!cancelled) setErr(message)
       } finally {
         if (!cancelled) setBusy(false)
       }
@@ -96,13 +98,24 @@ export default function TestClient({ slug, initialSid, prefill }: Props) {
         }),
       })
       if (!r.ok) {
-        const j = (await r.json().catch(() => ({}))) as unknown
-        const message =
-          typeof j === 'object' && j && 'error' in j ? String((j as { error: unknown }).error) : `Save failed (${r.status})`
+        let message = `Save failed (${r.status})`
+        try {
+          const j: unknown = await r.json()
+          if (
+            typeof j === 'object' &&
+            j !== null &&
+            'error' in (j as Record<string, unknown>) &&
+            typeof (j as Record<string, unknown>).error === 'string'
+          ) {
+            message = String((j as { error: string }).error)
+          }
+        } catch {
+          /* ignore JSON parse errors */
+        }
         throw new Error(message)
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Save failed'
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Save failed'
       setErr(message)
     } finally {
       setBusy(false)
@@ -157,9 +170,9 @@ export default function TestClient({ slug, initialSid, prefill }: Props) {
             {busy ? 'Saving…' : 'Save details'}
           </button>
 
-            <div className="text-xs text-neutral-500">
-              {sid ? `Submission: ${sid}` : 'Creating submission…'}
-            </div>
+          <div className="text-xs text-neutral-500">
+            {sid ? `Submission: ${sid}` : 'Creating submission…'}
+          </div>
         </div>
       </div>
 
@@ -167,4 +180,3 @@ export default function TestClient({ slug, initialSid, prefill }: Props) {
     </div>
   )
 }
-
