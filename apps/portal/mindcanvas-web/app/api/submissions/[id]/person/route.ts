@@ -1,68 +1,68 @@
 // app/api/submissions/[id]/person/route.ts
-// Adds the missing POST handler so /api/submissions/:id/person accepts POST.
-// This fixes the 405 you were seeing.
+import { NextResponse, NextRequest } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-export const runtime = "nodejs";
-
-type Params = { params: Promise<{ id: string }> };
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabase = createClient(url, serviceKey, { auth: { persistSession: false } })
 
 type Body = {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  test_slug?: string;
-};
-
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  if (!url || !key) {
-    throw new Error("Missing Supabase env vars");
-  }
-  return createClient(url, key, { auth: { persistSession: false } });
+  first_name: string
+  last_name: string
+  email: string
+  phone?: string | null
 }
 
-export async function POST(req: NextRequest, { params }: Params) {
+const UUID_RX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const { id } = await params;
-    const body = (await req.json()) as Body;
-
-    if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 });
-
-    // Very light validation
-    const { first_name, last_name, email, phone } = body ?? {};
-    if (!first_name || !last_name || !email || !phone) {
-      return NextResponse.json({ error: "missing required fields" }, { status: 400 });
+    const id = params.id?.trim()
+    if (!id || !UUID_RX.test(id)) {
+      return NextResponse.json(
+        { error: `Invalid submission id '${id ?? ''}'` },
+        { status: 400 }
+      )
     }
 
-    const sb = supabaseAdmin();
+    const raw = (await req.json()) as unknown
 
-    // Make sure the submission exists, then update its person fields.
-    const { error } = await sb
-      .from("mc_submissions")
+    // Narrow unknown -> Body (simple, explicit checks)
+    const b = raw as Partial<Body>
+    const first = (b.first_name ?? '').trim()
+    const last = (b.last_name ?? '').trim()
+    const email = (b.email ?? '').trim()
+    const phone = (b.phone ?? '')?.toString().trim()
+
+    if (!first || !last || !email) {
+      return NextResponse.json(
+        { error: 'first_name, last_name and email are required' },
+        { status: 400 }
+      )
+    }
+
+    const { error } = await supabase
+      .from('mc_submissions')
       .update({
-        first_name,
-        last_name,
+        first_name: first,
+        last_name: last,
         email,
-        phone,
-        // optional: so you can backfill if needed later
+        phone: phone || null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", id);
+      .eq('id', id)
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "unknown error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to save'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

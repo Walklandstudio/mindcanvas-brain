@@ -1,28 +1,25 @@
 // app/test/[slug]/page.tsx
-import { Suspense } from "react";
-import TestClient from "./TestClient"; // default import (fixes “no exported member”)
+import TestClient from './TestClient'
 
 type PageProps = {
-  params: Promise<{ slug: string }>;
-  searchParams: Promise<{
-    sid?: string;
-    name?: string;
-    email?: string;
-    phone?: string;
-  }>;
-};
+  params: { slug: string }
+  searchParams: {
+    sid?: string
+    name?: string
+    email?: string
+    phone?: string
+  }
+}
 
-export default async function Page(props: PageProps) {
-  const { slug } = await props.params;
-  const { sid, name, email, phone } = await props.searchParams;
+export default function Page({ params, searchParams }: PageProps) {
+  const { slug } = params
+  const { sid, name, email, phone } = searchParams
 
   return (
-    <Suspense fallback={<div className="mx-auto max-w-2xl p-6">Loading…</div>}>
-      <TestClient
-        slug={slug}
-        sid={sid}
-        prefill={{ name, email, phone }}
-      />
-    </Suspense>
-  );
+    <TestClient
+      slug={slug}
+      initialSid={sid}
+      prefill={{ name: name ?? '', email: email ?? '', phone: phone ?? '' }}
+    />
+  )
 }
