@@ -1,0 +1,14 @@
+{
+  "name": "mindcanvas-brain",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:web": "npm -w @mindcanvas/web run dev",
+    "build:web": "npm -w @mindcanvas/web run build",
+    "start:web": "npm -w @mindcanvas/web run start",
+    "vercel-build": "npm -w @mindcanvas/web run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4"
+  }
+}
