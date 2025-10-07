@@ -24,11 +24,9 @@ export default function Dashboard() {
         return;
       }
 
-      // ensure org exists (bootstrap)
       const token = sess.session.access_token;
       await fetch('/api/bootstrap', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
 
-      // fetch user's org
       const { data: orgs } = await supabase.from('organizations').select('id,name,slug').limit(1);
       setOrg(orgs?.[0] ?? null);
       setLoading(false);
@@ -48,7 +46,7 @@ export default function Dashboard() {
         <section className="rounded-lg border p-4 space-y-2 bg-white">
           <div className="font-medium">{org.name}</div>
           <div className="text-sm text-gray-600">/{org.slug}</div>
-          <div className="flex gap-3 pt-2">
+          <div className="flex flex-wrap gap-3 pt-2">
             <a href="/onboarding" className="inline-block rounded-md bg-black px-4 py-2 text-white hover:opacity-90">
               Start Onboarding
             </a>
@@ -57,6 +55,12 @@ export default function Dashboard() {
             </a>
             <a href="/analytics" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
               Analytics
+            </a>
+            <a href="/admin/profiles" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
+              Profiles
+            </a>
+            <a href="/admin/reports" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
+              Report Content
             </a>
           </div>
         </section>
