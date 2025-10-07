@@ -18,26 +18,18 @@ export default function Dashboard() {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       );
 
-      // require auth
       const { data: sess } = await supabase.auth.getSession();
       if (!sess.session) {
         router.replace('/login');
         return;
       }
 
-      // ensure org exists for this user (bootstrap)
+      // ensure org exists (bootstrap)
       const token = sess.session.access_token;
-      await fetch('/api/bootstrap', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await fetch('/api/bootstrap', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
 
-      // fetch user's org (first one)
-      const { data: orgs } = await supabase
-        .from('organizations')
-        .select('id,name,slug')
-        .limit(1);
-
+      // fetch user's org
+      const { data: orgs } = await supabase.from('organizations').select('id,name,slug').limit(1);
       setOrg(orgs?.[0] ?? null);
       setLoading(false);
     })();
@@ -56,13 +48,12 @@ export default function Dashboard() {
         <section className="rounded-lg border p-4 space-y-2 bg-white">
           <div className="font-medium">{org.name}</div>
           <div className="text-sm text-gray-600">/{org.slug}</div>
-
-          <div className="pt-2">
-            <a
-              href="/onboarding"
-              className="inline-block rounded-md bg-black px-4 py-2 text-white hover:opacity-90"
-            >
+          <div className="flex gap-3 pt-2">
+            <a href="/onboarding" className="inline-block rounded-md bg-black px-4 py-2 text-white hover:opacity-90">
               Start Onboarding
+            </a>
+            <a href="/tests" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
+              Manage Tests
             </a>
           </div>
         </section>
