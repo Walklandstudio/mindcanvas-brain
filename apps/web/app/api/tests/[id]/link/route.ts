@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import crypto from 'crypto';
+
+// export const runtime = 'nodejs'; // optional
 
 function admin() {
   return createClient(
@@ -20,33 +21,53 @@ async function getUserId(bearer: string) {
   const { data } = await u.auth.getUser();
   return data.user?.id ?? null;
 }
-function makeToken(len = 10) {
-  // url-safe base64-ish
-  return crypto.randomBytes(12).toString('base64url').slice(0, len);
+
+// Web Crypto token generator (Edge/Node safe)
+function makeToken(len = 12) {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < len; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
 }
 
-export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(req: Request, { params }: any) {
   const auth = req.headers.get('authorization') || req.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return NextResponse.json({ ok:false, error:'missing bearer' }, { status:401 });
+  if (!auth?.startsWith('Bearer ')) {
+    return NextResponse.json({ ok: false, error: 'missing bearer' }, { status: 401 });
+  }
+
+  const testId = params?.id as string;
+  if (!testId) {
+    return NextResponse.json({ ok: false, error: 'missing test id' }, { status: 400 });
+  }
 
   const a = admin();
-  // sanity: ensure test exists (and implies org)
-  const { data: test, error: terr } = await a.from('tests').select('id').eq('id', params.id).single();
-  if (terr || !test) return NextResponse.json({ ok:false, error:'test not found' }, { status:404 });
+
+  // ensure test exists
+  const { data: test, error: terr } = await a
+    .from('tests')
+    .select('id')
+    .eq('id', testId)
+    .single();
+
+  if (terr || !test) {
+    return NextResponse.json({ ok: false, error: 'test not found' }, { status: 404 });
+  }
 
   const userId = await getUserId(auth);
   const token = makeToken(12);
 
   const { data: link, error } = await a
     .from('test_links')
-    .insert({ test_id: params.id, token, created_by: userId ?? undefined })
+    .insert({ test_id: testId, token, created_by: userId ?? undefined })
     .select('token')
     .single();
 
-  if (error) return NextResponse.json({ ok:false, error:error.message }, { status:500 });
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
 
-  return NextResponse.json({ ok:true, token: link.token });
+  return NextResponse.json({ ok: true, token: link.token });
 }

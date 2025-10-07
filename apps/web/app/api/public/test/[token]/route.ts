@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+// Use Node or Edge – either is fine. If you want to force Node, uncomment:
+// export const runtime = 'nodejs';
+
 function admin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,25 +11,40 @@ function admin() {
   );
 }
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { token: string } }
-) {
+export async function GET(_req: Request, { params }: any) {
+  const token = params?.token as string;
+  if (!token) {
+    return NextResponse.json({ ok: false, error: 'missing token' }, { status: 400 });
+  }
+
   const a = admin();
   const { data, error } = await a
     .from('test_links')
     .select('token, test_id, tests(name)')
-    .eq('token', params.token)
+    .eq('token', token)
     .limit(1)
     .maybeSingle();
-  if (error || !data) return NextResponse.json({ ok:false, error:'invalid link' }, { status:404 });
-  return NextResponse.json({ ok:true, data: { token: data.token, test_id: data.test_id, name: (data as any).tests?.name ?? 'Test' }});
+
+  if (error || !data) {
+    return NextResponse.json({ ok: false, error: 'invalid link' }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    data: {
+      token: data.token,
+      test_id: data.test_id,
+      name: (data as any).tests?.name ?? 'Test'
+    }
+  });
 }
 
-export async function POST(
-  req: Request,
-  { params }: { params: { token: string } }
-) {
+export async function POST(req: Request, { params }: any) {
+  const token = params?.token as string;
+  if (!token) {
+    return NextResponse.json({ ok: false, error: 'missing token' }, { status: 400 });
+  }
+
   const body = await req.json().catch(() => ({}));
   const a = admin();
 
@@ -34,9 +52,12 @@ export async function POST(
   const { data: link } = await a
     .from('test_links')
     .select('test_id, token')
-    .eq('token', params.token)
+    .eq('token', token)
     .maybeSingle();
-  if (!link) return NextResponse.json({ ok:false, error:'invalid link' }, { status:404 });
+
+  if (!link) {
+    return NextResponse.json({ ok: false, error: 'invalid link' }, { status: 404 });
+  }
 
   const payload = {
     test_id: link.test_id,
@@ -51,7 +72,9 @@ export async function POST(
   };
 
   const { error } = await a.from('test_takers').insert(payload);
-  if (error) return NextResponse.json({ ok:false, error:error.message }, { status:500 });
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
 
-  return NextResponse.json({ ok:true });
+  return NextResponse.json({ ok: true });
 }
