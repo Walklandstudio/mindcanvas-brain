@@ -1,4 +1,5 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
@@ -16,18 +17,27 @@ export default function Dashboard() {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       );
-      const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) return router.replace('/login');
 
-      // ensure org exists for this user
+      // require auth
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess.session) {
+        router.replace('/login');
+        return;
+      }
+
+      // ensure org exists for this user (bootstrap)
       const token = sess.session.access_token;
-      await fetch('/api/bootstrap', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      await fetch('/api/bootstrap', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
       // fetch user's org (first one)
       const { data: orgs } = await supabase
         .from('organizations')
         .select('id,name,slug')
         .limit(1);
+
       setOrg(orgs?.[0] ?? null);
       setLoading(false);
     })();
@@ -36,17 +46,29 @@ export default function Dashboard() {
   if (loading) return <main className="p-8">Loading…</main>;
 
   return (
-    <main className="mx-auto max-w-3xl p-8 space-y-4">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
+    <main className="mx-auto max-w-3xl p-8 space-y-6">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <a className="text-sm underline" href="/logout">Sign out</a>
+      </header>
+
       {org ? (
-        <div className="rounded-lg border p-4">
+        <section className="rounded-lg border p-4 space-y-2 bg-white">
           <div className="font-medium">{org.name}</div>
           <div className="text-sm text-gray-600">/{org.slug}</div>
-        </div>
+
+          <div className="pt-2">
+            <a
+              href="/onboarding"
+              className="inline-block rounded-md bg-black px-4 py-2 text-white hover:opacity-90"
+            >
+              Start Onboarding
+            </a>
+          </div>
+        </section>
       ) : (
         <p>No organization found.</p>
       )}
-      <a className="underline text-sm" href="/logout">Sign out</a>
     </main>
   );
 }
