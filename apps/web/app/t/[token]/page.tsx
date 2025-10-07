@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 type Meta = { name: string; test_id: string; token: string } | null;
 
 export default function PublicTest(props: any) {
-  // Avoid Next.js 15 PageProps typing mismatch by treating props as any
   const token = (props?.params?.token as string) || '';
-
+  const router = useRouter();
   const [meta, setMeta] = useState<Meta>(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
@@ -35,9 +35,9 @@ export default function PublicTest(props: any) {
       body: JSON.stringify(form)
     });
     const j = await res.json();
-    if (j?.ok) {
-      setMsg('✅ Thanks! Your details are saved.');
-      // TODO: redirect to actual test / profile report when ready
+    if (j?.ok && j.id) {
+      // go to start with taker id
+      router.replace(`/t/${token}/start?tid=${j.id}`);
     } else {
       setMsg('❌ ' + (j?.error || 'submit failed'));
     }
@@ -65,7 +65,7 @@ export default function PublicTest(props: any) {
         </div>
 
         <div className="flex items-center gap-3 pt-2">
-          <button className="rounded-md bg-black px-4 py-2 text-white">Submit</button>
+          <button className="rounded-md bg-black px-4 py-2 text-white">Begin Test</button>
           {msg && <span className="text-sm">{msg}</span>}
         </div>
       </form>

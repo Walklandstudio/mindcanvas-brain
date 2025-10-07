@@ -104,12 +104,15 @@ export default function TestsPage() {
               <div className="text-xs text-gray-500">{r.status} • {new Date(r.created_at).toLocaleString()}</div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => mintLink(r.id)} className="rounded-md border px-3 py-1 text-sm">
-                Copy Share Link
-              </button>
+              <a href={`/tests/${r.id}/builder`} className="rounded-md border px-3 py-1 text-sm">
+                Build Questions
+              </a>
               <a href={`/tests/${r.id}/takers`} className="rounded-md border px-3 py-1 text-sm">
                 View Takers
               </a>
+              <button onClick={() => mintLink(r.id)} className="rounded-md border px-3 py-1 text-sm">
+                Copy Share Link
+              </button>
             </div>
           </div>
         ))}
