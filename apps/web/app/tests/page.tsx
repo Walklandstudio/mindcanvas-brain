@@ -75,7 +75,10 @@ export default function TestsPage() {
     <main className="mx-auto max-w-3xl p-8 space-y-6">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Tests</h1>
-        <a className="text-sm underline" href="/dashboard">Back to Dashboard</a>
+        <nav className="flex items-center gap-3 text-sm">
+          <a className="underline" href="/dashboard">Dashboard</a>
+          <a className="underline" href="/analytics">Analytics</a>
+        </nav>
       </header>
 
       <form onSubmit={createTest} className="flex gap-2">
@@ -100,9 +103,14 @@ export default function TestsPage() {
               <div className="font-medium">{r.name}</div>
               <div className="text-xs text-gray-500">{r.status} • {new Date(r.created_at).toLocaleString()}</div>
             </div>
-            <button onClick={() => mintLink(r.id)} className="rounded-md border px-3 py-1 text-sm">
-              Copy Share Link
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => mintLink(r.id)} className="rounded-md border px-3 py-1 text-sm">
+                Copy Share Link
+              </button>
+              <a href={`/tests/${r.id}/takers`} className="rounded-md border px-3 py-1 text-sm">
+                View Takers
+              </a>
+            </div>
           </div>
         ))}
       </section>

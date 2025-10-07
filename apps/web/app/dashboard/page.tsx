@@ -55,6 +55,9 @@ export default function Dashboard() {
             <a href="/tests" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
               Manage Tests
             </a>
+            <a href="/analytics" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
+              Analytics
+            </a>
           </div>
         </section>
       ) : (
