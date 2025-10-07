@@ -4,7 +4,10 @@ import { useEffect, useState } from 'react';
 
 type Meta = { name: string; test_id: string; token: string } | null;
 
-export default function PublicTest({ params }: { params: { token: string } }) {
+export default function PublicTest(props: any) {
+  // Avoid Next.js 15 PageProps typing mismatch by treating props as any
+  const token = (props?.params?.token as string) || '';
+
   const [meta, setMeta] = useState<Meta>(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
@@ -12,9 +15,9 @@ export default function PublicTest({ params }: { params: { token: string } }) {
     first_name: '', last_name: '', email: '', phone: '',
     company: '', team: '', team_function: ''
   });
-  const token = params.token;
 
   useEffect(() => {
+    if (!token) return;
     (async () => {
       const res = await fetch(`/api/public/test/${token}`);
       const j = await res.json();
