@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 
-// export const runtime = 'nodejs'; // optional
+export const runtime = 'nodejs'; // ensure Node (so randomBytes is available)
+
+import { createClient } from '@supabase/supabase-js';
+import { randomBytes } from 'crypto';
 
 function admin() {
   return createClient(
@@ -22,11 +24,16 @@ async function getUserId(bearer: string) {
   return data.user?.id ?? null;
 }
 
-// Web Crypto token generator (Edge/Node safe)
 function makeToken(len = 12) {
   const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
-  const bytes = new Uint8Array(len);
-  crypto.getRandomValues(bytes);
+  let bytes: Uint8Array;
+  // Prefer Web Crypto if present, else fallback to Node
+  if (typeof globalThis.crypto !== 'undefined' && 'getRandomValues' in globalThis.crypto) {
+    bytes = new Uint8Array(len);
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    bytes = randomBytes(len);
+  }
   let out = '';
   for (let i = 0; i < len; i++) out += alphabet[bytes[i] % alphabet.length];
   return out;
@@ -34,31 +41,19 @@ function makeToken(len = 12) {
 
 export async function POST(req: Request, { params }: any) {
   const auth = req.headers.get('authorization') || req.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) {
-    return NextResponse.json({ ok: false, error: 'missing bearer' }, { status: 401 });
-  }
+  if (!auth?.startsWith('Bearer ')) return NextResponse.json({ ok: false, error: 'missing bearer' }, { status: 401 });
 
   const url = new URL(req.url);
-  const mode = (url.searchParams.get('mode') || 'full').toLowerCase() as 'free' | 'full';
-  if (mode !== 'free' && mode !== 'full') {
-    return NextResponse.json({ ok: false, error: 'invalid mode' }, { status: 400 });
-  }
+  const mode = (url.searchParams.get('mode') || 'full').toLowerCase() as 'free'|'full';
+  if (mode !== 'free' && mode !== 'full') return NextResponse.json({ ok:false, error:'invalid mode' }, { status:400 });
 
   const testId = params?.id as string;
-  if (!testId) return NextResponse.json({ ok: false, error: 'missing test id' }, { status: 400 });
+  if (!testId) return NextResponse.json({ ok:false, error:'missing test id' }, { status:400 });
 
   const a = admin();
 
-  // ensure test exists
-  const { data: test, error: terr } = await a
-    .from('tests')
-    .select('id')
-    .eq('id', testId)
-    .single();
-
-  if (terr || !test) {
-    return NextResponse.json({ ok: false, error: 'test not found' }, { status: 404 });
-  }
+  const { data: test, error: terr } = await a.from('tests').select('id').eq('id', testId).single();
+  if (terr || !test) return NextResponse.json({ ok:false, error:'test not found' }, { status:404 });
 
   const userId = await getUserId(auth);
   const token = makeToken(12);
@@ -69,9 +64,6 @@ export async function POST(req: Request, { params }: any) {
     .select('token, mode')
     .single();
 
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true, token: link.token, mode: link.mode });
+  if (error) return NextResponse.json({ ok:false, error:error.message }, { status:500 });
+  return NextResponse.json({ ok:true, token: link.token, mode: link.mode });
 }
