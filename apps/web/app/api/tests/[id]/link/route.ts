@@ -38,10 +38,14 @@ export async function POST(req: Request, { params }: any) {
     return NextResponse.json({ ok: false, error: 'missing bearer' }, { status: 401 });
   }
 
-  const testId = params?.id as string;
-  if (!testId) {
-    return NextResponse.json({ ok: false, error: 'missing test id' }, { status: 400 });
+  const url = new URL(req.url);
+  const mode = (url.searchParams.get('mode') || 'full').toLowerCase() as 'free' | 'full';
+  if (mode !== 'free' && mode !== 'full') {
+    return NextResponse.json({ ok: false, error: 'invalid mode' }, { status: 400 });
   }
+
+  const testId = params?.id as string;
+  if (!testId) return NextResponse.json({ ok: false, error: 'missing test id' }, { status: 400 });
 
   const a = admin();
 
@@ -61,13 +65,13 @@ export async function POST(req: Request, { params }: any) {
 
   const { data: link, error } = await a
     .from('test_links')
-    .insert({ test_id: testId, token, created_by: userId ?? undefined })
-    .select('token')
+    .insert({ test_id: testId, token, mode, created_by: userId ?? undefined })
+    .select('token, mode')
     .single();
 
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, token: link.token });
+  return NextResponse.json({ ok: true, token: link.token, mode: link.mode });
 }

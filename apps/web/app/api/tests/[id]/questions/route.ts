@@ -31,13 +31,12 @@ export async function GET(req: Request, { params }: any) {
   if (!orgId) return NextResponse.json({ ok:false, error:'no org' }, { status:401 });
 
   const a = admin();
-  // verify test belongs to org
   const { data: t } = await a.from('tests').select('org_id').eq('id', params.id).maybeSingle();
   if (!t || t.org_id !== orgId) return NextResponse.json({ ok:false, error:'forbidden' }, { status:403 });
 
   const { data, error } = await a
     .from('test_questions')
-    .select('id, text, type, "order"')
+    .select('id, text, type, "order", scoring, visible_in_free')
     .eq('test_id', params.id)
     .order('order', { ascending: true });
 
@@ -59,7 +58,6 @@ export async function POST(req: Request, { params }: any) {
   const text = (body?.text || '').toString().trim();
   if (!text) return NextResponse.json({ ok:false, error:'text required' }, { status:400 });
 
-  // next order
   const { data: max } = await a
     .from('test_questions')
     .select('order')
@@ -70,8 +68,8 @@ export async function POST(req: Request, { params }: any) {
 
   const { data, error } = await a
     .from('test_questions')
-    .insert({ test_id: params.id, text, type: 'text', order: nextOrder })
-    .select('id, text, type, "order"')
+    .insert({ test_id: params.id, text, type: 'text', order: nextOrder, visible_in_free: false })
+    .select('id, text, type, "order", scoring, visible_in_free')
     .single();
 
   if (error) return NextResponse.json({ ok:false, error:error.message }, { status:500 });
@@ -79,7 +77,6 @@ export async function POST(req: Request, { params }: any) {
 }
 
 export async function PATCH(req: Request, { params }: any) {
-  // reorder: body = { order: string[] }
   const auth = req.headers.get('authorization') || req.headers.get('Authorization');
   if (!auth?.startsWith('Bearer ')) return NextResponse.json({ ok:false, error:'missing bearer' }, { status:401 });
   const orgId = await getOrgId(auth);
@@ -93,7 +90,6 @@ export async function PATCH(req: Request, { params }: any) {
   const arr: string[] = Array.isArray(body?.order) ? body.order : [];
   if (!arr.length) return NextResponse.json({ ok:false, error:'order required' }, { status:400 });
 
-  // update sequentially
   for (let i = 0; i < arr.length; i++) {
     await a.from('test_questions').update({ order: i + 1 }).eq('id', arr[i]).eq('test_id', params.id);
   }

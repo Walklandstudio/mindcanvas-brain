@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 
-type Q = { id: string; text: string; type: 'text' | 'scale5'; order: number; scoring?: any };
+type Q = { id: string; text: string; type: 'text' | 'scale5'; order: number; scoring?: any; visible_in_free?: boolean };
 
 export default function BuilderPage(props: any) {
   const testId = (props?.params?.id as string) || '';
@@ -24,15 +24,12 @@ export default function BuilderPage(props: any) {
     if (!sess.session) return router.replace('/login');
     const token = sess.session.access_token;
 
-    // test name
     const t = await supabase.from('tests').select('name').eq('id', testId).maybeSingle();
     if (t.data?.name) setName(t.data.name);
 
-    const res = await fetch(`/api/tests/${testId}/questions`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const res = await fetch(`/api/tests/${testId}/questions`, { headers: { Authorization: `Bearer ${token}` } });
     const j = await res.json();
-    if (j?.ok) setQs(j.data.map((q: any) => ({ ...q, scoring: q.scoring || {} })));
+    if (j?.ok) setQs(j.data.map((q: any) => ({ ...q, scoring: q.scoring || {}, visible_in_free: !!q.visible_in_free })));
     setLoading(false);
   }
 
@@ -52,7 +49,7 @@ export default function BuilderPage(props: any) {
     });
     const j = await res.json();
     if (j?.ok) {
-      setQs([...qs, { ...j.data, scoring: {} }].sort((a,b) => a.order - b.order));
+      setQs([...qs, { ...j.data, scoring: {}, visible_in_free: false }].sort((a,b) => a.order - b.order));
       setNewText('');
       setMsg('✅ Added');
     } else setMsg('❌ ' + (j?.error || 'failed'));
@@ -81,8 +78,7 @@ export default function BuilderPage(props: any) {
       body: JSON.stringify({ order })
     });
     const j = await res.json();
-    if (j?.ok) setMsg('✅ Order saved');
-    else setMsg('❌ ' + (j?.error || 'failed'));
+    if (j?.ok) setMsg('✅ Order saved'); else setMsg('❌ ' + (j?.error || 'failed'));
   }
 
   async function saveQuestion(q: Q) {
@@ -94,11 +90,15 @@ export default function BuilderPage(props: any) {
     const res = await fetch(`/api/tests/${testId}/questions/${q.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type':'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ text: q.text, type: q.type, scoring: q.scoring || {} })
+      body: JSON.stringify({
+        text: q.text,
+        type: q.type,
+        scoring: q.scoring || {},
+        visible_in_free: !!q.visible_in_free
+      })
     });
     const j = await res.json();
-    if (j?.ok) setMsg('✅ Question saved');
-    else setMsg('❌ ' + (j?.error || 'failed'));
+    if (j?.ok) setMsg('✅ Question saved'); else setMsg('❌ ' + (j?.error || 'failed'));
   }
 
   if (loading) return <main className="p-8">Loading…</main>;
@@ -114,13 +114,8 @@ export default function BuilderPage(props: any) {
       </header>
 
       <form onSubmit={addQuestion} className="flex gap-2">
-        <input
-          className="flex-1 rounded-md border px-3 py-2"
-          placeholder="Question text"
-          value={newText}
-          onChange={(e) => setNewText(e.target.value)}
-          required
-        />
+        <input className="flex-1 rounded-md border px-3 py-2" placeholder="Question text" value={newText}
+               onChange={(e) => setNewText(e.target.value)} required />
         <button className="rounded-md bg-black px-4 py-2 text-white">Add</button>
       </form>
 
@@ -133,41 +128,41 @@ export default function BuilderPage(props: any) {
           <div key={q.id} className="grid gap-3 p-4 sm:grid-cols-[1fr,auto]">
             <div className="space-y-2">
               <div className="text-sm text-gray-500">#{i + 1}</div>
-              <input
-                className="w-full rounded-md border px-3 py-2"
-                value={q.text}
-                onChange={(e) => setQs(qs.map(x => x.id === q.id ? { ...x, text: e.target.value } : x))}
-              />
+              <input className="w-full rounded-md border px-3 py-2"
+                     value={q.text}
+                     onChange={(e) => setQs(qs.map(x => x.id === q.id ? { ...x, text: e.target.value } : x))} />
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <label className="flex items-center gap-2">
                   Type:
-                  <select
-                    value={q.type}
-                    onChange={(e) => setQs(qs.map(x => x.id === q.id ? { ...x, type: e.target.value as any } : x))}
-                    className="rounded-md border px-2 py-1"
-                  >
+                  <select value={q.type}
+                          onChange={(e) => setQs(qs.map(x => x.id === q.id ? { ...x, type: e.target.value as any } : x))}
+                          className="rounded-md border px-2 py-1">
                     <option value="text">Text (qualitative)</option>
                     <option value="scale5">Scale 1–5 (scored)</option>
                   </select>
                 </label>
+
                 {q.type === 'scale5' && (
                   <div className="flex items-center gap-2">
                     <span>Weights A/B/C/D:</span>
                     {(['A','B','C','D'] as const).map(k => (
-                      <input
-                        key={k}
-                        type="number"
-                        className="w-14 rounded-md border px-2 py-1"
-                        value={Number(q.scoring?.[k] ?? 0)}
-                        onChange={(e) => {
-                          const v = Number(e.target.value || 0);
-                          setQs(qs.map(x => x.id === q.id ? { ...x, scoring: { ...x.scoring, [k]: v } } : x));
-                        }}
-                      />
+                      <input key={k} type="number" className="w-14 rounded-md border px-2 py-1"
+                             value={Number(q.scoring?.[k] ?? 0)}
+                             onChange={(e) => {
+                               const v = Number(e.target.value || 0);
+                               setQs(qs.map(x => x.id === q.id ? { ...x, scoring: { ...x.scoring, [k]: v } } : x));
+                             }} />
                     ))}
                     <span className="text-xs text-gray-500">Score = (answer-3) × weight</span>
                   </div>
                 )}
+
+                <label className="flex items-center gap-2">
+                  <input type="checkbox"
+                         checked={!!q.visible_in_free}
+                         onChange={(e) => setQs(qs.map(x => x.id === q.id ? { ...x, visible_in_free: e.target.checked } : x))} />
+                  Show in Free version
+                </label>
               </div>
             </div>
             <div className="flex items-start justify-end gap-2">
