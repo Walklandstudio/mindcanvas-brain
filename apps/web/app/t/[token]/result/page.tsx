@@ -35,7 +35,6 @@ export default function ResultPage(props: any) {
   const name =
     [data.taker.first_name, data.taker.last_name].filter(Boolean).join(' ') || 'Participant';
 
-  // build bars without useMemo to avoid any typing weirdness
   const entries: Array<['A' | 'B' | 'C' | 'D', number]> = [
     ['A', data.scores.A],
     ['B', data.scores.B],
@@ -73,6 +72,18 @@ export default function ResultPage(props: any) {
           </div>
         ))}
       </section>
+
+      <div className="flex items-center gap-3 pt-2">
+        <a
+          className="rounded-md border px-4 py-2 text-sm"
+          href={`/t/${token}/report?tid=${encodeURIComponent(tid)}`}
+        >
+          View Branded Report
+        </a>
+        <span className="text-xs text-gray-500">
+          The branded report is print / PDF friendly.
+        </span>
+      </div>
 
       <p className="text-xs text-gray-500">
         Prototype scoring: scale questions use (answer − 3) × weight to adjust A/B/C/D totals.
