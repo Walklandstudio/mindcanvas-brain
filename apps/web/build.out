@@ -14,11 +14,17 @@ https://nextjs.org/telemetry
    Linting and checking validity of types ...
 Failed to compile.
 
-app/tests/[id]/teams/page.tsx
-Type error: Type '{ params: { id: string; }; }' does not satisfy the constraint 'PageProps'.
-  Types of property 'params' are incompatible.
-    Type '{ id: string; }' is missing the following properties from type 'Promise<any>': then, catch, finally, [Symbol.toStringTag]
+./app/t/[token]/report/page.tsx:112:14
+Type error: Type '{ children: string; jsx: true; global: true; }' is not assignable to type 'DetailedHTMLProps<StyleHTMLAttributes<HTMLStyleElement>, HTMLStyleElement>'.
+  Property 'jsx' does not exist on type 'DetailedHTMLProps<StyleHTMLAttributes<HTMLStyleElement>, HTMLStyleElement>'.
 
+[0m [90m 110 |[39m
+ [90m 111 |[39m       {[90m/* Print styles */[39m}
+[31m[1m>[22m[39m[90m 112 |[39m       [33m<[39m[33mstyle[39m jsx global[33m>[39m{[32m`[39m
+ [90m     |[39m              [31m[1m^[22m[39m
+ [90m 113 |[39m [32m        @media print {[39m
+ [90m 114 |[39m [32m          html, body { background: white; }[39m
+ [90m 115 |[39m [32m          main { box-shadow: none !important; }[39m[0m
 Next.js build worker exited with code: 1 and signal: null
 npm ERR! Lifecycle script `build` failed with error: 
 npm ERR! Error: command failed 
