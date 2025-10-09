@@ -1,10 +1,12 @@
+import type { PageProps } from 'next';
 import { admin } from '../../../api/_lib/org';
 
 export const dynamic = 'force-dynamic';
 
 async function getData(token: string) {
   const a = admin();
-  const { data, error } = await a.from('test_results')
+  const { data, error } = await a
+    .from('test_results')
     .select('best_frequency,best_profile,totals,taker_name')
     .eq('token', token)
     .maybeSingle();
@@ -12,8 +14,11 @@ async function getData(token: string) {
   return data;
 }
 
-export default async function ResultPage({ params }: { params: { token: string } }) {
-  const data = await getData(params.token);
+export default async function Page({ params }: PageProps<{ token: string }>) {
+  // In Next 15, params is a Promise-like; await it:
+  const { token } = await params;
+
+  const data = await getData(token);
 
   if (!data) {
     return (
@@ -37,7 +42,7 @@ export default async function ResultPage({ params }: { params: { token: string }
       </section>
 
       <div className="print:hidden">
-        <button onClick={() => window.print()} className="mt-4 px-4 py-2 bg-sky-700 text-white rounded-md">
+        <button onClick={() => globalThis.print()} className="mt-4 px-4 py-2 bg-sky-700 text-white rounded-md">
           Print / Save as PDF
         </button>
       </div>
