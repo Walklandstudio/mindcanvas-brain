@@ -8,7 +8,7 @@ type Q = {
   label: string;
   kind: 'scale'|'text'|'single'|'multi';
   options: any; // array or [{min,max}] for scale
-  weight: number;
+  weight: number; // kept server-side; hidden from UI
   is_segmentation: boolean;
   active: boolean;
   display_order: number;
@@ -25,6 +25,11 @@ export default function QuestionEditor() {
   const [msg, setMsg] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // AI rephrase state
+  const [aiOpenFor, setAiOpenFor] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiVariants, setAiVariants] = useState<string[]>([]);
+
   const sorted = useMemo(() =>
     [...rows].sort((a,b) => a.display_order - b.display_order),
     [rows]
@@ -40,10 +45,10 @@ export default function QuestionEditor() {
     setRows(j?.data ?? []);
     setLoading(false);
   }
-
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   async function save() {
+    // We keep weight server-side; the UI does not expose it.
     setSaving(true);
     setMsg('Saving…');
     const { data: s } = await sb.auth.getSession();
@@ -59,7 +64,7 @@ export default function QuestionEditor() {
   }
 
   async function seed() {
-    if (!confirm('Seed 15 base questions + 2 segmentation examples?')) return;
+    if (!confirm('Seed 15 base questions?')) return;
     setMsg('Seeding…');
     const { data: s } = await sb.auth.getSession();
     const r = await fetch('/api/questions/seed', {
@@ -79,8 +84,8 @@ export default function QuestionEditor() {
         label: 'New question',
         kind,
         options: kind === 'scale' ? [{ min: 1, max: 5 }] : [],
-        weight: kind === 'text' ? 0 : 1,
-        is_segmentation: kind !== 'scale', // text/single/multi default to segmentation=false? tweak as needed
+        weight: 1, // default; hidden
+        is_segmentation: false,
         active: true,
         display_order: maxOrder + 1
       }
@@ -104,8 +109,32 @@ export default function QuestionEditor() {
     const tmp = list[idx];
     list[idx] = list[j];
     list[j] = tmp;
-    // rewrite display_order sequentially
     setRows(list.map((r, i) => ({ ...r, display_order: i + 1 })));
+  }
+
+  async function rephrase(row: Q, rowKey: string) {
+    setAiOpenFor(rowKey);
+    setAiLoading(true);
+    setAiVariants([]);
+
+    const body = { text: row.label, style: 'concise', keep_type: row.kind };
+    const res = await fetch('/api/ai/rephrase', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json().catch(() => ({}));
+    setAiLoading(false);
+    if (!j?.ok) {
+      setAiVariants([`(AI error) ${j?.error ?? 'Unable to rephrase right now.'}`]);
+      return;
+    }
+    setAiVariants(j.variants ?? []);
+  }
+
+  function applyRephrase(row: Q, text: string) {
+    setRows(prev => prev.map(r => r === row ? { ...r, label: text } : r));
+    setAiOpenFor(null);
   }
 
   if (loading) return <div className="text-sm text-slate-600">Loading questions…</div>;
@@ -126,135 +155,157 @@ export default function QuestionEditor() {
               <th className="border p-2 text-left">Label</th>
               <th className="border p-2">Kind</th>
               <th className="border p-2">Options / Scale</th>
-              <th className="border p-2">Weight</th>
+              {/* Weight intentionally hidden from UI */}
               <th className="border p-2">Seg?</th>
               <th className="border p-2">Active</th>
-              <th className="border p-2 w-32">Actions</th>
+              <th className="border p-2 w-40">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((q, i) => (
-              <tr key={q.id ?? `new-${i}`}>
-                <td className="border p-2">
-                  <div className="flex items-center gap-1">
-                    <button className="btn btn-ghost" onClick={() => move(i,-1)}>↑</button>
-                    <button className="btn btn-ghost" onClick={() => move(i, 1)}>↓</button>
-                    <span className="text-xs text-slate-500 ml-1">{q.display_order}</span>
-                  </div>
-                </td>
-                <td className="border p-2">
-                  <input
-                    className="input w-full"
-                    value={q.label}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setRows(prev => prev.map(r => r === q ? { ...r, label: v } : r));
-                    }}
-                  />
-                </td>
-                <td className="border p-2">
-                  <select
-                    className="select"
-                    value={q.kind}
-                    onChange={(e) => {
-                      const v = e.target.value as Q['kind'];
-                      setRows(prev => prev.map(r => r === q ? {
-                        ...r,
-                        kind: v,
-                        options: v === 'scale' ? [{ min: 1, max: 5 }] : [],
-                        weight: v === 'text' ? 0 : r.weight
-                      } : r));
-                    }}
-                  >
-                    <option value="scale">scale</option>
-                    <option value="single">single</option>
-                    <option value="multi">multi</option>
-                    <option value="text">text</option>
-                  </select>
-                </td>
-                <td className="border p-2">
-                  {/* simple editor: scale min/max or CSV for single/multi */}
-                  {q.kind === 'scale' ? (
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs">
-                        min{' '}
-                        <input
-                          type="number"
-                          className="input w-16"
-                          value={q.options?.[0]?.min ?? 1}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setRows(prev => prev.map(r => r === q ? {
-                              ...r, options: [{ min: val, max: r.options?.[0]?.max ?? 5 }]
-                            } : r));
-                          }}
-                        />
-                      </label>
-                      <label className="text-xs">
-                        max{' '}
-                        <input
-                          type="number"
-                          className="input w-16"
-                          value={q.options?.[0]?.max ?? 5}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setRows(prev => prev.map(r => r === q ? {
-                              ...r, options: [{ min: r.options?.[0]?.min ?? 1, max: val }]
-                            } : r));
-                          }}
-                        />
-                      </label>
+            {sorted.map((q, i) => {
+              const rowKey = q.id ?? `new-${i}`;
+              return (
+                <tr key={rowKey}>
+                  <td className="border p-2">
+                    <div className="flex items-center gap-1">
+                      <button className="btn btn-ghost" onClick={() => move(i,-1)}>↑</button>
+                      <button className="btn btn-ghost" onClick={() => move(i, 1)}>↓</button>
+                      <span className="text-xs text-slate-500 ml-1">{q.display_order}</span>
                     </div>
-                  ) : (
+                  </td>
+                  <td className="border p-2">
                     <input
                       className="input w-full"
-                      placeholder="Comma-separated options"
-                      value={Array.isArray(q.options) ? q.options.join(',') : ''}
+                      value={q.label}
                       onChange={(e) => {
-                        const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                        setRows(prev => prev.map(r => r === q ? { ...r, options: arr } : r));
+                        const v = e.target.value;
+                        setRows(prev => prev.map(r => r === q ? { ...r, label: v } : r));
                       }}
                     />
-                  )}
-                </td>
-                <td className="border p-2">
-                  <input
-                    type="number"
-                    className="input w-20 text-center"
-                    value={q.weight}
-                    onChange={(e) => {
-                      const num = Number(e.target.value);
-                      setRows(prev => prev.map(r => r === q ? { ...r, weight: num } : r));
-                    }}
-                    disabled={q.kind === 'text'}
-                    title={q.kind === 'text' ? 'Text questions are not scored' : ''}
-                  />
-                </td>
-                <td className="border p-2 text-center">
-                  <input
-                    type="checkbox"
-                    checked={q.is_segmentation}
-                    onChange={(e) => {
-                      const v = e.target.checked;
-                      setRows(prev => prev.map(r => r === q ? { ...r, is_segmentation: v } : r));
-                    }}
-                  />
-                </td>
-                <td className="border p-2 text-center">
-                  <input
-                    type="checkbox"
-                    checked={q.active}
-                    onChange={(e) => {
-                      const v = e.target.checked;
-                      setRows(prev => prev.map(r => r === q ? { ...r, active: v } : r));
-                    }}
-                  />
-                </td>
-                <td className="border p-2 text-center">
-                  <button className="btn btn-ghost" onClick={() => rm(q.id, i)}>Remove</button>
-                </td>
-              </tr>
-            ))}
+                    {/* AI rephrase panel */}
+                    <div className="mt-1">
+                      <button className="btn btn-ghost text-xs" onClick={() => rephrase(q, rowKey)}>
+                        ✨ Rephrase (AI)
+                      </button>
+                      {aiOpenFor === rowKey && (
+                        <div className="mt-2 p-2 rounded border bg-white shadow-sm">
+                          {aiLoading ? (
+                            <div className="text-xs text-slate-500">Thinking…</div>
+                          ) : (
+                            <div className="space-y-2">
+                              {aiVariants.map((t, k) => (
+                                <div key={k} className="flex items-start gap-2">
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => applyRephrase(q, t)}
+                                  >
+                                    Use
+                                  </button>
+                                  <div className="text-sm">{t}</div>
+                                </div>
+                              ))}
+                              <div className="text-right">
+                                <button className="btn btn-ghost text-xs" onClick={() => setAiOpenFor(null)}>
+                                  Close
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="border p-2">
+                    <select
+                      className="select"
+                      value={q.kind}
+                      onChange={(e) => {
+                        const v = e.target.value as Q['kind'];
+                        setRows(prev => prev.map(r => r === q ? {
+                          ...r,
+                          kind: v,
+                          options: v === 'scale' ? [{ min: 1, max: 5 }] : [],
+                          // keep hidden weight as-is; text questions will be scored later via logic, not weight
+                        } : r));
+                      }}
+                    >
+                      <option value="scale">scale</option>
+                      <option value="single">single</option>
+                      <option value="multi">multi</option>
+                      <option value="text">text</option>
+                    </select>
+                  </td>
+                  <td className="border p-2">
+                    {q.kind === 'scale' ? (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs">
+                          min{' '}
+                          <input
+                            type="number"
+                            className="input w-16"
+                            value={q.options?.[0]?.min ?? 1}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setRows(prev => prev.map(r => r === q ? {
+                                ...r, options: [{ min: val, max: r.options?.[0]?.max ?? 5 }]
+                              } : r));
+                            }}
+                          />
+                        </label>
+                        <label className="text-xs">
+                          max{' '}
+                          <input
+                            type="number"
+                            className="input w-16"
+                            value={q.options?.[0]?.max ?? 5}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setRows(prev => prev.map(r => r === q ? {
+                                ...r, options: [{ min: r.options?.[0]?.min ?? 1, max: val }]
+                              } : r));
+                            }}
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <input
+                        className="input w-full"
+                        placeholder="Comma-separated options"
+                        value={Array.isArray(q.options) ? q.options.join(',') : ''}
+                        onChange={(e) => {
+                          const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                          setRows(prev => prev.map(r => r === q ? { ...r, options: arr } : r));
+                        }}
+                      />
+                    )}
+                  </td>
+                  {/* Weight hidden */}
+                  <td className="border p-2 text-center">
+                    <input
+                      type="checkbox"
+                      checked={q.is_segmentation}
+                      onChange={(e) => {
+                        const v = e.target.checked;
+                        setRows(prev => prev.map(r => r === q ? { ...r, is_segmentation: v } : r));
+                      }}
+                    />
+                  </td>
+                  <td className="border p-2 text-center">
+                    <input
+                      type="checkbox"
+                      checked={q.active}
+                      onChange={(e) => {
+                        const v = e.target.checked;
+                        setRows(prev => prev.map(r => r === q ? { ...r, active: v } : r));
+                      }}
+                    />
+                  </td>
+                  <td className="border p-2 text-center">
+                    <button className="btn btn-ghost" onClick={() => rm(q.id, i)}>Remove</button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
