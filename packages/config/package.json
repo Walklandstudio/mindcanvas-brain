@@ -1,1 +1,5 @@
-{ "name": "@mindcanvas/config", "version": "0.1.0", "private": true, "main": "tsconfig-base.json" }
+{
+  "name": "mindcanvas-brain",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"]
+}

@@ -1,7 +1,10 @@
 {
   "name": "mindcanvas-brain",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev:web": "npm -w @mindcanvas/web run dev",
     "build:web": "npm -w @mindcanvas/web run build",
@@ -10,5 +13,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.7.4"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.74.0"
   }
 }
