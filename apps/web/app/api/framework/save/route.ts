@@ -6,7 +6,14 @@ export const runtime = 'nodejs';
 type SaveBody = {
   framework_id: string;
   frequencies?: { id: string; name: string; color: string; description?: string }[];
-  profiles?: { id: string; name: string; primary_frequency: 'A' | 'B' | 'C' | 'D'; description?: string }[];
+  profiles?: {
+    id: string;
+    name: string;
+    primary_frequency: 'A' | 'B' | 'C' | 'D';
+    description?: string;
+    color?: string;
+    icon?: string;
+  }[];
 };
 
 export async function POST(req: Request) {
@@ -55,7 +62,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Update profiles
+    // Update profiles (now includes color, icon)
     if (body.profiles?.length) {
       for (const p of body.profiles) {
         await a
@@ -63,7 +70,9 @@ export async function POST(req: Request) {
           .update({
             name: p.name,
             primary_frequency: p.primary_frequency,
-            description: p.description ?? ''
+            description: p.description ?? '',
+            color: p.color ?? '#64bae2',
+            icon: p.icon ?? 'User'
           })
           .eq('id', p.id)
           .eq('framework_id', body.framework_id);

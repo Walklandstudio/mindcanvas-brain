@@ -19,6 +19,8 @@ type Profile = {
   name: string;
   primary_frequency: 'A'|'B'|'C'|'D';
   description?: string;
+  color?: string;
+  icon?: string;
 };
 
 export default function FrameworkEditor() {
@@ -50,19 +52,13 @@ export default function FrameworkEditor() {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   async function save() {
-    if (!frameworkId) {
-      setMsg('No framework found. Go to Admin → Templates and Generate Framework first.');
-      return;
-    }
+    if (!frameworkId) { setMsg('No framework found. Generate a framework first.'); return; }
     setSaving(true);
     setMsg('Saving…');
     const { data: s } = await sb.auth.getSession();
     const r = await fetch('/api/framework/save', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${s.session?.access_token}`
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.session?.access_token}` },
       body: JSON.stringify({
         framework_id: frameworkId,
         frequencies: freqs.map(f => ({ id: f.id, name: f.name, color: f.color, description: f.description })),
@@ -70,13 +66,34 @@ export default function FrameworkEditor() {
           id: p.id,
           name: p.name,
           primary_frequency: p.primary_frequency,
-          description: p.description
+          description: p.description,
+          color: p.color ?? '#64bae2',
+          icon: p.icon ?? 'User'
         }))
       })
     });
     const j = await r.json().catch(() => ({}));
     setSaving(false);
     setMsg(j?.ok ? '✅ Saved' : `❌ ${j?.error || 'Save failed'}`);
+    if (j?.ok) await load();
+  }
+
+  async function reseed() {
+    if (!frameworkId) { setMsg('No framework to reseed.'); return; }
+    if (!confirm('This will replace the 8 profiles for this framework with defaults. Continue?')) return;
+
+    setSaving(true);
+    setMsg('Applying default profiles…');
+    const { data: s } = await sb.auth.getSession();
+    const r = await fetch('/api/framework/reseed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.session?.access_token}` },
+      body: JSON.stringify({ framework_id: frameworkId })
+    });
+    const j = await r.json().catch(() => ({}));
+    setSaving(false);
+    setMsg(j?.ok ? '✅ Default profiles applied' : `❌ ${j?.error || 'Reseed failed'}`);
+    if (j?.ok) await load();
   }
 
   if (loading) return <div className="text-sm text-slate-600">Loading framework…</div>;
@@ -91,9 +108,11 @@ export default function FrameworkEditor() {
 
       {/* Frequencies */}
       <section className="card p-4">
-        <h2 className="h2 mb-3">Frequencies (4)</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="h2 mb-3">Frequencies (4)</h2>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {freqs.map((f, i) => (
+          {freqs.map((f) => (
             <div key={f.id} className="border rounded p-3 space-y-2">
               <div className="text-sm text-slate-600">Code {f.code}</div>
               <label className="block">
@@ -137,10 +156,16 @@ export default function FrameworkEditor() {
 
       {/* Profiles */}
       <section className="card p-4">
-        <h2 className="h2 mb-3">Profiles (8)</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="h2 mb-3">Profiles (8)</h2>
+          <button className="btn btn-secondary" onClick={reseed} disabled={saving || !frameworkId}>
+            Apply default 8 profiles
+          </button>
+        </div>
+
         <div className="grid gap-4">
           {profiles.map(p => (
-            <div key={p.id} className="border rounded p-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div key={p.id} className="border rounded p-3 grid grid-cols-1 md:grid-cols-4 gap-3">
               <div>
                 <div className="text-sm text-slate-600">Code {p.code}</div>
                 <label className="block">
@@ -155,6 +180,7 @@ export default function FrameworkEditor() {
                   />
                 </label>
               </div>
+
               <div>
                 <label className="block">
                   <span className="text-xs text-slate-500">Primary Frequency</span>
@@ -173,6 +199,35 @@ export default function FrameworkEditor() {
                   </select>
                 </label>
               </div>
+
+              <div>
+                <label className="block">
+                  <span className="text-xs text-slate-500">Profile Color</span>
+                  <input
+                    type="color"
+                    className="input"
+                    value={p.color ?? '#64bae2'}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setProfiles(prev => prev.map(x => x.id === p.id ? { ...x, color: v } : x));
+                    }}
+                  />
+                </label>
+
+                <label className="block mt-2">
+                  <span className="text-xs text-slate-500">Icon (optional)</span>
+                  <input
+                    className="input"
+                    placeholder="e.g. User, Star, Target"
+                    value={p.icon ?? 'User'}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setProfiles(prev => prev.map(x => x.id === p.id ? { ...x, icon: v } : x));
+                    }}
+                  />
+                </label>
+              </div>
+
               <div className="md:col-span-1">
                 <label className="block">
                   <span className="text-xs text-slate-500">Description</span>
