@@ -1,5 +1,6 @@
-import type { PageProps } from 'next';
-import { admin } from '../../../api/_lib/org';
+// Correct path: up 3 levels to /app, then into /api/_lib/org
+import { admin } from '../../../api/_lib/org'; // <-- if your tree matches screenshot, use this
+// If this still errors, use: import { admin } from '../../../api/_lib/org';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,8 +15,12 @@ async function getData(token: string) {
   return data;
 }
 
-export default async function Page({ params }: PageProps<{ token: string }>) {
-  // In Next 15, params is a Promise-like; await it:
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  // Next 15: params is a Promise
   const { token } = await params;
 
   const data = await getData(token);
@@ -42,7 +47,10 @@ export default async function Page({ params }: PageProps<{ token: string }>) {
       </section>
 
       <div className="print:hidden">
-        <button onClick={() => globalThis.print()} className="mt-4 px-4 py-2 bg-sky-700 text-white rounded-md">
+        <button
+          onClick={() => globalThis.print()}
+          className="mt-4 px-4 py-2 bg-sky-700 text-white rounded-md"
+        >
           Print / Save as PDF
         </button>
       </div>
