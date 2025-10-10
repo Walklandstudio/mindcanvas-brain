@@ -51,11 +51,7 @@ export default function Landing() {
             />
             <span className="text-base font-semibold tracking-tight">MindCanvas</span>
           </div>
-          <nav className="hidden sm:flex items-center gap-6 text-sm text-slate-300">
-            <Link href="/tests" className="hover:text-white">Tests</Link>
-            <Link href="/admin/framework" className="hover:text-white">Framework</Link>
-            <Link href="/admin/compatibility" className="hover:text-white">Compatibility</Link>
-          </nav>
+
         </div>
       </header>
 
@@ -79,10 +75,6 @@ export default function Landing() {
             profile tests
           </h1>
 
-          <p className="mx-auto mt-5 max-w-2xl text-slate-300">
-            Create, brand, deploy, and analyze Signature profile test, capture results,
-            and deliver on team analytics.
-          </p>
 
           {/* CTAs */}
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
