@@ -1,80 +1,77 @@
 import Link from "next/link";
 
-const COLORS = {
-  c1: "#64bae2",
-  c2: "#2d8fc4",
-  c3: "#015a8b",
-};
+const P = { c1: "#64bae2", c2: "#2d8fc4", c3: "#015a8b" }; // your palette
 
 export default function Landing() {
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#0a0f1a] text-white">
-      {/* --- Background layers --- */}
-      {/* Radial glows */}
+    <main className="relative min-h-screen overflow-hidden bg-[#050914] text-white">
+      {/* --- BACKGROUND LAYERS --- */}
+      {/* Deep radial glows */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div
+          className="absolute -top-40 left-1/2 h-[120vh] w-[120vw] -translate-x-1/2 blur-3xl opacity-30"
+          style={{
+            background: `radial-gradient(60% 40% at 50% 0%, ${P.c1}33, transparent 60%),
+                         radial-gradient(45% 35% at 20% 45%, ${P.c2}26, transparent 60%),
+                         radial-gradient(45% 35% at 80% 55%, ${P.c3}24, transparent 60%)`,
+          }}
+        />
+      </div>
+
+      {/* Neon ribbon sweep */}
       <div
         aria-hidden
-        className="pointer-events-none absolute -top-40 left-1/2 h-[110vh] w-[110vw] -translate-x-1/2 opacity-30 blur-3xl"
+        className="pointer-events-none absolute -left-1/3 top-[-10%] h-[160vh] w-[180vw] rotate-[12deg] opacity-35"
         style={{
-          background: `radial-gradient(60% 35% at 50% 0%, ${COLORS.c1}20, transparent 60%),
-                       radial-gradient(40% 30% at 20% 40%, ${COLORS.c2}18, transparent 60%),
-                       radial-gradient(45% 30% at 80% 50%, ${COLORS.c3}19, transparent 60%)`,
-        }}
-      />
-      {/* Sleek streak band */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -left-1/4 top-0 h-[140vh] w-[150vw] rotate-[8deg] opacity-20"
-        style={{
-          background:
-            `linear-gradient(90deg, transparent, ${COLORS.c3}55, ${COLORS.c1}66, ${COLORS.c2}55, transparent)`,
+          background: `linear-gradient(90deg, transparent 0%, ${P.c3}66 25%, ${P.c2}88 50%, ${P.c1}66 75%, transparent 100%)`,
           maskImage:
-            "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)",
-        }}
-      />
-      {/* Subtle grid */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.06]"
-        style={{
-          backgroundImage:
-            "linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)",
-          backgroundSize: "60px 60px",
+            "linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)",
+          filter: "blur(18px)",
         }}
       />
 
-      {/* --- Header --- */}
-      <header className="relative z-10">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+      {/* Soft grid (barely visible) */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.05]"
+        style={{
+          backgroundImage:
+            "linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)",
+          backgroundSize: "64px 64px",
+        }}
+      />
+
+      {/* --- HEADER --- */}
+      <header className="relative z-20">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
           <div className="flex items-center gap-3">
             <div
-              className="h-8 w-8 rounded-xl"
-              style={{
-                background: `linear-gradient(135deg, ${COLORS.c1}, ${COLORS.c2} 60%, ${COLORS.c3})`,
-              }}
+              className="h-9 w-9 rounded-xl shadow-[0_8px_30px_rgba(100,186,226,0.35)]"
+              style={{ background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})` }}
             />
-            <span className="text-lg font-semibold tracking-tight">MindCanvas</span>
+            <span className="text-base font-semibold tracking-tight">MindCanvas</span>
           </div>
-          <nav className="hidden gap-6 text-sm text-slate-300 sm:flex">
-            <Link href="/tests" className="hover:text-white transition-colors">Tests</Link>
-            <Link href="/admin/framework" className="hover:text-white transition-colors">Framework</Link>
-            <Link href="/admin/compatibility" className="hover:text-white transition-colors">Compatibility</Link>
+          <nav className="hidden sm:flex items-center gap-6 text-sm text-slate-300">
+            <Link href="/tests" className="hover:text-white">Tests</Link>
+            <Link href="/admin/framework" className="hover:text-white">Framework</Link>
+            <Link href="/admin/compatibility" className="hover:text-white">Compatibility</Link>
           </nav>
         </div>
       </header>
 
-      {/* --- Hero --- */}
+      {/* --- HERO --- */}
       <section className="relative z-10">
-        <div className="mx-auto max-w-5xl px-6 pt-16 pb-10 text-center sm:pt-24 sm:pb-16">
+        <div className="mx-auto max-w-6xl px-6 pt-14 pb-10 sm:pt-24 sm:pb-16 text-center">
           <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wide text-slate-300">
             Signature Profiling System
           </div>
 
-          <h1 className="mt-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+          <h1 className="mt-6 text-4xl sm:text-6xl font-extrabold leading-[1.05] tracking-tight">
             Create, brand, deploy, and analyze{" "}
             <span
-              className="bg-clip-text text-transparent"
+              className="bg-clip-text text-transparent animate-gradient-x"
               style={{
-                backgroundImage: `linear-gradient(135deg, ${COLORS.c1}, ${COLORS.c2} 60%, ${COLORS.c3})`,
+                backgroundImage: `linear-gradient(135deg, ${P.c1}, ${P.c2} 50%, ${P.c3})`,
               }}
             >
               Signature
@@ -82,47 +79,46 @@ export default function Landing() {
             profile tests
           </h1>
 
-          <p className="mx-auto mt-4 max-w-2xl text-slate-300">
-            Build TEMA-based assessments (4 Frequencies × 8 Profiles), capture results, and deliver
-            on-brand reports and team analytics.
+          <p className="mx-auto mt-5 max-w-2xl text-slate-300">
+            Create, brand, deploy, and analyze Signature profile test, capture results,
+            and deliver on team analytics.
           </p>
 
           {/* CTAs */}
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/onboarding/(wizard)/create-account"
-              className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-[15px] font-medium shadow-[0_10px_30px_rgba(100,186,226,0.25)] transition-transform hover:scale-[1.02] active:scale-100"
-              style={{
-                background: `linear-gradient(135deg, ${COLORS.c1}, ${COLORS.c2} 60%, ${COLORS.c3})`,
-              }}
+              className="group inline-flex items-center justify-center rounded-2xl px-6 py-3 text-[15px] font-medium transition-transform hover:scale-[1.02] active:scale-100 shine"
+              style={{ background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})` }}
             >
               Create an Account
+              <span className="ml-2 block h-[1px] w-4 translate-y-[1px] bg-white/70 group-hover:w-6 transition-all" />
             </Link>
             <Link
               href="/login"
               className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
             >
-              Login (for existing clients)
+              Login
             </Link>
           </div>
 
-          {/* Trust strip */}
+          {/* Mini trust strip */}
           <div className="mt-10 text-xs text-slate-400">
             Secure by design · Supabase (Postgres + RLS) · Vercel Edge
           </div>
         </div>
       </section>
 
-      {/* --- Product frame / glass card --- */}
+      {/* --- GLASS PRODUCT FRAME --- */}
       <div className="relative z-10 mx-auto mb-20 mt-2 max-w-6xl px-6">
-        <div className="rounded-3xl border border-white/10 bg-white/5 shadow-2xl backdrop-blur-md">
-          <div className="h-[280px] w-full rounded-3xl bg-gradient-to-br from-slate-900/40 to-slate-900/10 p-4">
-            <div className="h-full w-full rounded-2xl border border-white/10 bg-slate-950/40" />
+        <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_40px_120px_rgba(0,0,0,0.45)] backdrop-blur-md">
+          <div className="h-[320px] w-full rounded-3xl bg-gradient-to-br from-slate-900/40 to-slate-900/10 p-4">
+            <div className="h-full w-full rounded-2xl border border-white/10 bg-slate-950/50" />
           </div>
         </div>
       </div>
 
-      {/* --- Footer --- */}
+      {/* --- FOOTER --- */}
       <footer className="relative z-10 pb-10 text-center text-xs text-slate-500">
         © {new Date().getFullYear()} MindCanvas. All rights reserved.
       </footer>
