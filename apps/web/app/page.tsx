@@ -96,15 +96,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* --- GLASS PRODUCT FRAME --- */}
-      <div className="relative z-10 mx-auto mb-20 mt-2 max-w-6xl px-6">
-        <div className="rounded-3xl border border-white/10 bg-white/5 shadow-[0_40px_120px_rgba(0,0,0,0.45)] backdrop-blur-md">
-          <div className="h-[320px] w-full rounded-3xl bg-gradient-to-br from-slate-900/40 to-slate-900/10 p-4">
-            <div className="h-full w-full rounded-2xl border border-white/10 bg-slate-950/50" />
-          </div>
-        </div>
-      </div>
-
       {/* --- FOOTER --- */}
       <footer className="relative z-10 pb-10 text-center text-xs text-slate-500">
         © {new Date().getFullYear()} MindCanvas. All rights reserved.
