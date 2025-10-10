@@ -1,66 +1,67 @@
+// ==============================
+// NEW: /admin/compatibility (Step 2)
+// ==============================
+
+// apps/web/app/api/admin/compatibility/route.ts
+import 'server-only';
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
 
-function admin() {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!);
-}
-function userClient(bearer: string) {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { global: { headers: { Authorization: bearer } } });
-}
-async function getOrgId(bearer: string) {
-  const u = userClient(bearer);
-  const { data } = await u.auth.getUser();
-  const uid = data.user?.id;
-  if (!uid) return null;
-  const a = admin();
-  const { data: m } = await a.from('org_memberships').select('org_id').eq('user_id', uid).limit(1);
-  return m?.[0]?.org_id ?? null;
-}
-function canon(a: string, b: string): [string,string] {
-  return a <= b ? [a,b] : [b,a];
-}
+type PairDTO = { a: string; b: string; score: number };
 
-export async function GET(req: Request) {
-  const auth = req.headers.get('authorization') || req.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return NextResponse.json({ ok:false, error:'missing bearer' }, { status:401 });
-  const orgId = await getOrgId(auth);
-  if (!orgId) return NextResponse.json({ ok:false, error:'no org' }, { status:401 });
+export async function GET() {
+  const svc = admin();
+  const { orgId, frameworkId } = await getOwnerOrgAndFramework();
 
-  const a = admin();
-
-  const { data: profiles } = await a
-    .from('profiles')
-    .select('key, name')
+  const { data: profiles, error: pErr } = await svc
+    .from('org_profiles')
+    .select('id, name, frequency, ordinal')
     .eq('org_id', orgId)
-    .order('key', { ascending: true });
+    .eq('framework_id', frameworkId)
+    .order('ordinal', { ascending: true });
+  if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
 
-  const { data: pairs } = await a
-    .from('profile_compat')
-    .select('a_key,b_key,score')
-    .eq('org_id', orgId);
+  const { data: rows, error: cErr } = await svc
+    .from('org_profile_compatibility')
+    .select('profile_a, profile_b, score')
+    .eq('framework_id', frameworkId);
+  if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
 
-  return NextResponse.json({ ok:true, data: { profiles: profiles || [], pairs: pairs || [] } });
+  const pairs: PairDTO[] = (rows ?? []).map(r => ({ a: r.profile_a, b: r.profile_b, score: r.score }));
+  return NextResponse.json({ profiles, pairs });
 }
 
-export async function PATCH(req: Request) {
-  const auth = req.headers.get('authorization') || req.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return NextResponse.json({ ok:false, error:'missing bearer' }, { status:401 });
-  const orgId = await getOrgId(auth);
-  if (!orgId) return NextResponse.json({ ok:false, error:'no org' }, { status:401 });
+export async function POST(req: Request) {
+  const body = (await req.json()) as { pairs: PairDTO[] };
+  if (!body?.pairs) return NextResponse.json({ error: 'Missing pairs' }, { status: 400 });
 
-  const body = await req.json().catch(()=>({}));
-  const updates: Array<{a_key:string;b_key:string;score:number}> = Array.isArray(body?.updates) ? body.updates : [];
-  if (!updates.length) return NextResponse.json({ ok:false, error:'no updates' }, { status:400 });
+  const svc = admin();
+  const { orgId, frameworkId } = await getOwnerOrgAndFramework();
 
-  const a = admin();
+  // Normalize & sanitize
+  const clean = body.pairs
+    .filter(p => p.a !== p.b)
+    .map(p => ({
+      org_id: orgId,
+      framework_id: frameworkId,
+      profile_a: p.a,
+      profile_b: p.b,
+      score: Math.max(0, Math.min(100, Math.round(p.score)))
+    }));
 
-  for (const row of updates) {
-    if (!/^[ABCD][12]$/.test(row.a_key) || !/^[ABCD][12]$/.test(row.b_key)) continue;
-    const [ak,bk] = canon(row.a_key, row.b_key);
-    await a.from('profile_compat').upsert({
-      org_id: orgId, a_key: ak, b_key: bk, score: Number(row.score) || 0, updated_at: new Date().toISOString()
-    });
+  // Replace-all strategy for simplicity & consistency
+  const { error: delErr } = await svc
+    .from('org_profile_compatibility')
+    .delete()
+    .eq('framework_id', frameworkId);
+  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+
+  if (clean.length) {
+    const { error: insErr } = await svc
+      .from('org_profile_compatibility')
+      .insert(clean);
+    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok:true });
+  return NextResponse.json({ ok: true });
 }
