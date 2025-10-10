@@ -1,5 +1,5 @@
 // apps/web/app/admin/compatibility/page.tsx
-import CompatibilityEditor from './ui/CompatibilityEditor';
+import CompatibilityEditor from '../../../admin/compatibility/ui/CompatibilityEditor';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
