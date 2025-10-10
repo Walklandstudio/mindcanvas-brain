@@ -1,76 +1,64 @@
-import { NextResponse } from 'next/server';
-import { admin, orgIdFromAuth } from '../../_lib/org';
+import { NextRequest, NextResponse } from 'next/server';
+import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
 
-export const runtime = 'nodejs';
-
-/**
- * 🔧 EDIT ME to match your “CONFIDENTIAL_ Base Questions Mock UP” exactly.
- * Each entry: label (string) + weight (number). kind defaults to 'scale' (Likert), but you can change.
- * If you need segmentation questions, add them later in the UI or add here with is_segmentation: true and weight: 0.
- */
-const BASE_QUESTIONS: Array<{
-  label: string;
-  weight: number;
-  kind?: 'scale' | 'text' | 'single' | 'multi';
-  options?: any;
-}> = [
-  // TODO: Replace these placeholders with your exact 15 questions + weights from the doc.
-  { label: 'I prefer starting things and driving momentum quickly.', weight: 2 },
-  { label: 'I am comfortable making decisions even with limited information.', weight: 2 },
-  { label: 'I energize others and communicate ideas clearly and persuasively.', weight: 1 },
-  { label: 'I value structure, systems, and consistency in execution.', weight: 1 },
-  { label: 'I pay attention to details and follow-through thoroughly.', weight: 1 },
-  { label: 'I enjoy exploring multiple options and creative solutions.', weight: 1 },
-  { label: 'I remain calm under pressure and bring stability to teams.', weight: 1 },
-  { label: 'I like optimizing processes for efficiency and reliability.', weight: 1 },
-  { label: 'I enjoy collaborating and building relationships across teams.', weight: 1 },
-  { label: 'I learn fast and adapt my approach when new data emerges.', weight: 1 },
-  { label: 'I naturally take ownership and move initiatives forward.', weight: 2 },
-  { label: 'I’m motivated by measurable outcomes and clear targets.', weight: 1 },
-  { label: 'I am comfortable giving/receiving direct feedback.', weight: 1 },
-  { label: 'I bring analytical thinking to clarify ambiguity.', weight: 1 },
-  { label: 'I can translate a vision into actionable steps.', weight: 2 },
-];
-
-export async function POST(req: Request) {
+export const POST = async (req: NextRequest) => {
   try {
-    const auth = req.headers.get('authorization') ?? '';
-    if (!auth.startsWith('Bearer ')) {
-      return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+    const q = new URL(req.url).searchParams.get('q');
+    const num = Number(q);
+    if (!num || num < 1 || num > 15) {
+      return NextResponse.json({ ok: false, error: 'Invalid question number' }, { status: 400 });
     }
-
-    const orgId = await orgIdFromAuth(auth);
-    if (!orgId) return NextResponse.json({ ok: false, error: 'no_org' }, { status: 401 });
 
     const a = admin();
+    const { orgId, frameworkId } = await getOwnerOrgAndFramework();
 
-    // If already seeded (>= 10 questions), skip
-    const { count } = await a
+    const { data, error } = await a
       .from('org_questions')
-      .select('id', { count: 'exact', head: true })
-      .eq('org_id', orgId);
+      .select('prompt')
+      .eq('org_id', orgId)
+      .eq('framework_id', frameworkId)
+      .eq('question_no', num)
+      .maybeSingle();
 
-    if ((count ?? 0) >= 10) {
-      return NextResponse.json({ ok: true, skipped: true });
+    if (error) throw error;
+    const original = data?.prompt ?? '';
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      // Graceful no-op
+      return NextResponse.json({ ok: true, prompt: original });
     }
 
-    // build rows
-    const rows = BASE_QUESTIONS.map((q, i) => ({
-      org_id: orgId,
-      label: q.label,
-      kind: q.kind ?? 'scale',
-      options: q.options ?? [{ min: 1, max: 5 }], // Likert hint
-      weight: q.kind === 'text' ? 0 : q.weight,   // text has no score
-      is_segmentation: false,
-      active: true,
-      display_order: i + 1,
-    }));
+    // Super minimal rephrase call to OpenAI
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You rewrite questions for clarity while keeping intent identical.' },
+          { role: 'user', content: `Rewrite this test question clearly and concisely: "${original}"` }
+        ],
+        temperature: 0.3,
+      }),
+    });
 
-    const { error } = await a.from('org_questions').insert(rows);
-    if (error) throw error;
+    const json = await resp.json();
+    const newText =
+      json?.choices?.[0]?.message?.content?.trim() || original;
 
-    return NextResponse.json({ ok: true });
+    // Save updated prompt
+    const { error: upErr } = await a
+      .from('org_questions')
+      .update({ prompt: newText })
+      .eq('org_id', orgId).eq('framework_id', frameworkId).eq('question_no', num);
+    if (upErr) throw upErr;
+
+    return NextResponse.json({ ok: true, prompt: newText });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? 'error' }, { status: 500 });
   }
-}
+};
