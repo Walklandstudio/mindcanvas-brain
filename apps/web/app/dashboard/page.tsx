@@ -22,25 +22,25 @@ export default async function Dashboard() {
     {
       key: "account",
       label: "Create Account",
-      href: "/onboarding/(wizard)/create-account",
+      href: "/onboarding/create-account",
       done: !!(ob.company?.companyName && ob.company?.email),
     },
     {
       key: "company",
       label: "Company",
-      href: "/onboarding/(wizard)/company",
+      href: "/onboarding/company",
       done: !!(ob.company?.industry || ob.company?.website),
     },
     {
       key: "branding",
       label: "Branding",
-      href: "/onboarding/(wizard)/branding",
+      href: "/onboarding/branding",
       done: !!(ob.branding?.primary || ob.branding?.font),
     },
     {
       key: "goals",
       label: "Goals",
-      href: "/onboarding/(wizard)/goals",
+      href: "/onboarding/goals",
       done: !!(ob.goals?.primaryGoal || ob.goals?.successMetric),
     },
   ];
