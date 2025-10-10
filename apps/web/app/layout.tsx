@@ -1,9 +1,9 @@
-import './globals.css';
-import type { Metadata } from 'next';
+import "./globals.css";
+import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: 'MindCanvas',
-  description: 'Create, brand, deploy, and analyze Signature profile tests',
+  title: "MindCanvas",
+  description: "Create, brand, deploy, and analyze Signature profile tests",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
