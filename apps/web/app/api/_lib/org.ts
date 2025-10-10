@@ -1,42 +1,48 @@
-// ...existing imports/exports...
-import { cookies } from 'next/headers';
+// apps/web/app/api/_lib/org.ts
 import { createClient } from '@supabase/supabase-js';
 
-// Already in your file, but shown here for context
 export function admin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!,
-    { auth: { persistSession: false } }
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE!;
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// fetch first org owned by the current user (simple & safe default)
-export async function getOwnerOrgAndFramework() {
-  const a = admin();
-  // current user id is in auth.uid() only in RLS; here we must supply it:
-  // If you already keep user’s org in session, replace this with your own logic.
-  // For staging simplicity: use OWNER org (owner_user_id is set now).
-  const { data: org, error: orgErr } = await a
+/** Staging helper – first org in DB. */
+export async function orgIdFromAuth(): Promise<string> {
+  const sb = admin();
+  const { data, error } = await sb
     .from('organizations')
     .select('id')
-    .not('owner_user_id','is',null)
+    .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('No organizations found');
+  return data.id as string;
+}
 
-  if (orgErr) throw orgErr;
-  if (!org) throw new Error('No owned organization found for this user.');
+/** Returns { orgId, frameworkId } for the owner org (first org + its first framework). */
+export async function getOwnerOrgAndFramework(): Promise<{ orgId: string; frameworkId: string }> {
+  const sb = admin();
 
-  const { data: fw, error: fwErr } = await a
+  const { data: org, error: eo } = await sb
+    .from('organizations')
+    .select('id')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (eo) throw eo;
+  if (!org) throw new Error('No organizations exist');
+
+  const { data: fw, error: ef } = await sb
     .from('org_frameworks')
     .select('id')
     .eq('org_id', org.id)
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle();
-
-  if (fwErr) throw fwErr;
-  if (!fw) throw new Error('No framework found for this organization.');
+  if (ef) throw ef;
+  if (!fw) throw new Error('No framework exists for organization');
 
   return { orgId: org.id as string, frameworkId: fw.id as string };
 }

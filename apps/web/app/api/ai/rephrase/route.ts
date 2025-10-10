@@ -1,64 +1,87 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
+// apps/web/app/api/ai/rephrase/route.ts
+import { NextResponse } from 'next/server';
+import { getOwnerOrgAndFramework } from '../../_lib/org';
 
-export const POST = async (req: NextRequest) => {
+export const runtime = 'nodejs';
+
+type Tone = 'friendly' | 'formal' | 'concise';
+
+export async function POST(req: Request) {
   try {
-    const q = new URL(req.url).searchParams.get('q');
-    const num = Number(q);
-    if (!num || num < 1 || num > 15) {
-      return NextResponse.json({ ok: false, error: 'Invalid question number' }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const text = (body?.text ?? '') as string;
+    const tone = (body?.tone ?? 'friendly') as Tone;
+
+    if (!text || typeof text !== 'string') {
+      return NextResponse.json({ ok: false, error: 'Provide { text }' }, { status: 400 });
     }
 
-    const a = admin();
-    const { orgId, frameworkId } = await getOwnerOrgAndFramework();
+    // Sanity check org/framework exists (ensures caller is set up)
+    await getOwnerOrgAndFramework();
 
-    const { data, error } = await a
-      .from('org_questions')
-      .select('prompt')
-      .eq('org_id', orgId)
-      .eq('framework_id', frameworkId)
-      .eq('question_no', num)
-      .maybeSingle();
-
-    if (error) throw error;
-    const original = data?.prompt ?? '';
-
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      // Graceful no-op
-      return NextResponse.json({ ok: true, prompt: original });
-    }
-
-    // Super minimal rephrase call to OpenAI
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You rewrite questions for clarity while keeping intent identical.' },
-          { role: 'user', content: `Rewrite this test question clearly and concisely: "${original}"` }
-        ],
-        temperature: 0.3,
-      }),
-    });
-
-    const json = await resp.json();
-    const newText =
-      json?.choices?.[0]?.message?.content?.trim() || original;
-
-    // Save updated prompt
-    const { error: upErr } = await a
-      .from('org_questions')
-      .update({ prompt: newText })
-      .eq('org_id', orgId).eq('framework_id', frameworkId).eq('question_no', num);
-    if (upErr) throw upErr;
-
-    return NextResponse.json({ ok: true, prompt: newText });
+    const rewritten = rephrase(text, tone);
+    return NextResponse.json({ ok: true, text: rewritten });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? 'error' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? 'unknown' }, { status: 500 });
   }
-};
+}
+
+/** Lightweight local “AI” rewrite to keep builds/tooling simple for now. */
+function rephrase(input: string, tone: Tone): string {
+  let s = normalizeWhitespace(input);
+
+  switch (tone) {
+    case 'formal':
+      s = expandContractions(s);
+      s = replaceMany(s, [
+        [' wanna ', ' want to '],
+        [' gonna ', ' going to '],
+        [' kinda ', ' somewhat '],
+        [' sorta ', ' somewhat '],
+      ]);
+      break;
+
+    case 'concise':
+      s = replaceMany(s, [
+        [' in order to ', ' to '],
+        [' basically ', ' '],
+        [' actually ', ' '],
+        [' really ', ' '],
+        [' very ', ' '],
+        [' just ', ' '],
+      ]);
+      // trim filler starts
+      s = s.replace(/^(Well|So|Basically|Actually),?\s+/i, '');
+      break;
+
+    case 'friendly':
+    default:
+      s = replaceMany(s, [
+        [' cannot ', " can't "],
+        [' do not ', " don't "],
+        [' will not ', " won't "],
+      ]);
+      break;
+  }
+
+  // Capitalize first letter & ensure trailing period if missing
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+  if (!/[.!?]"?\s*$/.test(s)) s += '.';
+  return s.trim();
+}
+
+function normalizeWhitespace(s: string) {
+  return (' ' + s.replace(/\s+/g, ' ').trim() + ' ');
+}
+
+function replaceMany(s: string, pairs: [string, string][]) {
+  for (const [from, to] of pairs) {
+    const re = new RegExp(escapeRegExp(from), 'gi');
+    s = s.replace(re, to);
+  }
+  return s;
+}
+
+function escapeRegExp(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

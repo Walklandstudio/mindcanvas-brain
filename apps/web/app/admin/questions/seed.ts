@@ -1,6 +1,5 @@
 // apps/web/app/admin/questions/seed.ts
 export type OptionKey = 'A' | 'B' | 'C' | 'D';
-
 export type QOption = { key: OptionKey; label: string };
 export type QRow = { question_no: number; prompt: string; options: QOption[] };
 
@@ -13,55 +12,55 @@ export type WeightEntry = {
 export type WeightedQuestion = { question_no: number; weights: WeightEntry[] };
 
 export const BASE_QUESTIONS: QRow[] = [
-  { question_no: 1, prompt: 'How do you prefer to tackle new tasks?', options: [
+  { question_no: 1,  prompt: 'How do you prefer to tackle new tasks?', options: [
     { key: 'A', label: 'I dive right in' },
     { key: 'B', label: 'I make a detailed plan' },
     { key: 'C', label: 'I like to brainstorm with others' },
     { key: 'D', label: 'I follow a structured process' },
   ]},
-  { question_no: 2, prompt: 'Which statement describes you best in a team setting?', options: [
+  { question_no: 2,  prompt: 'Which statement describes you best in a team setting?', options: [
     { key: 'A', label: 'I take charge and lead' },
     { key: 'B', label: 'Keep tasks on track' },
     { key: 'C', label: 'Build positive environment' },
     { key: 'D', label: 'Focus on details' },
   ]},
-  { question_no: 3, prompt: 'When faced with a problem, how do you best like to solve it?', options: [
+  { question_no: 3,  prompt: 'When faced with a problem, how do you best like to solve it?', options: [
     { key: 'A', label: 'I like to try new ideas and adjust' },
     { key: 'B', label: 'I break it into clear steps' },
     { key: 'C', label: 'I research before acting' },
     { key: 'D', label: 'I like to collaborate for solutions' },
   ]},
-  { question_no: 4, prompt: 'How do you prefer to communicate within a team?', options: [
+  { question_no: 4,  prompt: 'How do you prefer to communicate within a team?', options: [
     { key: 'A', label: 'I am thoughtful and organised' },
     { key: 'B', label: 'I like to focus on facts' },
     { key: 'C', label: 'I am direct and to the point' },
     { key: 'D', label: 'I am friendly and supportive' },
   ]},
-  { question_no: 5, prompt: 'What motivates you mostly in your work?', options: [
+  { question_no: 5,  prompt: 'What motivates you mostly in your work?', options: [
     { key: 'A', label: 'I like new challenges' },
     { key: 'B', label: 'I like to help others succeed' },
     { key: 'C', label: 'Making sure things are running smoothly' },
     { key: 'D', label: 'I like to produce high quality' },
   ]},
-  { question_no: 6, prompt: 'When things get stressful at work, how would you respond?', options: [
+  { question_no: 6,  prompt: 'When things get stressful at work, how would you respond?', options: [
     { key: 'A', label: 'I like to pause and plan' },
     { key: 'B', label: 'I like to stay organised' },
     { key: 'C', label: 'I like to reach out for support' },
     { key: 'D', label: 'I just like to push through' },
   ]},
-  { question_no: 7, prompt: 'How do you generally handle feedback?', options: [
+  { question_no: 7,  prompt: 'How do you generally handle feedback?', options: [
     { key: 'A', label: 'I value fact-based feedback' },
     { key: 'B', label: 'I appreciate quick feedback' },
     { key: 'C', label: 'I focus on relationships and connection' },
     { key: 'D', label: 'I prefer to receive detailed feedback' },
   ]},
-  { question_no: 8, prompt: 'How do you recover after making a mistake?', options: [
+  { question_no: 8,  prompt: 'How do you recover after making a mistake?', options: [
     { key: 'A', label: 'I like to reflect and plan' },
     { key: 'B', label: 'I fix the mistake' },
     { key: 'C', label: 'I like to discuss with a colleague' },
     { key: 'D', label: 'I like to move on and adjust' },
   ]},
-  { question_no: 9, prompt: 'How do you feel after completing a big project?', options: [
+  { question_no: 9,  prompt: 'How do you feel after completing a big project?', options: [
     { key: 'A', label: 'I am relieved it went to plan' },
     { key: 'B', label: 'I am proud of the accuracy' },
     { key: 'C', label: 'I am grateful for team support' },
