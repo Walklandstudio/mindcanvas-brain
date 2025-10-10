@@ -48,7 +48,9 @@ export async function getOwnerOrgAndFramework() {
   return { orgId: org.id as string, frameworkId: framework.id as string };
 }
 
-export async function orgIdFromAuth() {
+export async function orgIdFromAuth(_auth?: string) {
+  // Back-compat: some routes call orgIdFromAuth(authHeader). We ignore it for now
+  // and return the first org (staging/dev). Later we can map auth→user→org.
   const { orgId } = await getOwnerOrgAndFramework();
   return orgId;
 }
