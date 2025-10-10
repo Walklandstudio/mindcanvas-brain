@@ -14,7 +14,7 @@ type Goals = {
   programContext?: string;        // standalone or part of a program
   integration?: string;           // dropdown
   pricingModel?: 'free' | 'paid' | 'tiered';
-  pricePoint?: number | '' ;      // if paid
+  pricePoint?: number | '';       // only for paid
 };
 
 const INDUSTRIES = [
@@ -22,9 +22,7 @@ const INDUSTRIES = [
   'E-commerce','Media','Manufacturing','Nonprofit','Government','Other'
 ];
 
-const SECTORS = [
-  'B2B','B2C','Enterprise','SMB','Startup','Agency','Internal HR/L&D','Other'
-];
+const SECTORS = ['B2B','B2C','Enterprise','SMB','Startup','Agency','Internal HR/L&D','Other'];
 
 const INTEGRATIONS = [
   'Standalone (share link only)',
@@ -58,7 +56,6 @@ export default function Page() {
   async function save() {
     setSaving(true);
     try {
-      // normalize number for price
       const payload: Goals = {
         ...data,
         pricePoint:
@@ -69,7 +66,7 @@ export default function Page() {
       await fetch('/api/onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goals: payload })
+        body: JSON.stringify({ goals: payload }),
       });
     } finally {
       setSaving(false);
@@ -86,71 +83,61 @@ export default function Page() {
       <div className="mt-6 space-y-6">
         {/* Industry & Sector */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-slate-300">Industry</label>
-            <select
-              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
-              value={data.industry ?? ''}
-              onChange={e => setData({ ...data, industry: e.target.value })}
-            >
-              <option value="">Select…</option>
-              {INDUSTRIES.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-slate-300">Sector</label>
-            <select
-              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
-              value={data.sector ?? ''}
-              onChange={e => setData({ ...data, sector: e.target.value })}
-            >
-              <option value="">Select…</option>
-              {SECTORS.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </div>
+          <Select
+            label="Industry"
+            value={data.industry ?? ''}
+            onChange={(v) => setData({ ...data, industry: v })}
+            options={INDUSTRIES}
+          />
+          <Select
+            label="Sector"
+            value={data.sector ?? ''}
+            onChange={(v) => setData({ ...data, sector: v })}
+            options={SECTORS}
+          />
         </div>
 
-        {/* Text prompts */}
+        {/* Text questions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field
+          <TextArea
             label="What is the primary goal of the profile test?"
             value={data.primaryGoal ?? ''}
-            onChange={v => setData({ ...data, primaryGoal: v })}
+            onChange={(v) => setData({ ...data, primaryGoal: v })}
           />
-          <Field
+          <TextArea
             label="How does this test align with your company’s mission or vision?"
             value={data.missionAlignment ?? ''}
-            onChange={v => setData({ ...data, missionAlignment: v })}
+            onChange={(v) => setData({ ...data, missionAlignment: v })}
           />
-          <Field
+          <TextArea
             label="What specific outcomes would you like participants to achieve after completing the test?"
             value={data.desiredOutcomes ?? ''}
-            onChange={v => setData({ ...data, desiredOutcomes: v })}
+            onChange={(v) => setData({ ...data, desiredOutcomes: v })}
           />
-          <Field
+          <TextArea
             label="Who will primarily take this test?"
             value={data.audience ?? ''}
-            onChange={v => setData({ ...data, audience: v })}
+            onChange={(v) => setData({ ...data, audience: v })}
           />
-          <Field
+          <TextArea
             label="Are there any challenges your audience faces that the test could help address?"
             value={data.audienceChallenges ?? ''}
-            onChange={v => setData({ ...data, audienceChallenges: v })}
+            onChange={(v) => setData({ ...data, audienceChallenges: v })}
           />
-          <Field
+          <TextArea
             label="Other insights you want to collect as part of your questions?"
             value={data.extraInsights ?? ''}
-            onChange={v => setData({ ...data, extraInsights: v })}
+            onChange={(v) => setData({ ...data, extraInsights: v })}
           />
-          <Field
+          <TextArea
             label="Industry-relevant info (revenue, targets, etc.)"
             value={data.industryInfo ?? ''}
-            onChange={v => setData({ ...data, industryInfo: v })}
+            onChange={(v) => setData({ ...data, industryInfo: v })}
           />
-          <Field
+          <TextArea
             label="Will the test be standalone or part of a larger program?"
             value={data.programContext ?? ''}
-            onChange={v => setData({ ...data, programContext: v })}
+            onChange={(v) => setData({ ...data, programContext: v })}
           />
         </div>
 
@@ -161,10 +148,12 @@ export default function Page() {
             <select
               className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
               value={data.integration ?? ''}
-              onChange={e => setData({ ...data, integration: e.target.value })}
+              onChange={(e) => setData({ ...data, integration: e.target.value })}
             >
               <option value="">Select…</option>
-              {INTEGRATIONS.map(o => <option key={o} value={o}>{o}</option>)}
+              {INTEGRATIONS.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
             </select>
           </div>
 
@@ -173,15 +162,17 @@ export default function Page() {
             <select
               className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
               value={data.pricingModel ?? ''}
-              onChange={e => setData({ ...data, pricingModel: e.target.value as Goals['pricingModel'] })}
+              onChange={(e) => setData({ ...data, pricingModel: e.target.value as Goals['pricingModel'] })}
             >
               <option value="">Select…</option>
-              {PRICING.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+              {PRICING.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
             </select>
           </div>
         </div>
 
-        {/* Price (only if paid) */}
+        {/* Price when Paid */}
         {isPaid && (
           <div className="grid grid-cols-1 md:grid-cols-3">
             <div>
@@ -190,7 +181,12 @@ export default function Page() {
                 type="number" min={0} step="0.01"
                 className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
                 value={data.pricePoint ?? ''}
-                onChange={e => setData({ ...data, pricePoint: e.target.value === '' ? '' : Number(e.target.value) })}
+                onChange={(e) =>
+                  setData({
+                    ...data,
+                    pricePoint: e.target.value === '' ? '' : Number(e.target.value),
+                  })
+                }
                 placeholder="e.g. 49"
               />
             </div>
@@ -199,24 +195,18 @@ export default function Page() {
 
         {/* Actions */}
         <div className="flex items-center gap-3">
-          <a
-            href="/onboarding/branding"
-            className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm"
-          >
+          <a href="/onboarding/branding" className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm">
             Back
           </a>
           <button
             onClick={save}
-            disabled={saving || (isPaid && (!data.pricePoint && data.pricePoint !== 0))}
+            disabled={saving || (isPaid && (data.pricePoint === '' || data.pricePoint == null))}
             className="rounded-2xl px-4 py-2 text-sm font-medium disabled:opacity-60"
             style={{ background: 'linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))' }}
           >
             {saving ? 'Saving…' : 'Save & Finish'}
           </button>
-          <a
-            href="/dashboard"
-            className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm"
-          >
+          <a href="/dashboard" className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm">
             Done
           </a>
         </div>
@@ -225,15 +215,9 @@ export default function Page() {
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
+function TextArea({
+  label, value, onChange,
+}: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <div>
       <label className="block text-sm text-slate-300">{label}</label>
@@ -241,8 +225,26 @@ function Field({
         rows={3}
         className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={(e) => onChange(e.target.value)}
       />
+    </div>
+  );
+}
+
+function Select({
+  label, value, onChange, options,
+}: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
+  return (
+    <div>
+      <label className="block text-sm text-slate-300">{label}</label>
+      <select
+        className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">Select…</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
     </div>
   );
 }

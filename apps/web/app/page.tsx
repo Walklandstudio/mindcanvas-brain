@@ -93,11 +93,6 @@ export default function Landing() {
               Login
             </Link>
           </div>
-
-          {/* Mini trust strip */}
-          <div className="mt-10 text-xs text-slate-400">
-            Secure by design · Supabase (Postgres + RLS) · Vercel Edge
-          </div>
         </div>
       </section>
 
