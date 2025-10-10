@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* gradient sweep for the “Signature” word */
 @keyframes gradient-x {
   0%, 100% { background-position: 0% 50%; }
@@ -9,19 +13,11 @@
 }
 
 /* glossy button shimmer */
-.shine {
-  position: relative;
-  overflow: hidden;
-}
+.shine { position: relative; overflow: hidden; }
 .shine::after {
-  content: "";
-  position: absolute;
-  inset: 0;
+  content: ""; position: absolute; inset: 0;
   background: linear-gradient(120deg, transparent, rgba(255,255,255,.28), transparent);
   translate: -120% 0;
 }
-.shine:hover::after {
-  transition: translate .9s ease;
-  translate: 120% 0;
-}
+.shine:hover::after { transition: translate .9s ease; translate: 120% 0; }
 
