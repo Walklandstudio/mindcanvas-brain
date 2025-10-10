@@ -1,72 +1,163 @@
-'use client';
+import Link from "next/link";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
+type Onboarding = {
+  company?: Record<string, any>;
+  branding?: Record<string, any>;
+  goals?: Record<string, any>;
+};
 
-type Org = { id: string; name: string; slug: string };
+// helper to load onboarding (server)
+async function getOnboarding(): Promise<Onboarding> {
+  const r = await fetch(`${process.env.NEXT_PUBLIC_VERCEL_URL ? 'https://' + process.env.NEXT_PUBLIC_VERCEL_URL : ''}/api/onboarding`, { cache: "no-store" })
+    .catch(() => undefined);
+  if (!r || !r.ok) return { company: {}, branding: {}, goals: {} };
+  const j = await r.json();
+  return j.onboarding ?? { company: {}, branding: {}, goals: {} };
+}
 
-export default function Dashboard() {
-  const [org, setOrg] = useState<Org | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
+export default async function Dashboard() {
+  const ob = await getOnboarding();
 
-  useEffect(() => {
-    (async () => {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
+  const steps = [
+    {
+      key: "account",
+      label: "Create Account",
+      href: "/onboarding/(wizard)/create-account",
+      done: !!(ob.company?.companyName && ob.company?.email),
+    },
+    {
+      key: "company",
+      label: "Company",
+      href: "/onboarding/(wizard)/company",
+      done: !!(ob.company?.industry || ob.company?.website),
+    },
+    {
+      key: "branding",
+      label: "Branding",
+      href: "/onboarding/(wizard)/branding",
+      done: !!(ob.branding?.primary || ob.branding?.font),
+    },
+    {
+      key: "goals",
+      label: "Goals",
+      href: "/onboarding/(wizard)/goals",
+      done: !!(ob.goals?.primaryGoal || ob.goals?.successMetric),
+    },
+  ];
 
-      const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) {
-        router.replace('/login');
-        return;
-      }
-
-      const token = sess.session.access_token;
-      await fetch('/api/bootstrap', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-
-      const { data: orgs } = await supabase.from('organizations').select('id,name,slug').limit(1);
-      setOrg(orgs?.[0] ?? null);
-      setLoading(false);
-    })();
-  }, [router]);
-
-  if (loading) return <main className="p-8">Loading…</main>;
+  const completeCount = steps.filter(s => s.done).length;
+  const pct = Math.round((completeCount / steps.length) * 100);
 
   return (
-    <main className="mx-auto max-w-3xl p-8 space-y-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <a className="text-sm underline" href="/logout">Sign out</a>
-      </header>
+    <main className="min-h-screen bg-[#050914] text-white">
+      {/* top bar */}
+      <div className="mx-auto max-w-7xl px-6 py-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div
+            className="h-8 w-8 rounded-xl shadow-[0_8px_30px_rgba(100,186,226,0.35)]"
+            style={{ background: "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))" }}
+          />
+          <span className="text-lg font-semibold">Dashboard</span>
+        </div>
+        <Link href="/logout" className="text-sm text-slate-300 hover:text-white">Sign out</Link>
+      </div>
 
-      {org ? (
-        <section className="rounded-lg border p-4 space-y-2 bg-white">
-          <div className="font-medium">{org.name}</div>
-          <div className="text-sm text-gray-600">/{org.slug}</div>
-          <div className="flex flex-wrap gap-3 pt-2">
-            <a href="/onboarding" className="inline-block rounded-md bg-black px-4 py-2 text-white hover:opacity-90">
-              Start Onboarding
-            </a>
-            <a href="/tests" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
-              Manage Tests
-            </a>
-            <a href="/analytics" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
-              Analytics
-            </a>
-            <a href="/admin/profiles" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
-              Profiles
-            </a>
-            <a href="/admin/reports" className="inline-block rounded-md border px-4 py-2 hover:opacity-90">
-              Report Content
-            </a>
+      {/* content */}
+      <div className="mx-auto max-w-7xl px-6 pb-16 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
+        {/* Sidebar */}
+        <aside className="lg:sticky lg:top-6 h-max rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
+          <div className="text-sm text-slate-300 mb-3">Onboarding Progress</div>
+
+          {/* progress bar */}
+          <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${pct}%`,
+                background: "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))",
+              }}
+            />
+          </div>
+          <div className="mt-2 text-xs text-slate-400">{pct}% complete</div>
+
+          {/* steps */}
+          <nav className="mt-4 space-y-2">
+            {steps.map((s, i) => (
+              <Link
+                key={s.key}
+                href={s.href}
+                className={`flex items-center justify-between rounded-xl border px-3 py-2 text-sm transition ${
+                  s.done
+                    ? "border-white/15 bg-white/10 text-slate-200"
+                    : "border-white/10 bg-transparent text-slate-300 hover:bg-white/5"
+                }`}
+              >
+                <span>{i + 1}. {s.label}</span>
+                <span
+                  className={`ml-3 inline-flex h-5 min-w-[20px] items-center justify-center rounded-md text-[10px] ${
+                    s.done
+                      ? "bg-emerald-500/20 text-emerald-300"
+                      : "bg-white/10 text-slate-300"
+                  }`}
+                >
+                  {s.done ? "✓" : "•"}
+                </span>
+              </Link>
+            ))}
+          </nav>
+        </aside>
+
+        {/* Main */}
+        <section className="space-y-6">
+          {/* welcome / quick actions */}
+          <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md p-6">
+            <h2 className="text-xl font-semibold">Welcome back</h2>
+            <p className="mt-1 text-sm text-slate-300">
+              Finish onboarding to unlock report templates, tests, and team analytics.
+            </p>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link
+                href="/admin/framework"
+                className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm hover:bg-white/15"
+              >
+                Edit Framework
+              </Link>
+              <Link
+                href="/admin/compatibility"
+                className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm hover:bg-white/15"
+              >
+                Compatibility Matrix
+              </Link>
+              <Link
+                href="/admin/questions"
+                className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm hover:bg-white/15"
+              >
+                Questions
+              </Link>
+              <Link
+                href="/tests"
+                className="rounded-2xl bg-white text-slate-900 px-4 py-2 text-sm font-medium"
+                style={{ background: "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))" }}
+              >
+                Create a Test
+              </Link>
+            </div>
+          </div>
+
+          {/* empty states / cards (placeholders for now) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="text-sm text-slate-300 mb-2">Recent Tests</div>
+              <div className="text-xs text-slate-400">No tests yet — create your first one.</div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="text-sm text-slate-300 mb-2">Team Analytics</div>
+              <div className="text-xs text-slate-400">Insights will appear once results come in.</div>
+            </div>
           </div>
         </section>
-      ) : (
-        <p>No organization found.</p>
-      )}
+      </div>
     </main>
   );
 }

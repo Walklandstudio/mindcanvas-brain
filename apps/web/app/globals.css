@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+:root{
+  --mc-c1:#64bae2; /* light blue */
+  --mc-c2:#2d8fc4; /* mid blue  */
+  --mc-c3:#015a8b; /* deep blue */
+}
+
 /* gradient sweep for the “Signature” word */
 @keyframes gradient-x {
   0%, 100% { background-position: 0% 50%; }
