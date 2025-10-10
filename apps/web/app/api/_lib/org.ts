@@ -1,48 +1,54 @@
 // apps/web/app/api/_lib/org.ts
-import { createClient } from '@supabase/supabase-js';
+// Server helpers for Supabase admin client + org resolution
+import 'server-only';
+import { createClient as createServerClient } from '@supabase/supabase-js';
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!; // kept for future use (not needed in this file now)
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!;
+
+// Admin client (service role) — use ONLY on the server
 export function admin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE!;
-  return createClient(url, key, { auth: { persistSession: false } });
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
+    throw new Error('Supabase env vars missing for admin()');
+  }
+  return createServerClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
-/** Staging helper – first org in DB. */
-export async function orgIdFromAuth(): Promise<string> {
-  const sb = admin();
-  const { data, error } = await sb
+  // Resolve the current org and its master framework for the logged-in owner.
+// Falls back to the first org to keep staging/dev usable.
+export async function getOwnerOrgAndFramework() {
+  // Minimal, dependency-free version: use service role to fetch first org, ensure a framework.
+  const svc = admin();
+  const { data: org, error: orgErr } = await svc
     .from('organizations')
-    .select('id')
+    .select('*')
     .order('created_at', { ascending: true })
     .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error('No organizations found');
-  return data.id as string;
-}
+    .single();
+  if (orgErr || !org) throw new Error('No organizations found for this project.');
 
-/** Returns { orgId, frameworkId } for the owner org (first org + its first framework). */
-export async function getOwnerOrgAndFramework(): Promise<{ orgId: string; frameworkId: string }> {
-  const sb = admin();
-
-  const { data: org, error: eo } = await sb
-    .from('organizations')
-    .select('id')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (eo) throw eo;
-  if (!org) throw new Error('No organizations exist');
-
-  const { data: fw, error: ef } = await sb
+  let { data: framework } = await svc
     .from('org_frameworks')
-    .select('id')
+    .select('*')
     .eq('org_id', org.id)
-    .order('created_at', { ascending: true })
     .limit(1)
-    .maybeSingle();
-  if (ef) throw ef;
-  if (!fw) throw new Error('No framework exists for organization');
+    .single();
+  if (!framework) {
+    const { data: created, error: cfErr } = await svc
+      .from('org_frameworks')
+      .insert({ org_id: org.id, name: 'Master Framework' })
+      .select('*')
+      .single();
+    if (cfErr) throw cfErr;
+    framework = created;
+  }
+  return { orgId: org.id as string, frameworkId: framework.id as string };
+}
 
-  return { orgId: org.id as string, frameworkId: fw.id as string };
+export async function orgIdFromAuth() {
+  const { orgId } = await getOwnerOrgAndFramework();
+  return orgId;
 }

@@ -1,4 +1,6 @@
 // apps/web/app/api/ai/rephrase/route.ts
+function expandContractions(s: string) { return s; }
+
 import { NextResponse } from 'next/server';
 import { getOwnerOrgAndFramework } from '../../_lib/org';
 
