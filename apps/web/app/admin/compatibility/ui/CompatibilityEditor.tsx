@@ -1,69 +1,54 @@
-// apps/web/app/admin/compatibility/ui/CompatibilityEditor.tsx
 'use client';
 import { useMemo, useState } from 'react';
 
 type Profile = { id: string; name: string; frequency: 'A'|'B'|'C'|'D'; ordinal: number };
-
 type Pair = { a: string; b: string; score: number };
 
-type Props = { profiles: Profile[]; initialPairs: Pair[] };
-
-export default function CompatibilityEditor({ profiles, initialPairs }: Props) {
+export default function CompatibilityEditor({ profiles, initialPairs }:{
+  profiles: Profile[]; initialPairs: Pair[];
+}) {
   const ids = profiles.map(p => p.id);
   const [scores, setScores] = useState<Record<string, number>>(() => {
     const m: Record<string, number> = {};
     for (const { a, b, score } of initialPairs || []) {
-      m[key(a,b)] = score;
-      m[key(b,a)] = score; // enforce symmetry on load
+      m[`${a}__${b}`]=score; m[`${b}__${a}`]=score;
     }
     return m;
   });
   const [saving, setSaving] = useState(false);
   const options = [0, 20, 40, 60, 80, 100];
 
-  function key(a: string, b: string) { return `${a}__${b}`; }
+  const grid = useMemo(() => profiles, [profiles]);
 
   function setPair(a: string, b: string, score: number) {
-    setScores(prev => ({ ...prev, [key(a,b)]: score, [key(b,a)]: score }));
+    setScores(prev => ({ ...prev, [`${a}__${b}`]: score, [`${b}__${a}`]: score }));
   }
 
   async function save() {
     setSaving(true);
     try {
       const pairs: Pair[] = [];
-      for (const a of ids) {
-        for (const b of ids) {
-          if (a === b) continue;
-          const s = scores[key(a,b)] ?? 0;
-          // Only push upper triangle to avoid duplicates
-          if (ids.indexOf(a) < ids.indexOf(b)) {
-            pairs.push({ a, b, score: s });
-          }
+      for (let i=0;i<ids.length;i++){
+        for (let j=i+1;j<ids.length;j++){
+          const a=ids[i], b=ids[j];
+          const s = scores[`${a}__${b}`] ?? 0;
+          pairs.push({ a,b,score:s });
         }
       }
       const res = await fetch('/api/admin/compatibility', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ pairs })
       });
-      if (!res.ok) {
-        const { error } = await res.json();
-        alert(error || 'Save failed');
-        return;
-      }
+      if (!res.ok) { const {error}=await res.json(); alert(error||'Save failed'); return; }
       alert('Compatibility saved');
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   }
 
-  const grid = useMemo(() => profiles, [profiles]);
-
   return (
-    <div className="mt-6">
-      <div className="overflow-auto border rounded-2xl">
+    <div className="space-y-4">
+      <div className="overflow-auto rounded-2xl border border-white/10">
         <table className="min-w-full text-sm">
-          <thead>
+          <thead className="bg-white/5">
             <tr>
               <th className="p-2 text-left">Profile</th>
               {grid.map(p => (
@@ -73,26 +58,24 @@ export default function CompatibilityEditor({ profiles, initialPairs }: Props) {
           </thead>
           <tbody>
             {grid.map((row, ri) => (
-              <tr key={row.id} className="border-t">
+              <tr key={row.id} className="border-t border-white/10">
                 <td className="p-2 font-medium whitespace-nowrap">{row.name}</td>
                 {grid.map((col, ci) => {
                   if (row.id === col.id) {
-                    return <td key={col.id} className="p-2 text-center text-gray-400">—</td>;
+                    return <td key={col.id} className="p-2 text-center text-slate-500">—</td>;
                   }
-                  const k = `${row.id}__${col.id}`;
-                  const v = scores[k] ?? 0;
-                  const disabled = ri > ci; // edit only upper triangle
+                  const v = scores[`${row.id}__${col.id}`] ?? 0;
+                  const disabled = ri > ci; // upper triangle editable
                   return (
                     <td key={col.id} className="p-1 text-center">
                       <select
                         disabled={disabled}
                         value={v}
                         onChange={e => setPair(row.id, col.id, Number(e.target.value))}
-                        className={`border rounded-md px-2 py-1 ${disabled ? 'bg-gray-50 text-gray-400' : ''}`}
+                        className={`border border-white/10 bg-white/5 rounded-md px-2 py-1
+                          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        {options.map(o => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
+                        {options.map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
                     </td>
                   );
@@ -103,11 +86,11 @@ export default function CompatibilityEditor({ profiles, initialPairs }: Props) {
         </table>
       </div>
 
-      <div className="mt-4">
+      <div>
         <button
-          onClick={save}
-          disabled={saving}
-          className="px-4 py-2 rounded-xl bg-black text-white disabled:opacity-60 shadow"
+          onClick={save} disabled={saving}
+          className="px-4 py-2 rounded-2xl text-sm font-medium disabled:opacity-60"
+          style={{ background: 'linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))' }}
         >
           {saving ? 'Saving…' : 'Save Matrix'}
         </button>

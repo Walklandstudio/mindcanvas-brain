@@ -12,12 +12,15 @@ async function getData() {
 export default async function Page() {
   const { profiles, pairs } = await getData();
   return (
-    <main className="max-w-6xl mx-auto p-6">
-      <h1 className="text-2xl font-semibold">Compatibility Matrix</h1>
-      <p className="text-sm text-gray-500 mt-1">
-        Set pair scores (0–100). Symmetry is applied automatically.
-      </p>
-      <CompatibilityEditor profiles={profiles} initialPairs={pairs} />
+    <main className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Compatibility Matrix</h1>
+        <p className="text-sm text-slate-300 mt-1">Set pair scores (0–100). Symmetry enforced.</p>
+      </header>
+
+      <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md p-6">
+        <CompatibilityEditor profiles={profiles} initialPairs={pairs} />
+      </div>
     </main>
   );
 }
