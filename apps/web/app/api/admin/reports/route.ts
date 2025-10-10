@@ -2,14 +2,27 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
 
-export async function GET() {
+export async function GET(req: Request) {
   const svc = admin();
   const { orgId, frameworkId } = await getOwnerOrgAndFramework();
+
+  const url = new URL(req.url);
+  const profileId = url.searchParams.get('profileId');
+
+  if (profileId) {
+    const { data } = await svc
+      .from('org_profile_reports')
+      .select('sections')
+      .eq('profile_id', profileId)
+      .single();
+    return NextResponse.json({ sections: data?.sections ?? {} });
+  }
 
   const { data: profiles } = await svc
     .from('org_profiles')
     .select('id,name,frequency,ordinal')
-    .eq('org_id', orgId).eq('framework_id', frameworkId)
+    .eq('org_id', orgId)
+    .eq('framework_id', frameworkId)
     .order('ordinal', { ascending: true });
 
   const { data: drafts } = await svc
@@ -19,12 +32,12 @@ export async function GET() {
   const map: Record<string, any> = {};
   for (const d of drafts ?? []) map[d.profile_id] = d.sections ?? {};
 
-  return NextResponse.json({ profiles, drafts: map });
+  return NextResponse.json({ profiles: profiles ?? [], drafts: map });
 }
 
 export async function POST(req: Request) {
-  const body = await req.json() as { profileId: string; sections: any };
-  if (!body?.profileId) return NextResponse.json({ error:'Missing profileId' }, { status:400 });
+  const body = (await req.json()) as { profileId: string; sections: any };
+  if (!body?.profileId) return NextResponse.json({ error: 'Missing profileId' }, { status: 400 });
 
   const svc = admin();
   const { orgId, frameworkId } = await getOwnerOrgAndFramework();
@@ -36,10 +49,7 @@ export async function POST(req: Request) {
     sections: body.sections ?? {},
   };
 
-  const { error } = await svc
-    .from('org_profile_reports')
-    .upsert(up, { onConflict:'profile_id' });
-
-  if (error) return NextResponse.json({ error: error.message }, { status:500 });
-  return NextResponse.json({ ok:true });
+  const { error } = await svc.from('org_profile_reports').upsert(up, { onConflict: 'profile_id' });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }

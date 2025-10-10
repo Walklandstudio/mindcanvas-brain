@@ -1,65 +1,62 @@
-export const dynamic = 'force-dynamic';
+// …existing imports…
+type DraftSections = {
+  strengths?: string; challenges?: string; roles?: string; guidance?: string; visibility?: string;
+};
 
-type RouteParams = { token: string };
+async function getBranding() {
+  const r = await fetch('/api/onboarding', { cache: 'no-store' });
+  const j = await r.json();
+  return j.onboarding?.branding ?? {};
+}
 
-export default async function PublicReportPage({
-  params,
-}: {
-  params: Promise<RouteParams>;
-}) {
-  const { token } = await params;
+async function getDraftSections(profileId: string): Promise<DraftSections> {
+  const r = await fetch(`/api/admin/reports?profileId=${profileId}`, { cache: 'no-store' });
+  if (!r.ok) return {};
+  const j = await r.json();
+  // route below returns either all drafts or a single profile draft when profileId query exists
+  return j.sections ?? (j.drafts?.[profileId] ?? {});
+}
 
-  const printCSS = `
-    @media print {
-      html, body { background: white; }
-      main { box-shadow: none !important; }
-      .no-print { display: none !important; }
-      .page { break-inside: avoid; page-break-inside: avoid; }
-      .page-break { page-break-after: always; }
-      @page {
-        size: A4;
-        margin: 12mm;
-      }
-    }
-  `;
+export default async function Page({ params }: { params: { token: string } }) {
+  // …your existing scoring & profile resolution…
+  const profileId = /* your existing resolved profile id */ '';
+
+  const [branding, sections] = await Promise.all([
+    getBranding(),
+    getDraftSections(profileId),
+  ]);
+
+  const F = (x?: string, fallback?: string) => (x && x.trim().length ? x : fallback);
 
   return (
-    <main className="container-page">
-      {/* Print styles (no styled-jsx props) */}
-      <style dangerouslySetInnerHTML={{ __html: printCSS }} />
+    <main
+      className="mx-auto w-[850px] p-8 print:p-0"
+      style={{
+        ['--brand-primary' as any]: branding.primary || '#2d8fc4',
+        ['--brand-secondary' as any]: branding.secondary || '#015a8b',
+        ['--brand-accent' as any]: branding.accent || '#64bae2',
+        fontFamily: branding.font || undefined,
+      }}
+    >
+      {/* …your heading & meta… */}
 
-      <header className="flex items-center justify-between mb-6 no-print">
-        <h1 className="h1">Profile Report</h1>
-        <div className="text-sm text-slate-500">Token: {token}</div>
-      </header>
-
-      <section className="card p-6 page">
-        <h2 className="h2 mb-2">Summary</h2>
-        <p className="text-slate-700">
-          This is a placeholder report view for token <strong>{token}</strong>.
-          We’ll render the frequency/profile result and branded sections here.
-        </p>
+      <section className="mt-6 space-y-5">
+        <Block title="Strengths"    text={F(sections.strengths,  'Creative ideation, fast synthesis, team energy.')} />
+        <Block title="Challenges"   text={F(sections.challenges, 'May skip details; needs structure & follow-through.')} />
+        <Block title="Ideal Roles"  text={F(sections.roles,      'Product Strategy, Creative Direction, Innovation Lead.')} />
+        <Block title="Guidance"     text={F(sections.guidance,   'Pair with detail partners; translate ideas into milestones.')} />
+        <Block title="Visibility Strategy" text={F(sections.visibility, 'Publish ideas, run short pilots, socialize wins.')} />
       </section>
-
-      <section className="card p-6 mt-6 page">
-        <h3 className="h3 mb-2">Highlights</h3>
-        <ul className="list-disc pl-6 text-slate-700">
-          <li>Primary Frequency: TBD</li>
-          <li>Profile: TBD</li>
-          <li>Key Strengths: TBD</li>
-        </ul>
-      </section>
-
-      <div className="no-print mt-8">
-        <button
-          className="btn"
-          onClick={() => {
-            if (typeof window !== 'undefined') window.print();
-          }}
-        >
-          Print / Save as PDF
-        </button>
-      </div>
     </main>
+  );
+}
+
+function Block({ title, text }: { title: string; text?: string }) {
+  if (!text) return null;
+  return (
+    <div className="rounded-xl border border-black/10 p-4 bg-white/60 break-inside-avoid">
+      <h3 className="text-lg font-semibold" style={{ color: 'var(--brand-accent)' }}>{title}</h3>
+      <p className="mt-1 text-[15px] leading-6 text-slate-800">{text}</p>
+    </div>
   );
 }

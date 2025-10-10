@@ -1,4 +1,3 @@
-// apps/web/app/admin/reports/page.tsx
 import ClientEditor from './ClientEditor';
 
 export const dynamic = 'force-dynamic';
