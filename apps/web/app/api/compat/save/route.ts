@@ -1,46 +1,38 @@
+import 'server-only';
 import { NextResponse } from 'next/server';
-import { admin, orgIdFromAuth } from '../../_lib/org';
+import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
 
 export const runtime = 'nodejs';
 
-export async function GET(req: Request) {
-  try {
-    const auth = req.headers.get('authorization') ?? '';
-    if (!auth.startsWith('Bearer ')) return NextResponse.json({ ok:false, error:'unauthorized' }, { status:401 });
+type Pair = { a: string; b: string; score: number };
 
-    const orgId = await orgIdFromAuth(auth);
-    if (!orgId) return NextResponse.json({ ok:false, error:'no_org' }, { status:401 });
+export async function POST(req: Request) {
+  const svc = admin();
+  const { frameworkId, orgId } = await getOwnerOrgAndFramework();
 
-    const a = admin();
+  const body = (await req.json()) as { pairs: Pair[] };
+  if (!body?.pairs) return NextResponse.json({ error: 'Missing pairs' }, { status: 400 });
 
-    // latest framework for this org
-    const { data: fw } = await a
-      .from('org_frameworks')
-      .select('id')
-      .eq('org_id', orgId)
-      .order('created_at', { ascending:false })
-      .limit(1);
+  const clean = body.pairs
+    .filter(p => p.a && p.b && p.a !== p.b)
+    .map(p => ({
+      org_id: orgId,
+      framework_id: frameworkId,
+      profile_a: p.a,
+      profile_b: p.b,
+      score: Math.max(0, Math.min(100, Math.round(p.score))),
+    }));
 
-    const framework = fw?.[0];
-    if (!framework) {
-      return NextResponse.json({ ok:true, data: { framework:null, profiles:[], entries:[] }});
-    }
+  // replace-all for this framework
+  const { error: delErr } = await svc
+    .from('org_profile_compatibility')
+    .delete()
+    .eq('framework_id', frameworkId);
+  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
-    const framework_id = framework.id as string;
-
-    const { data: profiles = [] } = await a
-      .from('org_profiles')
-      .select('id, code, name, primary_frequency')
-      .eq('framework_id', framework_id)
-      .order('code');
-
-    const { data: entries = [] } = await a
-      .from('org_profile_compatibility')
-      .select('id, profile_a_id, profile_b_id, score, notes')
-      .eq('framework_id', framework_id);
-
-    return NextResponse.json({ ok:true, data: { framework, profiles, entries }});
-  } catch (e:any) {
-    return NextResponse.json({ ok:false, error:String(e?.message ?? e) }, { status:500 });
+  if (clean.length) {
+    const { error: insErr } = await svc.from('org_profile_compatibility').insert(clean);
+    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
   }
+  return NextResponse.json({ ok: true });
 }

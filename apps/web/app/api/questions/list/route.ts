@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { admin, orgIdFromAuth } from '../../_lib/org';
+import { admin, const { orgId, frameworkId } = await getOwnerOrgAndFramework() } from '../../_lib/org';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +11,7 @@ export async function GET(req: Request) {
 
     // If you want org scoping strictly by auth, uncomment these two lines:
     // if (!auth.startsWith('Bearer ')) return NextResponse.json({ items: [] });
-    // const orgId = await orgIdFromAuth(auth); if (!orgId) return NextResponse.json({ items: [] });
+    // const orgId = await const { orgId, frameworkId } = await getOwnerOrgAndFramework()(auth); if (!orgId) return NextResponse.json({ items: [] });
 
     // For now: return the base 15 from any org that has them (or your default org).
     const { data, error } = await a

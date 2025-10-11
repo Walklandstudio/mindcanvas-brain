@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { admin, orgIdFromAuth } from '../../_lib/org';
+import { admin, const { orgId, frameworkId } = await getOwnerOrgAndFramework() } from '../../_lib/org';
 
 export const runtime = 'nodejs';
 
@@ -8,7 +8,7 @@ export async function GET(req: Request) {
     const auth = req.headers.get('authorization') ?? '';
     if (!auth.startsWith('Bearer ')) return NextResponse.json({ ok:false, error:'unauthorized' }, { status:401 });
 
-    const orgId = await orgIdFromAuth(auth);
+    const orgId = await const { orgId, frameworkId } = await getOwnerOrgAndFramework()(auth);
     if (!orgId) return NextResponse.json({ ok:false, error:'no_org' }, { status:401 });
 
     const a = admin();
