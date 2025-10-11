@@ -1,151 +1,131 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
 
-type Profile = { id: string; name: string; frequency: 'A'|'B'|'C'|'D'; ordinal: number };
-type Sections = {
-  strengths?: string;
-  challenges?: string;
-  roles?: string;
-  guidance?: string;
-  visibility?: string;
+import { useState } from 'react';
+
+type Section = {
+  title: string;
+  body: string;
 };
 
-export default function ClientEditor({
-  profiles,
-  drafts,
-}: {
-  profiles: Profile[];
-  drafts: Record<string, Sections>;
-}) {
-  const [active, setActive] = useState<string>(profiles[0]?.id ?? '');
-  const [sections, setSections] = useState<Record<string, Sections>>({ ...drafts });
-  const [branding, setBranding] = useState<any>({});
+export default function ClientEditor() {
+  const [profileName, setProfileName] = useState('Visionary');
+  const [sections, setSections] = useState<Section[]>([
+    { title: 'Strengths', body: '' },
+    { title: 'Challenges', body: '' },
+    { title: 'Ideal Roles', body: '' },
+    { title: 'Guidance', body: '' },
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string>('');
+  const [drafting, setDrafting] = useState(false);
 
-  // Ensure there is a bucket for every profile
-  useEffect(() => {
-    setSections((prev) => {
-      const copy = { ...prev };
-      for (const p of profiles) if (!copy[p.id]) copy[p.id] = {};
-      return copy;
-    });
-  }, [profiles]);
+  // Optional: allow passing brand/goals context from onboarding later
+  const brand = { description: '', voice: '', font: '', colors: {} as any };
+  const goals = {} as any;
 
-  // Load branding for live preview
-  useEffect(() => {
-    (async () => {
-      const r = await fetch('/api/onboarding');
-      const j = await r.json();
-      setBranding(j.onboarding?.branding ?? {});
-    })();
-  }, []);
-
-  const prof = profiles.find((p) => p.id === active);
-  const value = sections[active] ?? {};
-
-  function update(key: keyof Sections, v: string) {
-    setSections((prev) => ({ ...prev, [active]: { ...prev[active], [key]: v } }));
+  function update(i: number, patch: Partial<Section>) {
+    setSections(prev => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
 
   async function save() {
-    await fetch('/api/admin/reports', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profileId: active, sections: sections[active] }),
-    });
-    alert('Saved');
+    setSaving(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/reports/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileName, sections }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.error || 'Save failed');
+      setMessage('Draft saved ✓');
+    } catch (e: any) {
+      setMessage(e?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  async function draft() {
-    const r = await fetch('/api/admin/reports/draft', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profileId: active }),
-    });
-    const j = await r.json();
-    if (!r.ok) return alert(j.error || 'Draft failed');
-    setSections((prev) => ({ ...prev, [active]: { ...prev[active], ...j.sections } }));
+  async function aiDraftAll() {
+    setDrafting(true);
+    setMessage('Drafting…');
+    try {
+      const next = [...sections];
+      for (let i = 0; i < next.length; i++) {
+        const s = next[i];
+        const res = await fetch('/api/ai/rephrase', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profileName,
+            sectionTitle: s.title,
+            draft: s.body,
+            brand,
+            goals,
+          }),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j?.error || 'AI error');
+        next[i] = { ...s, body: j.text ?? s.body };
+      }
+      setSections(next);
+      setMessage('AI draft complete ✓');
+    } catch (e: any) {
+      setMessage(e?.message || 'AI draft failed');
+    } finally {
+      setDrafting(false);
+    }
   }
-
-  const vars = useMemo(
-    () =>
-      ({
-        '--brand-primary': branding.primary || '#2d8fc4',
-        '--brand-secondary': branding.secondary || '#015a8b',
-        '--brand-accent': branding.accent || '#64bae2',
-        '--brand-font': branding.font || '',
-      }) as React.CSSProperties,
-    [branding]
-  );
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-6">
-      <aside className="space-y-2">
-        {profiles.map((p) => (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="md:col-span-1">
+          <label className="block text-sm text-white/70 mb-1">Profile</label>
+          <input
+            className="w-full rounded-xl bg-white/5 px-3 py-2 outline-none ring-1 ring-white/10 focus:ring-white/20"
+            value={profileName}
+            onChange={e => setProfileName(e.target.value)}
+            placeholder="e.g., Visionary"
+          />
+        </div>
+        <div className="md:col-span-2 flex items-end gap-3">
           <button
-            key={p.id}
-            onClick={() => setActive(p.id)}
-            className={`w-full text-left rounded-xl border px-3 py-2 ${
-              active === p.id ? 'border-white/30 bg-white/10' : 'border-white/10 bg-white/5'
-            }`}
+            onClick={aiDraftAll}
+            disabled={drafting}
+            className="rounded-xl bg-brand-500/80 px-4 py-2 text-sm text-white hover:bg-brand-500 transition disabled:opacity-60"
           >
-            <div className="text-sm">{p.name}</div>
-            <div className="text-xs text-slate-400">Frequency {p.frequency}</div>
+            {drafting ? 'Drafting…' : 'Use AI → Draft sections'}
           </button>
-        ))}
-      </aside>
-
-      <section className="space-y-5">
-        <h3 className="text-lg font-semibold">{prof?.name ?? 'Profile'}</h3>
-
-        {(['strengths', 'challenges', 'roles', 'guidance', 'visibility'] as (keyof Sections)[]).map(
-          (k) => (
-            <div key={k}>
-              <div className="text-sm text-slate-300 capitalize">{k}</div>
-              <textarea
-                rows={4}
-                className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
-                value={value[k] ?? ''}
-                onChange={(e) => update(k, e.target.value)}
-              />
-            </div>
-          )
-        )}
-
-        <div className="flex items-center gap-3">
           <button
             onClick={save}
-            className="rounded-2xl px-4 py-2 text-sm"
-            style={{ background: 'linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))' }}
+            disabled={saving}
+            className="rounded-xl bg-white/10 px-4 py-2 text-sm hover:bg-white/15 disabled:opacity-60"
           >
-            Save Sections
+            {saving ? 'Saving…' : 'Save draft'}
           </button>
-          <button
-            onClick={draft}
-            className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm"
-            title="Use AI → draft sections"
-          >
-            Use AI → draft sections
-          </button>
+          {message && <span className="text-sm text-white/70">{message}</span>}
         </div>
+      </div>
 
-        {/* Live preview */}
-        <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4" style={vars}>
-          <h4
-            className="text-base font-semibold"
-            style={{ color: 'var(--brand-accent)', fontFamily: 'var(--brand-font)' }}
-          >
-            {prof?.name ?? 'Profile'} — Report Preview
-          </h4>
-          {Object.entries(value).map(([k, v]) =>
-            v ? (
-              <div key={k} className="mt-3">
-                <div className="text-xs text-slate-400 capitalize">{k}</div>
-                <p className="text-sm text-slate-200/90">{v}</p>
-              </div>
-            ) : null
-          )}
-        </div>
-      </section>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        {sections.map((s, i) => (
+          <div key={i} className="rounded-2xl border border-white/10 p-4 bg-white/5">
+            <input
+              className="mb-2 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-white/20"
+              value={s.title}
+              onChange={e => update(i, { title: e.target.value })}
+            />
+            <textarea
+              rows={8}
+              className="w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-white/20"
+              value={s.body}
+              onChange={e => update(i, { body: e.target.value })}
+              placeholder={`Write ${s.title.toLowerCase()} content…`}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
