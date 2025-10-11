@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 type F = "A" | "B" | "C" | "D";
 type FrequencyMeta = Record<F, { name?: string; image_url?: string; image_prompt?: string }>;
@@ -22,14 +23,45 @@ export default function FrameworkClient({
   frequencyMeta: FrequencyMeta;
   profiles: Profile[];
 }) {
-  const groups: Record<F, Profile[]> = { A: [], B: [], C: [], D: [] };
-  (profiles || []).forEach((p) => groups[p.frequency].push(p));
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  function notify(s: string) {
+    setToast(s);
+    setTimeout(() => setToast(null), 3000);
+  }
 
   const ready = (profiles?.length || 0) >= 8;
+
+  async function generateImages() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/framework/generate-images", { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Image generation failed");
+      notify("Images generated");
+      // refresh
+      location.reload();
+    } catch (e: any) {
+      notify(e?.message || "Image generation failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
       {/* Frequencies row */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">Frequencies</h2>
+        <button
+          onClick={generateImages}
+          disabled={busy}
+          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-sm"
+        >
+          {busy ? "Generating…" : "Generate Images"}
+        </button>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {(["A", "B", "C", "D"] as F[]).map((F) => {
           const title = frequencyMeta?.[F]?.name || `Frequency ${F}`;
@@ -111,6 +143,12 @@ export default function FrameworkClient({
           </button>
         )}
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl bg-white/10 border border-white/15">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
