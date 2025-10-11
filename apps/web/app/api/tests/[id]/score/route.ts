@@ -4,12 +4,28 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../_lib/supabase";
 
-export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+function extractTestIdFromUrl(u: string): string | null {
+  try {
+    const url = new URL(u);
+    // path looks like: /api/tests/<id>/score
+    const parts = url.pathname.split("/").filter(Boolean); // ["api","tests","<id>","score"]
+    const testsIdx = parts.indexOf("tests");
+    if (testsIdx >= 0 && parts.length > testsIdx + 1) {
+      return parts[testsIdx + 1];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
   const supabase = getServiceClient();
-  const { id } = params;
+
+  const testId = extractTestIdFromUrl(req.url);
+  if (!testId) {
+    return NextResponse.json({ error: "Invalid test id in URL" }, { status: 400 });
+  }
 
   // read submitted answers
   let body: any = {};
@@ -22,7 +38,7 @@ export async function POST(
   const { data: test, error: tErr } = await supabase
     .from("org_tests")
     .select("id,mode")
-    .eq("id", id)
+    .eq("id", testId)
     .maybeSingle();
 
   if (tErr || !test) {
