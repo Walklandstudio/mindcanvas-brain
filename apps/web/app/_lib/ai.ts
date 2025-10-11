@@ -1,58 +1,46 @@
 // apps/web/app/_lib/ai.ts
 import OpenAI from "openai";
 
-type Plan = {
-  frequencies: { A: string; B: string; C: string; D: string };
-  profiles: { name: string; frequency: "A" | "B" | "C" | "D" }[];
-  imagePrompts: { A: string; B: string; C: string; D: string };
+type Freq = "A" | "B" | "C" | "D";
+
+export type Plan = {
+  frequencies: Record<Freq, string>;
+  profiles: { name: string; frequency: Freq }[];
+  imagePrompts: Record<Freq, string>;
 };
 
-function fallbackPlan(input: {
-  industry?: string;
-  sector?: string;
-  brandTone?: string;
-  primaryGoal?: string;
-}): Plan {
+function fallbackPlan(input: { industry?: string; primaryGoal?: string }): Plan {
   const ind = (input.industry || "Signature").trim();
   const goal = (input.primaryGoal || "Performance").trim();
 
-  const freq = {
+  const frequencies: Record<Freq, string> = {
     A: `${ind} Pioneers`,
     B: `${ind} Collaborators`,
     C: `${ind} Operators`,
     D: `${ind} Analysts`,
   };
 
-  const namesA = [`${goal} Catalyst`, `Visionary`];
-  const namesB = [`People Connector`, `Culture Builder`];
-  const namesC = [`Process Coordinator`, `System Planner`];
-  const namesD = [`Quality Controller`, `Risk Optimiser`];
-
   const profiles = [
-    { name: namesA[0], frequency: "A" as const },
-    { name: namesA[1], frequency: "A" as const },
-    { name: namesB[0], frequency: "B" as const },
-    { name: namesB[1], frequency: "B" as const },
-    { name: namesC[0], frequency: "C" as const },
-    { name: namesC[1], frequency: "C" as const },
-    { name: namesD[0], frequency: "D" as const },
-    { name: namesD[1], frequency: "D" as const },
+    { name: `${goal} Catalyst`, frequency: "A" as const },
+    { name: "Visionary",        frequency: "A" as const },
+    { name: "People Connector", frequency: "B" as const },
+    { name: "Culture Builder",  frequency: "B" as const },
+    { name: "Process Coordinator", frequency: "C" as const },
+    { name: "System Planner",      frequency: "C" as const },
+    { name: "Quality Controller",  frequency: "D" as const },
+    { name: "Risk Optimiser",      frequency: "D" as const },
   ];
 
-  const imagePrompts = {
+  const imagePrompts: Record<Freq, string> = {
     A: `Abstract emblem for bold innovators in ${ind}. Minimal, modern.`,
     B: `Abstract emblem for collaborative roles in ${ind}. Friendly, modern.`,
     C: `Abstract emblem for operations/process focus in ${ind}. Structured, modern.`,
     D: `Abstract emblem for analytical/quality focus in ${ind}. Precise, modern.`,
   };
 
-  return { frequencies: freq, profiles, imagePrompts };
+  return { frequencies, profiles, imagePrompts };
 }
 
-/**
- * Suggest frequency names + 8 profile names using onboarding context.
- * Falls back to deterministic names if OpenAI is unavailable or returns bad JSON.
- */
 export async function suggestFrameworkNames(input: {
   industry?: string;
   sector?: string;
@@ -64,18 +52,14 @@ export async function suggestFrameworkNames(input: {
 
   try {
     const openai = new OpenAI({ apiKey });
-
     const sys =
-      "You are a brand-savvy naming assistant. Return concise JSON only. " +
-      "Create 4 frequency names (A,B,C,D) and 8 profile names (two per frequency), " +
-      "aligned with the client's industry and tone. Keep names 1–3 words.";
-
+      "You are a naming assistant. Return concise JSON only. " +
+      "Create 4 frequency names (A,B,C,D) and 8 profile names (two per frequency). Keep names 1–3 words.";
     const user = {
       industry: input.industry || "",
       sector: input.sector || "",
       tone: input.brandTone || "",
       primaryGoal: input.primaryGoal || "",
-      need: "Frequencies A-D (names) + 8 profiles (name + frequency).",
     };
 
     const resp = await openai.chat.completions.create({
@@ -83,65 +67,97 @@ export async function suggestFrameworkNames(input: {
       temperature: 0.5,
       messages: [
         { role: "system", content: sys },
-        {
-          role: "user",
-          content:
-            "Return JSON as {frequencies:{A,B,C,D}, profiles:[{name,frequency}], imagePrompts:{A,B,C,D}} for prompts.",
-        },
+        { role: "user", content: "Return JSON {frequencies:{A,B,C,D}, profiles:[{name,frequency}], imagePrompts:{A,B,C,D}}." },
         { role: "user", content: JSON.stringify(user) },
       ],
       response_format: { type: "json_object" },
     });
 
-    const content = resp.choices?.[0]?.message?.content || "{}";
-    const parsed = JSON.parse(content);
-    // Basic validation
-    if (
-      !parsed?.frequencies?.A ||
-      !Array.isArray(parsed?.profiles) ||
-      parsed.profiles.length < 8
-    ) {
-      return fallbackPlan(input);
-    }
+    const parsed = JSON.parse(resp.choices?.[0]?.message?.content || "{}");
+    const fb = fallbackPlan(input);
 
-    // Ensure exactly 8 profiles (A–D × 2) and coerce frequencies
-    const byF: Record<"A" | "B" | "C" | "D", string[]> = { A: [], B: [], C: [], D: [] };
-    for (const p of parsed.profiles as any[]) {
-      const f = String(p.frequency || "").toUpperCase();
-      if (f === "A" || f === "B" || f === "C" || f === "D") {
-        if (byF[f].length < 2) byF[f].push(String(p.name || "").trim() || "Profile");
+    // Validate and normalise
+    const frequencies: Record<Freq, string> = {
+      A: String(parsed?.frequencies?.A || fb.frequencies.A),
+      B: String(parsed?.frequencies?.B || fb.frequencies.B),
+      C: String(parsed?.frequencies?.C || fb.frequencies.C),
+      D: String(parsed?.frequencies?.D || fb.frequencies.D),
+    };
+
+    const byF: Record<Freq, string[]> = { A: [], B: [], C: [], D: [] };
+    for (const p of parsed?.profiles ?? []) {
+      const f = String(p?.frequency || "").toUpperCase();
+      if (["A", "B", "C", "D"].includes(f) && p?.name) {
+        const ff = f as Freq;
+        if (byF[ff].length < 2) byF[ff].push(String(p.name).trim());
       }
     }
-    const fill = (arr: string[], fallbacks: string[]) =>
-      arr.concat(fallbacks).slice(0, 2);
+    function take2(f: Freq, defaults: { name: string; frequency: Freq }[]) {
+      const d = defaults.filter((x) => x.frequency === f).map((x) => x.name);
+      return byF[f].concat(d).slice(0, 2);
+    }
+    const namesA = take2("A", fb.profiles);
+    const namesB = take2("B", fb.profiles);
+    const namesC = take2("C", fb.profiles);
+    const namesD = take2("D", fb.profiles);
 
-    const fb = fallbackPlan(input);
-    const A = fill(byF.A, fb.profiles.filter((p) => p.frequency === "A").map((p) => p.name));
-    const B = fill(byF.B, fb.profiles.filter((p) => p.frequency === "B").map((p) => p.name));
-    const C = fill(byF.C, fb.profiles.filter((p) => p.frequency === "C").map((p) => p.name));
-    const D = fill(byF.D, fb.profiles.filter((p) => p.frequency === "D").map((p) => p.name));
+    const profiles = [
+      { name: namesA[0], frequency: "A" as const },
+      { name: namesA[1], frequency: "A" as const },
+      { name: namesB[0], frequency: "B" as const },
+      { name: namesB[1], frequency: "B" as const },
+      { name: namesC[0], frequency: "C" as const },
+      { name: namesC[1], frequency: "C" as const },
+      { name: namesD[0], frequency: "D" as const },
+      { name: namesD[1], frequency: "D" as const },
+    ];
 
-    const normalised: Plan = {
-      frequencies: {
-        A: String(parsed.frequencies?.A || fb.frequencies.A),
-        B: String(parsed.frequencies?.B || fb.frequencies.B),
-        C: String(parsed.frequencies?.C || fb.frequencies.C),
-        D: String(parsed.frequencies?.D || fb.frequencies.D),
-      },
-      profiles: [
-        { name: A[0], frequency: "A" },
-        { name: A[1], frequency: "A" },
-        { name: B[0], frequency: "B" },
-        { name: B[1], frequency: "B" },
-        { name: C[0], frequency: "C" },
-        { name: C[1], frequency: "C" },
-        { name: D[0], frequency: "D" },
-        { name: D[1], frequency: "D" },
-      ],
-      imagePrompts: parsed.imagePrompts || fb.imagePrompts,
-    };
-    return normalised;
+    const imagePrompts: Record<Freq, string> = parsed?.imagePrompts || fb.imagePrompts;
+    return { frequencies, profiles, imagePrompts };
   } catch {
     return fallbackPlan(input);
+  }
+}
+
+export async function buildProfileCopy(input: {
+  brandTone?: string;
+  industry?: string;
+  sector?: string;
+  company?: string;
+  frequencyName: string;
+  profileName: string;
+}): Promise<{ summary: string; strengths: string[] }> {
+  const apiKey = process.env.OPENAI_API_KEY || "";
+  const fallback = {
+    summary: `${input.profileName} reflects ${input.frequencyName.toLowerCase()} tendencies suited to ${input.industry || "your industry"}.`,
+    strengths: ["Takes initiative", "Works well with others", "Structured approach", "Quality-minded"],
+  };
+  if (!apiKey) return fallback;
+
+  try {
+    const openai = new OpenAI({ apiKey });
+    const sys = `Write short, brand-safe copy. Tone: ${input.brandTone || "confident, modern"}.
+Return JSON {summary, strengths[]} with 3–4 bullet strengths.`;
+    const user = {
+      company: input.company || "",
+      industry: input.industry || "",
+      sector: input.sector || "",
+      frequencyName: input.frequencyName,
+      profileName: input.profileName,
+    };
+    const resp = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: JSON.stringify(user) },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const parsed = JSON.parse(resp.choices?.[0]?.message?.content || "{}");
+    if (!parsed?.summary || !Array.isArray(parsed?.strengths)) return fallback;
+    return { summary: String(parsed.summary), strengths: parsed.strengths.slice(0, 4).map((s: any) => String(s)) };
+  } catch {
+    return fallback;
   }
 }

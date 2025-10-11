@@ -3,37 +3,45 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../_lib/supabase";
-import { suggestFrameworkNames } from "../../../../_lib/ai";
+import { suggestFrameworkNames, buildProfileCopy } from "../../../../_lib/ai";
 
 const ORG_ID = "00000000-0000-0000-0000-000000000001";
 
 async function handle() {
   const supabase = getServiceClient();
 
-  await supabase.from("organizations").upsert(
-    { id: ORG_ID, name: "Demo Org" },
-    { onConflict: "id" }
-  );
+  // Ensure org row and get org name (for company_name NOT NULL)
+  const org = await supabase
+    .from("organizations")
+    .upsert({ id: ORG_ID, name: "Demo Org" }, { onConflict: "id" })
+    .select("id,name")
+    .eq("id", ORG_ID)
+    .maybeSingle();
+  if (org.error) return NextResponse.json({ error: org.error.message }, { status: 500 });
+  const companyName = org.data?.name || "Demo Org";
 
+  // Pull onboarding context
   const ob = await supabase
     .from("org_onboarding")
     .select("branding,goals")
     .eq("org_id", ORG_ID)
     .maybeSingle();
   if (ob.error) return NextResponse.json({ error: ob.error.message }, { status: 500 });
-
   const branding = ob.data?.branding ?? {};
   const goals = ob.data?.goals ?? {};
+
   const brandTone =
     (branding as any)?.brand_voice ?? (branding as any)?.tone ?? "confident, modern, human";
+  const industry = (goals as any)?.industry ?? "";
+  const sector = (goals as any)?.sector ?? "";
+  const primaryGoal = (goals as any)?.primary_goal ?? "";
 
+  // Names plan (with fallback if OpenAI fails)
   const plan = await suggestFrameworkNames({
-    industry: (goals as any)?.industry,
-    sector: (goals as any)?.sector,
-    brandTone,
-    primaryGoal: (goals as any)?.primary_goal,
+    industry, sector, brandTone, primaryGoal,
   });
 
+  // Upsert or create framework + frequency_meta
   const fw0 = await supabase
     .from("org_frameworks")
     .select("id")
@@ -65,23 +73,37 @@ async function handle() {
     if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
   }
 
+  // Remove old profiles for this framework
   const del = await supabase.from("org_profiles").delete().eq("framework_id", frameworkId!);
   if (del.error) return NextResponse.json({ error: del.error.message }, { status: 500 });
 
+  // Build content for each profile (summary + strengths)
   let ordinal = 1;
-  const rows = plan.profiles.map(
-    (p: { name: string; frequency: "A" | "B" | "C" | "D" }) => ({
+  const baseRows: any[] = [];
+  for (const p of plan.profiles) {
+    const details = await buildProfileCopy({
+      brandTone,
+      industry,
+      sector,
+      company: companyName,
+      frequencyName: (frequency_meta as any)[p.frequency].name,
+      profileName: p.name,
+    });
+    baseRows.push({
       org_id: ORG_ID,
       framework_id: frameworkId!,
+      company_name: companyName,      // ✅ satisfies NOT NULL
       name: p.name,
       frequency: p.frequency,
       ordinal: ordinal++,
       image_url: null,
-      image_prompt: `Brand-aligned icon or abstract illustration for "${p.name}" (${p.frequency}).`,
-    })
-  );
+      image_prompt: `Abstract emblem for "${p.name}" (${p.frequency}) aligned to ${companyName}.`,
+      summary: details.summary,
+      strengths: details.strengths,   // jsonb[]
+    });
+  }
 
-  const ins = await supabase.from("org_profiles").insert(rows).select("id");
+  const ins = await supabase.from("org_profiles").insert(baseRows).select("id");
   if (ins.error) {
     return NextResponse.json(
       { error: `Insert profiles failed: ${ins.error.message}` },
