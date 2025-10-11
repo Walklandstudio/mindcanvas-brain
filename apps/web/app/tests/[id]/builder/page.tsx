@@ -1,7 +1,5 @@
-import NextDynamic from 'next/dynamic';
 import Link from 'next/link';
-
-const ClientBuilder = NextDynamic(() => import('./ClientBuilder'), { ssr: false });
+import ClientBuilder from './ClientBuilder';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -14,7 +12,9 @@ export default function TestBuilderPage({ params }: { params: { id: string } }) 
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Test Builder</h1>
-          <p className="text-sm text-white/70">Edit questions, scoring, and preview the test.</p>
+          <p className="text-sm text-white/70">
+            Edit questions, scoring, and preview the test.
+          </p>
         </div>
         <Link
           href="/tests"

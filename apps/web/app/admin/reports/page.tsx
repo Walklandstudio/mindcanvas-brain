@@ -1,6 +1,4 @@
-import NextDynamic from 'next/dynamic';
-
-const ClientEditor = NextDynamic(() => import('./ClientEditor'), { ssr: false });
+import ClientEditor from './ClientEditor';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
