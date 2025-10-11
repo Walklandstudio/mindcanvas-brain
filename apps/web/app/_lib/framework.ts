@@ -1,7 +1,6 @@
 // apps/web/app/_lib/framework.ts
 import { getServiceClient } from "./supabase";
 import { suggestFrameworkNames, buildProfileCopy } from "./ai";
-import { getTableColumns, mapKnownColumns } from "./dbMeta";
 
 export const DEMO_ORG_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -13,14 +12,14 @@ function splitNameToFirstLast(n: string) {
 }
 
 /**
- * Ensures the org has a framework and 8 profiles.
- * Idempotent: if >= 8 profiles exist, returns them.
- * Column-safe: inserts only keys that actually exist on the table.
+ * Ensure 1 framework + 8 profiles exist for org.
+ * Inserts only core columns to avoid schema drift issues.
+ * Idempotent: if >=8 profiles exist, returns them.
  */
 export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
   const supabase = getServiceClient();
 
-  // Ensure org row & get name
+  // Ensure org exists
   const org = await supabase
     .from("organizations")
     .upsert({ id: orgId, name: "Demo Org" }, { onConflict: "id" })
@@ -30,15 +29,15 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
   if (org.error) throw new Error(`organizations upsert failed: ${org.error.message}`);
   const companyName = org.data?.name || "Demo Org";
 
-  // Try existing framework + profiles
+  // Existing framework?
   const fw0 = await supabase
     .from("org_frameworks")
     .select("id,frequency_meta")
     .eq("org_id", orgId)
     .maybeSingle();
   if (fw0.error) throw new Error(`org_frameworks select failed: ${fw0.error.message}`);
-
   let frameworkId = fw0.data?.id as string | undefined;
+
   if (frameworkId) {
     const existing = await supabase
       .from("org_profiles")
@@ -46,13 +45,13 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
       .eq("org_id", orgId)
       .eq("framework_id", frameworkId)
       .order("ordinal", { ascending: true });
-    if (existing.error) throw new Error(`org_profiles existing fetch failed: ${existing.error.message}`);
+    if (existing.error) throw new Error(`org_profiles fetch failed: ${existing.error.message}`);
     if ((existing.data?.length ?? 0) >= 8) {
       return { frameworkId, frequency_meta: fw0.data?.frequency_meta || {}, profiles: existing.data! };
     }
   }
 
-  // Onboarding context (also try to fetch a contact email)
+  // Onboarding context
   const ob = await supabase
     .from("org_onboarding")
     .select("branding,goals,create_account,company")
@@ -62,20 +61,16 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
 
   const branding = ob.data?.branding ?? {};
   const goals = ob.data?.goals ?? {};
-  const createAccount = (ob.data?.create_account as any) || {};
-  const company = (ob.data?.company as any) || {};
-
   const brandTone =
     (branding as any)?.brand_voice ?? (branding as any)?.tone ?? "confident, modern, human";
   const industry = (goals as any)?.industry ?? "";
   const sector = (goals as any)?.sector ?? "";
   const primaryGoal = (goals as any)?.primary_goal ?? "";
-  const contactEmail = String(createAccount.email || company.email || "").trim() || "demo@example.com";
 
-  // AI/fallback naming
+  // Names with fallback
   const plan = await suggestFrameworkNames({ industry, sector, brandTone, primaryGoal });
 
-  // Upsert framework meta
+  // Framework upsert
   const frequency_meta = {
     A: { name: plan.frequencies.A, image_url: null, image_prompt: plan.imagePrompts.A },
     B: { name: plan.frequencies.B, image_url: null, image_prompt: plan.imagePrompts.B },
@@ -99,44 +94,33 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
     if (upd.error) throw new Error(`org_frameworks update failed: ${upd.error.message}`);
   }
 
-  // Clear stale rows
+  // Clear stale profiles
   const del = await supabase.from("org_profiles").delete().eq("framework_id", frameworkId!);
   if (del.error) throw new Error(`org_profiles delete failed: ${del.error.message}`);
 
-  // Build 8 rows (include fields we *might* have, but filter by real columns)
+  // Build 8 rows with CORE columns only (others are optional and now nullable/defaulted)
   let ordinal = 1;
-  const rawRows: Record<string, any>[] = [];
+  const coreRows: any[] = [];
   for (const p of plan.profiles) {
     const copy = await buildProfileCopy({
       brandTone, industry, sector, company: companyName,
       frequencyName: (frequency_meta as any)[p.frequency].name,
       profileName: p.name,
     });
-    const fl = splitNameToFirstLast(p.name);
-    rawRows.push({
+    coreRows.push({
       org_id: orgId,
       framework_id: frameworkId!,
       name: p.name,
-      frequency: p.frequency,
+      frequency: p.frequency,           // 'A'|'B'|'C'|'D'
       ordinal: ordinal++,
-      // “maybe” columns — OK if absent, we’ll strip them:
-      company_name: companyName,
-      first_name: fl.first,
-      last_name: fl.last,
-      contact_email: contactEmail,
-      // media + copy
-      image_url: null,
+      image_url: null,                  // ok if column missing/nullable
       image_prompt: `Abstract emblem for "${p.name}" (${p.frequency}) aligned to ${companyName}.`,
-      summary: copy.summary,
-      strengths: copy.strengths,
+      summary: copy.summary,            // ok if column missing/nullable
+      strengths: copy.strengths,        // ok if column missing/nullable
     });
   }
 
-  // 🎯 Column-safe insert
-  const columns = await getTableColumns("org_profiles", "public");
-  const rows = mapKnownColumns(rawRows, columns);
-
-  const ins = await supabase.from("org_profiles").insert(rows).select("id");
+  const ins = await supabase.from("org_profiles").insert(coreRows).select("id");
   if (ins.error) throw new Error(`org_profiles insert failed: ${ins.error.message}`);
 
   const after = await supabase
