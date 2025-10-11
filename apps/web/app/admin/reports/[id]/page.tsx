@@ -4,31 +4,46 @@
 import { useEffect, useState } from "react";
 
 type Report = {
-  strengths: string; challenges: string; roles: string; guidance: string; approved: boolean;
+  strengths: string;
+  challenges: string;
+  roles: string;
+  guidance: string;
+  approved: boolean;
 };
 type Loader = {
-  profile: { id: string; name: string; frequency: "A"|"B"|"C"|"D" };
+  profile: { id: string; name: string; frequency: "A" | "B" | "C" | "D" };
   frequencyName: string;
   report: Report & { profile_id: string };
   context: { brandTone: string; industry: string; sector: string; company: string };
 };
 
+// NOTE: Do NOT use PageProps or Promise types here.
+// Keep params loosely typed to satisfy Next 15 build.
 export default function ReportEditorPage({ params }: { params: { id: string } }) {
   const [data, setData] = useState<Loader | null>(null);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  function notify(s: string) { setToast(s); setTimeout(() => setToast(null), 2500); }
+  function notify(s: string) {
+    setToast(s);
+    setTimeout(() => setToast(null), 2500);
+  }
 
   async function load() {
     const res = await fetch(`/api/admin/reports/${params.id}`, { cache: "no-store" });
     const j = await res.json();
-    if (!res.ok) { notify(j.error || "Failed to load"); return; }
+    if (!res.ok) {
+      notify(j.error || "Failed to load");
+      return;
+    }
     setData(j);
   }
 
-  useEffect(() => { load(); }, [params.id]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id]);
 
   async function save() {
     if (!data) return;
@@ -89,10 +104,13 @@ export default function ReportEditorPage({ params }: { params: { id: string } })
     <main className="max-w-6xl mx-auto p-6 text-white">
       <div className="flex items-center justify-between">
         <div>
-          <a href="/admin/reports/signoff" className="text-white/70 hover:text-white text-sm">← Back</a>
+          <a href="/admin/reports/signoff" className="text-white/70 hover:text-white text-sm">
+            ← Back
+          </a>
           <h1 className="text-2xl font-semibold mt-2">Report Builder</h1>
           <div className="text-white/70 text-sm">
-            Profile: <span className="font-medium text-white">{profile.name}</span> · Frequency {profile.frequency} ({frequencyName})
+            Profile: <span className="font-medium text-white">{profile.name}</span> · Frequency{" "}
+            {profile.frequency} ({frequencyName})
           </div>
         </div>
         <div className="flex gap-2">
@@ -152,7 +170,15 @@ export default function ReportEditorPage({ params }: { params: { id: string } })
   );
 }
 
-function Section({ title, value, onChange }: { title: string; value: string; onChange: (v: string) => void }) {
+function Section({
+  title,
+  value,
+  onChange,
+}: {
+  title: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
       <div className="text-sm font-medium mb-2">{title}</div>
