@@ -1,3 +1,4 @@
+export const runtime = "nodejs";
 // apps/web/app/api/admin/framework/generate/route.ts
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../_lib/supabase";
