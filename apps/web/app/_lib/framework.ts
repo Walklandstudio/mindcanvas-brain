@@ -13,8 +13,8 @@ function splitNameToFirstLast(n: string) {
 
 /**
  * Ensures the org has a framework and 8 profiles.
- * Idempotent: if profiles already exist for the framework, it returns them.
- * Attempts to satisfy extra NOT NULL columns like company_name / first_name / last_name.
+ * Idempotent: if the framework already has >= 8 profiles, returns them without writing.
+ * Tries to satisfy stricter schemas by providing company_name, first/last_name, contact_email.
  */
 export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
   const supabase = getServiceClient();
@@ -29,13 +29,15 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
   if (org.error) throw new Error(org.error.message);
   const companyName = org.data?.name || "Demo Org";
 
-  // 2) Read existing framework + profiles
-  const fw0 = await supabase.from("org_frameworks").select("id,frequency_meta").eq("org_id", orgId).maybeSingle();
+  // 2) If a framework with profiles already exists, return it
+  const fw0 = await supabase
+    .from("org_frameworks")
+    .select("id,frequency_meta")
+    .eq("org_id", orgId)
+    .maybeSingle();
   if (fw0.error) throw new Error(fw0.error.message);
 
   let frameworkId = fw0.data?.id as string | undefined;
-
-  // If profiles already exist, return them (nothing to do)
   if (frameworkId) {
     const existing = await supabase
       .from("org_profiles")
@@ -53,22 +55,30 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
     }
   }
 
-  // 3) Pull onboarding context
+  // 3) Onboarding context: also try to fetch a contact email we can store
   const ob = await supabase
     .from("org_onboarding")
-    .select("branding,goals")
+    .select("branding,goals,create_account,company")
     .eq("org_id", orgId)
     .maybeSingle();
   if (ob.error) throw new Error(ob.error.message);
 
   const branding = ob.data?.branding ?? {};
   const goals = ob.data?.goals ?? {};
-  const brandTone = (branding as any)?.brand_voice ?? (branding as any)?.tone ?? "confident, modern, human";
+  const createAccount = (ob.data?.create_account as any) || {};
+  const company = (ob.data?.company as any) || {};
+
+  const brandTone =
+    (branding as any)?.brand_voice ?? (branding as any)?.tone ?? "confident, modern, human";
   const industry = (goals as any)?.industry ?? "";
   const sector = (goals as any)?.sector ?? "";
   const primaryGoal = (goals as any)?.primary_goal ?? "";
 
-  // 4) Ask AI (with safe fallback) for names
+  // Prefer onboarding email; fall back to a safe placeholder
+  const contactEmail =
+    String(createAccount.email || company.email || "").trim() || "demo@example.com";
+
+  // 4) Ask AI (with fallback) for frequency + profile names
   const plan = await suggestFrameworkNames({ industry, sector, brandTone, primaryGoal });
 
   // 5) Upsert framework & meta
@@ -95,11 +105,11 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
     if (upd.error) throw new Error(upd.error.message);
   }
 
-  // 6) Clear any stale rows (we’re about to insert 8)
+  // 6) Clear stale rows (we’re about to insert 8)
   const del = await supabase.from("org_profiles").delete().eq("framework_id", frameworkId!);
   if (del.error) throw new Error(del.error.message);
 
-  // 7) Build 8 rows with copy. Try to satisfy possible extra NOT NULLs.
+  // 7) Build 8 rows with copy and fields to satisfy stricter schemas
   let ordinal = 1;
   const rows: any[] = [];
   for (const p of plan.profiles) {
@@ -116,14 +126,15 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
     rows.push({
       org_id: orgId,
       framework_id: frameworkId!,
-      // common columns
+      // app-required
       name: p.name,
       frequency: p.frequency,
       ordinal: ordinal++,
-      // brand columns
-      company_name: companyName,      // if present + NOT NULL
-      first_name: fl.first,           // if present + NOT NULL
-      last_name: fl.last,             // if present + NOT NULL
+      // stricter-schema fields (ignored if columns don’t exist)
+      company_name: companyName,
+      first_name: fl.first,
+      last_name: fl.last,
+      contact_email: contactEmail,
       // media + copy
       image_url: null,
       image_prompt: `Abstract emblem for "${p.name}" (${p.frequency}) aligned to ${companyName}.`,
@@ -141,7 +152,6 @@ export async function ensureFrameworkForOrg(orgId = DEMO_ORG_ID) {
     .eq("org_id", orgId)
     .eq("framework_id", frameworkId!)
     .order("ordinal", { ascending: true });
-
   if (after.error) throw new Error(after.error.message);
 
   return {
