@@ -73,19 +73,21 @@ export default function GoalsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedTick, setSavedTick] = useState(0);
+  const [err, setErr] = useState<string>("");
   const [data, setData] = useState<GoalsState>(DEFAULTS);
 
-  // Load existing data
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const res = await fetch("/api/onboarding/get?step=goals", { cache: "no-store" });
+        if (!res.ok) throw new Error(`GET /api/onboarding/get failed (${res.status})`);
         const j = await res.json();
         if (mounted) {
-          const merged = { ...DEFAULTS, ...(j?.data || {}) };
-          setData(merged);
+          setData({ ...DEFAULTS, ...(j?.data || {}) });
         }
+      } catch (e: any) {
+        if (mounted) setErr(e?.message || "Failed to load goals");
       } finally {
         if (mounted) setLoading(false);
       }
@@ -97,23 +99,19 @@ export default function GoalsPage() {
 
   async function save(goNext?: boolean) {
     setSaving(true);
+    setErr("");
     try {
       const res = await fetch("/api/onboarding/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ step: "goals", data }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || "Failed to save");
-      }
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Failed to save");
       setSavedTick((x) => x + 1);
-      if (goNext) {
-        // Next step: admin framework generator
-        router.push("/admin/framework");
-      }
+      if (goNext) router.push("/admin/framework");
     } catch (e: any) {
-      alert(e.message || "Save failed");
+      setErr(e?.message || "Save failed");
     } finally {
       setSaving(false);
     }
@@ -137,6 +135,12 @@ export default function GoalsPage() {
         Define the intent and shape of your organization’s test. These answers will guide the Framework generator.
       </p>
 
+      {err && (
+        <div className="mt-4 p-3 rounded-lg bg-red-500/20 border border-red-400/40 text-red-100 text-sm">
+          {err}
+        </div>
+      )}
+
       <div className="mt-6 grid gap-4">
         {/* Industry */}
         <label className="block">
@@ -148,9 +152,7 @@ export default function GoalsPage() {
           >
             <option value="">Select…</option>
             {INDUSTRIES.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
+              <option key={x} value={x}>{x}</option>
             ))}
           </select>
         </label>
@@ -165,9 +167,7 @@ export default function GoalsPage() {
           >
             <option value="">Select…</option>
             {SECTORS.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
+              <option key={x} value={x}>{x}</option>
             ))}
           </select>
         </label>
@@ -248,7 +248,7 @@ export default function GoalsPage() {
           />
         </label>
 
-        {/* Standalone or program (text per your spec) */}
+        {/* Standalone or program */}
         <label className="block">
           <span className="block text-sm mb-1">Will the test be standalone or part of a larger program?</span>
           <input
@@ -258,7 +258,7 @@ export default function GoalsPage() {
           />
         </label>
 
-        {/* Integration (dropdown) */}
+        {/* Integration */}
         <label className="block">
           <span className="block text-sm mb-1">How would the test be integrated with your system?</span>
           <select
@@ -268,14 +268,12 @@ export default function GoalsPage() {
           >
             <option value="">Select…</option>
             {INTEGRATIONS.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
+              <option key={x} value={x}>{x}</option>
             ))}
           </select>
         </label>
 
-        {/* Pricing model */}
+        {/* Pricing model + price */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
             <span className="block text-sm mb-1">Will the test be free, paid, or tiered?</span>
@@ -283,10 +281,7 @@ export default function GoalsPage() {
               className="w-full rounded-lg bg-white text-black p-3"
               value={data.pricing_model || ""}
               onChange={(e) =>
-                setData((d) => ({
-                  ...d,
-                  pricing_model: (e.target.value as GoalsState["pricing_model"]) || "",
-                }))
+                setData((d) => ({ ...d, pricing_model: (e.target.value as GoalsState["pricing_model"]) || "" }))
               }
             >
               <option value="">Select…</option>
@@ -303,10 +298,7 @@ export default function GoalsPage() {
               className="w-full rounded-lg bg-white text-black p-3"
               value={data.price_point ?? ""}
               onChange={(e) =>
-                setData((d) => ({
-                  ...d,
-                  price_point: e.target.value === "" ? null : Number(e.target.value),
-                }))
+                setData((d) => ({ ...d, price_point: e.target.value === "" ? null : Number(e.target.value) }))
               }
               placeholder="0"
               min={0}
@@ -339,10 +331,7 @@ export default function GoalsPage() {
           >
             {saving ? "Saving…" : "Save & Next"}
           </button>
-
-          {savedTick > 0 && (
-            <span className="text-white/70 text-sm ml-1">Saved ✓</span>
-          )}
+          {savedTick > 0 && <span className="text-white/70 text-sm ml-1">Saved ✓</span>}
         </div>
       </div>
     </main>

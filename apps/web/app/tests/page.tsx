@@ -16,7 +16,6 @@ type TestRow = {
 export default async function TestsIndexPage() {
   const supabase = getServiceClient();
 
-  // Ensure org exists (idempotent)
   await supabase.from("organizations").upsert(
     { id: ORG_ID, name: "Demo Org" },
     { onConflict: "id" }
@@ -28,7 +27,6 @@ export default async function TestsIndexPage() {
     .eq("org_id", ORG_ID)
     .order("created_at", { ascending: false });
 
-  // ✅ Normalize null → []
   const tests: TestRow[] = (res.data ?? []) as TestRow[];
 
   return (
@@ -50,21 +48,14 @@ export default async function TestsIndexPage() {
       ) : (
         <ul className="mt-6 space-y-3">
           {tests.map((t) => (
-            <li
-              key={t.id}
-              className="p-4 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between"
-            >
+            <li key={t.id} className="p-4 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between">
               <div>
                 <div className="font-medium">{t.name}</div>
                 <div className="text-xs text-white/60">
-                  Mode: {t.mode} · Created:{" "}
-                  {new Date(t.created_at).toLocaleString()}
+                  Mode: {t.mode} · Created: {new Date(t.created_at).toLocaleString()}
                 </div>
               </div>
-              <Link
-                className="px-3 py-1 rounded-lg bg-white text-black text-sm"
-                href={`/test/${t.id}`}
-              >
+              <Link className="px-3 py-1 rounded-lg bg-white text-black text-sm" href={`/test/${t.id}`}>
                 Open
               </Link>
             </li>

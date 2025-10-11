@@ -11,17 +11,12 @@ export async function POST(req: Request) {
   const supabase = getServiceClient();
 
   let body: any = {};
-  try {
-    body = await req.json();
-  } catch {
-    // ignore
-  }
+  try { body = await req.json(); } catch {}
   const { step, data } = body || {};
   if (!VALID_STEPS.has(step)) {
     return NextResponse.json({ error: "Invalid step" }, { status: 400 });
   }
 
-  // Ensure org & onboarding rows exist (idempotent)
   await supabase.from("organizations").upsert(
     { id: ORG_ID, name: "Demo Org" },
     { onConflict: "id" }
@@ -31,7 +26,6 @@ export async function POST(req: Request) {
     { onConflict: "org_id" }
   );
 
-  // Update the one JSONB column
   const patch: Record<string, unknown> = {};
   patch[step] = data || {};
 
@@ -40,9 +34,7 @@ export async function POST(req: Request) {
     .update(patch)
     .eq("org_id", ORG_ID);
 
-  if (upd.error) {
-    return NextResponse.json({ error: upd.error.message }, { status: 500 });
-  }
+  if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
 }
