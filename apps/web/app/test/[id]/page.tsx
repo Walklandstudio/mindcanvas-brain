@@ -4,13 +4,24 @@ import TestClient from "./test-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: { params: { id: string } }) {
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
   const supabase = getServiceClient();
-  const { data: test } = await supabase.from("org_tests").select("id,name,mode").eq("id", params.id).maybeSingle();
+
+  const { data: test } = await supabase
+    .from("org_tests")
+    .select("id,name,mode")
+    .eq("id", id)
+    .maybeSingle();
+
   const { data: qs } = await supabase
     .from("org_test_questions")
     .select("id,ordinal,qnum,text,options")
-    .eq("test_id", params.id)
+    .eq("test_id", id)
     .order("ordinal", { ascending: true });
 
   if (!test || !qs?.length) {
@@ -20,7 +31,11 @@ export default async function Page({ params }: { params: { id: string } }) {
   return (
     <main className="max-w-3xl mx-auto p-6 text-white">
       <h1 className="text-2xl font-semibold">{test.name}</h1>
-      <TestClient testId={test.id} mode={test.mode as "free"|"full"} questions={qs as any} />
+      <TestClient
+        testId={test.id}
+        mode={test.mode as "free" | "full"}
+        questions={qs as any}
+      />
     </main>
   );
 }
