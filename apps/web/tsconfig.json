@@ -1,24 +1,20 @@
 {
-  "extends": "../../packages/config/tsconfig-base.json",
   "compilerOptions": {
-    "jsx": "preserve",
-    "noEmit": true,
-    "allowJs": true,
-    "incremental": true,
-    "esModuleInterop": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ]
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "allowJs": false,
+    "strict": true,
+    "noImplicitAny": false,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "types": ["node", "react", "react-dom"]
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "next-env.d.ts",
-    ".next/types/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
 }
+

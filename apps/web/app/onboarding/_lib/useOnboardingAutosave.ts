@@ -1,26 +1,41 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-type SaveFn = (payload: any) => Promise<void>;
+type Section = 'create_account' | 'company' | 'branding' | 'goals';
 
-/**
- * Autosaves the passed data object every time it changes (debounced).
- * You must pass the *whole* section object each time.
- */
-export function useOnboardingAutosave<T>(
-  data: T,
-  save: SaveFn,
-  delay = 500
-) {
+export function useOnboardingAutosave<T extends object>(section: Section, initial: T) {
+  const [data, setData] = useState<T>(initial);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef<T>(data);
+  const dirty = useRef(false);
 
-  useEffect(() => { latest.current = data; }, [data]);
-
+  // Load on mount
   useEffect(() => {
+    (async () => {
+      const res = await fetch('/api/onboarding/get', { cache: 'no-store' });
+      const json = await res.json();
+      if (json && json[section]) {
+        setData((prev) => ({ ...prev, ...json[section] }));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced save
+  const scheduleSave = useCallback((next: Partial<T>) => {
+    setData((prev) => ({ ...prev, ...next }));
+    dirty.current = true;
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => { void save(latest.current); }, delay);
-    return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [data, save, delay]);
+    timer.current = setTimeout(async () => {
+      if (!dirty.current) return;
+      dirty.current = false;
+      await fetch('/api/onboarding/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ section, payload: { ...(next as object), ...(data as object) } })
+      });
+    }, 400);
+  }, [data, section]);
+
+  return { data, setData: scheduleSave };
 }
