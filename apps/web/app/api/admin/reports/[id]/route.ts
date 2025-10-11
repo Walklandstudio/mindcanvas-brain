@@ -11,7 +11,6 @@ export async function GET(_: Request, ctx: { params: { id: string } }) {
   const sb = getServiceClient();
   const pid = ctx.params.id;
 
-  // Profile & framework context (includes framework_id)
   const prof = await sb
     .from("org_profiles")
     .select("id,name,frequency,framework_id,summary,strengths,image_url,org_id")
@@ -33,7 +32,6 @@ export async function GET(_: Request, ctx: { params: { id: string } }) {
     (fw.data?.frequency_meta as any)?.[prof.data.frequency]?.name ||
     `Frequency ${prof.data.frequency}`;
 
-  // Onboarding tone
   const ob = await sb.from("org_onboarding").select("*").eq("org_id", ORG_ID).maybeSingle();
   const branding = (ob.data as any)?.branding ?? {};
   const goals = (ob.data as any)?.goals ?? {};
@@ -42,7 +40,6 @@ export async function GET(_: Request, ctx: { params: { id: string } }) {
   const sector = goals?.sector ?? "";
   const company = "Demo Org";
 
-  // Ensure report row exists with org_id + framework_id
   const ensure = await sb
     .from("org_profile_reports")
     .upsert(
@@ -77,7 +74,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   const url = new URL(req.url);
   const action = url.searchParams.get("action") || "save";
 
-  // Fetch profile once to get framework_id
   const prof = await sb
     .from("org_profiles")
     .select("name,frequency,framework_id")
@@ -86,7 +82,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     .maybeSingle();
   if (prof.error || !prof.data) return NextResponse.json({ error: "profile not found" }, { status: 404 });
 
-  // Ensure row with org_id + framework_id
   const ensured = await sb
     .from("org_profile_reports")
     .upsert(
@@ -98,7 +93,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   if (ensured.error) return NextResponse.json({ error: ensured.error.message }, { status: 500 });
 
   if (action === "draft") {
-    // Framework + onboarding to shape AI
     const fw = await sb
       .from("org_frameworks")
       .select("frequency_meta")
@@ -154,7 +148,6 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ ok: true, approved: true });
   }
 
-  // default: save draft
   const body = await req.json().catch(() => ({}));
   const upd = await sb
     .from("org_profile_reports")
