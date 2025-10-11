@@ -1,28 +1,21 @@
+import 'server-only';
 import { NextResponse } from 'next/server';
-import { admin, const { orgId, frameworkId } = await getOwnerOrgAndFramework() } from '../../_lib/org';
+import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
 
 export const runtime = 'nodejs';
 
-export async function GET(req: Request) {
-  try {
-    // Try auth, but also allow unauthenticated listing for public tests if you prefer
-    const auth = req.headers.get('authorization') ?? '';
-    const a = admin();
+export async function GET() {
+  const svc = admin();
+  const { orgId, frameworkId } = await getOwnerOrgAndFramework();
 
-    // If you want org scoping strictly by auth, uncomment these two lines:
-    // if (!auth.startsWith('Bearer ')) return NextResponse.json({ items: [] });
-    // const orgId = await const { orgId, frameworkId } = await getOwnerOrgAndFramework()(auth); if (!orgId) return NextResponse.json({ items: [] });
+  // Alias for "get" – returns the same base 15 (or whatever is saved)
+  const { data, error } = await svc
+    .from('org_questions')
+    .select('id, question_no, prompt, options, weights')
+    .eq('org_id', orgId)
+    .eq('framework_id', frameworkId)
+    .order('question_no', { ascending: true });
 
-    // For now: return the base 15 from any org that has them (or your default org).
-    const { data, error } = await a
-      .from('org_questions')
-      .select('id,label,options,display_order')
-      .order('display_order', { ascending: true })
-      .limit(15);
-
-    if (error) throw error;
-    return NextResponse.json({ items: data ?? [] });
-  } catch (e:any) {
-    return NextResponse.json({ items: [], error: String(e?.message ?? e) }, { status:200 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ questions: data ?? [] });
 }
