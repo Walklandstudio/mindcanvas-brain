@@ -1,4 +1,5 @@
 'use client';
+
 import { useEffect, useRef, useState } from 'react';
 
 type AnyObj = Record<string, any>;
@@ -12,22 +13,17 @@ export function useOnboardingAutosave<T extends AnyObj>(
   const [saving, setSaving] = useState(false);
   const timer = useRef<number | null>(null);
 
-  // hydrate from server (caller sets) and local draft
   useEffect(() => {
     try {
-      const draftRaw = localStorage.getItem(STORAGE_KEY);
-      if (draftRaw) {
-        const draft = JSON.parse(draftRaw);
-        setData((d) => ({ ...d, ...draft }));
-      }
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setData((d) => ({ ...d, ...JSON.parse(raw) }));
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // persist draft locally, debounce POST
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
-    // eslint-disable-next-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(data)]);
 
   const saveNow = async () => {
@@ -50,15 +46,12 @@ export function useOnboardingAutosave<T extends AnyObj>(
   };
 
   const update = <K extends keyof T>(key: K, value: T[K]) => {
-    setData(prev => {
-      const next = { ...prev, [key]: value };
-      return next;
-    });
+    setData(prev => ({ ...prev, [key]: value }));
     scheduleSave();
   };
 
-  const loadFromServer = (serverData: T | undefined) => {
-    if (serverData) setData(prev => ({ ...prev, ...serverData }));
+  const loadFromServer = (server: T | undefined) => {
+    if (server) setData(prev => ({ ...prev, ...server }));
   };
 
   const clearDraft = () => {
