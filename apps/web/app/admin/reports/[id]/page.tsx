@@ -3,6 +3,11 @@ import ReportEditorClient from "./ReportEditorClient";
 
 export const runtime = "nodejs";
 
-export default function Page({ params }: { params: { id: string } }) {
-  return <ReportEditorClient id={params.id} />;
+// Your project types expect `params` to be a Promise.
+// We await it here to satisfy the PageProps constraint.
+type Params = Promise<{ id: string }>;
+
+export default async function Page({ params }: { params: Params }) {
+  const { id } = await params;
+  return <ReportEditorClient id={id} />;
 }
