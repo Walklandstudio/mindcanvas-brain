@@ -1,20 +1,43 @@
 // apps/web/app/api/onboarding/get/route.ts
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../_lib/supabase";
 
+const ORG_ID = "00000000-0000-0000-0000-000000000001";
+const VALID_STEPS = new Set(["create_account", "company", "branding", "goals"]);
+
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const step = searchParams.get("step") as "create_account" | "company" | "branding" | "goals";
-  if (!step) return NextResponse.json({ error: "Missing step" }, { status: 400 });
-
   const supabase = getServiceClient();
-  // For demo: single org row. Replace with auth-bound org_id when multi-tenant auth lands.
-  const { data, error } = await supabase
-    .from("org_onboarding")
-    .select(step)
-    .limit(1)
-    .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ data: data?.[step] ?? {} });
+  const url = new URL(req.url);
+  const step = url.searchParams.get("step") || "";
+  if (!VALID_STEPS.has(step)) {
+    return NextResponse.json({ error: "Invalid step" }, { status: 400 });
+  }
+
+  // Ensure org & onboarding rows exist (idempotent; no .catch() chains)
+  await supabase.from("organizations").upsert(
+    { id: ORG_ID, name: "Demo Org" },
+    { onConflict: "id" }
+  );
+
+  await supabase.from("org_onboarding").upsert(
+    { org_id: ORG_ID }, // defaults handled by DB
+    { onConflict: "org_id" }
+  );
+
+  // Fetch the specific step JSON
+  const sel = await supabase
+    .from("org_onboarding")
+    .select(`${step}`)
+    .eq("org_id", ORG_ID)
+    .maybeSingle();
+
+  if (sel.error) {
+    return NextResponse.json({ error: sel.error.message }, { status: 500 });
+  }
+
+  const payload = (sel.data as any)?.[step] ?? {};
+  return NextResponse.json({ data: payload });
 }

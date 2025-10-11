@@ -1,117 +1,157 @@
+// apps/web/app/onboarding/goals/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type GoalsData = {
+type GoalsState = {
   industry?: string;
   sector?: string;
   primary_goal?: string;
-  align_mission?: string;
-  participant_outcomes?: string;
+  align_with_mission?: string;
+  desired_outcomes?: string;
   audience?: string;
   audience_challenges?: string;
   other_insights?: string;
-  industry_info?: string;
-  part_of_program?: string;
-  integration_method?: string;
-  pricing_mode?: string;
-  price_point?: number | "";
+  industry_relevant_info?: string;
+  standalone_or_program?: string;
+  integration?: string;
+  pricing_model?: "free" | "paid" | "tiered" | "";
+  price_point?: number | null;
 };
 
-const INDUSTRY_OPTIONS = [
-  "Technology","Finance","Healthcare","Education","Retail","Manufacturing","Professional Services","Non-profit","Other"
+const DEFAULTS: GoalsState = {
+  industry: "",
+  sector: "",
+  primary_goal: "",
+  align_with_mission: "",
+  desired_outcomes: "",
+  audience: "",
+  audience_challenges: "",
+  other_insights: "",
+  industry_relevant_info: "",
+  standalone_or_program: "",
+  integration: "",
+  pricing_model: "",
+  price_point: null,
+};
+
+const INDUSTRIES = [
+  "Technology",
+  "Finance",
+  "Healthcare",
+  "Education",
+  "Retail",
+  "Manufacturing",
+  "Consulting",
+  "Other",
 ];
 
-const SECTOR_OPTIONS = [
-  "B2B","B2C","Public Sector","SME","Enterprise","Startup","Internal HR/People","Sales/Revenue","Operations","Other"
+const SECTORS = [
+  "B2B",
+  "B2C",
+  "Public Sector",
+  "Nonprofit",
+  "Enterprise",
+  "SMB",
+  "Startup",
 ];
 
-const INTEGRATION_OPTIONS = [
-  "Standalone","Embed on website","Go High Level (GHL)","HubSpot","Webhook/API","Email-only delivery","Other"
+const INTEGRATIONS = [
+  "Standalone",
+  "Zapier",
+  "Webhook",
+  "HubSpot",
+  "Salesforce",
+  "Google Sheets",
+  "Slack",
+  "Other",
 ];
-
-const PRICING_OPTIONS = ["Free","Paid","Tiered"];
 
 export default function GoalsPage() {
   const router = useRouter();
-  const [data, setData] = useState<GoalsData>({
-    industry: "",
-    sector: "",
-    primary_goal: "",
-    align_mission: "",
-    participant_outcomes: "",
-    audience: "",
-    audience_challenges: "",
-    other_insights: "",
-    industry_info: "",
-    part_of_program: "",
-    integration_method: "",
-    pricing_mode: "",
-    price_point: "",
-  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [savedTick, setSavedTick] = useState(0);
+  const [data, setData] = useState<GoalsState>(DEFAULTS);
 
-  // Load existing
+  // Load existing data
   useEffect(() => {
+    let mounted = true;
     (async () => {
       try {
-        const res = await fetch(`/api/onboarding/get?step=goals`, { cache: "no-store" });
-        const json = await res.json();
-        if (json?.data) setData((d) => ({ ...d, ...json.data }));
+        const res = await fetch("/api/onboarding/get?step=goals", { cache: "no-store" });
+        const j = await res.json();
+        if (mounted) {
+          const merged = { ...DEFAULTS, ...(j?.data || {}) };
+          setData(merged);
+        }
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const save = async () => {
+  async function save(goNext?: boolean) {
     setSaving(true);
-    setMsg("");
     try {
-      const res = await fetch(`/api/onboarding/save`, {
+      const res = await fetch("/api/onboarding/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ step: "goals", data }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      setMsg("Saved ✓");
-    } catch {
-      setMsg("Save failed");
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "Failed to save");
+      }
+      setSavedTick((x) => x + 1);
+      if (goNext) {
+        // Next step: admin framework generator
+        router.push("/admin/framework");
+      }
+    } catch (e: any) {
+      alert(e.message || "Save failed");
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const back = async () => {
-    await save();
-    router.push("/onboarding/branding");
-  };
+  const canSave = useMemo(() => !loading && !saving, [loading, saving]);
 
-  const next = async () => {
-    await save();
-    router.push("/admin/framework");
-  };
-
-  if (loading) return <div className="p-8 text-white">Loading…</div>;
+  if (loading) {
+    return (
+      <main className="max-w-3xl mx-auto p-6 text-white">
+        <h1 className="text-2xl font-semibold">Profile Test Goals</h1>
+        <p className="text-white/70 mt-2">Loading…</p>
+      </main>
+    );
+  }
 
   return (
     <main className="max-w-3xl mx-auto p-6 text-white">
       <h1 className="text-2xl font-semibold">Step 4: Profile Test Goals</h1>
+      <p className="text-white/70 mt-1">
+        Define the intent and shape of your organization’s test. These answers will guide the Framework generator.
+      </p>
 
-      <div className="mt-6 space-y-4">
+      <div className="mt-6 grid gap-4">
         {/* Industry */}
         <label className="block">
           <span className="block text-sm mb-1">Industry</span>
           <select
             className="w-full rounded-lg bg-white text-black p-3"
-            value={data.industry ?? ""}
+            value={data.industry}
             onChange={(e) => setData((d) => ({ ...d, industry: e.target.value }))}
           >
-            <option value="">Choose…</option>
-            {INDUSTRY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            <option value="">Select…</option>
+            {INDUSTRIES.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -120,160 +160,191 @@ export default function GoalsPage() {
           <span className="block text-sm mb-1">Sector</span>
           <select
             className="w-full rounded-lg bg-white text-black p-3"
-            value={data.sector ?? ""}
+            value={data.sector}
             onChange={(e) => setData((d) => ({ ...d, sector: e.target.value }))}
           >
-            <option value="">Choose…</option>
-            {SECTOR_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            <option value="">Select…</option>
+            {SECTORS.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
           </select>
         </label>
 
         {/* Primary goal */}
-        <FieldText
-          label="What is the primary goal of the profile test?"
-          value={data.primary_goal}
-          onChange={(v) => setData((d) => ({ ...d, primary_goal: v }))}
-        />
+        <label className="block">
+          <span className="block text-sm mb-1">What is the primary goal of the profile test?</span>
+          <textarea
+            className="w-full rounded-lg bg-white text-black p-3"
+            rows={3}
+            value={data.primary_goal || ""}
+            onChange={(e) => setData((d) => ({ ...d, primary_goal: e.target.value }))}
+          />
+        </label>
 
-        {/* Alignment */}
-        <FieldText
-          label="How does this test align with your company’s mission or vision?"
-          value={data.align_mission}
-          onChange={(v) => setData((d) => ({ ...d, align_mission: v }))}
-        />
+        {/* Align with mission */}
+        <label className="block">
+          <span className="block text-sm mb-1">How does this test align with your company’s mission or vision?</span>
+          <textarea
+            className="w-full rounded-lg bg-white text-black p-3"
+            rows={3}
+            value={data.align_with_mission || ""}
+            onChange={(e) => setData((d) => ({ ...d, align_with_mission: e.target.value }))}
+          />
+        </label>
 
-        {/* Participant outcomes */}
-        <FieldText
-          label="What specific outcomes would you like participants to achieve after completing the test?"
-          value={data.participant_outcomes}
-          onChange={(v) => setData((d) => ({ ...d, participant_outcomes: v }))}
-        />
+        {/* Outcomes */}
+        <label className="block">
+          <span className="block text-sm mb-1">What specific outcomes would you like participants to achieve after completing the test?</span>
+          <textarea
+            className="w-full rounded-lg bg-white text-black p-3"
+            rows={3}
+            value={data.desired_outcomes || ""}
+            onChange={(e) => setData((d) => ({ ...d, desired_outcomes: e.target.value }))}
+          />
+        </label>
 
         {/* Audience */}
-        <FieldText
-          label="Who will primarily take this test?"
-          value={data.audience}
-          onChange={(v) => setData((d) => ({ ...d, audience: v }))}
-        />
+        <label className="block">
+          <span className="block text-sm mb-1">Who will primarily take this test?</span>
+          <input
+            className="w-full rounded-lg bg-white text-black p-3"
+            value={data.audience || ""}
+            onChange={(e) => setData((d) => ({ ...d, audience: e.target.value }))}
+          />
+        </label>
 
         {/* Audience challenges */}
-        <FieldText
-          label="Are there any challenges your audience faces that the test could help address?"
-          value={data.audience_challenges}
-          onChange={(v) => setData((d) => ({ ...d, audience_challenges: v }))}
-        />
+        <label className="block">
+          <span className="block text-sm mb-1">Are there any challenges your audience faces that the test could help address?</span>
+          <textarea
+            className="w-full rounded-lg bg-white text-black p-3"
+            rows={3}
+            value={data.audience_challenges || ""}
+            onChange={(e) => setData((d) => ({ ...d, audience_challenges: e.target.value }))}
+          />
+        </label>
 
         {/* Other insights */}
-        <FieldText
-          label="Other insights you want to collect as part of your questions?"
-          value={data.other_insights}
-          onChange={(v) => setData((d) => ({ ...d, other_insights: v }))}
-        />
+        <label className="block">
+          <span className="block text-sm mb-1">Other insights you want to collect as part of your questions?</span>
+          <textarea
+            className="w-full rounded-lg bg-white text-black p-3"
+            rows={2}
+            value={data.other_insights || ""}
+            onChange={(e) => setData((d) => ({ ...d, other_insights: e.target.value }))}
+          />
+        </label>
 
-        {/* Industry-relevant info */}
-        <FieldText
-          label="Industry-relevant info (revenue, targets, etc.)"
-          value={data.industry_info}
-          onChange={(v) => setData((d) => ({ ...d, industry_info: v }))}
-        />
+        {/* Industry relevant info */}
+        <label className="block">
+          <span className="block text-sm mb-1">Industry-relevant info (revenue, targets, etc.)</span>
+          <textarea
+            className="w-full rounded-lg bg-white text-black p-3"
+            rows={2}
+            value={data.industry_relevant_info || ""}
+            onChange={(e) => setData((d) => ({ ...d, industry_relevant_info: e.target.value }))}
+          />
+        </label>
 
-        {/* Part of program */}
-        <FieldText
-          label="Will the test be standalone or part of a larger program?"
-          value={data.part_of_program}
-          onChange={(v) => setData((d) => ({ ...d, part_of_program: v }))}
-        />
+        {/* Standalone or program (text per your spec) */}
+        <label className="block">
+          <span className="block text-sm mb-1">Will the test be standalone or part of a larger program?</span>
+          <input
+            className="w-full rounded-lg bg-white text-black p-3"
+            value={data.standalone_or_program || ""}
+            onChange={(e) => setData((d) => ({ ...d, standalone_or_program: e.target.value }))}
+          />
+        </label>
 
-        {/* Integration */}
+        {/* Integration (dropdown) */}
         <label className="block">
           <span className="block text-sm mb-1">How would the test be integrated with your system?</span>
           <select
             className="w-full rounded-lg bg-white text-black p-3"
-            value={data.integration_method ?? ""}
-            onChange={(e) => setData((d) => ({ ...d, integration_method: e.target.value }))}
+            value={data.integration || ""}
+            onChange={(e) => setData((d) => ({ ...d, integration: e.target.value }))}
           >
-            <option value="">Choose…</option>
-            {INTEGRATION_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            <option value="">Select…</option>
+            {INTEGRATIONS.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
           </select>
         </label>
 
-        {/* Pricing */}
-        <label className="block">
-          <span className="block text-sm mb-1">Will the test be free, paid, or tiered?</span>
-          <select
-            className="w-full rounded-lg bg-white text-black p-3"
-            value={data.pricing_mode ?? ""}
-            onChange={(e) => setData((d) => ({ ...d, pricing_mode: e.target.value }))}
-          >
-            <option value="">Choose…</option>
-            {PRICING_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </label>
+        {/* Pricing model */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <label className="block">
+            <span className="block text-sm mb-1">Will the test be free, paid, or tiered?</span>
+            <select
+              className="w-full rounded-lg bg-white text-black p-3"
+              value={data.pricing_model || ""}
+              onChange={(e) =>
+                setData((d) => ({
+                  ...d,
+                  pricing_model: (e.target.value as GoalsState["pricing_model"]) || "",
+                }))
+              }
+            >
+              <option value="">Select…</option>
+              <option value="free">Free</option>
+              <option value="paid">Paid</option>
+              <option value="tiered">Tiered</option>
+            </select>
+          </label>
 
-        {/* Price point */}
-        <label className="block">
-          <span className="block text-sm mb-1">Price Point (if paid)</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder="e.g., 49"
-            className="w-full rounded-lg bg-white text-black p-3"
-            value={data.price_point === "" ? "" : String(data.price_point)}
-            onChange={(e) =>
-              setData((d) => ({
-                ...d,
-                price_point: e.target.value === "" ? "" : Number(e.target.value),
-              }))
-            }
-          />
-        </label>
+          <label className="block">
+            <span className="block text-sm mb-1">Price Point (if paid)</span>
+            <input
+              type="number"
+              className="w-full rounded-lg bg-white text-black p-3"
+              value={data.price_point ?? ""}
+              onChange={(e) =>
+                setData((d) => ({
+                  ...d,
+                  price_point: e.target.value === "" ? null : Number(e.target.value),
+                }))
+              }
+              placeholder="0"
+              min={0}
+              step="0.01"
+            />
+          </label>
+        </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          onClick={back}
-          disabled={saving}
-          className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 font-medium disabled:opacity-60"
-        >
-          ← Back
-        </button>
-        <button
-          onClick={save}
-          disabled={saving}
-          className="px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-60"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-        <button
-          onClick={next}
-          disabled={saving}
-          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium disabled:opacity-60"
-        >
-          Save & Next →
-        </button>
-        {msg && <span className="text-white/80">{msg}</span>}
+      {/* Footer actions */}
+      <div className="sticky bottom-0 left-0 right-0 mt-8 bg-neutral-900/70 backdrop-blur border-t border-white/10">
+        <div className="max-w-3xl mx-auto p-4 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => router.push("/onboarding/branding")}
+            className="px-4 py-2 rounded-xl bg-white/10 border border-white/20"
+          >
+            Back
+          </button>
+          <button
+            onClick={() => save(false)}
+            disabled={!canSave}
+            className="px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            onClick={() => save(true)}
+            disabled={!canSave}
+            className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save & Next"}
+          </button>
+
+          {savedTick > 0 && (
+            <span className="text-white/70 text-sm ml-1">Saved ✓</span>
+          )}
+        </div>
       </div>
     </main>
-  );
-}
-
-function FieldText({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value?: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="block text-sm mb-1">{label}</span>
-      <textarea
-        className="w-full rounded-lg bg-white text-black p-3 min-h-[90px]"
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </label>
   );
 }

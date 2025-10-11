@@ -1,88 +1,76 @@
-import Link from 'next/link';
+// apps/web/app/tests/page.tsx
+import Link from "next/link";
+import { getServiceClient } from "../_lib/supabase";
+
+export const dynamic = "force-dynamic";
+
+const ORG_ID = "00000000-0000-0000-0000-000000000001";
 
 type TestRow = {
   id: string;
   name: string;
-  mode: 'free' | 'full';
-  token: string;
+  mode: "free" | "full";
   created_at: string;
 };
 
-function sample(): TestRow[] {
-  return [
-    { id: '1', name: 'Signature Free', mode: 'free', token: 'free-abc123', created_at: '2025-10-11' },
-    { id: '2', name: 'Signature Full', mode: 'full', token: 'full-xyz789', created_at: '2025-10-11' },
-  ];
-}
+export default async function TestsIndexPage() {
+  const supabase = getServiceClient();
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+  // Ensure org exists (idempotent)
+  await supabase.from("organizations").upsert(
+    { id: ORG_ID, name: "Demo Org" },
+    { onConflict: "id" }
+  );
 
-export default async function TestsIndex() {
-  const rows = sample();
+  const res = await supabase
+    .from("org_tests")
+    .select("id,name,mode,created_at")
+    .eq("org_id", ORG_ID)
+    .order("created_at", { ascending: false });
+
+  // ✅ Normalize null → []
+  const tests: TestRow[] = (res.data ?? []) as TestRow[];
 
   return (
-    <main className="max-w-6xl mx-auto">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Tests</h1>
-          <p className="text-sm text-white/70">
-            Create and manage tests. Share links for live taking and open the builder to edit.
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Link href="/tests/new?mode=free" className="rounded-xl bg-brand-500/80 px-4 py-2 text-sm hover:bg-brand-500">
-            Create Free Test
-          </Link>
-          <Link href="/tests/new?mode=full" className="rounded-xl border border-white/20 px-4 py-2 text-sm hover:bg-white/5">
-            Create Full Test
-          </Link>
-        </div>
+    <main className="max-w-3xl mx-auto p-6 text-white">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Tests</h1>
+        <Link
+          href="/admin/test-builder"
+          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium"
+        >
+          Open Test Builder
+        </Link>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-white/5">
-        <table className="min-w-full text-sm">
-          <thead className="text-left text-white/70">
-            <tr>
-              <th className="p-3">Name</th>
-              <th className="p-3">Mode</th>
-              <th className="p-3">Created</th>
-              <th className="p-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(r => {
-              const shareUrl = `${process.env.NEXT_PUBLIC_SITE_URL ?? ''}/t/${r.token}`;
-              return (
-                <tr key={r.id} className="border-t border-white/10">
-                  <td className="p-3 font-medium">{r.name}</td>
-                  <td className="p-3 uppercase">{r.mode}</td>
-                  <td className="p-3">{r.created_at}</td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          if (shareUrl) navigator.clipboard.writeText(shareUrl);
-                          alert('Share link copied');
-                        }}
-                        className="rounded-lg bg-white/10 px-3 py-1 hover:bg-white/15"
-                      >
-                        Share Link
-                      </button>
-                      <Link
-                        href={`/tests/${r.id}/builder`}
-                        className="rounded-lg border border-white/20 px-3 py-1 hover:bg-white/5"
-                      >
-                        Open Builder
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {tests.length === 0 ? (
+        <p className="text-white/70 mt-4">
+          No tests yet. Go to the Test Builder to seed base questions and create one.
+        </p>
+      ) : (
+        <ul className="mt-6 space-y-3">
+          {tests.map((t) => (
+            <li
+              key={t.id}
+              className="p-4 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between"
+            >
+              <div>
+                <div className="font-medium">{t.name}</div>
+                <div className="text-xs text-white/60">
+                  Mode: {t.mode} · Created:{" "}
+                  {new Date(t.created_at).toLocaleString()}
+                </div>
+              </div>
+              <Link
+                className="px-3 py-1 rounded-lg bg-white text-black text-sm"
+                href={`/test/${t.id}`}
+              >
+                Open
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </main>
   );
 }

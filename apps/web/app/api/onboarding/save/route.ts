@@ -1,30 +1,48 @@
+// apps/web/app/api/onboarding/save/route.ts
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../_lib/supabase";
 
-type Step = "create_account" | "company" | "branding" | "goals";
+const ORG_ID = "00000000-0000-0000-0000-000000000001";
+const VALID_STEPS = new Set(["create_account", "company", "branding", "goals"]);
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  const step: Step = body?.step;
-  const payload = body?.data ?? {};
-  if (!step) return NextResponse.json({ error: "Missing step" }, { status: 400 });
-
   const supabase = getServiceClient();
-  const demoOrgId = "00000000-0000-0000-0000-000000000001";
 
-  // 1) Ensure organizations row exists
-  {
-    const { error: orgErr } = await supabase
-      .from("organizations")
-      .upsert({ id: demoOrgId, name: "Demo Org" }, { onConflict: "id" });
-    if (orgErr) return NextResponse.json({ error: orgErr.message }, { status: 500 });
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {
+    // ignore
+  }
+  const { step, data } = body || {};
+  if (!VALID_STEPS.has(step)) {
+    return NextResponse.json({ error: "Invalid step" }, { status: 400 });
   }
 
-  // 2) Upsert onboarding
-  const { error } = await supabase
-    .from("org_onboarding")
-    .upsert({ org_id: demoOrgId, [step]: payload }, { onConflict: "org_id" });
+  // Ensure org & onboarding rows exist (idempotent)
+  await supabase.from("organizations").upsert(
+    { id: ORG_ID, name: "Demo Org" },
+    { onConflict: "id" }
+  );
+  await supabase.from("org_onboarding").upsert(
+    { org_id: ORG_ID },
+    { onConflict: "org_id" }
+  );
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Update the one JSONB column
+  const patch: Record<string, unknown> = {};
+  patch[step] = data || {};
+
+  const upd = await supabase
+    .from("org_onboarding")
+    .update(patch)
+    .eq("org_id", ORG_ID);
+
+  if (upd.error) {
+    return NextResponse.json({ error: upd.error.message }, { status: 500 });
+  }
+
   return NextResponse.json({ ok: true });
 }
