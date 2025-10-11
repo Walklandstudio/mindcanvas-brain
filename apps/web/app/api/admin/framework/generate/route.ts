@@ -10,13 +10,11 @@ const ORG_ID = "00000000-0000-0000-0000-000000000001";
 async function handle() {
   const supabase = getServiceClient();
 
-  // Ensure org row
   await supabase.from("organizations").upsert(
     { id: ORG_ID, name: "Demo Org" },
     { onConflict: "id" }
   );
 
-  // Load onboarding context (branding + goals)
   const ob = await supabase
     .from("org_onboarding")
     .select("branding,goals")
@@ -36,7 +34,6 @@ async function handle() {
     primaryGoal: (goals as any)?.primary_goal,
   });
 
-  // Upsert framework shell + frequency_meta
   const fw0 = await supabase
     .from("org_frameworks")
     .select("id")
@@ -68,7 +65,6 @@ async function handle() {
     if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
   }
 
-  // Replace profiles with 8 fresh ones (A–D × 2)
   const del = await supabase.from("org_profiles").delete().eq("framework_id", frameworkId!);
   if (del.error) return NextResponse.json({ error: del.error.message }, { status: 500 });
 
@@ -99,17 +95,8 @@ async function handle() {
     );
   }
 
-  return NextResponse.json({
-    ok: true,
-    framework_id: frameworkId,
-    count: ins.data.length,
-  });
+  return NextResponse.json({ ok: true, framework_id: frameworkId, count: ins.data.length });
 }
 
-export async function POST() {
-  return handle();
-}
-export async function GET() {
-  // Accept GET to avoid 405 from accidental GET submissions
-  return handle();
-}
+export async function POST() { return handle(); }
+export async function GET()  { return handle(); }
