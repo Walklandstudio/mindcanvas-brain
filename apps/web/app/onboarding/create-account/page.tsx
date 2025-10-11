@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import useOnboardingAutosave from '../_lib/useOnboardingAutosave';
 
 type Account = {
@@ -13,34 +14,33 @@ type Account = {
 };
 
 async function load(): Promise<Account> {
-  const res = await fetch('/api/onboarding/get?step=create-account', {
-    credentials: 'include',
-  });
+  const res = await fetch('/api/onboarding/get?step=create_account', { credentials: 'include' });
   if (!res.ok) return {};
   const json = await res.json();
   return (json?.data as Account) ?? {};
 }
 
-async function saveAccount(data: Account) {
+async function save(data: Account) {
   await fetch('/api/onboarding/save', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ step: 'create-account', data }),
+    body: JSON.stringify({ step: 'create_account', data }),
   });
 }
 
 export default function CreateAccountPage() {
+  const router = useRouter();
   const [data, setData] = useState<Account>({});
 
-  // Load once
-  useEffect(() => {
-    (async () => setData(await load()))();
-  }, []);
+  useEffect(() => { (async () => setData(await load()))(); }, []);
+  const saveCb = useCallback((d: Account) => save(d), []);
+  useOnboardingAutosave<Account>(data, saveCb, 600);
 
-  // Autosave when `data` changes
-  const saveCb = useCallback((d: Account) => saveAccount(d), []);
-  useOnboardingAutosave<Account>(data, saveCb, 500);
+  const onNext = async () => {
+    await save(data);
+    router.push('/onboarding/company');
+  };
 
   return (
     <main className="mx-auto max-w-5xl p-6 text-white">
@@ -55,7 +55,6 @@ export default function CreateAccountPage() {
             onChange={(e) => setData((s) => ({ ...s, companyName: e.target.value }))}
           />
         </label>
-
         <label className="flex flex-col gap-2">
           <span>First Name</span>
           <input
@@ -64,7 +63,6 @@ export default function CreateAccountPage() {
             onChange={(e) => setData((s) => ({ ...s, firstName: e.target.value }))}
           />
         </label>
-
         <label className="flex flex-col gap-2">
           <span>Last Name</span>
           <input
@@ -73,7 +71,6 @@ export default function CreateAccountPage() {
             onChange={(e) => setData((s) => ({ ...s, lastName: e.target.value }))}
           />
         </label>
-
         <label className="flex flex-col gap-2">
           <span>Email *</span>
           <input
@@ -83,7 +80,6 @@ export default function CreateAccountPage() {
             onChange={(e) => setData((s) => ({ ...s, email: e.target.value }))}
           />
         </label>
-
         <label className="flex flex-col gap-2">
           <span>Position</span>
           <input
@@ -92,7 +88,6 @@ export default function CreateAccountPage() {
             onChange={(e) => setData((s) => ({ ...s, position: e.target.value }))}
           />
         </label>
-
         <label className="flex flex-col gap-2">
           <span>Phone</span>
           <input
@@ -101,6 +96,21 @@ export default function CreateAccountPage() {
             onChange={(e) => setData((s) => ({ ...s, phone: e.target.value }))}
           />
         </label>
+      </div>
+
+      <div className="mt-6 flex gap-3">
+        <button
+          onClick={() => save(data)}
+          className="rounded-md bg-white/10 px-4 py-2 border border-white/20"
+        >
+          Save
+        </button>
+        <button
+          onClick={onNext}
+          className="rounded-md bg-sky-600 px-4 py-2 text-white"
+        >
+          Save & Next
+        </button>
       </div>
     </main>
   );
