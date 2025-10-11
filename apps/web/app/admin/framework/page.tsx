@@ -15,9 +15,6 @@ export default async function Page() {
       <main className="max-w-3xl mx-auto p-6 text-white">
         <h1 className="text-2xl font-semibold">Framework</h1>
         <p className="mt-4 text-red-300">Failed to prepare framework: {e?.message || String(e)}</p>
-        <p className="mt-2 text-white/70">
-          If this persists, run the SQL “Demo-mode” patch again to relax NOT NULL text columns on <code>org_profiles</code>.
-        </p>
       </main>
     );
   }
@@ -27,7 +24,10 @@ export default async function Page() {
       <h1 className="text-2xl font-semibold">Framework</h1>
       <p className="text-white/70">Frequencies and profiles are generated from your onboarding data.</p>
       <div className="mt-6">
-        <FrameworkClient frequencyMeta={data.frequency_meta as any} profiles={data.profiles as any} />
+        <FrameworkClient
+          frequencyMeta={data.frequency_meta as any}
+          profiles={data.profiles as any}
+        />
       </div>
     </main>
   );

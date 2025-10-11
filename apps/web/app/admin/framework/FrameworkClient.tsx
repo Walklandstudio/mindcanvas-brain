@@ -1,6 +1,8 @@
 // apps/web/app/admin/framework/FrameworkClient.tsx
 "use client";
 
+import Link from "next/link";
+
 type F = "A" | "B" | "C" | "D";
 type FrequencyMeta = Record<F, { name?: string; image_url?: string; image_prompt?: string }>;
 type Profile = {
@@ -21,7 +23,9 @@ export default function FrameworkClient({
   profiles: Profile[];
 }) {
   const groups: Record<F, Profile[]> = { A: [], B: [], C: [], D: [] };
-  profiles.forEach((p) => groups[p.frequency].push(p));
+  (profiles || []).forEach((p) => groups[p.frequency].push(p));
+
+  const ready = (profiles?.length || 0) >= 8;
 
   return (
     <div>
@@ -48,11 +52,12 @@ export default function FrameworkClient({
       {/* Profiles grid */}
       <div className="mt-8">
         <h3 className="text-xl font-semibold mb-3">Recommended Profiles</h3>
-        {!profiles.length ? (
+        {!profiles?.length ? (
           <div className="text-white/60 text-sm">Preparing profiles… reload in a moment.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {profiles
+              .slice()
               .sort((a, b) => a.ordinal - b.ordinal)
               .map((p) => (
                 <article key={p.id} className="p-4 rounded-2xl bg-white/5 border border-white/10">
@@ -60,7 +65,9 @@ export default function FrameworkClient({
                     {p.image_url ? (
                       <img src={p.image_url} alt={p.name} className="w-12 h-12 rounded-lg object-cover" />
                     ) : (
-                      <div className="w-12 h-12 rounded-lg bg-white/10 grid place-items-center text-sm">{p.frequency}</div>
+                      <div className="w-12 h-12 rounded-lg bg-white/10 grid place-items-center text-sm">
+                        {p.frequency}
+                      </div>
                     )}
                     <div>
                       <div className="text-base font-semibold">{p.name}</div>
@@ -78,6 +85,30 @@ export default function FrameworkClient({
                 </article>
               ))}
           </div>
+        )}
+      </div>
+
+      {/* Next step CTA */}
+      <div className="mt-10 flex items-center justify-between">
+        <div className="text-white/70 text-sm">
+          {ready
+            ? "Looks good? Proceed to build and brand the test."
+            : "You’ll be able to continue once the 8 profiles are ready."}
+        </div>
+        {ready ? (
+          <Link
+            href="/admin/test-builder"
+            className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium"
+          >
+            Start Test Builder →
+          </Link>
+        ) : (
+          <button
+            disabled
+            className="px-4 py-2 rounded-xl bg-white/10 text-white/40 border border-white/15 cursor-not-allowed"
+          >
+            Start Test Builder
+          </button>
         )}
       </div>
     </div>
