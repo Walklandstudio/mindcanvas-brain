@@ -4,8 +4,10 @@ import ClientBuilder from './ClientBuilder';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export default function TestBuilderPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default async function TestBuilderPage(
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
 
   return (
     <div className="max-w-6xl mx-auto">
