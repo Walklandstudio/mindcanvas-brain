@@ -1,18 +1,21 @@
 // apps/web/app/api/tests/[id]/score/route.ts
 export const runtime = "nodejs";
 
-import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../_lib/supabase";
 
-type RouteContext = { params: { id: string } };
-
-export async function POST(req: NextRequest, context: RouteContext) {
+export async function POST(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   const supabase = getServiceClient();
-  const { id } = context.params;
+  const { id } = params;
 
   // read submitted answers
-  const body = await req.json().catch(() => ({}));
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {}
   const answers: Record<string, number> = body?.answers || {}; // { org_test_questions.id : onum }
 
   // fetch test meta
@@ -40,22 +43,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
   }
 
   let total = 0;
-  const freqTotals: Record<"A" | "B" | "C" | "D", number> = {
-    A: 0,
-    B: 0,
-    C: 0,
-    D: 0,
-  };
-  const profileTotals: Record<number, number> = {
-    1: 0,
-    2: 0,
-    3: 0,
-    4: 0,
-    5: 0,
-    6: 0,
-    7: 0,
-    8: 0,
-  };
+  const freqTotals: Record<"A" | "B" | "C" | "D", number> = { A: 0, B: 0, C: 0, D: 0 };
+  const profileTotals: Record<number, number> = { 1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0 };
 
   for (const q of qs ?? []) {
     const onum = answers[q.id];
@@ -63,25 +52,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const opt = (q.options as any[]).find((o) => o.onum === onum);
     if (!opt) continue;
     total += opt.points;
-    freqTotals[opt.frequency as "A" | "B" | "C" | "D"] += opt.points;
+    freqTotals[opt.frequency as "A"|"B"|"C"|"D"] += opt.points;
     profileTotals[opt.profile as number] += opt.points;
   }
 
   const topFreq =
     (Object.entries(freqTotals).sort((a, b) => b[1] - a[1])[0]?.[0] as
-      | "A"
-      | "B"
-      | "C"
-      | "D") || null;
+      | "A" | "B" | "C" | "D") || null;
 
   const topProfileIndex =
-    Number(Object.entries(profileTotals).sort((a, b) => b[1] - a[1])[0]?.[0]) ||
-    null;
+    Number(Object.entries(profileTotals).sort((a, b) => b[1] - a[1])[0]?.[0]) || null;
 
   const out: any = { total, frequency: topFreq };
-  if (test.mode === "full" && topProfileIndex) {
-    out.profile = `Profile ${topProfileIndex}`;
-  }
+  if (test.mode === "full" && topProfileIndex) out.profile = `Profile ${topProfileIndex}`;
 
   return NextResponse.json(out);
 }
