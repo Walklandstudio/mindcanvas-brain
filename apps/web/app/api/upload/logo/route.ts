@@ -10,9 +10,9 @@ export async function POST(req: Request) {
 
     const { orgId } = await getOwnerOrgAndFramework();
     const svc = admin();
-    // use service-role storage from supabase-js v2 via admin()
-    const storage = (svc as any).storage.from('branding');
 
+    // Upload to public bucket "branding"
+    const storage = (svc as any).storage.from('branding');
     const ext = (file.name?.split('.').pop() || 'png').toLowerCase();
     const path = `orgs/${orgId}/logo-${Date.now()}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -26,11 +26,20 @@ export async function POST(req: Request) {
     const { data: pub } = storage.getPublicUrl(path);
     const url = pub.publicUrl;
 
-    // persist URL into onboarding.branding
+    // Merge branding.logoUrl into existing onboarding row (do not wipe other fields)
+    const { data: current } = await svc
+      .from('org_onboarding')
+      .select('branding')
+      .eq('org_id', orgId)
+      .single();
+
+    const branding = { ...(current?.branding ?? {}), logoUrl: url };
+
     const { error: updErr } = await svc
       .from('org_onboarding')
-      .upsert({ org_id: orgId, branding: { logoUrl: url } }, { onConflict: 'org_id' });
-    if (updErr) console.warn('onboarding branding upsert failed:', updErr.message);
+      .upsert({ org_id: orgId, branding }, { onConflict: 'org_id' });
+
+    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
 
     return NextResponse.json({ url });
   } catch (e: any) {

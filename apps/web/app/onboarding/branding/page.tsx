@@ -2,6 +2,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Branding = {
+  // NEW
+  description?: string;
+  background?: string;
+
+  // Existing
   primary?: string;
   secondary?: string;
   accent?: string;
@@ -55,9 +60,10 @@ export default function Page() {
     }
   }
 
-  const vars = useMemo(
+  const cssVars = useMemo(
     () =>
       ({
+        ['--brand-bg' as any]: data.background || '#0b1220', // NEW (default dark)
         ['--brand-primary' as any]: data.primary || '#2d8fc4',
         ['--brand-secondary' as any]: data.secondary || '#015a8b',
         ['--brand-accent' as any]: data.accent || '#64bae2',
@@ -65,19 +71,50 @@ export default function Page() {
           data.font ||
           'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial',
       }) as React.CSSProperties,
-    [data.primary, data.secondary, data.accent, data.font]
+    [data.background, data.primary, data.secondary, data.accent, data.font]
   );
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6">
       {/* Controls */}
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Color label="Primary"   value={data.primary ?? '#2d8fc4'} onChange={(v)=>setData({...data, primary:v})} />
-          <Color label="Secondary" value={data.secondary ?? '#015a8b'} onChange={(v)=>setData({...data, secondary:v})} />
-          <Color label="Accent"    value={data.accent ?? '#64bae2'} onChange={(v)=>setData({...data, accent:v})} />
+      <div className="space-y-5">
+        {/* NEW: Branding description */}
+        <div>
+          <label className="block text-sm">Branding Description</label>
+          <textarea
+            rows={3}
+            className="w-full rounded-md border px-3 py-2"
+            placeholder="Short description of your brand identity to guide report styling."
+            value={data.description ?? ''}
+            onChange={(e) => setData({ ...data, description: e.target.value })}
+          />
         </div>
 
+        {/* Colors */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Color
+            label="Background"
+            value={data.background ?? '#0b1220'}
+            onChange={(v) => setData({ ...data, background: v })}
+          />
+          <Color
+            label="Primary"
+            value={data.primary ?? '#2d8fc4'}
+            onChange={(v) => setData({ ...data, primary: v })}
+          />
+          <Color
+            label="Secondary"
+            value={data.secondary ?? '#015a8b'}
+            onChange={(v) => setData({ ...data, secondary: v })}
+          />
+          <Color
+            label="Accent"
+            value={data.accent ?? '#64bae2'}
+            onChange={(v) => setData({ ...data, accent: v })}
+          />
+        </div>
+
+        {/* Font + Logo */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm">Font family</label>
@@ -107,6 +144,7 @@ export default function Page() {
           </div>
         </div>
 
+        {/* Voice & Tone */}
         <div>
           <label className="block text-sm">Voice & Tone</label>
           <textarea
@@ -119,7 +157,11 @@ export default function Page() {
 
         <div className="flex gap-3">
           <a className="px-4 py-2 rounded-xl border" href="/onboarding/company">Back</a>
-          <button onClick={save} disabled={saving} className="px-4 py-2 rounded-xl bg-black text-white disabled:opacity-60">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl bg-black text-white disabled:opacity-60"
+          >
             {saving ? 'Saving…' : 'Save & Next'}
           </button>
           <a className="px-4 py-2 rounded-xl border" href="/onboarding/goals">Next</a>
@@ -127,7 +169,14 @@ export default function Page() {
       </div>
 
       {/* Live Report Preview */}
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-5" style={vars}>
+      <div
+        className="rounded-2xl border border-white/10 p-5"
+        style={{
+          ...cssVars,
+          background: 'var(--brand-bg)',
+          color: 'white',
+        }}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-8 w-8 rounded-md" style={{ background: 'var(--brand-primary)' }} />
@@ -140,7 +189,17 @@ export default function Page() {
           )}
         </div>
 
-        <h3 className="mt-4 text-xl font-bold" style={{ color: 'var(--brand-accent)', fontFamily: 'var(--brand-font)' }}>
+        {/* NEW: show description under the header */}
+        {data.description?.trim() && (
+          <p className="mt-3 text-sm text-slate-300" style={{ fontFamily: 'var(--brand-font)' }}>
+            {data.description}
+          </p>
+        )}
+
+        <h3
+          className="mt-4 text-xl font-bold"
+          style={{ color: 'var(--brand-accent)', fontFamily: 'var(--brand-font)' }}
+        >
           Signature Profile Report
         </h3>
         <p className="text-sm mt-2" style={{ color: 'var(--brand-secondary)' }}>
@@ -153,13 +212,22 @@ export default function Page() {
           <Dot color="var(--brand-accent)" label="Accent" />
           <Dot color="var(--brand-primary)" label="Primary" />
           <Dot color="var(--brand-secondary)" label="Secondary" />
+          <Dot color="var(--brand-bg)" label="Background" />
         </div>
       </div>
     </div>
   );
 }
 
-function Color({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function Color({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
   return (
     <div>
       <label className="block text-sm">{label}</label>
@@ -167,11 +235,12 @@ function Color({ label, value, onChange }: { label: string; value: string; onCha
     </div>
   );
 }
+
 function Dot({ color, label }: { color: string; label: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="h-3 w-3 rounded-full" style={{ background: color }} />
-      <span className="text-xs text-slate-400">{label}</span>
+      <span className="text-xs text-slate-300">{label}</span>
     </div>
   );
 }
