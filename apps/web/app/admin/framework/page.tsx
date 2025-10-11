@@ -1,63 +1,60 @@
-import 'server-only';
-import { cookies } from 'next/headers';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+// apps/web/app/admin/framework/page.tsx
+import { getServiceClient } from "../../_lib/supabase";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
 
 export default async function FrameworkPage() {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          cookieStore.set({ name, value: '', ...options });
-        },
-      },
-    }
-  );
+  const supabase = getServiceClient();
+  const orgId = "00000000-0000-0000-0000-000000000001";
 
-  const { data: { user }, error: uerr } = await supabase.auth.getUser();
-  if (uerr || !user) {
-    return <div className="p-10 text-red-400">Unauthorized</div>;
-  }
-
-  const orgId = user.id;
-
-  // Use org_id (NOT owner_id)
-  let { data: fw } = await supabase
-    .from('org_frameworks')
-    .select('id, org_id, version')
-    .eq('org_id', orgId)
-    .limit(1)
+  const { data: fw } = await supabase
+    .from("org_frameworks")
+    .select("id,name,version,created_at")
+    .eq("org_id", orgId)
     .maybeSingle();
 
-  if (!fw) {
-    const { data, error } = await supabase
-      .from('org_frameworks')
-      .insert({ org_id: orgId, version: 1 })
-      .select('id, org_id, version')
-      .single();
-    if (error) return <div className="p-10 text-red-400">Create failed: {error.message}</div>;
-    fw = data!;
-  }
+  const frameworkId = fw?.id ?? "—";
+
+  const { data: profiles } = await supabase
+    .from("org_profiles")
+    .select("id,name,frequency,ordinal")
+    .eq("org_id", orgId)
+    .eq("framework_id", fw?.id ?? "")
+    .order("ordinal", { ascending: true });
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
-      <h1 className="text-3xl font-semibold">Framework</h1>
-      <p className="mt-2 text-white/70">
-        Framework ID: {fw.id} · Version {fw.version}
-      </p>
-      <div className="mt-6 rounded-xl border border-white/10 p-6">
-        <p className="text-white/80">Generator coming next…</p>
+    <main className="max-w-3xl mx-auto p-6 text-white">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Framework</h1>
+        <form action="/api/admin/framework/reseed" method="post">
+          <button className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium">
+            Seed / Reseed
+          </button>
+        </form>
+      </div>
+
+      <div className="mt-4 text-white/80">
+        <div>Framework ID: <span className="font-mono">{frameworkId}</span></div>
+        <div>Name: {fw?.name ?? "—"} | Version: {fw?.version ?? "—"}</div>
+      </div>
+
+      <div className="mt-6">
+        <h2 className="text-xl font-semibold mb-2">Profiles</h2>
+        {!profiles?.length ? (
+          <p className="text-white/70">No profiles yet. Click “Seed / Reseed”.</p>
+        ) : (
+          <ul className="divide-y divide-white/10 border border-white/10 rounded-xl">
+            {profiles.map((p) => (
+              <li key={p.id} className="p-3 flex items-center justify-between">
+                <div>
+                  <div className="font-medium">{p.ordinal}. {p.name}</div>
+                  <div className="text-white/70 text-sm">Frequency {p.frequency}</div>
+                </div>
+                <div className="text-white/60 text-sm font-mono">{p.id}</div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </main>
   );

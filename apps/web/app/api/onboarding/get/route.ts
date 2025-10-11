@@ -1,50 +1,20 @@
-import 'server-only';
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+// apps/web/app/api/onboarding/get/route.ts
+import { NextResponse } from "next/server";
+import { getServiceClient } from "../../../_lib/supabase";
 
-export const runtime = 'nodejs';
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const step = searchParams.get("step") as "create_account" | "company" | "branding" | "goals";
+  if (!step) return NextResponse.json({ error: "Missing step" }, { status: 400 });
 
-export async function GET() {
-  const cookieStore = await cookies();
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        // 👇 avoid implicit any on `k`
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          cookieStore.set({ name, value: '', ...options });
-        },
-      },
-    }
-  );
-
-  const { data: { user }, error: uerr } = await supabase.auth.getUser();
-  if (uerr || !user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  // One-org-per-user: use the user id as org id
-  const orgId = user.id;
-
-  // Ensure row exists
-  await supabase.from('org_onboarding').upsert(
-    { org_id: orgId },
-    { onConflict: 'org_id' }
-  );
-
+  const supabase = getServiceClient();
+  // For demo: single org row. Replace with auth-bound org_id when multi-tenant auth lands.
   const { data, error } = await supabase
-    .from('org_onboarding')
-    .select('create_account,company,branding,goals')
-    .eq('org_id', orgId)
+    .from("org_onboarding")
+    .select(step)
+    .limit(1)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ orgId, ...data });
+  return NextResponse.json({ data: data?.[step] ?? {} });
 }
