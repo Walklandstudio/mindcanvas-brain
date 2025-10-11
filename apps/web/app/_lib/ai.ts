@@ -5,12 +5,11 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
+function tryParseJSON(s: string) { try { return JSON.parse(s); } catch { return null; } }
+
 /** Frequency + profile naming based on onboarding; includes safe fallbacks. */
 export async function suggestFrameworkNames(input: {
-  industry: string;
-  sector: string;
-  brandTone: string;
-  primaryGoal: string;
+  industry: string; sector: string; brandTone: string; primaryGoal: string;
 }) {
   const prompt = `
 You are branding a 4-frequency × 8-profile framework for a company.
@@ -28,28 +27,20 @@ Return JSON with:
 }
 Keep names concise (1–3 words).
 `;
-
   try {
     const resp = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.6,
     });
-
-    const text = resp.choices?.[0]?.message?.content ?? "";
-    const parsed = tryParseJSON(text);
-
+    const parsed = tryParseJSON(resp.choices?.[0]?.message?.content ?? "");
     const fallback = {
       frequencies: { A: "Pioneers", B: "Collaborators", C: "Operators", D: "Analysts" },
       profiles: [
-        { name: "Catalyst", frequency: "A" },
-        { name: "Visionary", frequency: "A" },
-        { name: "People Connector", frequency: "B" },
-        { name: "Culture Builder", frequency: "B" },
-        { name: "Process Coordinator", frequency: "C" },
-        { name: "System Planner", frequency: "C" },
-        { name: "Quality Controller", frequency: "D" },
-        { name: "Risk Optimiser", frequency: "D" },
+        { name: "Catalyst", frequency: "A" }, { name: "Visionary", frequency: "A" },
+        { name: "People Connector", frequency: "B" }, { name: "Culture Builder", frequency: "B" },
+        { name: "Process Coordinator", frequency: "C" }, { name: "System Planner", frequency: "C" },
+        { name: "Quality Controller", frequency: "D" }, { name: "Risk Optimiser", frequency: "D" },
       ],
       imagePrompts: {
         A: "bold abstract icon with motion and light trails",
@@ -58,7 +49,6 @@ Keep names concise (1–3 words).
         D: "analytical emblem with facets and structure",
       },
     };
-
     return {
       frequencies: (parsed?.frequencies as any) || fallback.frequencies,
       profiles: (parsed?.profiles as any) || fallback.profiles,
@@ -68,14 +58,10 @@ Keep names concise (1–3 words).
     return {
       frequencies: { A: "Pioneers", B: "Collaborators", C: "Operators", D: "Analysts" },
       profiles: [
-        { name: "Catalyst", frequency: "A" },
-        { name: "Visionary", frequency: "A" },
-        { name: "People Connector", frequency: "B" },
-        { name: "Culture Builder", frequency: "B" },
-        { name: "Process Coordinator", frequency: "C" },
-        { name: "System Planner", frequency: "C" },
-        { name: "Quality Controller", frequency: "D" },
-        { name: "Risk Optimiser", frequency: "D" },
+        { name: "Catalyst", frequency: "A" }, { name: "Visionary", frequency: "A" },
+        { name: "People Connector", frequency: "B" }, { name: "Culture Builder", frequency: "B" },
+        { name: "Process Coordinator", frequency: "C" }, { name: "System Planner", frequency: "C" },
+        { name: "Quality Controller", frequency: "D" }, { name: "Risk Optimiser", frequency: "D" },
       ],
       imagePrompts: {
         A: "bold abstract icon with motion and light trails",
@@ -89,12 +75,8 @@ Keep names concise (1–3 words).
 
 /** Short copy for a profile card (summary + 3 strengths). */
 export async function buildProfileCopy(input: {
-  brandTone: string;
-  industry: string;
-  sector: string;
-  company: string;
-  frequencyName: string;
-  profileName: string;
+  brandTone: string; industry: string; sector: string; company: string;
+  frequencyName: string; profileName: string;
 }) {
   const prompt = `
 Write concise copy in the tone "${input.brandTone}" for a profile card.
@@ -126,37 +108,60 @@ Return JSON:
   }
 }
 
-/** Generate an image URL with OpenAI; fallback to a placeholder gradient. */
+/** Draft full report sections for a profile. */
+export async function draftReportSections(input: {
+  brandTone: string; industry: string; sector: string; company: string;
+  frequencyName: string; profileName: string;
+}) {
+  const prompt = `
+Write a professional report draft in the tone "${input.brandTone}" for:
+Company: ${input.company}
+Industry/Sector: ${input.industry}/${input.sector}
+Frequency: ${input.frequencyName}
+Profile: ${input.profileName}
+
+Return JSON:
+{
+ "strengths": "2 short paragraphs",
+ "challenges": "2 short paragraphs",
+ "roles": "1-2 short paragraphs explaining ideal roles",
+ "guidance": "2 short paragraphs with practical guidance"
+}
+Keep it concise and non-fluffy.
+`;
+  try {
+    const resp = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.5,
+    });
+    const parsed = tryParseJSON(resp.choices?.[0]?.message?.content ?? "");
+    return {
+      strengths: parsed?.strengths || "",
+      challenges: parsed?.challenges || "",
+      roles: parsed?.roles || "",
+      guidance: parsed?.guidance || "",
+    };
+  } catch {
+    return { strengths: "", challenges: "", roles: "", guidance: "" };
+  }
+}
+
+/** Generate an image URL; safe for TS. */
 export async function generateImageURL(prompt: string): Promise<string> {
   try {
-    const resp = await client.images.generate({
-      model: "gpt-image-1",
-      prompt,
-      size: "512x512",
-    });
-
+    const resp = await client.images.generate({ model: "gpt-image-1", prompt, size: "512x512" });
     const arr = resp?.data ?? [];
     const first = Array.isArray(arr) ? arr[0] : undefined;
-    const b64 = first && "b64_json" in first ? (first as any).b64_json as string | undefined : undefined;
+    const b64 = first && (first as any).b64_json as string | undefined;
     if (!b64) throw new Error("no-image");
     return `data:image/png;base64,${b64}`;
   } catch {
-    // placeholder: subtle gradient SVG data URL
     const svg =
       `<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512'><defs><linearGradient id='g' x1='0' x2='1' y1='0' y2='1'><stop offset='0' stop-color='#2d8fc4'/><stop offset='1' stop-color='#64bae2'/></linearGradient></defs><rect fill='url(#g)' width='512' height='512'/></svg>`;
     const base64 = (typeof Buffer !== "undefined"
       ? Buffer.from(svg).toString("base64")
       : btoa(unescape(encodeURIComponent(svg))));
     return `data:image/svg+xml;base64,${base64}`;
-  }
-}
-
-/* ------------ helpers ------------ */
-
-function tryParseJSON(s: string) {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
   }
 }
