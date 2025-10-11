@@ -1,41 +1,61 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
-type Section = 'create_account' | 'company' | 'branding' | 'goals';
+/**
+ * Debounced autosave for onboarding pages.
+ *
+ * @param data    Any serializable object you want to autosave
+ * @param onSave  Called with the latest `data` after `delay` ms of inactivity
+ * @param delay   Optional debounce delay in ms (default 400)
+ */
+export default function useOnboardingAutosave<T>(
+  data: T,
+  onSave: (latest: T) => Promise<unknown> | unknown,
+  delay: number = 400
+) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevRef = useRef<string>('');
 
-export function useOnboardingAutosave<T extends object>(section: Section, initial: T) {
-  const [data, setData] = useState<T>(initial);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dirty = useRef(false);
-
-  // Load on mount
   useEffect(() => {
-    (async () => {
-      const res = await fetch('/api/onboarding/get', { cache: 'no-store' });
-      const json = await res.json();
-      if (json && json[section]) {
-        setData((prev) => ({ ...prev, ...json[section] }));
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const json = safeStableStringify(data);
+    if (json === prevRef.current) return; // nothing changed
 
-  // Debounced save
-  const scheduleSave = useCallback((next: Partial<T>) => {
-    setData((prev) => ({ ...prev, ...next }));
-    dirty.current = true;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(async () => {
-      if (!dirty.current) return;
-      dirty.current = false;
-      await fetch('/api/onboarding/save', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ section, payload: { ...(next as object), ...(data as object) } })
+    prevRef.current = json;
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      // Fire and forget; caller can handle errors internally if needed
+      Promise.resolve(onSave(data)).catch(() => {
+        /* no-op (avoid unhandled rejection) */
       });
-    }, 400);
-  }, [data, section]);
+    }, delay);
 
-  return { data, setData: scheduleSave };
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, delay, onSave]);
+}
+
+/** JSON stringify with fallback to avoid throwing on odd values. */
+function safeStableStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, replacer, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+// Ensure stable key order to prevent noisy diffs
+function replacer(_: string, v: any) {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    return Object.keys(v)
+      .sort()
+      .reduce((acc: Record<string, unknown>, k) => {
+        acc[k] = v[k];
+        return acc;
+      }, {});
+  }
+  return v;
 }
