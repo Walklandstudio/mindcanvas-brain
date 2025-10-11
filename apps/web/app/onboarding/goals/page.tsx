@@ -1,122 +1,200 @@
 'use client';
-import { useState, useCallback, useEffect } from 'react';
-import { useOnboardingAutosave } from '../_lib/useOnboardingAutosave';
+
+import { useState, useEffect, useCallback } from 'react';
+import useOnboardingAutosave from '../_lib/useOnboardingAutosave';
 
 type Goals = {
-  industry?: string; sector?: string;
-  primaryGoal?: string; alignMission?: string; outcomes?: string;
-  audience?: string; challenges?: string; otherInsights?: string;
-  industryInfo?: string; partOfProgram?: string;
-  integration?: 'none'|'zapier'|'api';
-  pricing?: 'free'|'paid'|'tiered'; price?: number;
+  industry?: string;
+  sector?: string;
+  primaryGoal?: string;
+  missionAlign?: string;
+  outcomes?: string;
+  audience?: string;
+  challenges?: string;
+  extraInsights?: string;
+  industryInfo?: string;
+  programType?: 'standalone' | 'part-of-program' | '';
+  integration?: 'link' | 'embed' | 'api' | '';
+  pricing?: 'free' | 'paid' | 'tiered' | '';
+  price?: number | '';
 };
 
 async function load(): Promise<Goals> {
-  const r = await fetch('/api/onboarding', { cache:'no-store' });
-  const j = await r.json();
-  return (j.onboarding?.goals ?? {}) as Goals;
+  const res = await fetch('/api/onboarding/get?step=goals', { credentials: 'include' });
+  if (!res.ok) return {};
+  const json = await res.json();
+  return (json?.data as Goals) ?? {};
 }
 
-async function saveGoals(payload: Goals) {
-  await fetch('/api/onboarding', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ goals: payload })
+async function saveGoals(data: Goals) {
+  await fetch('/api/onboarding/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ step: 'goals', data }),
   });
 }
 
-export default function Page() {
-  const [g, setG] = useState<Goals>({});
+export default function GoalsPage() {
+  const [data, setData] = useState<Goals>({});
 
-  useEffect(() => { (async () => setG(await load()))(); }, []);
-  const saver = useCallback((d: Goals) => saveGoals(d), []);
-  useOnboardingAutosave(g, saver, 400);
+  useEffect(() => {
+    (async () => setData(await load()))();
+  }, []);
 
-  const set = (k: keyof Goals, v: any) => setG(prev => ({ ...prev, [k]: v }));
+  const saveCb = useCallback((d: Goals) => saveGoals(d), []);
+  useOnboardingAutosave<Goals>(data, saveCb, 600);
 
   return (
     <main className="mx-auto max-w-5xl p-6 text-white">
-      <h1 className="text-2xl font-semibold mb-6">Step 4 — Profile Test Goals</h1>
+      <h1 className="text-2xl font-semibold mb-6">Step 3 — Profile Test Goals</h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm mb-1">Industry</label>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <label className="flex flex-col gap-2">
+          <span>Industry</span>
           <input
-            className="w-full rounded-md border px-3 py-2 bg-white text-black"
-            value={g.industry ?? ''}
-            onChange={(e)=>set('industry', e.target.value)}
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
+            value={data.industry ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, industry: e.target.value }))}
           />
-        </div>
-        <div>
-          <label className="block text-sm mb-1">Sector</label>
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span>Sector</span>
           <input
-            className="w-full rounded-md border px-3 py-2 bg-white text-black"
-            value={g.sector ?? ''}
-            onChange={(e)=>set('sector', e.target.value)}
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
+            value={data.sector ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, sector: e.target.value }))}
           />
-        </div>
+        </label>
       </div>
 
-      {([
-        ['primaryGoal','What is the primary goal of the profile test?'],
-        ['alignMission','How does this test align with your company’s mission or vision?'],
-        ['outcomes','What specific outcomes would you like participants to achieve after completing the test?'],
-        ['audience','Who will primarily take this test?'],
-        ['challenges','Are there any challenges your audience faces that the test could help address?'],
-        ['otherInsights','Other insights you want to collect as part of your questions?'],
-        ['industryInfo','Industry-relevant info (revenue, targets, etc.)'],
-        ['partOfProgram','Will the test be standalone or part of a larger program?'],
-      ] as const).map(([key, label]) => (
-        <div key={key} className="mt-4">
-          <label className="block text-sm mb-1">{label}</label>
+      <div className="grid grid-cols-1 gap-4">
+        <label className="flex flex-col gap-2">
+          <span>What is the primary goal of the profile test?</span>
           <textarea
-            rows={3}
-            className="w-full rounded-md border px-3 py-2 bg-white text-black"
-            value={(g as any)[key] ?? ''}
-            onChange={(e)=>set(key as keyof Goals, e.target.value)}
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2 min-h-24"
+            value={data.primaryGoal ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, primaryGoal: e.target.value }))}
           />
-        </div>
-      ))}
+        </label>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-        <div>
-          <label className="block text-sm mb-1">Integration</label>
-          <select
-            className="w-full rounded-md border px-3 py-2 bg-white text-black"
-            value={g.integration ?? 'none'}
-            onChange={(e)=>set('integration', e.target.value as Goals['integration'])}
-          >
-            <option value="none">None</option>
-            <option value="zapier">Zapier</option>
-            <option value="api">API</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm mb-1">Pricing</label>
-          <select
-            className="w-full rounded-md border px-3 py-2 bg-white text-black"
-            value={g.pricing ?? 'free'}
-            onChange={(e)=>set('pricing', e.target.value as Goals['pricing'])}
-          >
-            <option value="free">Free</option>
-            <option value="paid">Paid</option>
-            <option value="tiered">Tiered</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm mb-1">Price Point (if paid)</label>
+        <label className="flex flex-col gap-2">
+          <span>How does this test align with your company’s mission or vision?</span>
+          <textarea
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2 min-h-24"
+            value={data.missionAlign ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, missionAlign: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span>What specific outcomes would you like participants to achieve?</span>
+          <textarea
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2 min-h-24"
+            value={data.outcomes ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, outcomes: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span>Who will primarily take this test?</span>
           <input
-            type="number"
-            className="w-full rounded-md border px-3 py-2 bg-white text-black"
-            value={Number(g.price ?? 0)}
-            onChange={(e)=>set('price', Number(e.target.value))}
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
+            value={data.audience ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, audience: e.target.value }))}
           />
-        </div>
-      </div>
+        </label>
 
-      <div className="mt-6 flex gap-3">
-        <a className="px-4 py-2 rounded-xl border" href="/onboarding/branding">Back</a>
-        <a className="px-4 py-2 rounded-xl bg-white text-black" href="/admin/framework">Finish & Generate Framework</a>
+        <label className="flex flex-col gap-2">
+          <span>Audience challenges this test could help address</span>
+          <textarea
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2 min-h-24"
+            value={data.challenges ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, challenges: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span>Other insights to collect</span>
+          <textarea
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2 min-h-24"
+            value={data.extraInsights ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, extraInsights: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span>Industry-relevant info (revenue, targets, etc.)</span>
+          <textarea
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2 min-h-24"
+            value={data.industryInfo ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, industryInfo: e.target.value }))}
+          />
+        </label>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <label className="flex flex-col gap-2">
+            <span>Program Type</span>
+            <select
+              className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
+              value={data.programType ?? ''}
+              onChange={(e) =>
+                setData((s) => ({ ...s, programType: e.target.value as Goals['programType'] }))
+              }
+            >
+              <option value="">Select…</option>
+              <option value="standalone">Standalone</option>
+              <option value="part-of-program">Part of a larger program</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-2">
+            <span>Integration</span>
+            <select
+              className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
+              value={data.integration ?? ''}
+              onChange={(e) =>
+                setData((s) => ({ ...s, integration: e.target.value as Goals['integration'] }))
+              }
+            >
+              <option value="">Select…</option>
+              <option value="link">Link</option>
+              <option value="embed">Embed</option>
+              <option value="api">API</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-2">
+            <span>Pricing</span>
+            <select
+              className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
+              value={data.pricing ?? ''}
+              onChange={(e) =>
+                setData((s) => ({ ...s, pricing: e.target.value as Goals['pricing'] }))
+              }
+            >
+              <option value="">Select…</option>
+              <option value="free">Free</option>
+              <option value="paid">Paid</option>
+              <option value="tiered">Tiered</option>
+            </select>
+          </label>
+        </div>
+
+        {data.pricing === 'paid' && (
+          <label className="flex flex-col gap-2">
+            <span>Price Point (if paid)</span>
+            <input
+              type="number"
+              className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
+              value={data.price ?? ''}
+              onChange={(e) =>
+                setData((s) => ({ ...s, price: e.target.value === '' ? '' : Number(e.target.value) }))
+              }
+            />
+          </label>
+        )}
       </div>
     </main>
   );

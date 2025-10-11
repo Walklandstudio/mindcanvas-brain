@@ -3,59 +3,41 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * Debounced autosave for onboarding pages.
+ * Debounced autosave hook.
+ * Call it from a page after you've loaded state into `data`.
  *
- * @param data    Any serializable object you want to autosave
- * @param onSave  Called with the latest `data` after `delay` ms of inactivity
- * @param delay   Optional debounce delay in ms (default 400)
+ * @param data   – the object to persist
+ * @param save   – async function that persists the object
+ * @param delay  – debounce ms (default 500)
  */
 export default function useOnboardingAutosave<T>(
   data: T,
-  onSave: (latest: T) => Promise<unknown> | unknown,
-  delay: number = 400
+  save: (d: T) => Promise<void> | void,
+  delay = 500
 ) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevRef = useRef<string>('');
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const first = useRef(true);
+  const lastJSON = useRef<string>('');
 
   useEffect(() => {
-    const json = safeStableStringify(data);
-    if (json === prevRef.current) return; // nothing changed
+    const json = JSON.stringify(data ?? {});
+    // Avoid firing on the very first render (before load finishes)
+    if (first.current) {
+      first.current = false;
+      lastJSON.current = json;
+      return;
+    }
+    if (json === lastJSON.current) return;
 
-    prevRef.current = json;
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      // Fire and forget; caller can handle errors internally if needed
-      Promise.resolve(onSave(data)).catch(() => {
-        /* no-op (avoid unhandled rejection) */
-      });
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      lastJSON.current = json;
+      await Promise.resolve(save(data));
     }, delay);
 
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timer.current) clearTimeout(timer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, delay, onSave]);
-}
-
-/** JSON stringify with fallback to avoid throwing on odd values. */
-function safeStableStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value, replacer, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-// Ensure stable key order to prevent noisy diffs
-function replacer(_: string, v: any) {
-  if (v && typeof v === 'object' && !Array.isArray(v)) {
-    return Object.keys(v)
-      .sort()
-      .reduce((acc: Record<string, unknown>, k) => {
-        acc[k] = v[k];
-        return acc;
-      }, {});
-  }
-  return v;
+  }, [data, delay, save]);
 }

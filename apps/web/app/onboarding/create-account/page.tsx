@@ -1,158 +1,106 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import useOnboardingAutosave from '../_lib/useOnboardingAutosave';
 
-type Company = {
+type Account = {
   companyName?: string;
   firstName?: string;
   lastName?: string;
-  position?: string;
   email?: string;
+  position?: string;
   phone?: string;
-  website?: string;
-  linkedin?: string;
 };
 
-async function loadCompany(): Promise<Company> {
-  const res = await fetch('/api/onboarding/get?step=create-account', { cache: 'no-store' });
+async function load(): Promise<Account> {
+  const res = await fetch('/api/onboarding/get?step=create-account', {
+    credentials: 'include',
+  });
   if (!res.ok) return {};
-  const json = await res.json().catch(() => ({}));
-  return (json?.data as Company) ?? {};
+  const json = await res.json();
+  return (json?.data as Account) ?? {};
 }
 
-async function saveCompany(payload: Company) {
+async function saveAccount(data: Account) {
   await fetch('/api/onboarding/save', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ step: 'create-account', data: payload }),
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ step: 'create-account', data }),
   });
 }
 
 export default function CreateAccountPage() {
-  const [data, setData] = useState<Company>({
-    companyName: '',
-    firstName: '',
-    lastName: '',
-    position: '',
-    email: '',
-    phone: '',
-    website: '',
-    linkedin: '',
-  });
+  const [data, setData] = useState<Account>({});
 
-  // initial load
+  // Load once
   useEffect(() => {
-    (async () => {
-      try {
-        const initial = await loadCompany();
-        if (initial && Object.keys(initial).length) {
-          setData((d) => ({ ...d, ...initial }));
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
+    (async () => setData(await load()))();
   }, []);
 
-  // autosave (default export!)
-  const onSave = useCallback((d: Company) => saveCompany(d), []);
-  useOnboardingAutosave(data, onSave, 500);
+  // Autosave when `data` changes
+  const saveCb = useCallback((d: Account) => saveAccount(d), []);
+  useOnboardingAutosave<Account>(data, saveCb, 500);
 
   return (
     <main className="mx-auto max-w-5xl p-6 text-white">
-      <h1 className="mb-6 text-2xl font-semibold">Step 1 — Create Account</h1>
+      <h1 className="text-2xl font-semibold mb-6">Step 1 — Create Account</h1>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="md:col-span-2 flex flex-col gap-2">
-          <label className="text-sm opacity-80">Company Name *</label>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <label className="flex flex-col gap-2">
+          <span>Company Name *</span>
           <input
-            className="rounded-md border border-white/10 bg-white px-3 py-2 text-black"
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
             value={data.companyName ?? ''}
-            onChange={(e) => setData((d) => ({ ...d, companyName: e.target.value }))}
-            placeholder="Your company"
+            onChange={(e) => setData((s) => ({ ...s, companyName: e.target.value }))}
           />
-        </div>
+        </label>
 
-        <div className="flex flex-col gap-2">
-          <label className="text-sm opacity-80">First Name</label>
+        <label className="flex flex-col gap-2">
+          <span>First Name</span>
           <input
-            className="rounded-md border border-white/10 bg-white px-3 py-2 text-black"
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
             value={data.firstName ?? ''}
-            onChange={(e) => setData((d) => ({ ...d, firstName: e.target.value }))}
-            placeholder="Jane"
+            onChange={(e) => setData((s) => ({ ...s, firstName: e.target.value }))}
           />
-        </div>
+        </label>
 
-        <div className="flex flex-col gap-2">
-          <label className="text-sm opacity-80">Last Name</label>
+        <label className="flex flex-col gap-2">
+          <span>Last Name</span>
           <input
-            className="rounded-md border border-white/10 bg-white px-3 py-2 text-black"
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
             value={data.lastName ?? ''}
-            onChange={(e) => setData((d) => ({ ...d, lastName: e.target.value }))}
-            placeholder="Doe"
+            onChange={(e) => setData((s) => ({ ...s, lastName: e.target.value }))}
           />
-        </div>
+        </label>
 
-        <div className="flex flex-col gap-2">
-          <label className="text-sm opacity-80">Position</label>
-          <input
-            className="rounded-md border border-white/10 bg-white px-3 py-2 text-black"
-            value={data.position ?? ''}
-            onChange={(e) => setData((d) => ({ ...d, position: e.target.value }))}
-            placeholder="Head of People"
-          />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="text-sm opacity-80">Email *</label>
+        <label className="flex flex-col gap-2">
+          <span>Email *</span>
           <input
             type="email"
-            className="rounded-md border border-white/10 bg-white px-3 py-2 text-black"
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
             value={data.email ?? ''}
-            onChange={(e) => setData((d) => ({ ...d, email: e.target.value }))}
-            placeholder="you@company.com"
+            onChange={(e) => setData((s) => ({ ...s, email: e.target.value }))}
           />
-        </div>
+        </label>
 
-        <div className="flex flex-col gap-2">
-          <label className="text-sm opacity-80">Phone</label>
+        <label className="flex flex-col gap-2">
+          <span>Position</span>
           <input
-            className="rounded-md border border-white/10 bg-white px-3 py-2 text-black"
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
+            value={data.position ?? ''}
+            onChange={(e) => setData((s) => ({ ...s, position: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span>Phone</span>
+          <input
+            className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
             value={data.phone ?? ''}
-            onChange={(e) => setData((d) => ({ ...d, phone: e.target.value }))}
-            placeholder="+1 555 0100"
+            onChange={(e) => setData((s) => ({ ...s, phone: e.target.value }))}
           />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="text-sm opacity-80">Website</label>
-          <input
-            className="rounded-md border border-white/10 bg-white px-3 py-2 text-black"
-            value={data.website ?? ''}
-            onChange={(e) => setData((d) => ({ ...d, website: e.target.value }))}
-            placeholder="https://example.com"
-          />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="text-sm opacity-80">LinkedIn</label>
-          <input
-            className="rounded-md border border-white/10 bg-white px-3 py-2 text-black"
-            value={data.linkedin ?? ''}
-            onChange={(e) => setData((d) => ({ ...d, linkedin: e.target.value }))}
-            placeholder="https://linkedin.com/company/your-company"
-          />
-        </div>
-      </div>
-
-      <div className="mt-6 flex gap-3">
-        <a href="/" className="rounded-md bg-white/10 px-4 py-2">
-          Back
-        </a>
-        <a href="/onboarding/company" className="rounded-md bg-white px-4 py-2 text-black">
-          Save & Next
-        </a>
+        </label>
       </div>
     </main>
   );
