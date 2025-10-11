@@ -15,23 +15,31 @@ export async function GET() {
     .eq("org_id", ORG_ID)
     .maybeSingle();
 
-  const frameworkId = fw.data?.id || "";
+  if (fw.error) {
+    return NextResponse.json({ error: fw.error.message }, { status: 500 });
+  }
 
-  const profiles = frameworkId
-    ? await supabase
-        .from("org_profiles")
-        .select("id,name,frequency,ordinal")
-        .eq("org_id", ORG_ID)
-        .eq("framework_id", frameworkId)
-        .order("ordinal", { ascending: true })
-    : { data: [], error: null };
+  const frameworkId = fw.data?.id || null;
+
+  let profiles: any[] = [];
+  let pErr: string | null = null;
+
+  if (frameworkId) {
+    const resp = await supabase
+      .from("org_profiles")
+      .select("id,name,frequency,ordinal")
+      .eq("org_id", ORG_ID)
+      .eq("framework_id", frameworkId)
+      .order("ordinal", { ascending: true });
+    pErr = resp.error?.message || null;
+    profiles = resp.data || [];
+  }
 
   return NextResponse.json({
-    fw_error: fw.error?.message || null,
-    framework_id: frameworkId || null,
-    frequency_meta_keys: fw.data?.frequency_meta ? Object.keys(fw.data.frequency_meta) : [],
-    profiles_error: (profiles as any).error?.message || null,
-    profiles_count: (profiles as any).data?.length || 0,
-    profiles: (profiles as any).data || [],
+    framework_id: frameworkId,
+    frequency_meta_letters: fw.data?.frequency_meta ? Object.keys(fw.data.frequency_meta) : [],
+    profiles_count: profiles.length,
+    profiles,
+    profiles_error: pErr,
   });
 }

@@ -29,16 +29,45 @@ export default function FrameworkClient({
   );
 
   async function post(url: string, body?: any) {
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
-    if (!res.ok) throw new Error((await res.json()).error || "error");
-    return res.json();
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || `POST ${url} failed (${res.status})`);
+    return j;
+  }
+
+  async function handleGenerateAI() {
+    setToast("Generating names & profiles…");
+    try {
+      const j = await post("/api/admin/framework/generate");
+      setToast(`Generated ✓ (${j.count} profiles). Refreshing…`);
+      // hard refresh to reload server-fetched data
+      setTimeout(() => window.location.reload(), 600);
+    } catch (e: any) {
+      setToast(`Generate failed: ${e.message || "error"}`);
+    }
+  }
+
+  async function handleReseedDefaults() {
+    setToast("Reseeding default profiles…");
+    try {
+      const j = await post("/api/admin/framework/reseed");
+      setToast(`Reseeded ✓ (${j.count} profiles). Refreshing…`);
+      setTimeout(() => window.location.reload(), 600);
+    } catch (e: any) {
+      setToast(`Reseed failed: ${e.message || "error"}`);
+    }
   }
 
   async function handleGenerateImages() {
     setToast("Generating images…");
     try {
       await post("/api/admin/framework/generate-images");
-      setToast("Images generated ✓. Refresh if they don’t appear immediately.");
+      setToast("Images generated ✓. Refreshing…");
+      setTimeout(() => window.location.reload(), 600);
     } catch (e: any) {
       setToast(`Image generation failed: ${e.message ?? "error"}`);
     }
@@ -96,12 +125,12 @@ export default function FrameworkClient({
   return (
     <div>
       <div className="flex gap-2 mt-4">
-        <form action="/api/admin/framework/generate" method="post">
-          <button className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium">Generate with AI</button>
-        </form>
-        <form action="/api/admin/framework/reseed" method="post">
-          <button className="px-4 py-2 rounded-xl bg-white/10 border border-white/20 font-medium">Reseed Defaults</button>
-        </form>
+        <button onClick={handleGenerateAI} className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium">
+          Generate with AI
+        </button>
+        <button onClick={handleReseedDefaults} className="px-4 py-2 rounded-xl bg-white/10 border border-white/20 font-medium">
+          Reseed Defaults
+        </button>
         <button onClick={handleGenerateImages} className="px-4 py-2 rounded-xl bg-white text-black font-medium">
           Generate Images
         </button>
