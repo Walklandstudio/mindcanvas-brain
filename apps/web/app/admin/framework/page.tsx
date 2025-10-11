@@ -1,56 +1,43 @@
 // apps/web/app/admin/framework/page.tsx
-import FrameworkEditor from "./ui/FrameworkEditor";
+// Server page: loads 8 profiles and renders the client editor.
 
-export const dynamic = "force-dynamic";
+import { Suspense } from 'react';
+import FrameworkEditor from './ui/FrameworkEditor';
+
+export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-type Profile = {
-  id: string;
-  name: string;
-  frequency: "A" | "B" | "C" | "D";
-  ordinal: number;
-};
-
-async function getProfiles(): Promise<{ profiles: Profile[] }> {
-  // Use a relative fetch so it works on both dev and Vercel
-  const res = await fetch("/api/admin/framework", { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load profiles");
-  return res.json();
+async function getData() {
+  // Use absolute origin so this also works in Vercel/edge.
+  const origin = process.env.NEXT_PUBLIC_SITE_URL!;
+  const res = await fetch(`${origin}/api/admin/framework`, {
+    cache: 'no-store',
+    // Forward cookies automatically not needed when using same origin,
+    // but absolute URL is safer in server contexts.
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    // Let the error boundary show a clean message in production.
+    throw new Error('Failed to load profiles');
+  }
+  return (await res.json()) as {
+    profiles: { id: string; name: string; frequency: 'A' | 'B' | 'C' | 'D'; ordinal: number }[];
+  };
 }
 
-export default async function FrameworkPage() {
-  const { profiles } = await getProfiles();
+export default async function Page() {
+  const { profiles } = await getData();
 
   return (
-    <main className="max-w-6xl mx-auto p-6 space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Framework — Profiles (8)</h1>
-        <p className="text-sm text-slate-300">
-          Edit names, assign A–D, and set ordering (1–8). These map test results → profile.
-        </p>
+    <main className="max-w-6xl mx-auto p-6">
+      <h1 className="text-2xl font-semibold">Framework — Profiles (8)</h1>
+      <p className="text-sm text-muted-foreground mt-1">
+        Edit names, assign A–D, and ordering (1–8). These map test results → profile.
+      </p>
 
-        {/* Generate from onboarding (Industry / Sector heuristics) */}
-        <div className="mt-2 flex items-center gap-3">
-          <form action="/api/admin/framework/generate" method="post">
-            <button
-              className="rounded-2xl px-4 py-2 text-sm"
-              style={{
-                background:
-                  "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))",
-              }}
-            >
-              Generate from Onboarding
-            </button>
-          </form>
-          <span className="text-xs text-slate-400">
-            Seeds the 8 profiles using your Industry/Sector. You can fine-tune afterward.
-          </span>
-        </div>
-      </header>
-
-      <section className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md p-6">
+      <Suspense fallback={<div className="mt-6 text-sm opacity-70">Loading…</div>}>
         <FrameworkEditor initialProfiles={profiles} />
-      </section>
+      </Suspense>
     </main>
   );
 }

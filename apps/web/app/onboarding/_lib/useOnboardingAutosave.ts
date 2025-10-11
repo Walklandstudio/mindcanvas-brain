@@ -1,62 +1,59 @@
+// apps/web/app/onboarding/_lib/useOnboardingAutoSave.ts
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 
-type AnyObj = Record<string, any>;
-
-export function useOnboardingAutosave<T extends AnyObj>(
-  stepKey: 'company' | 'branding' | 'goals',
-  initial: T
+/**
+ * Autosaves a section of the onboarding object to /api/onboarding.
+ * Usage:
+ *   useOnboardingAutosave('branding', data);
+ *
+ * The hook debounces writes to avoid chatty requests.
+ */
+export function useOnboardingAutosave<T extends object>(
+  section: 'company' | 'branding' | 'goals',
+  data: T,
+  options?: { debounceMs?: number }
 ) {
-  const STORAGE_KEY = `mc_onboarding_${stepKey}`;
-  const [data, setData] = useState<T>(initial);
-  const [saving, setSaving] = useState(false);
-  const timer = useRef<number | null>(null);
+  const debounceMs = options?.debounceMs ?? 600;
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPayloadRef = useRef<string>('');
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setData((d) => ({ ...d, ...JSON.parse(raw) }));
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const payload = JSON.stringify({ [section]: data ?? {} });
 
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(data)]);
+    // Don't post identical bodies back-to-back
+    if (payload === lastPayloadRef.current) return;
+    lastPayloadRef.current = payload;
 
-  const saveNow = async () => {
-    setSaving(true);
-    try {
-      await fetch('/api/onboarding', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [stepKey]: data }),
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
+    if (timer.current) clearTimeout(timer.current);
 
-  const scheduleSave = () => {
-    if (timer.current) window.clearTimeout(timer.current);
-    // @ts-ignore
-    timer.current = window.setTimeout(saveNow, 600);
-  };
+    timer.current = setTimeout(async () => {
+      setIsSaving(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/onboarding', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j?.error || 'Failed to save');
+        }
+      } catch (e: any) {
+        setError(e?.message || 'Failed to save');
+      } finally {
+        setIsSaving(false);
+      }
+    }, debounceMs);
 
-  const update = <K extends keyof T>(key: K, value: T[K]) => {
-    setData(prev => ({ ...prev, [key]: value }));
-    scheduleSave();
-  };
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [section, data, debounceMs]);
 
-  const loadFromServer = (server: T | undefined) => {
-    if (server) setData(prev => ({ ...prev, ...server }));
-  };
-
-  const clearDraft = () => {
-    try { localStorage.removeItem(STORAGE_KEY); } catch {}
-  };
-
-  return { data, setData, update, saving, saveNow, loadFromServer, clearDraft };
+  return { isSaving, error };
 }

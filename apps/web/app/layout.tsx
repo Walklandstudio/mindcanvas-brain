@@ -1,28 +1,18 @@
 import './globals.css';
-import { getBrandTokens } from './api/_lib/brand';
-
-export const metadata = { title: 'MindCanvas' };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const brand = await getBrandTokens();
-
-  // expose as CSS variables
-  const vars: React.CSSProperties = {
-    // @ts-ignore
-    '--brand-bg': brand.background,
-    '--brand-primary': brand.primary,
-    '--brand-secondary': brand.secondary,
-    '--brand-accent': brand.accent,
-    '--brand-font': brand.font,
-  };
+  // Default fallback
+  let bg = '#0b1220';
+  try {
+    const origin = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const r = await fetch(`${origin}/api/onboarding/branding/get`, { cache: 'no-store' });
+    const j = await r.json();
+    if (j?.branding?.background) bg = j.branding.background as string;
+  } catch {}
 
   return (
     <html lang="en">
-      <body style={{ background: 'var(--brand-bg)' }} className="text-white" >
-        <div style={vars as any}>
-          {children}
-        </div>
-      </body>
+      <body style={{ background: bg }}>{children}</body>
     </html>
   );
 }
