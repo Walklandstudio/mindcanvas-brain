@@ -1,18 +1,20 @@
 import './globals.css';
+import type { Metadata } from 'next';
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Default fallback
-  let bg = '#0b1220';
-  try {
-    const origin = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-    const r = await fetch(`${origin}/api/onboarding/branding/get`, { cache: 'no-store' });
-    const j = await r.json();
-    if (j?.branding?.background) bg = j.branding.background as string;
-  } catch {}
+export const metadata: Metadata = {
+  title: 'MindCanvas',
+  description: 'Signature Profiling System',
+};
 
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ background: bg }}>{children}</body>
+      <body className="mc-bg text-white antialiased">
+        {/* Optional fade + max-width wrapper to keep pages tidy */}
+        <div className="min-h-screen">
+          {children}
+        </div>
+      </body>
     </html>
   );
 }
