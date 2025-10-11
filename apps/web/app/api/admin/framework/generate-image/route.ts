@@ -1,5 +1,6 @@
-export const runtime = "nodejs";
 // apps/web/app/api/admin/framework/generate-images/route.ts
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../_lib/supabase";
 import OpenAI from "openai";
@@ -7,7 +8,7 @@ import OpenAI from "openai";
 const ORG_ID = "00000000-0000-0000-0000-000000000001";
 const BUCKET = "framework";
 
-export async function POST() {
+async function handle() {
   const supabase = getServiceClient();
 
   const [{ data: ob, error: obErr }, { data: fw, error: fwErr }] = await Promise.all([
@@ -117,3 +118,6 @@ export async function POST() {
     generated: { frequencies: freqGenerated, profiles: profilesGenerated },
   });
 }
+
+export async function POST() { return handle(); }
+export async function GET()  { return handle(); }

@@ -7,16 +7,16 @@ import { suggestFrameworkNames } from "../../../../_lib/ai";
 
 const ORG_ID = "00000000-0000-0000-0000-000000000001";
 
-export async function POST() {
+async function handle() {
   const supabase = getServiceClient();
 
-  // Ensure org exists
+  // Ensure org row
   await supabase.from("organizations").upsert(
     { id: ORG_ID, name: "Demo Org" },
     { onConflict: "id" }
   );
 
-  // Pull onboarding context
+  // Load onboarding context (branding + goals)
   const ob = await supabase
     .from("org_onboarding")
     .select("branding,goals")
@@ -36,7 +36,7 @@ export async function POST() {
     primaryGoal: (goals as any)?.primary_goal,
   });
 
-  // Upsert or create framework
+  // Upsert framework shell + frequency_meta
   const fw0 = await supabase
     .from("org_frameworks")
     .select("id")
@@ -44,7 +44,7 @@ export async function POST() {
     .maybeSingle();
   if (fw0.error) return NextResponse.json({ error: fw0.error.message }, { status: 500 });
 
-  const freqMeta = {
+  const frequency_meta = {
     A: { name: plan.frequencies.A, image_url: null, image_prompt: plan.imagePrompts.A },
     B: { name: plan.frequencies.B, image_url: null, image_prompt: plan.imagePrompts.B },
     C: { name: plan.frequencies.C, image_url: null, image_prompt: plan.imagePrompts.C },
@@ -55,7 +55,7 @@ export async function POST() {
   if (!frameworkId) {
     const created = await supabase
       .from("org_frameworks")
-      .insert({ org_id: ORG_ID, name: "Signature", version: 1, frequency_meta: freqMeta })
+      .insert({ org_id: ORG_ID, name: "Signature", version: 1, frequency_meta })
       .select("id")
       .single();
     if (created.error) return NextResponse.json({ error: created.error.message }, { status: 500 });
@@ -63,12 +63,12 @@ export async function POST() {
   } else {
     const upd = await supabase
       .from("org_frameworks")
-      .update({ frequency_meta: freqMeta })
+      .update({ frequency_meta })
       .eq("id", frameworkId);
     if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
   }
 
-  // Clear old profiles then insert 8 fresh ones
+  // Replace profiles with 8 fresh ones (A–D × 2)
   const del = await supabase.from("org_profiles").delete().eq("framework_id", frameworkId!);
   if (del.error) return NextResponse.json({ error: del.error.message }, { status: 500 });
 
@@ -103,6 +103,13 @@ export async function POST() {
     ok: true,
     framework_id: frameworkId,
     count: ins.data.length,
-    frequencies_named: freqMeta,
   });
+}
+
+export async function POST() {
+  return handle();
+}
+export async function GET() {
+  // Accept GET to avoid 405 from accidental GET submissions
+  return handle();
 }
