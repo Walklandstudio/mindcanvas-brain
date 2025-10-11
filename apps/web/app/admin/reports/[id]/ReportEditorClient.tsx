@@ -19,6 +19,8 @@ type Loader = {
 
 export default function ReportEditorClient({ id }: { id: string }) {
   const [data, setData] = useState<Loader | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -29,13 +31,24 @@ export default function ReportEditorClient({ id }: { id: string }) {
   }
 
   async function load() {
-    const res = await fetch(`/api/admin/reports/${id}`, { cache: "no-store" });
-    const j = await res.json();
-    if (!res.ok) {
-      notify(j.error || "Failed to load");
-      return;
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/admin/reports/${id}`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = j?.error || `Failed to load (HTTP ${res.status})`;
+        setErr(msg);
+        setData(null);
+      } else {
+        setData(j);
+      }
+    } catch (e: any) {
+      setErr(e?.message || "Network error");
+      setData(null);
+    } finally {
+      setLoading(false);
     }
-    setData(j);
   }
 
   useEffect(() => {
@@ -52,7 +65,7 @@ export default function ReportEditorClient({ id }: { id: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data.report),
       });
-      const j = await res.json();
+      const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Save failed");
       notify("Draft saved ✓");
     } catch (e: any) {
@@ -66,7 +79,7 @@ export default function ReportEditorClient({ id }: { id: string }) {
     setBusy("draft");
     try {
       const res = await fetch(`/api/admin/reports/${id}?action=draft`, { method: "POST" });
-      const j = await res.json();
+      const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "AI draft failed");
       await load();
       notify("AI draft created");
@@ -81,7 +94,7 @@ export default function ReportEditorClient({ id }: { id: string }) {
     setBusy("signoff");
     try {
       const res = await fetch(`/api/admin/reports/${id}?action=signoff`, { method: "POST" });
-      const j = await res.json();
+      const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Sign-off failed");
       await load();
       notify("Report approved ✓");
@@ -92,8 +105,48 @@ export default function ReportEditorClient({ id }: { id: string }) {
     }
   }
 
+  // Loading state
+  if (loading) {
+    return (
+      <main className="max-w-5xl mx-auto p-6 text-white">
+        <div className="text-white/80">Loading…</div>
+      </main>
+    );
+  }
+
+  // Error state (prevents endless "Loading...")
+  if (err) {
+    return (
+      <main className="max-w-5xl mx-auto p-6 text-white">
+        <a href="/admin/reports/signoff" className="text-white/70 hover:text-white text-sm">← Back</a>
+        <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+          <div className="text-red-300 font-medium">Couldn’t load this report</div>
+          <div className="text-red-200/90 text-sm mt-1 break-words">{err}</div>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={load}
+              className="px-3 py-2 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15"
+            >
+              Retry
+            </button>
+            <a
+              href="/admin/reports/signoff"
+              className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500"
+            >
+              Back to Reports
+            </a>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   if (!data) {
-    return <main className="max-w-5xl mx-auto p-6 text-white">Loading…</main>;
+    return (
+      <main className="max-w-5xl mx-auto p-6 text-white">
+        <div className="text-white/80">No data.</div>
+      </main>
+    );
   }
 
   const { profile, frequencyName } = data;
