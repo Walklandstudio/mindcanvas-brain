@@ -3,60 +3,58 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../../_lib/supabase";
-import { suggestFrameworkNames } from "../../../../../_lib/ai"; // not used, but left if you later want tone from onboarding
 import OpenAI from "openai";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 export async function POST(req: Request) {
   const url = new URL(req.url);
-  const qnum = Number(url.searchParams.get("q"));
   const questionId = url.searchParams.get("question_id");
+  const qnum = Number(url.searchParams.get("q")); // fallback
 
   const sb = getServiceClient();
 
-  let question: any = null;
-
+  // Try to load from DB by id or qnum; tolerate missing rows
+  let qText = "";
   if (questionId) {
-    const q = await sb.from("org_test_questions").select("*").eq("id", questionId).single();
-    if (q.error) return NextResponse.json({ error: q.error.message }, { status: 400 });
-    question = q.data;
-  } else if (!Number.isFinite(qnum)) {
-    return NextResponse.json({ error: "question_id or q required" }, { status: 400 });
-  } else {
-    const q = await sb.from("org_test_questions").select("*").eq("qnum", qnum).maybeSingle();
-    if (q.error || !q.data) return NextResponse.json({ error: q.error?.message || "question not found" }, { status: 404 });
-    question = q.data;
+    const r = await sb.from("org_test_questions").select("text").eq("id", questionId).maybeSingle();
+    if (r.data?.text) qText = r.data.text;
+  } else if (Number.isFinite(qnum)) {
+    const r = await sb.from("org_test_questions").select("text").eq("qnum", qnum).maybeSingle();
+    if (r.data?.text) qText = r.data.text;
   }
 
-  const answers = await sb.from("org_test_answers")
-    .select("id,ordinal,text,points,frequency,profile_index")
-    .eq("question_id", question.id)
-    .order("ordinal", { ascending: true });
-  if (answers.error) return NextResponse.json({ error: answers.error.message }, { status: 400 });
+  if (!qText) qText = "Rephrase this question clearly while keeping its meaning.";
 
-  const prompt = `
-Rephrase the following question to be clearer and brand-neutral. Keep meaning intact.
+  const prompt = `Rephrase the following question to match a professional, brand-neutral tone, without changing meaning.
+Return JSON: {"text":"<rephrased>"}.
 
-Question: ${question.text}
-
-Return JSON: {"text":"..."}
-`;
+Question: ${qText}`;
 
   try {
-    const resp = await client.chat.completions.create({
+    const resp = await ai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
+      messages: [{ role: "user", content: prompt }],
     });
-    const json = JSON.parse(resp.choices[0]?.message?.content || "{}");
-    const newText = json.text || question.text;
 
-    const upd = await sb.from("org_test_questions").update({ text: newText }).eq("id", question.id);
-    if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+    const raw = resp.choices?.[0]?.message?.content || "";
+    const parsed = safeJSON(raw);
+    const newText = (parsed && typeof parsed.text === "string" && parsed.text.trim()) || qText;
 
-    return NextResponse.json({ ok: true, id: question.id, text: newText });
+    // Persist only when we have a DB id/qnum
+    if (questionId) {
+      await sb.from("org_test_questions").update({ text: newText }).eq("id", questionId);
+    } else if (Number.isFinite(qnum)) {
+      await sb.from("org_test_questions").update({ text: newText }).eq("qnum", qnum);
+    }
+
+    return NextResponse.json({ ok: true, text: newText });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "AI error" }, { status: 500 });
   }
+}
+
+function safeJSON(s: string) {
+  try { return JSON.parse(s); } catch { return null; }
 }

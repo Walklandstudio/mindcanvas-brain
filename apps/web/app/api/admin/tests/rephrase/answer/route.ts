@@ -5,65 +5,81 @@ import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../../_lib/supabase";
 import OpenAI from "openai";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 export async function POST(req: Request) {
   const url = new URL(req.url);
+  const answerId = url.searchParams.get("answer_id");
   const qnum = Number(url.searchParams.get("q"));
-  const ansIdx = Number(url.searchParams.get("a")); // 1..4
+  const ansOrdinal = Number(url.searchParams.get("a")); // 1..4
 
-  if (!Number.isFinite(qnum) || !Number.isFinite(ansIdx) || ansIdx < 1 || ansIdx > 4) {
-    return NextResponse.json({ error: "q and a required (1..4)" }, { status: 400 });
+  if (!answerId && (!Number.isFinite(qnum) || !Number.isFinite(ansOrdinal))) {
+    return NextResponse.json({ error: "answer_id or (q & a) required" }, { status: 400 });
   }
 
   const sb = getServiceClient();
 
-  // Try DB lookup
-  const q = await sb.from("org_test_questions").select("id,text").eq("qnum", qnum).maybeSingle();
+  // Load text (tolerant)
+  let qText = "Question text placeholder.";
+  let aText = "Answer option placeholder.";
 
-  let qText = q.data?.text || "";
-  let aText = "";
-  let aId: string | null = null;
-
-  if (q.data) {
-    const ans = await sb
-      .from("org_test_answers")
-      .select("id,text")
-      .eq("question_id", q.data.id)
-      .eq("ordinal", ansIdx)
-      .maybeSingle();
-    if (ans.data) {
-      aText = ans.data.text || "";
-      aId = ans.data.id;
+  if (answerId) {
+    const ans = await sb.from("org_test_answers").select("text,question_id").eq("id", answerId).maybeSingle();
+    if (ans.data?.text) aText = ans.data.text;
+    if (ans.data?.question_id) {
+      const q = await sb.from("org_test_questions").select("text").eq("id", ans.data.question_id).maybeSingle();
+      if (q.data?.text) qText = q.data.text;
+    }
+  } else {
+    const q = await sb.from("org_test_questions").select("id,text").eq("qnum", qnum).maybeSingle();
+    if (q.data?.text) qText = q.data.text;
+    if (q.data?.id) {
+      const a = await sb
+        .from("org_test_answers")
+        .select("id,text")
+        .eq("question_id", q.data.id)
+        .eq("ordinal", ansOrdinal)
+        .maybeSingle();
+      if (a.data?.text) aText = a.data.text;
     }
   }
 
-  if (!qText) qText = "Question text placeholder.";
-  if (!aText) aText = "Answer option placeholder.";
+  const prompt = `Rephrase the answer choice to match a professional, brand-neutral tone, without changing its meaning.
+Return JSON: {"text":"<rephrased>"}.
 
-  const prompt = `Rephrase the following answer choice to be clearer and brand-neutral, without changing meaning.\n\nQuestion: ${qText}\nAnswer: ${aText}\n\nReturn JSON: {"text":"..."}`;
+Question: ${qText}
+Answer: ${aText}`;
 
   try {
-    const resp = await client.chat.completions.create({
+    const resp = await ai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
+      messages: [{ role: "user", content: prompt }],
     });
 
-    const out = safeParse(resp.choices?.[0]?.message?.content ?? "");
-    const newText = out?.text || aText;
+    const raw = resp.choices?.[0]?.message?.content || "";
+    const parsed = safeJSON(raw);
+    const newText = (parsed && typeof parsed.text === "string" && parsed.text.trim()) || aText;
 
-    if (aId) {
-      const upd = await sb.from("org_test_answers").update({ text: newText }).eq("id", aId);
-      if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+    if (answerId) {
+      await sb.from("org_test_answers").update({ text: newText }).eq("id", answerId);
+    } else if (Number.isFinite(qnum) && Number.isFinite(ansOrdinal)) {
+      const q = await sb.from("org_test_questions").select("id").eq("qnum", qnum).maybeSingle();
+      if (q.data?.id) {
+        await sb
+          .from("org_test_answers")
+          .update({ text: newText })
+          .eq("question_id", q.data.id)
+          .eq("ordinal", ansOrdinal);
+      }
     }
 
-    return NextResponse.json({ ok: true, text: newText, id: aId });
+    return NextResponse.json({ ok: true, text: newText });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "AI error" }, { status: 500 });
   }
 }
 
-function safeParse(s: string) {
+function safeJSON(s: string) {
   try { return JSON.parse(s); } catch { return null; }
 }
