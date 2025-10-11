@@ -1,61 +1,75 @@
 // apps/web/app/admin/framework/page.tsx
 import { getServiceClient } from "../../_lib/supabase";
+import FrameworkClient from "./FrameworkClient";
 
 export const dynamic = "force-dynamic";
+
+// Keep local types minimal and server-only
+type FrequencyLetter = "A" | "B" | "C" | "D";
+type FrequencyMeta = Record<FrequencyLetter, { name?: string; image_url?: string; image_prompt?: string }>;
+type ProfileRow = {
+  id: string;
+  name: string;
+  frequency: FrequencyLetter;
+  ordinal: number;
+  image_url?: string | null;
+};
 
 export default async function FrameworkPage() {
   const supabase = getServiceClient();
   const orgId = "00000000-0000-0000-0000-000000000001";
 
-  const { data: fw } = await supabase
+  // Fetch framework (may be null)
+  const fwRes = await supabase
     .from("org_frameworks")
-    .select("id,name,version,created_at")
+    .select("id,name,version,created_at,frequency_meta")
     .eq("org_id", orgId)
     .maybeSingle();
 
-  const frameworkId = fw?.id ?? "—";
+  const fw = fwRes.data ?? null;
+  const frameworkId = fw?.id ?? "";
 
-  const { data: profiles } = await supabase
+  // Fetch profiles (Supabase types data as ProfileRow[] | null)
+  const profRes = await supabase
     .from("org_profiles")
-    .select("id,name,frequency,ordinal")
+    .select("id,name,frequency,ordinal,image_url")
     .eq("org_id", orgId)
-    .eq("framework_id", fw?.id ?? "")
+    .eq("framework_id", frameworkId || "")
     .order("ordinal", { ascending: true });
 
+  // ✅ Normalize possible nulls → concrete values
+  const frequencyMeta: FrequencyMeta = (fw?.frequency_meta as FrequencyMeta) ?? {
+    A: {},
+    B: {},
+    C: {},
+    D: {},
+  };
+
+  const profiles: ProfileRow[] = (profRes.data ?? []) as ProfileRow[];
+
   return (
-    <main className="max-w-3xl mx-auto p-6 text-white">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Framework</h1>
-        <form action="/api/admin/framework/reseed" method="post">
-          <button className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium">
-            Seed / Reseed
-          </button>
-        </form>
+    <main className="max-w-6xl mx-auto p-6 text-white">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold">Framework</h1>
+          {fw ? (
+            <p className="text-white/70">
+              Name: <b>{fw.name}</b> · Version: <b>{fw.version}</b> · ID:{" "}
+              <span className="font-mono">{fw.id}</span>
+            </p>
+          ) : (
+            <p className="text-white/70">No framework yet</p>
+          )}
+        </div>
       </div>
 
-      <div className="mt-4 text-white/80">
-        <div>Framework ID: <span className="font-mono">{frameworkId}</span></div>
-        <div>Name: {fw?.name ?? "—"} | Version: {fw?.version ?? "—"}</div>
-      </div>
+      <FrameworkClient frequencyMeta={frequencyMeta} profiles={profiles} />
 
-      <div className="mt-6">
-        <h2 className="text-xl font-semibold mb-2">Profiles</h2>
-        {!profiles?.length ? (
-          <p className="text-white/70">No profiles yet. Click “Seed / Reseed”.</p>
-        ) : (
-          <ul className="divide-y divide-white/10 border border-white/10 rounded-xl">
-            {profiles.map((p) => (
-              <li key={p.id} className="p-3 flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{p.ordinal}. {p.name}</div>
-                  <div className="text-white/70 text-sm">Frequency {p.frequency}</div>
-                </div>
-                <div className="text-white/60 text-sm font-mono">{p.id}</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {profiles.length === 0 && (
+        <p className="mt-6 text-white/70">
+          Tip: Click <b>Generate with AI</b> first, then <b>Generate Images</b>.
+        </p>
+      )}
     </main>
   );
 }

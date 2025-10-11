@@ -6,11 +6,11 @@ const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE!;
 
 export function getServiceClient() {
-  // server-only usage
+  // Server-side only usage (Admin/service role)
   return createClient(URL, SERVICE, { auth: { persistSession: false } });
 }
 
 export function getAnonClient() {
-  // client/browser usage
+  // Client/browser usage (Anon)
   return createClient(URL, ANON, { auth: { persistSession: true } });
 }

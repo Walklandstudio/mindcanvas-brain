@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../_lib/supabase";
 
+const ORG_ID = "00000000-0000-0000-0000-000000000001";
+
 const DEFAULT_PROFILES = [
   { name: "Visionary", frequency: "A", ordinal: 1 },
   { name: "Spark",     frequency: "A", ordinal: 2 },
@@ -15,41 +17,35 @@ const DEFAULT_PROFILES = [
 
 export async function POST() {
   const supabase = getServiceClient();
-  const orgId = "00000000-0000-0000-0000-000000000001";
 
-  // Ensure framework
-  const { data: existingFw, error: fwErr } = await supabase
+  const { data: fw0, error: fwErr } = await supabase
     .from("org_frameworks")
     .select("id")
-    .eq("org_id", orgId)
-    .limit(1)
+    .eq("org_id", ORG_ID)
     .maybeSingle();
-
   if (fwErr) return NextResponse.json({ error: fwErr.message }, { status: 500 });
 
-  let frameworkId = existingFw?.id;
+  let frameworkId = fw0?.id;
   if (!frameworkId) {
     const { data, error } = await supabase
       .from("org_frameworks")
-      .insert({ org_id: orgId, name: "Signature", version: 1 })
+      .insert({ org_id: ORG_ID, name: "Signature", version: 1 })
       .select("id")
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     frameworkId = data.id;
   }
 
-  // Clear and seed 8 profiles
   const { error: delErr } = await supabase.from("org_profiles").delete().eq("framework_id", frameworkId);
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
   const rows = DEFAULT_PROFILES.map((p) => ({
-    org_id: orgId,
-    framework_id: frameworkId,
+    org_id: ORG_ID,
+    framework_id: frameworkId!,
     name: p.name,
     frequency: p.frequency,
     ordinal: p.ordinal,
   }));
-
   const { error: insErr } = await supabase.from("org_profiles").insert(rows);
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
