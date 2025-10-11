@@ -11,10 +11,10 @@ export async function GET(_: Request, ctx: { params: { id: string } }) {
   const sb = getServiceClient();
   const pid = ctx.params.id;
 
-  // Profile & framework context
+  // Profile & framework context (includes framework_id)
   const prof = await sb
     .from("org_profiles")
-    .select("id,name,frequency,framework_id,summary,strengths,image_url")
+    .select("id,name,frequency,framework_id,summary,strengths,image_url,org_id")
     .eq("id", pid)
     .eq("org_id", ORG_ID)
     .maybeSingle();
@@ -24,8 +24,9 @@ export async function GET(_: Request, ctx: { params: { id: string } }) {
 
   const fw = await sb
     .from("org_frameworks")
-    .select("frequency_meta")
+    .select("id,frequency_meta")
     .eq("id", prof.data.framework_id)
+    .eq("org_id", ORG_ID)
     .maybeSingle();
 
   const freqName =
@@ -41,15 +42,25 @@ export async function GET(_: Request, ctx: { params: { id: string } }) {
   const sector = goals?.sector ?? "";
   const company = "Demo Org";
 
-  // Report row (ensure exists)
-  const rep = await sb.from("org_profile_reports").select("*").eq("profile_id", pid).maybeSingle();
-  if (rep.error) return NextResponse.json({ error: rep.error.message }, { status: 500 });
+  // Ensure report row exists with org_id + framework_id
+  const ensure = await sb
+    .from("org_profile_reports")
+    .upsert(
+      { profile_id: pid, org_id: ORG_ID, framework_id: prof.data.framework_id },
+      { onConflict: "profile_id" }
+    )
+    .select("*")
+    .eq("profile_id", pid)
+    .maybeSingle();
+  if (ensure.error) return NextResponse.json({ error: ensure.error.message }, { status: 500 });
 
   return NextResponse.json({
     profile: prof.data,
     frequencyName: freqName,
-    report: rep.data || {
+    report: ensure.data || {
       profile_id: pid,
+      org_id: ORG_ID,
+      framework_id: prof.data.framework_id,
       strengths: "",
       challenges: "",
       roles: "",
@@ -66,27 +77,33 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   const url = new URL(req.url);
   const action = url.searchParams.get("action") || "save";
 
-  // Ensure row exists
-  const ensure = await sb
+  // Fetch profile once to get framework_id
+  const prof = await sb
+    .from("org_profiles")
+    .select("name,frequency,framework_id")
+    .eq("id", pid)
+    .eq("org_id", ORG_ID)
+    .maybeSingle();
+  if (prof.error || !prof.data) return NextResponse.json({ error: "profile not found" }, { status: 404 });
+
+  // Ensure row with org_id + framework_id
+  const ensured = await sb
     .from("org_profile_reports")
-    .upsert({ profile_id: pid }, { onConflict: "profile_id" })
+    .upsert(
+      { profile_id: pid, org_id: ORG_ID, framework_id: prof.data.framework_id },
+      { onConflict: "profile_id" }
+    )
     .select("profile_id")
     .maybeSingle();
-  if (ensure.error) return NextResponse.json({ error: ensure.error.message }, { status: 500 });
+  if (ensured.error) return NextResponse.json({ error: ensured.error.message }, { status: 500 });
 
   if (action === "draft") {
-    // Need context for AI
-    const prof = await sb
-      .from("org_profiles")
-      .select("name,frequency,framework_id")
-      .eq("id", pid)
-      .maybeSingle();
-    if (prof.error || !prof.data) return NextResponse.json({ error: "profile not found" }, { status: 404 });
-
+    // Framework + onboarding to shape AI
     const fw = await sb
       .from("org_frameworks")
       .select("frequency_meta")
       .eq("id", prof.data.framework_id)
+      .eq("org_id", ORG_ID)
       .maybeSingle();
 
     const ob = await sb.from("org_onboarding").select("*").eq("org_id", ORG_ID).maybeSingle();
@@ -108,8 +125,15 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
     const upd = await sb
       .from("org_profile_reports")
-      .update({ ...draft, approved: false, updated_at: new Date().toISOString() })
-      .eq("profile_id", pid);
+      .update({
+        ...draft,
+        approved: false,
+        org_id: ORG_ID,
+        framework_id: prof.data.framework_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("profile_id", pid)
+      .eq("org_id", ORG_ID);
     if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true, draft });
@@ -118,13 +142,19 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   if (action === "signoff") {
     const upd = await sb
       .from("org_profile_reports")
-      .update({ approved: true, updated_at: new Date().toISOString() })
-      .eq("profile_id", pid);
+      .update({
+        approved: true,
+        org_id: ORG_ID,
+        framework_id: prof.data.framework_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("profile_id", pid)
+      .eq("org_id", ORG_ID);
     if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
     return NextResponse.json({ ok: true, approved: true });
   }
 
-  // default: save
+  // default: save draft
   const body = await req.json().catch(() => ({}));
   const upd = await sb
     .from("org_profile_reports")
@@ -134,9 +164,12 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       roles: String(body.roles ?? ""),
       guidance: String(body.guidance ?? ""),
       approved: false,
+      org_id: ORG_ID,
+      framework_id: prof.data.framework_id,
       updated_at: new Date().toISOString(),
     })
-    .eq("profile_id", pid);
+    .eq("profile_id", pid)
+    .eq("org_id", ORG_ID);
 
   if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
