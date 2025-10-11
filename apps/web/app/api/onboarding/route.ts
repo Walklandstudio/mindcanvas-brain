@@ -17,51 +17,35 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    onboarding: data ?? { org_id: orgId, company: {}, branding: {}, goals: {} },
+    onboarding: data ?? { company: {}, branding: {}, goals: {} },
   });
 }
 
 export async function POST(req: Request) {
   const svc = admin();
   const { orgId } = await getOwnerOrgAndFramework();
-  const body = await req.json().catch(() => ({} as any));
+  const patch = await req.json(); // may contain company/branding/goals (one or many)
 
-  // Load current row (if any)
-  const { data: current, error: curErr } = await svc
+  // Load current, shallow-merge per section
+  const { data: current } = await svc
     .from('org_onboarding')
     .select('*')
     .eq('org_id', orgId)
     .single();
 
-  if (curErr && curErr.code !== 'PGRST116') {
-    return NextResponse.json({ error: curErr.message }, { status: 500 });
-  }
-
-  // Shallow-merge at the section level; keep other sections intact
-  const next = {
+  const merged = {
     org_id: orgId,
-    company: {
-      ...(current?.company ?? {}),
-      ...(body.company ?? {}),
-    },
-    branding: {
-      ...(current?.branding ?? {}),
-      ...(body.branding ?? {}),
-    },
-    goals: {
-      ...(current?.goals ?? {}),
-      ...(body.goals ?? {}),
-    },
+    company:  { ...(current?.company ?? {}),  ...(patch.company  ?? {}) },
+    branding: { ...(current?.branding ?? {}), ...(patch.branding ?? {}) },
+    goals:    { ...(current?.goals ?? {}),    ...(patch.goals    ?? {}) },
   };
 
   const { data, error } = await svc
     .from('org_onboarding')
-    .upsert(next, { onConflict: 'org_id' })
+    .upsert(merged, { onConflict: 'org_id' })
     .select('*')
     .single();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ onboarding: data });
 }

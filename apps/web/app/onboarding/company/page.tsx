@@ -1,117 +1,105 @@
-"use client";
-import { useEffect, useState } from "react";
+'use client';
+
+import { useEffect } from 'react';
+import { useOnboardingAutosave } from '../_lib/useOnboardingAutosave';
 
 type Company = {
+  companyName?: string;
+  firstName?: string;
+  lastName?: string;
+  position?: string;
+  email?: string;
+  phone?: string;
   website?: string;
   linkedin?: string;
-  industry?: string;
-  sector?: string;
-  audience?: string;
 };
 
 export default function Page() {
-  const [data, setData] = useState<Company>({});
-  const [saving, setSaving] = useState(false);
+  const { data, update, saving, saveNow, loadFromServer, clearDraft } =
+    useOnboardingAutosave<Company>('company', {});
 
   useEffect(() => {
     (async () => {
-      const r = await fetch("/api/onboarding");
+      const r = await fetch('/api/onboarding', { cache: 'no-store' });
       const j = await r.json();
-      setData(j.onboarding?.company ?? {});
+      loadFromServer(j.onboarding?.company ?? {});
     })();
-  }, []);
-
-  async function save() {
-    setSaving(true);
-    try {
-      await fetch("/api/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: data }),
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
+  }, [loadFromServer]);
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md p-6">
-      <h1 className="text-xl font-semibold">Company</h1>
-      <p className="mt-1 text-sm text-slate-300">Tell us about your org.</p>
+    <div className="max-w-3xl mx-auto p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Step 1 — Create Account</h1>
 
-      <div className="mt-6 space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-2">
+          <label className="block text-sm mb-1">Company Name *</label>
+          <input className="w-full rounded-md border px-3 py-2"
+                 value={data.companyName ?? ''}
+                 onChange={e => update('companyName', e.target.value)} />
+        </div>
+
         <div>
-          <label className="block text-sm text-slate-300">Website</label>
-          <input
-            className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
-            value={data.website ?? ""}
-            onChange={(e) => setData({ ...data, website: e.target.value })}
-          />
+          <label className="block text-sm mb-1">First Name</label>
+          <input className="w-full rounded-md border px-3 py-2"
+                 value={data.firstName ?? ''}
+                 onChange={e => update('firstName', e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-sm mb-1">Last Name</label>
+          <input className="w-full rounded-md border px-3 py-2"
+                 value={data.lastName ?? ''}
+                 onChange={e => update('lastName', e.target.value)} />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-slate-300">LinkedIn</label>
-            <input
-              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
-              value={data.linkedin ?? ""}
-              onChange={(e) => setData({ ...data, linkedin: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-300">Industry</label>
-            <input
-              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
-              value={data.industry ?? ""}
-              onChange={(e) => setData({ ...data, industry: e.target.value })}
-            />
-          </div>
+        <div>
+          <label className="block text-sm mb-1">Position</label>
+          <input className="w-full rounded-md border px-3 py-2"
+                 value={data.position ?? ''}
+                 onChange={e => update('position', e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-sm mb-1">Email *</label>
+          <input type="email" className="w-full rounded-md border px-3 py-2"
+                 value={data.email ?? ''}
+                 onChange={e => update('email', e.target.value)} />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-slate-300">Sector</label>
-            <input
-              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
-              value={data.sector ?? ""}
-              onChange={(e) => setData({ ...data, sector: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-300">Audience</label>
-            <input
-              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2"
-              value={data.audience ?? ""}
-              onChange={(e) => setData({ ...data, audience: e.target.value })}
-            />
-          </div>
+        <div>
+          <label className="block text-sm mb-1">Phone</label>
+          <input className="w-full rounded-md border px-3 py-2"
+                 value={data.phone ?? ''}
+                 onChange={e => update('phone', e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-sm mb-1">Website</label>
+          <input className="w-full rounded-md border px-3 py-2"
+                 value={data.website ?? ''}
+                 onChange={e => update('website', e.target.value)} />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="block text-sm mb-1">LinkedIn</label>
+          <input className="w-full rounded-md border px-3 py-2"
+                 value={data.linkedin ?? ''}
+                 onChange={e => update('linkedin', e.target.value)} />
         </div>
       </div>
 
-      <div className="mt-6 flex items-center gap-3">
-        <a
-          href="/onboarding/create-account"
-          className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm"
-        >
-          Back
-        </a>
-        <button
-          onClick={save}
-          disabled={saving}
-          className="rounded-2xl px-4 py-2 text-sm font-medium disabled:opacity-60"
-          style={{
-            background:
-              "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))",
-          }}
-        >
-          {saving ? "Saving…" : "Save"}
+      <div className="flex gap-3">
+        <a className="px-4 py-2 rounded-xl border" href="/">Back</a>
+        <button onClick={() => saveNow()} disabled={saving}
+                className="px-4 py-2 rounded-xl bg-black text-white disabled:opacity-60">
+          {saving ? 'Saving…' : 'Save'}
         </button>
-        <a
-          href="/onboarding/branding"
-          className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm"
+        <button
+          onClick={async () => {
+            await saveNow(); clearDraft(); window.location.assign('/onboarding/branding');
+          }}
+          disabled={saving}
+          className="px-4 py-2 rounded-xl bg-blue-600 text-white disabled:opacity-60"
         >
-          Next
-        </a>
+          {saving ? 'Saving…' : 'Save & Next'}
+        </button>
       </div>
     </div>
   );

@@ -1,246 +1,180 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { useEffect, useMemo } from 'react';
+import { useOnboardingAutosave } from '../_lib/useOnboardingAutosave';
+import { createClient } from '@supabase/supabase-js';
 
 type Branding = {
-  // NEW
-  description?: string;
-  background?: string;
-
-  // Existing
   primary?: string;
   secondary?: string;
   accent?: string;
+  background?: string;
   font?: string;
   logoUrl?: string;
   tone?: string;
 };
 
+const supabase =
+  typeof window !== 'undefined'
+    ? createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+    : (null as any);
+
 export default function Page() {
-  const [data, setData] = useState<Branding>({});
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const { data, update, saving, saveNow, loadFromServer, clearDraft } =
+    useOnboardingAutosave<Branding>('branding', {});
 
   useEffect(() => {
     (async () => {
-      const r = await fetch('/api/onboarding');
+      const r = await fetch('/api/onboarding', { cache: 'no-store' });
       const j = await r.json();
-      setData(j.onboarding?.branding ?? {});
+      loadFromServer(j.onboarding?.branding ?? {});
     })();
-  }, []);
+  }, [loadFromServer]);
 
-  async function save() {
-    setSaving(true);
-    try {
-      await fetch('/api/onboarding', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ branding: data }),
-      });
-      alert('Saved');
-    } finally {
-      setSaving(false);
-    }
+  async function handleLogo(file: File | null) {
+    if (!file || !supabase) return;
+    const path = `branding/${Date.now()}-${file.name}`;
+    const up = await supabase.storage.from('public').upload(path, file, {
+      cacheControl: '3600', upsert: false,
+    });
+    if (up.error) { alert(up.error.message); return; }
+    const { data: pub } = supabase.storage.from('public').getPublicUrl(path);
+    if (pub?.publicUrl) update('logoUrl', pub.publicUrl);
   }
 
-  async function onUploadLogo(file: File) {
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch('/api/upload/logo', { method: 'POST', body: fd });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || 'upload_failed');
-      setData((d) => ({ ...d, logoUrl: j.url }));
-    } catch (e: any) {
-      alert(e?.message || 'Upload failed');
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  }
-
-  const cssVars = useMemo(
-    () =>
-      ({
-        ['--brand-bg' as any]: data.background || '#0b1220', // NEW (default dark)
-        ['--brand-primary' as any]: data.primary || '#2d8fc4',
-        ['--brand-secondary' as any]: data.secondary || '#015a8b',
-        ['--brand-accent' as any]: data.accent || '#64bae2',
-        ['--brand-font' as any]:
-          data.font ||
-          'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial',
-      }) as React.CSSProperties,
-    [data.background, data.primary, data.secondary, data.accent, data.font]
-  );
+  const previewStyle = useMemo(() => ({
+    '--brand-primary': data.primary ?? '#2d8fc4',
+    '--brand-secondary': data.secondary ?? '#015a8b',
+    '--brand-accent': data.accent ?? '#64bae2',
+    '--brand-bg': data.background ?? 'rgba(255,255,255,0.02)',
+  }) as React.CSSProperties, [data]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6">
-      {/* Controls */}
-      <div className="space-y-5">
-        {/* NEW: Branding description */}
-        <div>
-          <label className="block text-sm">Branding Description</label>
-          <textarea
-            rows={3}
-            className="w-full rounded-md border px-3 py-2"
-            placeholder="Short description of your brand identity to guide report styling."
-            value={data.description ?? ''}
-            onChange={(e) => setData({ ...data, description: e.target.value })}
-          />
-        </div>
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Step 2 — Branding</h1>
+      <p className="text-sm text-slate-300">
+        Set your brand tokens. The report preview updates live on the right.
+      </p>
 
-        {/* Colors */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Color
-            label="Background"
-            value={data.background ?? '#0b1220'}
-            onChange={(v) => setData({ ...data, background: v })}
-          />
-          <Color
-            label="Primary"
-            value={data.primary ?? '#2d8fc4'}
-            onChange={(v) => setData({ ...data, primary: v })}
-          />
-          <Color
-            label="Secondary"
-            value={data.secondary ?? '#015a8b'}
-            onChange={(v) => setData({ ...data, secondary: v })}
-          />
-          <Color
-            label="Accent"
-            value={data.accent ?? '#64bae2'}
-            onChange={(v) => setData({ ...data, accent: v })}
-          />
-        </div>
-
-        {/* Font + Logo */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm">Font family</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder='e.g. "Inter", "Poppins"'
-              value={data.font ?? ''}
-              onChange={(e) => setData({ ...data, font: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="block text-sm">Logo</label>
-            <div className="flex items-center gap-3">
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                onChange={(e) => e.target.files?.[0] && onUploadLogo(e.target.files[0])}
-              />
-              {uploading && <span className="text-xs text-slate-400">Uploading…</span>}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Controls */}
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm mb-1">Primary</label>
+              <input type="color" className="w-full h-10"
+                     value={data.primary ?? '#2d8fc4'}
+                     onChange={e => update('primary', e.target.value)} />
             </div>
-            {data.logoUrl && (
-              <div className="mt-2">
-                <img src={data.logoUrl} alt="Logo" className="h-10 object-contain" />
-              </div>
-            )}
+            <div>
+              <label className="block text-sm mb-1">Secondary</label>
+              <input type="color" className="w-full h-10"
+                     value={data.secondary ?? '#015a8b'}
+                     onChange={e => update('secondary', e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Accent</label>
+              <input type="color" className="w-full h-10"
+                     value={data.accent ?? '#64bae2'}
+                     onChange={e => update('accent', e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Background</label>
+              <input type="color" className="w-full h-10"
+                     value={data.background ?? '#0b1220'}
+                     onChange={e => update('background', e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm mb-1">Font family</label>
+              <input className="w-full rounded-md border px-3 py-2"
+                     placeholder={`e.g., "Inter", "Poppins"`}
+                     value={data.font ?? ''}
+                     onChange={e => update('font', e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Logo</label>
+              <input type="file" accept="image/*"
+                     onChange={e => handleLogo(e.target.files?.[0] ?? null)}
+                     className="w-full rounded-md border px-3 py-2 bg-white" />
+              {data.logoUrl && (
+                <div className="mt-2 text-xs text-slate-400 break-all">
+                  Saved: {data.logoUrl}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm mb-1">Voice &amp; Tone</label>
+            <textarea rows={4}
+                      className="w-full rounded-md border px-3 py-2"
+                      value={data.tone ?? ''}
+                      onChange={e => update('tone', e.target.value)} />
+          </div>
+
+          <div className="flex gap-3">
+            <a className="px-4 py-2 rounded-xl border" href="/onboarding/company">Back</a>
+            <button onClick={() => saveNow()} disabled={saving}
+                    className="px-4 py-2 rounded-xl bg-black text-white disabled:opacity-60">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={async () => { await saveNow(); clearDraft(); window.location.assign('/onboarding/goals'); }}
+              disabled={saving}
+              className="px-4 py-2 rounded-xl bg-blue-600 text-white disabled:opacity-60"
+            >
+              {saving ? 'Saving…' : 'Save & Next'}
+            </button>
           </div>
         </div>
 
-        {/* Voice & Tone */}
+        {/* Live Report Preview */}
         <div>
-          <label className="block text-sm">Voice & Tone</label>
-          <textarea
-            rows={4}
-            className="w-full rounded-md border px-3 py-2"
-            value={data.tone ?? ''}
-            onChange={(e) => setData({ ...data, tone: e.target.value })}
-          />
-        </div>
-
-        <div className="flex gap-3">
-          <a className="px-4 py-2 rounded-xl border" href="/onboarding/company">Back</a>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="px-4 py-2 rounded-xl bg-black text-white disabled:opacity-60"
+          <div
+            style={previewStyle}
+            className="rounded-2xl border p-6 shadow relative overflow-hidden"
           >
-            {saving ? 'Saving…' : 'Save & Next'}
-          </button>
-          <a className="px-4 py-2 rounded-xl border" href="/onboarding/goals">Next</a>
-        </div>
-      </div>
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: `radial-gradient(1200px 400px at 20% -10%, var(--brand-bg), transparent),
+                              radial-gradient(800px 300px at 90% 10%, var(--brand-bg), transparent)`,
+              }}
+            />
+            <div className="relative">
+              <div className="flex items-center gap-3">
+                {data.logoUrl && (
+                  <img src={data.logoUrl} alt="logo" className="h-10 w-10 object-contain rounded" />
+                )}
+                <h2 className="text-xl font-semibold" style={{ color: 'var(--brand-primary)' }}>
+                  Signature Profile Report
+                </h2>
+              </div>
+              <p className="mt-2 text-sm" style={{ color: 'var(--brand-secondary)' }}>
+                Actionable, practical guidance in your brand voice.
+              </p>
 
-      {/* Live Report Preview */}
-      <div
-        className="rounded-2xl border border-white/10 p-5"
-        style={{
-          ...cssVars,
-          background: 'var(--brand-bg)',
-          color: 'white',
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-md" style={{ background: 'var(--brand-primary)' }} />
-            <div className="text-sm text-slate-300">Report Preview</div>
+              <div className="mt-4 flex items-center gap-3 text-xs">
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: 'var(--brand-accent)' }} />
+                Accent
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: 'var(--brand-primary)' }} />
+                Primary
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: 'var(--brand-secondary)' }} />
+                Secondary
+              </div>
+            </div>
           </div>
-          {data.logoUrl ? (
-            <img src={data.logoUrl} alt="Logo" className="h-8 w-auto object-contain" />
-          ) : (
-            <div className="px-2 py-1 rounded bg-white/10 text-xs text-slate-300">Your Logo</div>
-          )}
-        </div>
-
-        {/* NEW: show description under the header */}
-        {data.description?.trim() && (
-          <p className="mt-3 text-sm text-slate-300" style={{ fontFamily: 'var(--brand-font)' }}>
-            {data.description}
-          </p>
-        )}
-
-        <h3
-          className="mt-4 text-xl font-bold"
-          style={{ color: 'var(--brand-accent)', fontFamily: 'var(--brand-font)' }}
-        >
-          Signature Profile Report
-        </h3>
-        <p className="text-sm mt-2" style={{ color: 'var(--brand-secondary)' }}>
-          {data.tone?.trim()
-            ? data.tone
-            : 'Clear, confident, and practical guidance that reflects your brand voice.'}
-        </p>
-
-        <div className="mt-4 flex items-center gap-2">
-          <Dot color="var(--brand-accent)" label="Accent" />
-          <Dot color="var(--brand-primary)" label="Primary" />
-          <Dot color="var(--brand-secondary)" label="Secondary" />
-          <Dot color="var(--brand-bg)" label="Background" />
+          <div className="mt-2 text-xs text-slate-400">
+            This preview adopts your colors, logo, and tone for reports and dashboards.
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Color({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <label className="block text-sm">{label}</label>
-      <input type="color" className="w-full h-10" value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
-  );
-}
-
-function Dot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="h-3 w-3 rounded-full" style={{ background: color }} />
-      <span className="text-xs text-slate-300">{label}</span>
     </div>
   );
 }
