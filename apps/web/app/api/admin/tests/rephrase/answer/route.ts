@@ -3,83 +3,42 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../../_lib/supabase";
-import OpenAI from "openai";
 
-const ai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+type Body = { question_id: string; answer_id: string; text: string };
 
 export async function POST(req: Request) {
-  const url = new URL(req.url);
-  const answerId = url.searchParams.get("answer_id");
-  const qnum = Number(url.searchParams.get("q"));
-  const ansOrdinal = Number(url.searchParams.get("a")); // 1..4
-
-  if (!answerId && (!Number.isFinite(qnum) || !Number.isFinite(ansOrdinal))) {
-    return NextResponse.json({ error: "answer_id or (q & a) required" }, { status: 400 });
-  }
-
   const sb = getServiceClient();
 
-  // Load text (tolerant)
-  let qText = "Question text placeholder.";
-  let aText = "Answer option placeholder.";
-
-  if (answerId) {
-    const ans = await sb.from("org_test_answers").select("text,question_id").eq("id", answerId).maybeSingle();
-    if (ans.data?.text) aText = ans.data.text;
-    if (ans.data?.question_id) {
-      const q = await sb.from("org_test_questions").select("text").eq("id", ans.data.question_id).maybeSingle();
-      if (q.data?.text) qText = q.data.text;
-    }
-  } else {
-    const q = await sb.from("org_test_questions").select("id,text").eq("qnum", qnum).maybeSingle();
-    if (q.data?.text) qText = q.data.text;
-    if (q.data?.id) {
-      const a = await sb
-        .from("org_test_answers")
-        .select("id,text")
-        .eq("question_id", q.data.id)
-        .eq("ordinal", ansOrdinal)
-        .maybeSingle();
-      if (a.data?.text) aText = a.data.text;
-    }
-  }
-
-  const prompt = `Rephrase the answer choice to match a professional, brand-neutral tone, without changing its meaning.
-Return JSON: {"text":"<rephrased>"}.
-
-Question: ${qText}
-Answer: ${aText}`;
-
+  let body: Body;
   try {
-    const resp = await ai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.3,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const raw = resp.choices?.[0]?.message?.content || "";
-    const parsed = safeJSON(raw);
-    const newText = (parsed && typeof parsed.text === "string" && parsed.text.trim()) || aText;
-
-    if (answerId) {
-      await sb.from("org_test_answers").update({ text: newText }).eq("id", answerId);
-    } else if (Number.isFinite(qnum) && Number.isFinite(ansOrdinal)) {
-      const q = await sb.from("org_test_questions").select("id").eq("qnum", qnum).maybeSingle();
-      if (q.data?.id) {
-        await sb
-          .from("org_test_answers")
-          .update({ text: newText })
-          .eq("question_id", q.data.id)
-          .eq("ordinal", ansOrdinal);
-      }
-    }
-
-    return NextResponse.json({ ok: true, text: newText });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "AI error" }, { status: 500 });
+    body = (await req.json()) as Body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-}
+  if (!body?.question_id || !body?.answer_id || !body?.text?.trim()) {
+    return NextResponse.json({ error: "question_id, answer_id and text are required" }, { status: 400 });
+  }
 
-function safeJSON(s: string) {
-  try { return JSON.parse(s); } catch { return null; }
+  // Make sure the answer belongs to the question (defensive check)
+  const a = await sb
+    .from("org_test_answers")
+    .select("id,question_id")
+    .eq("id", body.answer_id)
+    .maybeSingle();
+  if (a.error) return NextResponse.json({ error: a.error.message }, { status: 500 });
+  if (!a.data || a.data.question_id !== body.question_id) {
+    return NextResponse.json({ error: "Answer does not belong to question" }, { status: 400 });
+  }
+
+  // Update ONLY the text column; do not touch points/mappings.
+  const upd = await sb
+    .from("org_test_answers")
+    .update({ text: body.text.trim() })
+    .eq("id", body.answer_id)
+    .select("id")
+    .maybeSingle();
+
+  if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
 }
