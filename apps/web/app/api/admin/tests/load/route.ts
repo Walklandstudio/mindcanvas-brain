@@ -6,12 +6,17 @@ import { getServiceClient } from "../../../../_lib/supabase";
 
 const ORG_ID = "00000000-0000-0000-0000-000000000001";
 
-/** Base 15 questions + answers (backend mappings kept) */
-const BASE: {
-  qnum: number;
+type BaseAnswer = {
+  ordinal: number;
   text: string;
-  answers: { ordinal: number; text: string; points: number; profile_num: number; frequency: "A"|"B"|"C"|"D" }[];
-}[] = [
+  points: number;
+  profile_num: number;
+  frequency: "A" | "B" | "C" | "D";
+};
+type BaseQ = { qnum: number; text: string; answers: BaseAnswer[] };
+
+// ——— Your 15 base questions (unchanged content) ———
+const BASE: BaseQ[] = [
   { qnum: 1, text: "How do you prefer to tackle new tasks?",
     answers: [
       { ordinal:1, text:"I dive right in",                 points:40, profile_num:1, frequency:"A" },
@@ -56,7 +61,7 @@ const BASE: {
     ]},
   { qnum: 7, text: "How do you generally handle feedback?",
     answers: [
-      { ordinal:1, text:"I value fact-based feedback",        points:10, profile_num:8, frequency:"D"},
+      { ordinal:1, text:"I value fact-based feedback",        points:10, profile_num:8, frequency:"D" },
       { ordinal:2, text:"I appreciate quick feedback",        points:40, profile_num:8, frequency:"A" },
       { ordinal:3, text:"I focus on relationships and connection", points:30, profile_num:2, frequency:"B" },
       { ordinal:4, text:"I prefer to receive detailed feedback",   points:20, profile_num:5, frequency:"C" },
@@ -119,10 +124,47 @@ const BASE: {
     ]},
 ];
 
+// Try inserting with qnum; if DB requires q_no, fall back seamlessly.
+async function seedQuestions(sb: any, testId: string) {
+  // Attempt 1: qnum
+  const rows1 = BASE.map((b) => ({ test_id: testId, qnum: b.qnum, text: b.text }));
+  let ins = await sb.from("org_test_questions").insert(rows1).select("id,qnum,q_no");
+  if (ins.error) {
+    // Attempt 2: q_no (if schema uses q_no and enforces NOT NULL)
+    const rows2 = BASE.map((b) => ({ test_id: testId, q_no: b.qnum, text: b.text }));
+    ins = await sb.from("org_test_questions").insert(rows2).select("id,qnum,q_no");
+    if (ins.error) return { error: ins.error.message };
+  }
+
+  // Insert answers
+  const idByQnum = new Map<number, string>();
+  for (const row of ins.data as any[]) {
+    const num = (row?.qnum ?? row?.q_no) as number;
+    if (typeof num === "number") idByQnum.set(num, row.id);
+  }
+  const aRows: any[] = [];
+  for (const b of BASE) {
+    const qid = idByQnum.get(b.qnum)!;
+    for (const a of b.answers) {
+      aRows.push({
+        question_id: qid,
+        ordinal: a.ordinal,
+        text: a.text,
+        points: a.points,
+        profile_num: a.profile_num,
+        frequency: a.frequency, // stored as text; UI doesn’t show it
+      });
+    }
+  }
+  const aIns = await sb.from("org_test_answers").insert(aRows).select("id");
+  if (aIns.error) return { error: aIns.error.message };
+  return { ok: true };
+}
+
 export async function GET() {
   const sb = getServiceClient();
 
-  // Find or create latest test for org
+  // Ensure a test exists
   let test = await sb
     .from("org_tests")
     .select("id")
@@ -142,70 +184,43 @@ export async function GET() {
     test = ins;
   }
 
-  // Load questions by test_id ONLY (no org_id dependency)
-  const haveQs = await sb
-    .from("org_test_questions")
-    .select("id,qnum,text")
-    .eq("test_id", test.data!.id)
-    .order("qnum", { ascending: true });
-
-  if (haveQs.error && haveQs.error.message?.includes("does not exist")) {
-    return NextResponse.json({ error: haveQs.error.message }, { status: 500 });
-  }
-  if (haveQs.error) return NextResponse.json({ error: haveQs.error.message }, { status: 500 });
-
-  if (!haveQs.data || haveQs.data.length === 0) {
-    // Seed questions
-    const qRows = BASE.map((b) => ({ test_id: test.data!.id, qnum: b.qnum, text: b.text }));
-    const qIns = await sb.from("org_test_questions").insert(qRows).select("id,qnum");
-    if (qIns.error) return NextResponse.json({ error: qIns.error.message }, { status: 500 });
-
-    const idByQnum = new Map<number, string>();
-    qIns.data!.forEach((q: any) => idByQnum.set(q.qnum, q.id));
-
-    const aRows: any[] = [];
-    for (const b of BASE) {
-      const qid = idByQnum.get(b.qnum)!;
-      for (const a of b.answers) {
-        aRows.push({
-          question_id: qid,
-          ordinal: a.ordinal,
-          text: a.text,
-          points: a.points,
-          profile_num: a.profile_num,
-          frequency: a.frequency,
-        });
-      }
-    }
-    const aIns = await sb.from("org_test_answers").insert(aRows).select("id");
-    if (aIns.error) return NextResponse.json({ error: aIns.error.message }, { status: 500 });
-  }
-
-  // Return full shape
-  const qs = await sb
-    .from("org_test_questions")
-    .select("id,qnum,text")
-    .eq("test_id", test.data!.id)
-    .order("qnum", { ascending: true });
-
+  // Load questions; use "*" so selecting non-existent columns never errors
+  let qs = await sb.from("org_test_questions").select("*").eq("test_id", test.data!.id);
   if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
 
-  const qids = (qs.data || []).map((q: any) => q.id);
+  // Seed if missing
+  if (!qs.data || qs.data.length === 0) {
+    const seeded = await seedQuestions(sb, test.data!.id);
+    if ((seeded as any).error) {
+      return NextResponse.json({ error: (seeded as any).error }, { status: 500 });
+    }
+    qs = await sb.from("org_test_questions").select("*").eq("test_id", test.data!.id);
+    if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
+  }
+
+  // Resolve number as qnum || q_no || qno, then sort client-side
+  const normalized = (qs.data as any[]).map((row) => ({
+    id: row.id,
+    qnum: (row.qnum ?? row.q_no ?? row.qno) as number,
+    text: row.text as string,
+  }));
+  normalized.sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
+
+  const qids = normalized.map((q) => q.id);
   const ans = await sb
     .from("org_test_answers")
     .select("id,question_id,text,ordinal")
     .in("question_id", qids);
-
   if (ans.error) return NextResponse.json({ error: ans.error.message }, { status: 500 });
 
   const byQ = new Map<string, any[]>();
-  (ans.data || []).forEach((a: any) => {
+  for (const a of (ans.data as any[]) || []) {
     const arr = byQ.get(a.question_id) || [];
     arr.push(a);
     byQ.set(a.question_id, arr);
-  });
+  }
 
-  const items = (qs.data || []).map((q: any) => ({
+  const items = normalized.map((q) => ({
     id: q.id,
     qnum: q.qnum,
     text: q.text,
