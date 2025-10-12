@@ -137,27 +137,17 @@ async function ensureTest(sb: any): Promise<{ id: string } | { error: string }> 
   if (t.error) return { error: t.error.message };
   if (t.data?.id) return { id: t.data.id as string };
 
-  // create with safe columns (no 'kind' assumption)
-  const tryShapes = [
-    [{ org_id: ORG_ID, name: "Signature Test" }],
-    [{ org_id: ORG_ID }], // in case name is nullable or has default
+  // create with MODE (required by your schema). Try both with/without name.
+  const shapes = [
+    [{ org_id: ORG_ID, name: "Signature Test", mode: "full" }],
+    [{ org_id: ORG_ID, mode: "full" }],
   ];
   let lastErr: string | null = null;
-  for (const rows of tryShapes) {
+  for (const rows of shapes) {
     const ins = await sb.from("org_tests").insert(rows as any).select("id").maybeSingle();
     if (!ins.error && ins.data?.id) return { id: ins.data.id as string };
     lastErr = ins.error?.message ?? lastErr;
   }
-
-  // last resort, re-read in case a trigger already created one
-  const re = await sb
-    .from("org_tests")
-    .select("id")
-    .eq("org_id", ORG_ID)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (re.data?.id) return { id: re.data.id as string };
   return { error: lastErr || "failed to create org_test" };
 }
 
@@ -169,14 +159,16 @@ async function tryInsertQuestionSet(
 ) {
   const key = useQNo ? "q_no" : "qnum";
   const base = (b: BaseQ) => ({ test_id: testId, [key]: b.qnum, text: b.text });
-  const row = {
-    plain: (b: BaseQ) => base(b),
-    withSource: (b: BaseQ) => ({ ...base(b), source: "base" }),
-    withPrompt: (b: BaseQ) => ({ ...base(b), prompt: b.text }),
-    withSourceAndPrompt: (b: BaseQ) => ({ ...base(b), source: "base", prompt: b.text }),
-  }[variant];
+  const rows =
+    variant === "plain"
+      ? BASE.map(base)
+      : variant === "withSource"
+      ? BASE.map((b) => ({ ...base(b), source: "base" }))
+      : variant === "withPrompt"
+      ? BASE.map((b) => ({ ...base(b), prompt: b.text }))
+      : BASE.map((b) => ({ ...base(b), source: "base", prompt: b.text }));
 
-  return sb.from("org_test_questions").insert(BASE.map(row)).select("id,qnum,q_no");
+  return sb.from("org_test_questions").insert(rows).select("id,qnum,q_no");
 }
 
 async function seedQuestions(sb: any, testId: string) {
@@ -251,12 +243,13 @@ export async function GET() {
     if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
   }
 
-  const normalized = (qs.data as any[]).map((row) => ({
-    id: row.id,
-    qnum: (row.qnum ?? row.q_no ?? row.qno) as number,
-    text: row.text as string,
-  }))
-  .sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
+  const normalized = (qs.data as any[])
+    .map((row) => ({
+      id: row.id,
+      qnum: (row.qnum ?? row.q_no ?? row.qno) as number,
+      text: row.text as string,
+    }))
+    .sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
 
   const qids = normalized.map((q) => q.id);
   const ans = await sb
