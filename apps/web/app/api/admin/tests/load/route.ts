@@ -6,7 +6,7 @@ import { getServiceClient } from "../../../../_lib/supabase";
 
 const ORG_ID = "00000000-0000-0000-0000-000000000001";
 
-/** Your exact 15 base questions & mappings (backend-only mappings kept here) */
+/** Base 15 questions + answers (backend mappings kept) */
 const BASE: {
   qnum: number;
   text: string;
@@ -56,7 +56,7 @@ const BASE: {
     ]},
   { qnum: 7, text: "How do you generally handle feedback?",
     answers: [
-      { ordinal:1, text:"I value fact-based feedback",        points:10, profile_num:8, frequency:"D" },
+      { ordinal:1, text:"I value fact-based feedback",        points:10, profile_num:8, frequency:"D"},
       { ordinal:2, text:"I appreciate quick feedback",        points:40, profile_num:8, frequency:"A" },
       { ordinal:3, text:"I focus on relationships and connection", points:30, profile_num:2, frequency:"B" },
       { ordinal:4, text:"I prefer to receive detailed feedback",   points:20, profile_num:5, frequency:"C" },
@@ -122,7 +122,7 @@ const BASE: {
 export async function GET() {
   const sb = getServiceClient();
 
-  // Latest test (create if missing)
+  // Find or create latest test for org
   let test = await sb
     .from("org_tests")
     .select("id")
@@ -130,32 +130,37 @@ export async function GET() {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-
   if (test.error) return NextResponse.json({ error: test.error.message }, { status: 500 });
 
   if (!test.data) {
-    const ins = await sb.from("org_tests").insert([{ org_id: ORG_ID, name: "Signature Test", kind: "full" }]).select("id").maybeSingle();
+    const ins = await sb
+      .from("org_tests")
+      .insert([{ org_id: ORG_ID, name: "Signature Test", kind: "full" }])
+      .select("id")
+      .maybeSingle();
     if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
     test = ins;
   }
 
-  // Do we already have questions?
+  // Load questions by test_id ONLY (no org_id dependency)
   const haveQs = await sb
     .from("org_test_questions")
     .select("id,qnum,text")
-    .eq("org_id", ORG_ID)
     .eq("test_id", test.data!.id)
     .order("qnum", { ascending: true });
 
+  if (haveQs.error && haveQs.error.message?.includes("does not exist")) {
+    return NextResponse.json({ error: haveQs.error.message }, { status: 500 });
+  }
   if (haveQs.error) return NextResponse.json({ error: haveQs.error.message }, { status: 500 });
 
   if (!haveQs.data || haveQs.data.length === 0) {
-    // Seed all questions + answers
-    const qRows = BASE.map(b => ({ org_id: ORG_ID, test_id: test.data!.id, qnum: b.qnum, text: b.text }));
+    // Seed questions
+    const qRows = BASE.map((b) => ({ test_id: test.data!.id, qnum: b.qnum, text: b.text }));
     const qIns = await sb.from("org_test_questions").insert(qRows).select("id,qnum");
     if (qIns.error) return NextResponse.json({ error: qIns.error.message }, { status: 500 });
 
-    const idByQnum = new Map<number,string>();
+    const idByQnum = new Map<number, string>();
     qIns.data!.forEach((q: any) => idByQnum.set(q.qnum, q.id));
 
     const aRows: any[] = [];
@@ -163,7 +168,6 @@ export async function GET() {
       const qid = idByQnum.get(b.qnum)!;
       for (const a of b.answers) {
         aRows.push({
-          org_id: ORG_ID,
           question_id: qid,
           ordinal: a.ordinal,
           text: a.text,
@@ -177,11 +181,10 @@ export async function GET() {
     if (aIns.error) return NextResponse.json({ error: aIns.error.message }, { status: 500 });
   }
 
-  // Return full shape for UI
+  // Return full shape
   const qs = await sb
     .from("org_test_questions")
     .select("id,qnum,text")
-    .eq("org_id", ORG_ID)
     .eq("test_id", test.data!.id)
     .order("qnum", { ascending: true });
 
@@ -195,18 +198,18 @@ export async function GET() {
 
   if (ans.error) return NextResponse.json({ error: ans.error.message }, { status: 500 });
 
-  const answersByQ = new Map<string, any[]>();
+  const byQ = new Map<string, any[]>();
   (ans.data || []).forEach((a: any) => {
-    const arr = answersByQ.get(a.question_id) || [];
+    const arr = byQ.get(a.question_id) || [];
     arr.push(a);
-    answersByQ.set(a.question_id, arr);
+    byQ.set(a.question_id, arr);
   });
 
   const items = (qs.data || []).map((q: any) => ({
     id: q.id,
     qnum: q.qnum,
     text: q.text,
-    answers: (answersByQ.get(q.id) || []).sort((a, b) => a.ordinal - b.ordinal),
+    answers: (byQ.get(q.id) || []).sort((a, b) => a.ordinal - b.ordinal),
   }));
 
   return NextResponse.json({ items });
