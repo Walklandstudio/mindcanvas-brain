@@ -15,7 +15,7 @@ type BaseAnswer = {
 };
 type BaseQ = { qnum: number; text: string; answers: BaseAnswer[] };
 
-// 15 base questions (unchanged contents)
+// 15 base questions (content per your spec)
 const BASE: BaseQ[] = [
   { qnum: 1, text: "How do you prefer to tackle new tasks?",
     answers: [
@@ -124,44 +124,72 @@ const BASE: BaseQ[] = [
     ]},
 ];
 
-// Insert with qnum; if DB requires q_no, retry automatically.
-// Always provide source: 'base' to satisfy NOT NULL source.
+/** Try multiple insert shapes to satisfy differing NOT NULL columns in org_test_questions. */
+async function tryInsertQuestionSet(
+  sb: any,
+  testId: string,
+  useQNo: boolean,
+  variant: "plain" | "withSource" | "withPrompt" | "withSourceAndPrompt"
+) {
+  const key = useQNo ? "q_no" : "qnum";
+  const base = (b: BaseQ) => ({ test_id: testId, [key]: b.qnum, text: b.text });
+
+  const rowBuilders: Record<typeof variant, (b: BaseQ) => any> = {
+    plain: (b) => base(b),
+    withSource: (b) => ({ ...base(b), source: "base" }),
+    withPrompt: (b) => ({ ...base(b), prompt: b.text }),
+    withSourceAndPrompt: (b) => ({ ...base(b), source: "base", prompt: b.text }),
+  };
+
+  const rows = BASE.map(rowBuilders[variant]);
+  const ins = await sb.from("org_test_questions").insert(rows).select("id,qnum,q_no");
+  return ins;
+}
+
+/** Insert questions with adaptive fallbacks (qnum/q_no, prompt/source present/missing). */
 async function seedQuestions(sb: any, testId: string) {
-  // Attempt 1: schema uses qnum
-  const rows1 = BASE.map((b) => ({ test_id: testId, qnum: b.qnum, text: b.text, source: "base" }));
-  let ins = await sb.from("org_test_questions").insert(rows1).select("id,qnum,q_no");
-  if (ins.error) {
-    // Attempt 2: schema uses q_no
-    const rows2 = BASE.map((b) => ({ test_id: testId, q_no: b.qnum, text: b.text, source: "base" }));
-    ins = await sb.from("org_test_questions").insert(rows2).select("id,qnum,q_no");
-    if (ins.error) return { error: ins.error.message };
-  }
+  const variants: Array<[boolean, "plain" | "withSource" | "withPrompt" | "withSourceAndPrompt"]> = [
+    [false, "plain"],
+    [false, "withSource"],
+    [false, "withPrompt"],
+    [false, "withSourceAndPrompt"],
+    [true, "plain"],
+    [true, "withSource"],
+    [true, "withPrompt"],
+    [true, "withSourceAndPrompt"],
+  ];
 
-  // Map new question ids by number
-  const idByQnum = new Map<number, string>();
-  for (const row of (ins.data as any[]) || []) {
-    const num = (row?.qnum ?? row?.q_no) as number;
-    if (typeof num === "number") idByQnum.set(num, row.id);
-  }
-
-  // Insert answers
-  const aRows: any[] = [];
-  for (const b of BASE) {
-    const qid = idByQnum.get(b.qnum)!;
-    for (const a of b.answers) {
-      aRows.push({
-        question_id: qid,
-        ordinal: a.ordinal,
-        text: a.text,
-        points: a.points,
-        profile_num: a.profile_num,
-        frequency: a.frequency,
-      });
+  let ins: any = null;
+  for (const [useQNo, v] of variants) {
+    ins = await tryInsertQuestionSet(sb, testId, useQNo, v);
+    if (!ins.error) {
+      // success – insert answers
+      const idByQnum = new Map<number, string>();
+      for (const row of (ins.data as any[]) || []) {
+        const num = (row?.qnum ?? row?.q_no) as number;
+        if (typeof num === "number") idByQnum.set(num, row.id);
+      }
+      const aRows: any[] = [];
+      for (const b of BASE) {
+        const qid = idByQnum.get(b.qnum)!;
+        for (const a of b.answers) {
+          aRows.push({
+            question_id: qid,
+            ordinal: a.ordinal,
+            text: a.text,
+            points: a.points,
+            profile_num: a.profile_num,
+            frequency: a.frequency,
+          });
+        }
+      }
+      const aIns = await sb.from("org_test_answers").insert(aRows).select("id");
+      if (aIns.error) return { error: aIns.error.message };
+      return { ok: true };
     }
   }
-  const aIns = await sb.from("org_test_answers").insert(aRows).select("id");
-  if (aIns.error) return { error: aIns.error.message };
-  return { ok: true };
+  // If we reach here, last attempt failed; return its error
+  return { error: ins?.error?.message || "insert failed" };
 }
 
 export async function GET() {
@@ -187,7 +215,7 @@ export async function GET() {
     test = ins;
   }
 
-  // Load questions (select * to be tolerant of qnum/q_no)
+  // Tolerant select (*) (works whether you have qnum or q_no)
   let qs = await sb.from("org_test_questions").select("*").eq("test_id", test.data!.id);
   if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
 
@@ -201,7 +229,7 @@ export async function GET() {
     if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
   }
 
-  // Normalize to { id, qnum, text }
+  // Normalize and sort by question number
   const normalized = (qs.data as any[]).map((row) => ({
     id: row.id,
     qnum: (row.qnum ?? row.q_no ?? row.qno) as number,
