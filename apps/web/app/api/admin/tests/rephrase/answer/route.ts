@@ -19,18 +19,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "question_id, answer_id and text are required" }, { status: 400 });
   }
 
-  // Make sure the answer belongs to the question (defensive check)
+  // Ensure the answer belongs to the provided question (defensive)
   const a = await sb
     .from("org_test_answers")
     .select("id,question_id")
     .eq("id", body.answer_id)
     .maybeSingle();
+
   if (a.error) return NextResponse.json({ error: a.error.message }, { status: 500 });
-  if (!a.data || a.data.question_id !== body.question_id) {
-    return NextResponse.json({ error: "Answer does not belong to question" }, { status: 400 });
+  if (!a.data) return NextResponse.json({ error: "Answer not found" }, { status: 404 });
+  if (a.data.question_id !== body.question_id) {
+    return NextResponse.json({ error: "Answer does not belong to the given question" }, { status: 400 });
   }
 
-  // Update ONLY the text column; do not touch points/mappings.
+  // Only update the text; never touch points/mappings (safe for segmentation)
   const upd = await sb
     .from("org_test_answers")
     .update({ text: body.text.trim() })

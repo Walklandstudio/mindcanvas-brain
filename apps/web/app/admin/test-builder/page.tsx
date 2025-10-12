@@ -6,11 +6,24 @@ import { useEffect, useMemo, useState } from "react";
 type Answer = { id: string; ordinal: number; text: string };
 type Question = { id: string; qnum: number; text: string; answers: Answer[] };
 
+function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 4000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  return (
+    <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-red-900/80 text-red-50 border border-red-700 px-3 py-2 shadow">
+      {message}
+    </div>
+  );
+}
+
 export default function TestBuilderPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [items, setItems] = useState<Question[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Segmentation modal state
   const [segOpen, setSegOpen] = useState(false);
@@ -37,40 +50,42 @@ export default function TestBuilderPage() {
   }, []);
 
   const handleRephraseQ = async (qId: string) => {
+    const input = prompt("Rephrase this question to match the client's brand:");
+    if (input === null) return; // user cancelled
+    if (!input.trim()) return;  // empty -> no-op
     try {
-      const input = prompt("Rephrase this question to match the client's brand:");
-      if (!input) return;
       setSaving(true);
       const res = await fetch("/api/admin/tests/rephrase/question", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question_id: qId, text: input }),
+        body: JSON.stringify({ question_id: qId, text: input.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Rephrase failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       await load();
     } catch (e: any) {
-      alert(e?.message || "Rephrase failed");
+      setToast(e?.message || "Rephrase failed");
     } finally {
       setSaving(false);
     }
   };
 
   const handleRephraseA = async (qId: string, aId: string) => {
+    const input = prompt("Rephrase this answer to match the client's brand:");
+    if (input === null) return;
+    if (!input.trim()) return;
     try {
-      const input = prompt("Rephrase this answer to match the client's brand:");
-      if (!input) return;
       setSaving(true);
       const res = await fetch("/api/admin/tests/rephrase/answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question_id: qId, answer_id: aId, text: input }),
+        body: JSON.stringify({ question_id: qId, answer_id: aId, text: input.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Rephrase failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       await load();
     } catch (e: any) {
-      alert(e?.message || "Rephrase failed");
+      setToast(e?.message || "Rephrase failed");
     } finally {
       setSaving(false);
     }
@@ -84,17 +99,17 @@ export default function TestBuilderPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Create failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       alert(`Created ${mode === "free" ? "Free" : "Full"} Test`);
     } catch (e: any) {
-      alert(e?.message || "Create failed");
+      setToast(e?.message || "Create failed");
     } finally {
       setSaving(false);
     }
   };
 
-  // ---------- Segmentation Modal handlers ----------
+  // ---------- Segmentation Modal ----------
   const addOption = () => setSegOptions((arr) => [...arr, ""]);
   const removeOption = (idx: number) => setSegOptions((arr) => arr.filter((_, i) => i !== idx));
   const updateOption = (idx: number, val: string) =>
@@ -107,8 +122,8 @@ export default function TestBuilderPage() {
   }, [segQuestion, segOptions]);
 
   const saveSegmentation = async () => {
+    if (!canSaveSeg) return;
     try {
-      if (!canSaveSeg) return;
       setSaving(true);
       const options = segOptions.map((o) => o.trim()).filter(Boolean);
       const res = await fetch("/api/admin/tests/segment/add", {
@@ -116,15 +131,14 @@ export default function TestBuilderPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: segQuestion.trim(), options }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Save failed");
-      // Reset form
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setSegQuestion("");
       setSegOptions(["", ""]);
       setSegOpen(false);
       await load();
     } catch (e: any) {
-      alert(e?.message || "Save failed");
+      setToast(e?.message || "Save failed");
     } finally {
       setSaving(false);
     }
@@ -132,11 +146,13 @@ export default function TestBuilderPage() {
 
   return (
     <div className="px-6 py-8">
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold">Test Builder</h1>
           <p className="text-sm text-white/60">
-            Rephrase each question/answer to match the client’s brand. Internal mappings (points / profiles) stay intact.
+            Rephrase each question/answer to match the client’s brand. Internal mappings stay intact.
           </p>
         </div>
         <div className="flex gap-3">
@@ -172,10 +188,7 @@ export default function TestBuilderPage() {
           <div className="font-semibold mb-1">Couldn’t load questions</div>
           <div className="text-sm">{error}</div>
           <div className="mt-3">
-            <button
-              className="rounded-md px-3 py-1 bg-white/10 hover:bg-white/15"
-              onClick={load}
-            >
+            <button className="rounded-md px-3 py-1 bg-white/10 hover:bg-white/15" onClick={load}>
               Retry
             </button>
           </div>
@@ -184,45 +197,41 @@ export default function TestBuilderPage() {
 
       {!loading && !error && (
         <div className="space-y-6">
-          {items.length === 0 && (
-            <div className="text-white/70">No questions yet.</div>
-          )}
+          {items.length === 0 && <div className="text-white/70">No questions yet.</div>}
 
-          {items.map((q) => {
-            return (
-              <div key={q.id} className="rounded-2xl bg-white/5 border border-white/10 p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-lg font-semibold">
-                    {q.qnum}. {q.text}
-                  </div>
-                  <div className="flex items-center gap-2">
+          {items.map((q) => (
+            <div key={q.id} className="rounded-2xl bg-white/5 border border-white/10 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-lg font-semibold">
+                  {q.qnum}. {q.text}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="rounded-md px-3 py-1 bg-white/10 hover:bg-white/15 text-sm"
+                    onClick={() => handleRephraseQ(q.id)}
+                    disabled={saving}
+                  >
+                    Rephrase Question
+                  </button>
+                </div>
+              </div>
+
+              <ol className="list-decimal ml-6 space-y-2">
+                {q.answers?.map((a) => (
+                  <li key={a.id} className="flex items-center justify-between">
+                    <div>{a.text}</div>
                     <button
-                      className="rounded-md px-3 py-1 bg-white/10 hover:bg-white/15 text-sm"
-                      onClick={() => handleRephraseQ(q.id)}
+                      className="rounded-md px-3 py-1 bg-white/10 hover:bg-white/15 text-xs"
+                      onClick={() => handleRephraseA(q.id, a.id)}
                       disabled={saving}
                     >
-                      Rephrase Question
+                      Rephrase Answer
                     </button>
-                  </div>
-                </div>
-
-                <ol className="list-decimal ml-6 space-y-2">
-                  {q.answers?.map((a) => (
-                    <li key={a.id} className="flex items-center justify-between">
-                      <div>{a.text}</div>
-                      <button
-                        className="rounded-md px-3 py-1 bg-white/10 hover:bg-white/15 text-xs"
-                        onClick={() => handleRephraseA(q.id, a.id)}
-                        disabled={saving}
-                      >
-                        Rephrase Answer
-                      </button>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            );
-          })}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))}
         </div>
       )}
 

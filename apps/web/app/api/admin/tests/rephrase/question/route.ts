@@ -19,15 +19,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "question_id and text are required" }, { status: 400 });
   }
 
-  // Probe question columns to update the right fields only.
-  const qProbe = await sb.from("org_test_questions").select("*").eq("id", body.question_id).maybeSingle();
-  if (qProbe.error) return NextResponse.json({ error: qProbe.error.message }, { status: 500 });
-  if (!qProbe.data) return NextResponse.json({ error: "Question not found" }, { status: 404 });
+  // Read current row to know which columns exist
+  const q = await sb
+    .from("org_test_questions")
+    .select("*")
+    .eq("id", body.question_id)
+    .maybeSingle();
+
+  if (q.error) return NextResponse.json({ error: q.error.message }, { status: 500 });
+  if (!q.data) return NextResponse.json({ error: "Question not found" }, { status: 404 });
 
   const fields: any = { text: body.text.trim() };
-  if (Object.prototype.hasOwnProperty.call(qProbe.data, "prompt")) fields.prompt = body.text.trim();
+  if (Object.prototype.hasOwnProperty.call(q.data, "prompt")) {
+    fields.prompt = body.text.trim();
+  }
 
-  const upd = await sb.from("org_test_questions").update(fields).eq("id", body.question_id).select("id").maybeSingle();
+  const upd = await sb
+    .from("org_test_questions")
+    .update(fields)
+    .eq("id", body.question_id)
+    .select("id")
+    .maybeSingle();
+
   if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
