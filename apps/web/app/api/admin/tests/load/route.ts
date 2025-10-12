@@ -123,126 +123,159 @@ const BASE: BaseQ[] = [
     ]},
 ];
 
-/* ---------- helpers ---------- */
+/** Try to read a table to see if it exists. */
+async function tableExists(sb: any, table: string): Promise<boolean> {
+  const res = await sb.rpc("exec_sql", {
+    sql: `select to_regclass('public.${table}') is not null as ok`,
+  }).maybeSingle();
+  // If you don't have exec_sql RPC, fall back to probing with a harmless select:
+  if (res?.data?.ok === true) return true;
+  const probe = await sb.from(table).select("count").limit(1);
+  return !probe.error;
+}
 
-async function ensureTest(sb: any): Promise<{ id: string } | { error: string }> {
-  // find latest for org
-  let t = await sb
-    .from("org_tests")
-    .select("id")
-    .eq("org_id", ORG_ID)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (t.error) return { error: t.error.message };
-  if (t.data?.id) return { id: t.data.id as string };
+/** Ensure a parent test row exists and return its id and table name used. */
+async function ensureParentTest(sb: any): Promise<{ parentTable: "org_test_defs" | "org_tests"; id: string } | { error: string }> {
+  // Prefer org_test_defs if present
+  let parentTable: "org_test_defs" | "org_tests" = "org_test_defs";
+  let probe = await sb.from("org_test_defs").select("id").eq("org_id", ORG_ID).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (probe.error && /relation .* does not exist|42P01/i.test(probe.error.message)) {
+    parentTable = "org_tests";
+    probe = await sb.from("org_tests").select("id").eq("org_id", ORG_ID).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  }
 
-  // create with MODE (required by your schema). Try both with/without name.
-  const shapes = [
-    [{ org_id: ORG_ID, name: "Signature Test", mode: "full" }],
-    [{ org_id: ORG_ID, mode: "full" }],
-  ];
+  if (!probe.error && probe.data?.id) {
+    return { parentTable, id: probe.data.id as string };
+  }
+
+  // Insert shapes to satisfy possible NOT NULL columns (e.g., mode)
+  const shapes =
+    parentTable === "org_test_defs"
+      ? [
+          [{ org_id: ORG_ID, name: "Signature Test", mode: "full" }],
+          [{ org_id: ORG_ID, name: "Signature Test" }],
+          [{ org_id: ORG_ID, mode: "full" }],
+          [{ org_id: ORG_ID }],
+        ]
+      : [
+          [{ org_id: ORG_ID, name: "Signature Test", mode: "full" }],
+          [{ org_id: ORG_ID, name: "Signature Test" }],
+          [{ org_id: ORG_ID, mode: "full" }],
+          [{ org_id: ORG_ID }],
+        ];
+
   let lastErr: string | null = null;
   for (const rows of shapes) {
-    const ins = await sb.from("org_tests").insert(rows as any).select("id").maybeSingle();
-    if (!ins.error && ins.data?.id) return { id: ins.data.id as string };
+    const ins = await sb.from(parentTable).insert(rows as any).select("id").maybeSingle();
+    if (!ins.error && ins.data?.id) {
+      return { parentTable, id: ins.data.id as string };
+    }
     lastErr = ins.error?.message ?? lastErr;
   }
-  return { error: lastErr || "failed to create org_test" };
+  return { error: lastErr || `failed to create row in ${parentTable}` };
 }
 
-async function tryInsertQuestionSet(
-  sb: any,
-  testId: string,
-  useQNo: boolean,
-  variant: "plain" | "withSource" | "withPrompt" | "withSourceAndPrompt"
-) {
-  const key = useQNo ? "q_no" : "qnum";
-  const base = (b: BaseQ) => ({ test_id: testId, [key]: b.qnum, text: b.text });
-  const rows =
-    variant === "plain"
-      ? BASE.map(base)
-      : variant === "withSource"
-      ? BASE.map((b) => ({ ...base(b), source: "base" }))
-      : variant === "withPrompt"
-      ? BASE.map((b) => ({ ...base(b), prompt: b.text }))
-      : BASE.map((b) => ({ ...base(b), source: "base", prompt: b.text }));
+/** Insert question rows with schema-adaptive shapes. */
+async function tryInsertQuestions(sb: any, testId: string) {
+  // detect columns by making small probes
+  const qProbe = await sb.from("org_test_questions").select("*").limit(1);
+  const cols = new Set<string>();
+  if (!qProbe.error && Array.isArray(qProbe.data) && qProbe.data[0]) {
+    Object.keys(qProbe.data[0]).forEach((k) => cols.add(k));
+  } else {
+    // fallback: assume nothing; we will try multiple variants
+  }
 
-  return sb.from("org_test_questions").insert(rows).select("id,qnum,q_no");
-}
+  const hasQnum = cols.has("qnum") || !cols.has("q_no"); // prefer qnum
+  const hasQno = cols.has("q_no");
+  const needsPrompt = cols.has("prompt");
+  const needsSource = cols.has("source");
 
-async function seedQuestions(sb: any, testId: string) {
-  const variants: Array<[boolean, "plain" | "withSource" | "withPrompt" | "withSourceAndPrompt"]> = [
-    [false, "plain"],
-    [false, "withSource"],
-    [false, "withPrompt"],
-    [false, "withSourceAndPrompt"],
-    [true, "plain"],
-    [true, "withSource"],
-    [true, "withPrompt"],
-    [true, "withSourceAndPrompt"],
+  // Build variants to satisfy NOT NULLs
+  type Variant = { useQNo: boolean; withPrompt: boolean; withSource: boolean };
+  const variants: Variant[] = [
+    { useQNo: false, withPrompt: false, withSource: false },
+    { useQNo: false, withPrompt: true, withSource: false },
+    { useQNo: false, withPrompt: false, withSource: true },
+    { useQNo: false, withPrompt: true, withSource: true },
+    { useQNo: true, withPrompt: false, withSource: false },
+    { useQNo: true, withPrompt: true, withSource: false },
+    { useQNo: true, withPrompt: false, withSource: true },
+    { useQNo: true, withPrompt: true, withSource: true },
   ];
 
   let lastErr: string | null = null;
-  for (const [useQNo, v] of variants) {
-    const ins = await tryInsertQuestionSet(sb, testId, useQNo, v);
-    if (!ins.error && ins.data?.length) {
-      const idByQnum = new Map<number, string>();
-      for (const row of ins.data as any[]) {
-        const num = (row?.qnum ?? row?.q_no) as number;
-        if (typeof num === "number") idByQnum.set(num, row.id);
-      }
-      const aRows: any[] = [];
-      for (const b of BASE) {
-        const qid = idByQnum.get(b.qnum)!;
-        for (const a of b.answers) {
-          aRows.push({
-            question_id: qid,
-            ordinal: a.ordinal,
-            text: a.text,
-            points: a.points,
-            profile_num: a.profile_num,
-            frequency: a.frequency,
-          });
-        }
-      }
-      const aIns = await sb.from("org_test_answers").insert(aRows).select("id");
-      if (aIns.error) return { error: aIns.error.message };
-      return { ok: true };
+  for (const v of variants) {
+    const key = v.useQNo ? "q_no" : "qnum";
+    const rows = BASE.map((b) => {
+      const r: any = { test_id: testId, [key]: b.qnum, text: b.text };
+      if (v.withPrompt) r.prompt = b.text;
+      if (v.withSource) r.source = "base";
+      return r;
+    });
+    const ins = await sb.from("org_test_questions").insert(rows).select("id,qnum,q_no");
+    if (!ins.error) {
+      return ins;
     }
     lastErr = ins.error?.message ?? lastErr;
   }
   return { error: lastErr || "insert failed" };
 }
 
-/* ---------- route ---------- */
+/** Seed answers for every question id mapped by qnum/q_no. */
+async function insertAnswers(sb: any, ins: any) {
+  const idByQnum = new Map<number, string>();
+  for (const row of (ins.data as any[]) || []) {
+    const num = (row?.qnum ?? row?.q_no) as number;
+    if (typeof num === "number") idByQnum.set(num, row.id);
+  }
+  const aRows: any[] = [];
+  for (const b of BASE) {
+    const qid = idByQnum.get(b.qnum)!;
+    for (const a of b.answers) {
+      aRows.push({
+        question_id: qid,
+        ordinal: a.ordinal,
+        text: a.text,
+        points: a.points,
+        profile_num: a.profile_num,
+        frequency: a.frequency,
+      });
+    }
+  }
+  return sb.from("org_test_answers").insert(aRows).select("id");
+}
 
 export async function GET() {
   const sb = getServiceClient();
 
-  const t = await ensureTest(sb);
-  if ("error" in t) return NextResponse.json({ error: t.error }, { status: 500 });
-  let testId = t.id;
+  // 1) Ensure parent exists (org_test_defs preferred)
+  const parent = await ensureParentTest(sb);
+  if ("error" in parent) {
+    return NextResponse.json({ error: parent.error }, { status: 500 });
+  }
 
-  let qs = await sb.from("org_test_questions").select("*").eq("test_id", testId);
+  // 2) If questions already exist for this parent, load & return them
+  let qs = await sb.from("org_test_questions").select("*").eq("test_id", parent.id);
   if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
 
   if (!qs.data || qs.data.length === 0) {
-    let seeded = await seedQuestions(sb, testId);
-
-    if ("error" in seeded && /foreign key constraint/i.test(seeded.error)) {
-      const t2 = await ensureTest(sb);
-      if (!("error" in t2)) {
-        testId = t2.id;
-        seeded = await seedQuestions(sb, testId);
-      }
+    // 3) Seed questions (with schema-adaptive shapes)
+    const ins = await tryInsertQuestions(sb, parent.id);
+    if ((ins as any).error) {
+      // if FK violation specifically mentions org_test_defs, that means we used wrong parentTable
+      return NextResponse.json({ error: (ins as any).error }, { status: 500 });
     }
-    if ("error" in seeded) return NextResponse.json({ error: seeded.error }, { status: 500 });
+    // 4) Seed answers
+    const aIns = await insertAnswers(sb, ins);
+    if (aIns.error) return NextResponse.json({ error: aIns.error.message }, { status: 500 });
 
-    qs = await sb.from("org_test_questions").select("*").eq("test_id", testId);
+    // re-read
+    qs = await sb.from("org_test_questions").select("*").eq("test_id", parent.id);
     if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
   }
 
+  // 5) Normalize & return
   const normalized = (qs.data as any[])
     .map((row) => ({
       id: row.id,
