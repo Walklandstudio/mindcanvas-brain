@@ -21,7 +21,6 @@ export default function TestBuilderPage() {
       const res = await fetch("/api/admin/tests/load", { cache: "no-store" });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Load failed");
-      // Expect shape: [{id,qnum,text,answers:[{id,text,ordinal}]}...]
       setQs(j.items || []);
     } catch (e: any) {
       setErr(e?.message || "Load failed");
@@ -80,40 +79,58 @@ export default function TestBuilderPage() {
   return (
     <main className="max-w-4xl mx-auto p-6 text-white">
       <h1 className="text-2xl font-semibold">Test Builder</h1>
-      <p className="text-white/70">Rephrase each question/answer to match the client’s brand. Internal mappings stay intact.</p>
+      <p className="text-white/70">
+        Rephrase each question/answer to match the client’s brand. Internal mappings (points / profiles) stay intact.
+      </p>
 
-      <div className="space-y-6 mt-6">
-        {qs.map((q) => (
-          <div key={q.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="font-medium">{q.qnum}. {q.text}</div>
-              <button
-                onClick={() => rephraseQuestion(q.id)}
-                disabled={busy === `q:${q.id}`}
-                className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-sm"
-              >
-                {busy === `q:${q.id}` ? "Rephrasing…" : "Rephrase"}
-              </button>
-            </div>
-
-            <div className="mt-3 space-y-2">
-              {q.answers.sort((a,b)=>a.ordinal-b.ordinal).map((a) => (
-                <div key={a.id} className="flex items-start justify-between gap-4">
-                  <div className="text-white/85">
-                    ({a.ordinal}) {a.text}
-                  </div>
-                  <button
-                    onClick={() => rephraseAnswer(a.id, q.id)}
-                    disabled={busy === `a:${a.id}`}
-                    className="px-2.5 py-1.5 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-xs"
-                  >
-                    {busy === `a:${a.id}` ? "Rephrasing…" : "Rephrase"}
-                  </button>
-                </div>
-              ))}
-            </div>
+      {qs.length === 0 ? (
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="text-white/80">No questions yet. Click retry to seed the base set automatically.</div>
+          <div className="mt-3">
+            <button onClick={load} className="px-3 py-2 rounded-xl bg-white/10 border border-white/15">Retry / Seed</button>
           </div>
-        ))}
+        </div>
+      ) : (
+        <div className="space-y-6 mt-6">
+          {qs.map((q) => (
+            <div key={q.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="font-medium">{q.qnum}. {q.text}</div>
+                <button
+                  onClick={() => rephraseQuestion(q.id)}
+                  disabled={busy === `q:${q.id}`}
+                  className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-sm"
+                >
+                  {busy === `q:${q.id}` ? "Rephrasing…" : "Rephrase"}
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {q.answers.map((a) => (
+                  <div key={a.id} className="flex items-start justify-between gap-4">
+                    <div className="text-white/85">({a.ordinal}) {a.text}</div>
+                    <button
+                      onClick={() => rephraseAnswer(a.id, q.id)}
+                      disabled={busy === `a:${a.id}`}
+                      className="px-2.5 py-1.5 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-xs"
+                    >
+                      {busy === `a:${a.id}` ? "Rephrasing…" : "Rephrase"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-8 flex items-center justify-end">
+        <a
+          href="/admin/reports/signoff"
+          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500"
+        >
+          Proceed to Report Sign-off →
+        </a>
       </div>
 
       {toast && (
