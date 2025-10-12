@@ -1,62 +1,45 @@
 // apps/web/app/admin/test-builder/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import TestBuilderFooter from "./TestBuilderFooter";
+import { useEffect, useState } from "react";
 
-type Answer = {
-  id?: string;
-  text: string;
-  points: number;
-  frequency: "A" | "B" | "C" | "D";
-  profile_index: number; // 1..8 internal mapping
-};
-
-type Question = {
-  id?: string;
-  qnum: number;
-  text: string;
-  answers: Answer[];
-};
+type Answer = { id: string; text: string; ordinal: number };
+type Question = { id: string; qnum: number; text: string; answers: Answer[] };
 
 export default function TestBuilderPage() {
+  const [qs, setQs] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
-  function notify(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  }
+  function notify(s: string) { setToast(s); setTimeout(() => setToast(null), 2000); }
 
-  async function loadBase() {
-    setLoading(true);
+  async function load() {
+    setLoading(true); setErr(null);
     try {
-      const res = await fetch("/api/admin/tests/base", { cache: "no-store" });
+      const res = await fetch("/api/admin/tests/load", { cache: "no-store" });
       const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Failed to load base questions");
-      setQuestions(j.questions || []);
+      if (!res.ok) throw new Error(j.error || "Load failed");
+      // Expect shape: [{id,qnum,text,answers:[{id,text,ordinal}]}...]
+      setQs(j.items || []);
     } catch (e: any) {
-      notify(e?.message || "Failed to load base questions");
+      setErr(e?.message || "Load failed");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    loadBase();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  // Rephrase one question via AI
-  async function rephraseQuestion(qnum: number) {
-    setBusy(`q-${qnum}`);
+  async function rephraseQuestion(qid: string) {
+    setBusy(`q:${qid}`);
     try {
-      const res = await fetch(`/api/admin/tests/rephrase/question?q=${qnum}`, { method: "POST" });
+      const res = await fetch(`/api/admin/tests/rephrase/question?question_id=${qid}`, { method: "POST" });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Rephrase failed");
-      await loadBase();
-      notify("Question rephrased");
+      setQs((prev) => prev.map((q) => (q.id === qid ? { ...q, text: j.text } : q)));
+      notify("Question rephrased ✓");
     } catch (e: any) {
       notify(e?.message || "Rephrase failed");
     } finally {
@@ -64,17 +47,18 @@ export default function TestBuilderPage() {
     }
   }
 
-  // Rephrase a single answer (1..4)
-  async function rephraseAnswer(qnum: number, ansIdx: number) {
-    setBusy(`a-${qnum}-${ansIdx}`);
+  async function rephraseAnswer(aid: string, qid: string) {
+    setBusy(`a:${aid}`);
     try {
-      const res = await fetch(`/api/admin/tests/rephrase/answer?q=${qnum}&a=${ansIdx}`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/admin/tests/rephrase/answer?answer_id=${aid}`, { method: "POST" });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Rephrase failed");
-      await loadBase();
-      notify("Answer rephrased");
+      setQs((prev) =>
+        prev.map((q) =>
+          q.id !== qid ? q : { ...q, answers: q.answers.map((a) => (a.id === aid ? { ...a, text: j.text } : a)) }
+        )
+      );
+      notify("Answer rephrased ✓");
     } catch (e: any) {
       notify(e?.message || "Rephrase failed");
     } finally {
@@ -82,142 +66,56 @@ export default function TestBuilderPage() {
     }
   }
 
-  // Add a segmentation (custom) question
-  async function addSegmentationQuestion() {
-    setBusy("add-seg");
-    try {
-      const res = await fetch(`/api/admin/tests/add-segmentation`, { method: "POST" });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Add question failed");
-      await loadBase();
-      notify("Segmentation question added");
-    } catch (e: any) {
-      notify(e?.message || "Add question failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function createFreeTest() {
-    setBusy("create-free");
-    try {
-      const res = await fetch(`/api/admin/tests/create/free`, { method: "POST" });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Create Free Test failed");
-      notify("Free Test created");
-      if (j.redirect) window.location.href = j.redirect as string;
-    } catch (e: any) {
-      notify(e?.message || "Create Free Test failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function createFullTest() {
-    setBusy("create-full");
-    try {
-      const res = await fetch(`/api/admin/tests/create/full`, { method: "POST" });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Create Full Test failed");
-      notify("Full Test created");
-      if (j.redirect) window.location.href = j.redirect as string; // ← redirect to Report Sign-off
-    } catch (e: any) {
-      notify(e?.message || "Create Full Test failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const ready = useMemo(() => (questions?.length || 0) >= 15, [questions]);
+  if (loading) return <main className="max-w-5xl mx-auto p-6 text-white">Loading…</main>;
+  if (err) return (
+    <main className="max-w-5xl mx-auto p-6 text-white">
+      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+        <div className="text-red-300 font-medium">Couldn’t load questions</div>
+        <div className="text-red-200/90 text-sm mt-1">{err}</div>
+        <div className="mt-3"><button onClick={load} className="px-3 py-2 rounded-xl bg-white/10 border border-white/15">Retry</button></div>
+      </div>
+    </main>
+  );
 
   return (
-    <main className="max-w-6xl mx-auto p-6 text-white">
+    <main className="max-w-4xl mx-auto p-6 text-white">
       <h1 className="text-2xl font-semibold">Test Builder</h1>
-      <p className="text-white/70">
-        Rephrase each question/answer to match the client’s brand. Internal mappings (points / profiles) stay intact.
-      </p>
+      <p className="text-white/70">Rephrase each question/answer to match the client’s brand. Internal mappings stay intact.</p>
 
-      {/* Toolbar */}
-      <div className="mt-6 flex flex-wrap gap-3">
-        <button
-          onClick={addSegmentationQuestion}
-          disabled={busy === "add-seg" || loading}
-          className="px-4 py-2 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50"
-        >
-          + Add Segmentation Question
-        </button>
-        <div className="ml-auto flex gap-3">
-          <button
-            onClick={createFreeTest}
-            disabled={busy === "create-free" || loading || !ready}
-            className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50"
-          >
-            Create Free Test
-          </button>
-          <button
-            onClick={createFullTest}
-            disabled={busy === "create-full" || loading || !ready}
-            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
-          >
-            Create Full Test
-          </button>
-        </div>
-      </div>
+      <div className="space-y-6 mt-6">
+        {qs.map((q) => (
+          <div key={q.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="font-medium">{q.qnum}. {q.text}</div>
+              <button
+                onClick={() => rephraseQuestion(q.id)}
+                disabled={busy === `q:${q.id}`}
+                className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-sm"
+              >
+                {busy === `q:${q.id}` ? "Rephrasing…" : "Rephrase"}
+              </button>
+            </div>
 
-      {/* Questions */}
-      <div className="mt-6">
-        {loading ? (
-          <div className="text-white/60">Loading questions…</div>
-        ) : !questions?.length ? (
-          <div className="text-white/60">No questions yet.</div>
-        ) : (
-          questions.map((q) => (
-            <section
-              key={q.qnum}
-              className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="text-base font-semibold">
-                  {q.qnum}. {q.text}
-                </div>
-                <button
-                  onClick={() => rephraseQuestion(q.qnum)}
-                  disabled={busy === `q-${q.qnum}`}
-                  className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-sm"
-                >
-                  Rephrase Question
-                </button>
-              </div>
-
-              <ul className="mt-3 space-y-2">
-                {q.answers.map((a, i) => (
-                  <li
-                    key={i}
-                    className="rounded-xl border border-white/10 bg-white/[0.035] p-3 flex items-start justify-between gap-3"
+            <div className="mt-3 space-y-2">
+              {q.answers.sort((a,b)=>a.ordinal-b.ordinal).map((a) => (
+                <div key={a.id} className="flex items-start justify-between gap-4">
+                  <div className="text-white/85">
+                    ({a.ordinal}) {a.text}
+                  </div>
+                  <button
+                    onClick={() => rephraseAnswer(a.id, q.id)}
+                    disabled={busy === `a:${a.id}`}
+                    className="px-2.5 py-1.5 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-xs"
                   >
-                    <div className="text-sm">
-                      <span className="text-white/60 mr-2">({i + 1})</span>
-                      {a.text}
-                    </div>
-                    <button
-                      onClick={() => rephraseAnswer(q.qnum, i + 1)}
-                      disabled={busy === `a-${q.qnum}-${i + 1}`}
-                      className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-xs"
-                    >
-                      Rephrase Answer
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))
-        )}
+                    {busy === `a:${a.id}` ? "Rephrasing…" : "Rephrase"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Footer CTA to Report Sign-off */}
-      <TestBuilderFooter />
-
-      {/* toast */}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl bg-white/10 border border-white/15">
           {toast}
