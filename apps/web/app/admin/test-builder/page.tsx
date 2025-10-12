@@ -1,18 +1,18 @@
 // apps/web/app/admin/test-builder/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Answer = { id: string; ordinal: number; text: string };
 type Question = { id: string; qnum: number; text: string; answers: Answer[] };
 
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   useEffect(() => {
-    const t = setTimeout(onClose, 4000);
+    const t = setTimeout(onClose, 3500);
     return () => clearTimeout(t);
   }, [onClose]);
   return (
-    <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-red-900/80 text-red-50 border border-red-700 px-3 py-2 shadow">
+    <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-red-900/85 text-red-50 border border-red-700 px-3 py-2 shadow">
       {message}
     </div>
   );
@@ -24,11 +24,6 @@ export default function TestBuilderPage() {
   const [items, setItems] = useState<Question[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-
-  // Segmentation modal state
-  const [segOpen, setSegOpen] = useState(false);
-  const [segQuestion, setSegQuestion] = useState("");
-  const [segOptions, setSegOptions] = useState<string[]>(["", ""]);
 
   const load = async () => {
     setLoading(true);
@@ -51,8 +46,7 @@ export default function TestBuilderPage() {
 
   const handleRephraseQ = async (qId: string) => {
     const input = prompt("Rephrase this question to match the client's brand:");
-    if (input === null) return; // user cancelled
-    if (!input.trim()) return;  // empty -> no-op
+    if (input === null || !input.trim()) return;
     try {
       setSaving(true);
       const res = await fetch("/api/admin/tests/rephrase/question", {
@@ -72,8 +66,7 @@ export default function TestBuilderPage() {
 
   const handleRephraseA = async (qId: string, aId: string) => {
     const input = prompt("Rephrase this answer to match the client's brand:");
-    if (input === null) return;
-    if (!input.trim()) return;
+    if (input === null || !input.trim()) return;
     try {
       setSaving(true);
       const res = await fetch("/api/admin/tests/rephrase/answer", {
@@ -109,41 +102,6 @@ export default function TestBuilderPage() {
     }
   };
 
-  // ---------- Segmentation Modal ----------
-  const addOption = () => setSegOptions((arr) => [...arr, ""]);
-  const removeOption = (idx: number) => setSegOptions((arr) => arr.filter((_, i) => i !== idx));
-  const updateOption = (idx: number, val: string) =>
-    setSegOptions((arr) => arr.map((v, i) => (i === idx ? val : v)));
-
-  const canSaveSeg = useMemo(() => {
-    if (!segQuestion.trim()) return false;
-    const options = segOptions.map((o) => o.trim()).filter(Boolean);
-    return options.length >= 2 && options.length <= 6;
-  }, [segQuestion, segOptions]);
-
-  const saveSegmentation = async () => {
-    if (!canSaveSeg) return;
-    try {
-      setSaving(true);
-      const options = segOptions.map((o) => o.trim()).filter(Boolean);
-      const res = await fetch("/api/admin/tests/segment/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: segQuestion.trim(), options }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setSegQuestion("");
-      setSegOptions(["", ""]);
-      setSegOpen(false);
-      await load();
-    } catch (e: any) {
-      setToast(e?.message || "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div className="px-6 py-8">
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
@@ -171,15 +129,6 @@ export default function TestBuilderPage() {
             Create Full Test
           </button>
         </div>
-      </div>
-
-      <div className="mb-4">
-        <button
-          onClick={() => setSegOpen(true)}
-          className="rounded-lg px-4 py-2 bg-white/10 hover:bg-white/15 text-white"
-        >
-          + Add Segmentation Question
-        </button>
       </div>
 
       {loading && <div className="text-white/70">Loading…</div>}
@@ -235,73 +184,14 @@ export default function TestBuilderPage() {
         </div>
       )}
 
-      {/* Segmentation Modal */}
-      {segOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => !saving && setSegOpen(false)} />
-          <div className="relative w-full max-w-lg rounded-2xl bg-zinc-900 border border-white/10 p-5">
-            <div className="text-lg font-semibold mb-2">Add Segmentation Question</div>
-            <label className="block text-sm mb-1 text-white/90">Question</label>
-            <input
-              className="w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 mb-4"
-              value={segQuestion}
-              onChange={(e) => setSegQuestion(e.target.value)}
-              placeholder="E.g., Which department are you in?"
-            />
-
-            <div className="mb-2 text-sm text-white/90">Options (2–6)</div>
-            <div className="space-y-2">
-              {segOptions.map((opt, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input
-                    className="flex-1 rounded-lg bg-black/40 border border-white/10 px-3 py-2"
-                    value={opt}
-                    onChange={(e) => updateOption(i, e.target.value)}
-                    placeholder={`Option ${i + 1}`}
-                  />
-                  {segOptions.length > 2 && (
-                    <button
-                      className="rounded-md px-2 py-2 bg-white/10 hover:bg-white/15 text-xs"
-                      onClick={() => removeOption(i)}
-                      disabled={saving}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-between mt-4">
-              <button
-                className="rounded-md px-3 py-2 bg-white/10 hover:bg-white/15"
-                onClick={addOption}
-                disabled={saving || segOptions.length >= 6}
-              >
-                + Add Option
-              </button>
-
-              <div className="flex gap-2">
-                <button
-                  className="rounded-md px-4 py-2 bg-white/10 hover:bg-white/15"
-                  onClick={() => setSegOpen(false)}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-                <button
-                  className={`rounded-md px-4 py-2 ${canSaveSeg ? "bg-sky-700 hover:bg-sky-600 text-white" : "bg-white/10 text-white/40"}`}
-                  onClick={saveSegmentation}
-                  disabled={!canSaveSeg || saving}
-                >
-                  Save Question
-                </button>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
+      <div className="mt-10 flex justify-end">
+        <a
+          href="/admin/reports"
+          className="rounded-xl px-5 py-3 bg-teal-700 hover:bg-teal-600 text-white"
+        >
+          Proceed to Report Sign-off →
+        </a>
+      </div>
     </div>
   );
 }
