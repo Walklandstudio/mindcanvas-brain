@@ -15,7 +15,7 @@ type BaseAnswer = {
 };
 type BaseQ = { qnum: number; text: string; answers: BaseAnswer[] };
 
-// ——— Your 15 base questions (unchanged content) ———
+// 15 base questions (unchanged contents)
 const BASE: BaseQ[] = [
   { qnum: 1, text: "How do you prefer to tackle new tasks?",
     answers: [
@@ -124,24 +124,27 @@ const BASE: BaseQ[] = [
     ]},
 ];
 
-// Try inserting with qnum; if DB requires q_no, fall back seamlessly.
+// Insert with qnum; if DB requires q_no, retry automatically.
+// Always provide source: 'base' to satisfy NOT NULL source.
 async function seedQuestions(sb: any, testId: string) {
-  // Attempt 1: qnum
-  const rows1 = BASE.map((b) => ({ test_id: testId, qnum: b.qnum, text: b.text }));
+  // Attempt 1: schema uses qnum
+  const rows1 = BASE.map((b) => ({ test_id: testId, qnum: b.qnum, text: b.text, source: "base" }));
   let ins = await sb.from("org_test_questions").insert(rows1).select("id,qnum,q_no");
   if (ins.error) {
-    // Attempt 2: q_no (if schema uses q_no and enforces NOT NULL)
-    const rows2 = BASE.map((b) => ({ test_id: testId, q_no: b.qnum, text: b.text }));
+    // Attempt 2: schema uses q_no
+    const rows2 = BASE.map((b) => ({ test_id: testId, q_no: b.qnum, text: b.text, source: "base" }));
     ins = await sb.from("org_test_questions").insert(rows2).select("id,qnum,q_no");
     if (ins.error) return { error: ins.error.message };
   }
 
-  // Insert answers
+  // Map new question ids by number
   const idByQnum = new Map<number, string>();
-  for (const row of ins.data as any[]) {
+  for (const row of (ins.data as any[]) || []) {
     const num = (row?.qnum ?? row?.q_no) as number;
     if (typeof num === "number") idByQnum.set(num, row.id);
   }
+
+  // Insert answers
   const aRows: any[] = [];
   for (const b of BASE) {
     const qid = idByQnum.get(b.qnum)!;
@@ -152,7 +155,7 @@ async function seedQuestions(sb: any, testId: string) {
         text: a.text,
         points: a.points,
         profile_num: a.profile_num,
-        frequency: a.frequency, // stored as text; UI doesn’t show it
+        frequency: a.frequency,
       });
     }
   }
@@ -184,11 +187,11 @@ export async function GET() {
     test = ins;
   }
 
-  // Load questions; use "*" so selecting non-existent columns never errors
+  // Load questions (select * to be tolerant of qnum/q_no)
   let qs = await sb.from("org_test_questions").select("*").eq("test_id", test.data!.id);
   if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
 
-  // Seed if missing
+  // Seed if none
   if (!qs.data || qs.data.length === 0) {
     const seeded = await seedQuestions(sb, test.data!.id);
     if ((seeded as any).error) {
@@ -198,7 +201,7 @@ export async function GET() {
     if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
   }
 
-  // Resolve number as qnum || q_no || qno, then sort client-side
+  // Normalize to { id, qnum, text }
   const normalized = (qs.data as any[]).map((row) => ({
     id: row.id,
     qnum: (row.qnum ?? row.q_no ?? row.qno) as number,
@@ -206,6 +209,7 @@ export async function GET() {
   }));
   normalized.sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
 
+  // Answers
   const qids = normalized.map((q) => q.id);
   const ans = await sb
     .from("org_test_answers")
