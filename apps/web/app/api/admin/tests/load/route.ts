@@ -11,8 +11,8 @@ type BaseAnswer = {
   ordinal: number;
   text: string;
   points: number;
-  profile_num: number;              // will be omitted if column missing
-  frequency: "A" | "B" | "C" | "D"; // will be omitted if column missing
+  profile_num: number;              // optional: omitted if column missing
+  frequency: "A" | "B" | "C" | "D"; // optional: omitted if column missing
 };
 type BaseQ = { qnum: number; text: string; answers: BaseAnswer[] };
 
@@ -154,7 +154,6 @@ async function ensureFramework(sb: any): Promise<{ id: string } | { error: strin
 async function ensureParentTest(sb: any): Promise<
   { parentTable: "org_test_defs" | "org_tests"; id: string } | { error: string }
 > {
-  // Prefer org_test_defs if the table exists
   const defsProbe = await sb.from("org_test_defs").select("id").limit(1);
   const useDefs = !(defsProbe.error && /relation .* does not exist|42P01/i.test(defsProbe.error.message));
 
@@ -187,7 +186,7 @@ async function ensureParentTest(sb: any): Promise<
     return { error: lastErr || "failed to create org_test_defs row" };
   }
 
-  // Fallback to org_tests
+  // fallback to legacy org_tests if org_test_defs table doesn't exist
   let t = await sb
     .from("org_tests")
     .select("id")
@@ -212,7 +211,7 @@ async function ensureParentTest(sb: any): Promise<
   return { error: lastErr || "failed to create org_tests row" };
 }
 
-/** Insert question rows with schema-adaptive shapes (qnum vs q_no; prompt/source). */
+/** Insert question rows with schema-adaptive shapes. */
 async function insertQuestions(sb: any, testId: string) {
   const variants = [
     { key: "qnum", withPrompt: false, withSource: false },
@@ -240,53 +239,43 @@ async function insertQuestions(sb: any, testId: string) {
   return { error: lastErr || "insert failed" };
 }
 
-/** Insert answers adapting to available columns (profile_num/frequency optional). */
-async function insertAnswers(sb: any, ins: any) {
+/** Insert answers; adapt to available columns and seed if missing. */
+async function insertAnswers(sb: any, insQuestions: any) {
   // Probe answer columns
   const aProbe = await sb.from("org_test_answers").select("*").limit(1);
-  const hasProfileNum = !aProbe.error && Array.isArray(aProbe.data) && aProbe.data[0]
-    ? Object.prototype.hasOwnProperty.call(aProbe.data[0], "profile_num")
-    : true; // optimistic default
-  const hasFrequency = !aProbe.error && Array.isArray(aProbe.data) && aProbe.data[0]
-    ? Object.prototype.hasOwnProperty.call(aProbe.data[0], "frequency")
-    : true;
+  const sample = (!aProbe.error && Array.isArray(aProbe.data) && aProbe.data[0]) ? aProbe.data[0] : {};
+  const hasProfileNum = Object.prototype.hasOwnProperty.call(sample, "profile_num");
+  const hasFrequency = Object.prototype.hasOwnProperty.call(sample, "frequency");
 
-  // Build qnum->id map from inserted questions
+  // Map qnum -> question id
   const idByNum = new Map<number, string>();
-  for (const row of (ins.data as any[]) || []) {
+  for (const row of (insQuestions.data as any[]) || []) {
     const num = (row?.qnum ?? row?.q_no) as number;
     if (typeof num === "number") idByNum.set(num, row.id);
   }
 
-  const rows: any[] = [];
+  const rowsFull: any[] = [];
   for (const b of BASE) {
     const qid = idByNum.get(b.qnum);
     if (!qid) continue;
     for (const a of b.answers) {
-      const r: any = {
-        question_id: qid,
-        ordinal: a.ordinal,
-        text: a.text,
-        points: a.points,
-      };
+      const r: any = { question_id: qid, ordinal: a.ordinal, text: a.text, points: a.points };
       if (hasProfileNum) r.profile_num = a.profile_num;
       if (hasFrequency) r.frequency = a.frequency;
-      rows.push(r);
+      rowsFull.push(r);
     }
   }
 
-  // Try insert, and if it still fails due to extra columns, strip them progressively
-  let lastErr: string | null = null;
-  const trySets: ((x: any) => any)[] = [
-    (x) => x,
-    (x) => { const y = { ...x }; delete y.profile_num; return y; },
-    (x) => { const y = { ...x }; delete y.frequency; return y; },
-    (x) => { const y = { ...x }; delete y.profile_num; delete y.frequency; return y; },
+  // Try insert; if it fails on optional columns, strip and retry
+  const attempts = [
+    rowsFull,
+    rowsFull.map(({ profile_num, ...rest }) => rest),
+    rowsFull.map(({ frequency, ...rest }) => rest),
+    rowsFull.map(({ profile_num, frequency, ...rest }) => rest),
   ];
-
-  for (const mutate of trySets) {
-    const attempt = rows.map(mutate);
-    const ins = await sb.from("org_test_answers").insert(attempt).select("id");
+  let lastErr: string | null = null;
+  for (const rows of attempts) {
+    const ins = await sb.from("org_test_answers").insert(rows).select("id");
     if (!ins.error) return ins;
     lastErr = ins.error?.message ?? lastErr;
   }
@@ -298,42 +287,45 @@ async function insertAnswers(sb: any, ins: any) {
 export async function GET() {
   const sb = getServiceClient();
 
-  // Ensure parent (org_test_defs + framework if needed)
+  // 1) Ensure parent (org_test_defs + framework if present)
   const parent = await ensureParentTest(sb);
   if ("error" in parent) return NextResponse.json({ error: parent.error }, { status: 500 });
 
-  // Load existing questions
-  let qs = await sb.from("org_test_questions").select("*").eq("test_id", parent.id);
+  // 2) Load questions for this test
+  const qs = await sb.from("org_test_questions").select("id,qnum,q_no,text").eq("test_id", parent.id);
   if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
 
-  // Seed if empty
+  let insQ: any = null;
   if (!qs.data || qs.data.length === 0) {
-    const insQ = await insertQuestions(sb, parent.id);
+    // Seed Q if none
+    insQ = await insertQuestions(sb, parent.id);
     if ((insQ as any).error) return NextResponse.json({ error: (insQ as any).error }, { status: 500 });
-
-    const insA = await insertAnswers(sb, insQ);
-    if ((insA as any).error) return NextResponse.json({ error: (insA as any).error }, { status: 500 });
-
-    qs = await sb.from("org_test_questions").select("*").eq("test_id", parent.id);
-    if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
   }
 
-  // Normalize output
-  const normalized = (qs.data as any[])
-    .map((row) => ({
-      id: row.id,
-      qnum: (row.qnum ?? row.q_no ?? row.qno) as number,
-      text: row.text as string,
-    }))
-    .sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
+  // 3) Ensure answers exist (self-heal)
+  const qids = (insQ?.data || qs.data || []).map((r: any) => r.id);
+  if (qids.length > 0) {
+    const ansCheck = await sb
+      .from("org_test_answers")
+      .select("id")
+      .in("question_id", qids)
+      .limit(1);
+    if (!ansCheck.error && (!ansCheck.data || ansCheck.data.length === 0)) {
+      const seedBase = insQ ?? { data: qs.data };
+      const insA = await insertAnswers(sb, seedBase);
+      if ((insA as any).error) return NextResponse.json({ error: (insA as any).error }, { status: 500 });
+    }
+  }
 
-  const qids = normalized.map((q) => q.id);
-  const ans = await sb
-    .from("org_test_answers")
+  // 4) Re-read to return consistent payload
+  const qRows = (insQ?.data || qs.data) as any[];
+  const ids = qRows.map((r) => r.id);
+  const ans = await sb.from("org_test_answers")
     .select("id,question_id,text,ordinal")
-    .in("question_id", qids);
+    .in("question_id", ids);
   if (ans.error) return NextResponse.json({ error: ans.error.message }, { status: 500 });
 
+  // Normalize for UI
   const byQ = new Map<string, any[]>();
   for (const a of (ans.data as any[]) || []) {
     const list = byQ.get(a.question_id) || [];
@@ -341,12 +333,14 @@ export async function GET() {
     byQ.set(a.question_id, list);
   }
 
-  const items = normalized.map((q) => ({
-    id: q.id,
-    qnum: q.qnum,
-    text: q.text,
-    answers: (byQ.get(q.id) || []).sort((a, b) => a.ordinal - b.ordinal),
-  }));
+  const items = qRows
+    .map((row) => ({
+      id: row.id,
+      qnum: (row.qnum ?? row.q_no ?? row.qno) as number,
+      text: row.text as string,
+      answers: (byQ.get(row.id) || []).sort((a, b) => a.ordinal - b.ordinal),
+    }))
+    .sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
 
   return NextResponse.json({ items });
 }
