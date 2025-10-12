@@ -15,116 +15,152 @@ type BaseAnswer = {
 };
 type BaseQ = { qnum: number; text: string; answers: BaseAnswer[] };
 
-// 15 base questions (content per your spec)
 const BASE: BaseQ[] = [
   { qnum: 1, text: "How do you prefer to tackle new tasks?",
     answers: [
-      { ordinal:1, text:"I dive right in",                 points:40, profile_num:1, frequency:"A" },
-      { ordinal:2, text:"I make a detailed plan",          points:10, profile_num:7, frequency:"D" },
-      { ordinal:3, text:"I like to brainstorm with others",points:30, profile_num:4, frequency:"B" },
-      { ordinal:4, text:"I follow a structured process",   points:20, profile_num:6, frequency:"C" },
+      { ordinal:1, text:"I dive right in", points:40, profile_num:1, frequency:"A" },
+      { ordinal:2, text:"I make a detailed plan", points:10, profile_num:7, frequency:"D" },
+      { ordinal:3, text:"I like to brainstorm with others", points:30, profile_num:4, frequency:"B" },
+      { ordinal:4, text:"I follow a structured process", points:20, profile_num:6, frequency:"C" },
     ]},
   { qnum: 2, text: "Which statement describes you best in a team setting?",
     answers: [
-      { ordinal:1, text:"I take charge and lead",          points:40, profile_num:8, frequency:"A" },
-      { ordinal:2, text:"Keep tasks on track",             points:20, profile_num:6, frequency:"C" },
-      { ordinal:3, text:"Build positive environment",      points:30, profile_num:3, frequency:"B" },
-      { ordinal:4, text:"Focus on details",                points:10, profile_num:7, frequency:"D" },
+      { ordinal:1, text:"I take charge and lead", points:40, profile_num:8, frequency:"A" },
+      { ordinal:2, text:"Keep tasks on track", points:20, profile_num:6, frequency:"C" },
+      { ordinal:3, text:"Build positive environment", points:30, profile_num:3, frequency:"B" },
+      { ordinal:4, text:"Focus on details", points:10, profile_num:7, frequency:"D" },
     ]},
   { qnum: 3, text: "When faced with a problem, how do you best like to solve it?",
     answers: [
       { ordinal:1, text:"I like to try new ideas and adjust", points:40, profile_num:8, frequency:"A" },
-      { ordinal:2, text:"I break it into clear steps",        points:10, profile_num:6, frequency:"D" },
-      { ordinal:3, text:"I research before acting",           points:20, profile_num:5, frequency:"C" },
-      { ordinal:4, text:"I like to collaborate for solutions",points:30, profile_num:3, frequency:"B" },
+      { ordinal:2, text:"I break it into clear steps", points:10, profile_num:6, frequency:"D" },
+      { ordinal:3, text:"I research before acting", points:20, profile_num:5, frequency:"C" },
+      { ordinal:4, text:"I like to collaborate for solutions", points:30, profile_num:3, frequency:"B" },
     ]},
   { qnum: 4, text: "How do you prefer to communicate within a team?",
     answers: [
-      { ordinal:1, text:"I am thoughtful and organised",      points:20, profile_num:5, frequency:"C" },
-      { ordinal:2, text:"I like to focus on facts",           points:10, profile_num:7, frequency:"D" },
-      { ordinal:3, text:"I am direct and to the point",       points:40, profile_num:8, frequency:"A" },
-      { ordinal:4, text:"I am friendly and supportive",       points:30, profile_num:3, frequency:"B" },
+      { ordinal:1, text:"I am thoughtful and organised", points:20, profile_num:5, frequency:"C" },
+      { ordinal:2, text:"I like to focus on facts", points:10, profile_num:7, frequency:"D" },
+      { ordinal:3, text:"I am direct and to the point", points:40, profile_num:8, frequency:"A" },
+      { ordinal:4, text:"I am friendly and supportive", points:30, profile_num:3, frequency:"B" },
     ]},
   { qnum: 5, text: "What motivates you mostly in your work?",
     answers: [
-      { ordinal:1, text:"I like new challenges",              points:40, profile_num:1, frequency:"A" },
-      { ordinal:2, text:"I like to help others succeed",      points:30, profile_num:4, frequency:"B" },
+      { ordinal:1, text:"I like new challenges", points:40, profile_num:1, frequency:"A" },
+      { ordinal:2, text:"I like to help others succeed", points:30, profile_num:4, frequency:"B" },
       { ordinal:3, text:"Making sure things are running smoothly", points:20, profile_num:5, frequency:"C" },
-      { ordinal:4, text:"I like to produce high quality",     points:10, profile_num:7, frequency:"D" },
+      { ordinal:4, text:"I like to produce high quality", points:10, profile_num:7, frequency:"D" },
     ]},
   { qnum: 6, text: "When things get stressful at work, how would you respond?",
     answers: [
-      { ordinal:1, text:"I like to pause and plan",           points:10, profile_num:7, frequency:"D" },
-      { ordinal:2, text:"I like to stay organised",           points:20, profile_num:6, frequency:"C" },
-      { ordinal:3, text:"I like to reach out for support",    points:30, profile_num:4, frequency:"B" },
-      { ordinal:4, text:"I just like to push through",        points:40, profile_num:2, frequency:"A" },
+      { ordinal:1, text:"I like to pause and plan", points:10, profile_num:7, frequency:"D" },
+      { ordinal:2, text:"I like to stay organised", points:20, profile_num:6, frequency:"C" },
+      { ordinal:3, text:"I like to reach out for support", points:30, profile_num:4, frequency:"B" },
+      { ordinal:4, text:"I just like to push through", points:40, profile_num:2, frequency:"A" },
     ]},
   { qnum: 7, text: "How do you generally handle feedback?",
     answers: [
-      { ordinal:1, text:"I value fact-based feedback",        points:10, profile_num:8, frequency:"D" },
-      { ordinal:2, text:"I appreciate quick feedback",        points:40, profile_num:8, frequency:"A" },
+      { ordinal:1, text:"I value fact-based feedback", points:10, profile_num:8, frequency:"D" },
+      { ordinal:2, text:"I appreciate quick feedback", points:40, profile_num:8, frequency:"A" },
       { ordinal:3, text:"I focus on relationships and connection", points:30, profile_num:2, frequency:"B" },
-      { ordinal:4, text:"I prefer to receive detailed feedback",   points:20, profile_num:5, frequency:"C" },
+      { ordinal:4, text:"I prefer to receive detailed feedback", points:20, profile_num:5, frequency:"C" },
     ]},
   { qnum: 8, text: "How do you recover after making a mistake?",
     answers: [
-      { ordinal:1, text:"I like to reflect and plan",         points:10, profile_num:7, frequency:"D" },
-      { ordinal:2, text:"I fix the mistake",                  points:10, profile_num:8, frequency:"D" },
+      { ordinal:1, text:"I like to reflect and plan", points:10, profile_num:7, frequency:"D" },
+      { ordinal:2, text:"I fix the mistake", points:10, profile_num:8, frequency:"D" },
       { ordinal:3, text:"I like to discuss with a colleague", points:30, profile_num:4, frequency:"B" },
-      { ordinal:4, text:"I like to move on and adjust",       points:40, profile_num:2, frequency:"A" },
+      { ordinal:4, text:"I like to move on and adjust", points:40, profile_num:2, frequency:"A" },
     ]},
   { qnum: 9, text: "How do you feel after completing a big project?",
     answers: [
-      { ordinal:1, text:"I am relieved it went to plan",      points:20, profile_num:5, frequency:"C" },
-      { ordinal:2, text:"I am proud of the accuracy",         points:10, profile_num:6, frequency:"D" },
-      { ordinal:3, text:"I am grateful for team support",     points:30, profile_num:4, frequency:"B" },
+      { ordinal:1, text:"I am relieved it went to plan", points:20, profile_num:5, frequency:"C" },
+      { ordinal:2, text:"I am proud of the accuracy", points:10, profile_num:6, frequency:"D" },
+      { ordinal:3, text:"I am grateful for team support", points:30, profile_num:4, frequency:"B" },
       { ordinal:4, text:"I am excited to get on with the next challenge", points:40, profile_num:1, frequency:"A" },
     ]},
   { qnum:10, text: "How do you best approach learning new things?",
     answers: [
-      { ordinal:1, text:"I like to learn with others",        points:30, profile_num:3, frequency:"B" },
-      { ordinal:2, text:"I prefer structured learning",       points:40, profile_num:2, frequency:"A" },
+      { ordinal:1, text:"I like to learn with others", points:30, profile_num:3, frequency:"B" },
+      { ordinal:2, text:"I prefer structured learning", points:40, profile_num:2, frequency:"A" },
       { ordinal:3, text:"I like to experiment with concepts", points:40, profile_num:1, frequency:"A" },
       { ordinal:4, text:"I like a deep dive to fully understand", points:10, profile_num:7, frequency:"D" },
     ]},
   { qnum:11, text: "What type of work energises you?",
     answers: [
-      { ordinal:1, text:"Innovative projects",                points:40, profile_num:1, frequency:"A" },
-      { ordinal:2, text:"Organising and building processes",  points:20, profile_num:5, frequency:"C" },
-      { ordinal:3, text:"Collaborating with others",          points:30, profile_num:3, frequency:"B" },
-      { ordinal:4, text:"Analysing data",                     points:10, profile_num:7, frequency:"D" },
+      { ordinal:1, text:"Innovative projects", points:40, profile_num:1, frequency:"A" },
+      { ordinal:2, text:"Organising and building processes", points:20, profile_num:5, frequency:"C" },
+      { ordinal:3, text:"Collaborating with others", points:30, profile_num:3, frequency:"B" },
+      { ordinal:4, text:"Analysing data", points:10, profile_num:7, frequency:"D" },
     ]},
   { qnum:12, text: "How do you prefer to approach personal growth?",
     answers: [
-      { ordinal:1, text:"I like to challenge myself",         points:40, profile_num:2, frequency:"A" },
-      { ordinal:2, text:"I like to refine my skills",         points:20, profile_num:6, frequency:"C" },
-      { ordinal:3, text:"I like to set specific goals",       points:10, profile_num:8, frequency:"D" },
-      { ordinal:4, text:"Through learning with others",       points:30, profile_num:4, frequency:"B" },
+      { ordinal:1, text:"I like to challenge myself", points:40, profile_num:2, frequency:"A" },
+      { ordinal:2, text:"I like to refine my skills", points:20, profile_num:6, frequency:"C" },
+      { ordinal:3, text:"I like to set specific goals", points:10, profile_num:8, frequency:"D" },
+      { ordinal:4, text:"Through learning with others", points:30, profile_num:4, frequency:"B" },
     ]},
   { qnum:13, text: "How do you best handle disagreements?",
     answers: [
-      { ordinal:1, text:"I like to assert my position",       points:40, profile_num:2, frequency:"A" },
-      { ordinal:2, text:"I like to seek middle ground",       points:30, profile_num:4, frequency:"B" },
-      { ordinal:3, text:"I look for logical solutions",       points:20, profile_num:5, frequency:"C" },
-      { ordinal:4, text:"I feel better to stay objective",    points:10, profile_num:8, frequency:"D" },
+      { ordinal:1, text:"I like to assert my position", points:40, profile_num:2, frequency:"A" },
+      { ordinal:2, text:"I like to seek middle ground", points:30, profile_num:4, frequency:"B" },
+      { ordinal:3, text:"I look for logical solutions", points:20, profile_num:5, frequency:"C" },
+      { ordinal:4, text:"I feel better to stay objective", points:10, profile_num:8, frequency:"D" },
     ]},
   { qnum:14, text: "How do you prefer to work on a team?",
     answers: [
-      { ordinal:1, text:"I like to lead and make decisions",  points:40, profile_num:1, frequency:"A" },
+      { ordinal:1, text:"I like to lead and make decisions", points:40, profile_num:1, frequency:"A" },
       { ordinal:2, text:"I prefer to foster team collaboration", points:30, profile_num:3, frequency:"B" },
-      { ordinal:3, text:"I prefer to organise tasks",         points:10, profile_num:6, frequency:"D" },
-      { ordinal:4, text:"I provide analytical support",       points:20, profile_num:6, frequency:"C" },
+      { ordinal:3, text:"I prefer to organise tasks", points:10, profile_num:6, frequency:"D" },
+      { ordinal:4, text:"I provide analytical support", points:20, profile_num:6, frequency:"C" },
     ]},
   { qnum:15, text: "What frustrates you most in a team or social setting?",
     answers: [
-      { ordinal:1, text:"Lack of clear goals",                points:20, profile_num:5, frequency:"C" },
-      { ordinal:2, text:"Slow decision-making",               points:40, profile_num:2, frequency:"A" },
-      { ordinal:3, text:"Lack of attention to detail",        points:10, profile_num:8, frequency:"D" },
-      { ordinal:4, text:"Conflict between members",           points:30, profile_num:4, frequency:"B" },
+      { ordinal:1, text:"Lack of clear goals", points:20, profile_num:5, frequency:"C" },
+      { ordinal:2, text:"Slow decision-making", points:40, profile_num:2, frequency:"A" },
+      { ordinal:3, text:"Lack of attention to detail", points:10, profile_num:8, frequency:"D" },
+      { ordinal:4, text:"Conflict between members", points:30, profile_num:4, frequency:"B" },
     ]},
 ];
 
-/** Try multiple insert shapes to satisfy differing NOT NULL columns in org_test_questions. */
+/* ---------- helpers ---------- */
+
+async function ensureTest(sb: any): Promise<{ id: string } | { error: string }> {
+  // find latest for org
+  let t = await sb
+    .from("org_tests")
+    .select("id")
+    .eq("org_id", ORG_ID)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (t.error) return { error: t.error.message };
+  if (t.data?.id) return { id: t.data.id as string };
+
+  // create with safe columns (no 'kind' assumption)
+  const tryShapes = [
+    [{ org_id: ORG_ID, name: "Signature Test" }],
+    [{ org_id: ORG_ID }], // in case name is nullable or has default
+  ];
+  let lastErr: string | null = null;
+  for (const rows of tryShapes) {
+    const ins = await sb.from("org_tests").insert(rows as any).select("id").maybeSingle();
+    if (!ins.error && ins.data?.id) return { id: ins.data.id as string };
+    lastErr = ins.error?.message ?? lastErr;
+  }
+
+  // last resort, re-read in case a trigger already created one
+  const re = await sb
+    .from("org_tests")
+    .select("id")
+    .eq("org_id", ORG_ID)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (re.data?.id) return { id: re.data.id as string };
+  return { error: lastErr || "failed to create org_test" };
+}
+
 async function tryInsertQuestionSet(
   sb: any,
   testId: string,
@@ -133,20 +169,16 @@ async function tryInsertQuestionSet(
 ) {
   const key = useQNo ? "q_no" : "qnum";
   const base = (b: BaseQ) => ({ test_id: testId, [key]: b.qnum, text: b.text });
+  const row = {
+    plain: (b: BaseQ) => base(b),
+    withSource: (b: BaseQ) => ({ ...base(b), source: "base" }),
+    withPrompt: (b: BaseQ) => ({ ...base(b), prompt: b.text }),
+    withSourceAndPrompt: (b: BaseQ) => ({ ...base(b), source: "base", prompt: b.text }),
+  }[variant];
 
-  const rowBuilders: Record<typeof variant, (b: BaseQ) => any> = {
-    plain: (b) => base(b),
-    withSource: (b) => ({ ...base(b), source: "base" }),
-    withPrompt: (b) => ({ ...base(b), prompt: b.text }),
-    withSourceAndPrompt: (b) => ({ ...base(b), source: "base", prompt: b.text }),
-  };
-
-  const rows = BASE.map(rowBuilders[variant]);
-  const ins = await sb.from("org_test_questions").insert(rows).select("id,qnum,q_no");
-  return ins;
+  return sb.from("org_test_questions").insert(BASE.map(row)).select("id,qnum,q_no");
 }
 
-/** Insert questions with adaptive fallbacks (qnum/q_no, prompt/source present/missing). */
 async function seedQuestions(sb: any, testId: string) {
   const variants: Array<[boolean, "plain" | "withSource" | "withPrompt" | "withSourceAndPrompt"]> = [
     [false, "plain"],
@@ -159,13 +191,12 @@ async function seedQuestions(sb: any, testId: string) {
     [true, "withSourceAndPrompt"],
   ];
 
-  let ins: any = null;
+  let lastErr: string | null = null;
   for (const [useQNo, v] of variants) {
-    ins = await tryInsertQuestionSet(sb, testId, useQNo, v);
-    if (!ins.error) {
-      // success – insert answers
+    const ins = await tryInsertQuestionSet(sb, testId, useQNo, v);
+    if (!ins.error && ins.data?.length) {
       const idByQnum = new Map<number, string>();
-      for (const row of (ins.data as any[]) || []) {
+      for (const row of ins.data as any[]) {
         const num = (row?.qnum ?? row?.q_no) as number;
         if (typeof num === "number") idByQnum.set(num, row.id);
       }
@@ -187,57 +218,46 @@ async function seedQuestions(sb: any, testId: string) {
       if (aIns.error) return { error: aIns.error.message };
       return { ok: true };
     }
+    lastErr = ins.error?.message ?? lastErr;
   }
-  // If we reach here, last attempt failed; return its error
-  return { error: ins?.error?.message || "insert failed" };
+  return { error: lastErr || "insert failed" };
 }
+
+/* ---------- route ---------- */
 
 export async function GET() {
   const sb = getServiceClient();
 
-  // Ensure a test exists
-  let test = await sb
-    .from("org_tests")
-    .select("id")
-    .eq("org_id", ORG_ID)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (test.error) return NextResponse.json({ error: test.error.message }, { status: 500 });
+  const t = await ensureTest(sb);
+  if ("error" in t) return NextResponse.json({ error: t.error }, { status: 500 });
+  let testId = t.id;
 
-  if (!test.data) {
-    const ins = await sb
-      .from("org_tests")
-      .insert([{ org_id: ORG_ID, name: "Signature Test", kind: "full" }])
-      .select("id")
-      .maybeSingle();
-    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
-    test = ins;
-  }
-
-  // Tolerant select (*) (works whether you have qnum or q_no)
-  let qs = await sb.from("org_test_questions").select("*").eq("test_id", test.data!.id);
+  let qs = await sb.from("org_test_questions").select("*").eq("test_id", testId);
   if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
 
-  // Seed if none
   if (!qs.data || qs.data.length === 0) {
-    const seeded = await seedQuestions(sb, test.data!.id);
-    if ((seeded as any).error) {
-      return NextResponse.json({ error: (seeded as any).error }, { status: 500 });
+    let seeded = await seedQuestions(sb, testId);
+
+    if ("error" in seeded && /foreign key constraint/i.test(seeded.error)) {
+      const t2 = await ensureTest(sb);
+      if (!("error" in t2)) {
+        testId = t2.id;
+        seeded = await seedQuestions(sb, testId);
+      }
     }
-    qs = await sb.from("org_test_questions").select("*").eq("test_id", test.data!.id);
+    if ("error" in seeded) return NextResponse.json({ error: seeded.error }, { status: 500 });
+
+    qs = await sb.from("org_test_questions").select("*").eq("test_id", testId);
     if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
   }
 
-  // Normalize and sort by question number
   const normalized = (qs.data as any[]).map((row) => ({
     id: row.id,
     qnum: (row.qnum ?? row.q_no ?? row.qno) as number,
     text: row.text as string,
-  }));
-  normalized.sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
+  }))
+  .sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
 
-  // Answers
   const qids = normalized.map((q) => q.id);
   const ans = await sb
     .from("org_test_answers")
