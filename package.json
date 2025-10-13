@@ -1,27 +1,11 @@
 {
-  "name": "@mindcanvas/web",
-  "version": "0.1.0",
-  "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "dev:web": "npm --workspace @mindcanvas/web run dev",
+    "build:web": "npm --workspace @mindcanvas/web run build",
+    "start:web": "npm --workspace @mindcanvas/web run start",
+    "dev:portal": "npm --workspace @mindcanvas/portal run dev",
+    "build:portal": "npm --workspace @mindcanvas/portal run build",
+    "start:portal": "npm --workspace @mindcanvas/portal run start"
   },
-  "dependencies": {
-    "@supabase/ssr": "^0.7.0",
-    "next": "15.5.4",
-    "openai": "^6.3.0",
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
-  },
-  "devDependencies": {
-    "@types/node": "^24.7.1",
-    "@types/react": "^18.3.26",
-    "@types/react-dom": "^18.3.7",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.10",
-    "typescript": "^5.6.2"
-  }
+  "workspaces": ["apps/*", "packages/*"]
 }
