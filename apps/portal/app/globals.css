@@ -1,0 +1,7 @@
+/* mindcanvas-web/app/globals.css */
+@import "tailwindcss";
+/* your custom CSS below if needed */
+/* Hide "no-pdf" elements only while exporting */
+.pdf-export .no-pdf { visibility: hidden !important; }
+/* If you want them to collapse space entirely, use display:none instead: */
+/* .pdf-export .no-pdf { display: none !important; } */

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Dependencies
 node_modules/
 
@@ -26,4 +27,11 @@ pnpm-debug.log*
 
 # ignore inner project & temp clone
 mindcanvas-brain/
+=======
+
+# temp portal clone
+portal-work/
+
+# temp portal clone
+>>>>>>> chore/monorepo-boot
 portal-work/
