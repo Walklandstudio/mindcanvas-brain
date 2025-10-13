@@ -7,8 +7,9 @@ import { getServiceClient } from "../../../../../_lib/supabase";
 type Body = { question_id: string; answer_id: string; text: string };
 
 export async function POST(req: Request) {
-  const sb = getServiceClient();
+  const supabase = getServiceClient();
 
+  // parse
   let body: Body;
   try {
     body = (await req.json()) as Body;
@@ -19,8 +20,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "question_id, answer_id and text are required" }, { status: 400 });
   }
 
-  // Ensure the answer belongs to the provided question (defensive)
-  const a = await sb
+  // make sure answer belongs to question (defensive; avoids stray updates)
+  const a = await supabase
     .from("org_test_answers")
     .select("id,question_id")
     .eq("id", body.answer_id)
@@ -29,11 +30,11 @@ export async function POST(req: Request) {
   if (a.error) return NextResponse.json({ error: a.error.message }, { status: 500 });
   if (!a.data) return NextResponse.json({ error: "Answer not found" }, { status: 404 });
   if (a.data.question_id !== body.question_id) {
-    return NextResponse.json({ error: "Answer does not belong to the given question" }, { status: 400 });
+    return NextResponse.json({ error: "Answer does not belong to question" }, { status: 400 });
   }
 
-  // Only update the text; never touch points/mappings (safe for segmentation)
-  const upd = await sb
+  // update ONLY text; do not touch points/mappings
+  const upd = await supabase
     .from("org_test_answers")
     .update({ text: body.text.trim() })
     .eq("id", body.answer_id)
@@ -41,6 +42,5 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
-
   return NextResponse.json({ ok: true });
 }
