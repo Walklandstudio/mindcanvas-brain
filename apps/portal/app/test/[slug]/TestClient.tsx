@@ -1,51 +1,42 @@
 "use client";
 
-import Link from "next/link";
-import type { Route } from "next";
-import { usePathname } from "next/navigation";
-import clsx from "clsx";
+import React from "react";
 
-type NavItem = {
-  href: string | Route; // we’ll safely cast strings to Route
-  label: string;
-  icon?: React.ReactNode;
-  exact?: boolean; // if true, uses exact match; otherwise prefix match
+export type TestClientProps = {
+  slug: string;
+  initialSid?: string;
+  prefill?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+  };
 };
 
-type Props = {
-  items: NavItem[];
-  className?: string;
-};
-
-const toRoute = (href: string | Route): Route =>
-  (href as unknown) as Route;
-
-export default function NavClient({ items, className }: Props) {
-  const pathname = usePathname() || "/";
-
+export default function TestClient({ slug, initialSid, prefill }: TestClientProps) {
   return (
-    <nav className={clsx("flex flex-col gap-1", className)}>
-      {items.map((it) => {
-        const href = String(it.href);
-        const active = it.exact ? pathname === href : pathname.startsWith(href);
+    <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-5">
+      <div className="text-sm text-white/60">Test slug</div>
+      <div className="text-lg font-semibold">{slug}</div>
 
-        return (
-          <Link
-            key={href}
-            href={toRoute(it.href)}
-            className={clsx(
-              "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition",
-              active
-                ? "bg-white/10 text-white"
-                : "text-white/70 hover:bg-white/5 hover:text-white"
-            )}
-            aria-current={active ? "page" : undefined}
-          >
-            {it.icon && <span className="shrink-0">{it.icon}</span>}
-            <span className="truncate">{it.label}</span>
-          </Link>
-        );
-      })}
-    </nav>
+      {initialSid ? (
+        <div className="text-sm text-white/70">
+          Session: <span className="font-mono">{initialSid}</span>
+        </div>
+      ) : null}
+
+      {prefill && (prefill.name || prefill.email || prefill.phone) ? (
+        <div className="text-sm text-white/70">
+          Prefill:&nbsp;
+          <span className="font-mono">
+            {JSON.stringify(prefill)}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Replace this with your actual test UI */}
+      <button className="rounded-xl bg-white/10 px-4 py-2 text-sm hover:bg-white/20">
+        Start test
+      </button>
+    </div>
   );
 }
