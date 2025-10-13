@@ -1,5 +1,5 @@
 {
-  "name": "mindcanvas-brain",
-  "private": true,
-  "workspaces": ["apps/*", "packages/*"]
+  "name": "@mindcanvas/config",
+  "version": "0.0.0",
+  "private": true
 }

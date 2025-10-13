@@ -1,20 +1,20 @@
-// app/test/[slug]/page.tsx
-import TestClient from './TestClient'
+// apps/portal/app/test/[slug]/page.tsx
+import TestClient from "./TestClient";
 
-type PageProps = {
-  params: { slug: string }
-  searchParams: Promise<{
-    sid?: string
-    name?: string
-    email?: string
-    phone?: string
-  }>
-}
+export default async function Page(props: any) {
+  // Handle both Promise-wrapped and plain objects (Next 15 type quirk)
+  const params =
+    typeof props?.params?.then === "function"
+      ? await props.params
+      : props?.params ?? {};
 
-export default async function Page({ params, searchParams }: PageProps) {
-  const { slug } = params
-  const sp = await searchParams
-  const { sid, name, email, phone } = sp ?? {}
+  const searchParams =
+    typeof props?.searchParams?.then === "function"
+      ? await props.searchParams
+      : props?.searchParams ?? {};
+
+  const slug = params.slug as string;
+  const { sid, name, email, phone } = searchParams ?? {};
 
   return (
     <TestClient
@@ -22,5 +22,6 @@ export default async function Page({ params, searchParams }: PageProps) {
       initialSid={sid}
       prefill={{ name, email, phone }}
     />
-  )
+  );
 }
+

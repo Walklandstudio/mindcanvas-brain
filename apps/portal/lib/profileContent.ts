@@ -1,3 +1,4 @@
+
 export type ProfileKey =
   | "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | "P7" | "P8";
 
@@ -13,4 +14,12 @@ export function getProfileSummary(key: ProfileKey): string {
   return `Summary for ${getProfileTitle(key)} — placeholder until CMS content is connected.`;
 }
 
-export default { getProfileTitle, getProfileSummary };
+/** Matches existing imports in API routes */
+export function getProfileContent(key: ProfileKey) {
+  return {
+    title: getProfileTitle(key),
+    summary: getProfileSummary(key),
+  };
+}
+
+export default { getProfileTitle, getProfileSummary, getProfileContent };
