@@ -23,3 +23,7 @@ pnpm-debug.log*
 
 # Vercel
 .vercel/
+
+# ignore inner project & temp clone
+mindcanvas-brain/
+portal-work/
