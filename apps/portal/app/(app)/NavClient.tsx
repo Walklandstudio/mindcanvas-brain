@@ -4,30 +4,39 @@ import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
+import React from "react";
 
 type NavItem = {
-  href: string;          // we’ll cast it to Route when passing to <Link>
+  href: string;          // we’ll cast to Route when passing to <Link>
   label: string;
   icon?: React.ReactNode;
   exact?: boolean;
 };
 
 type Props = {
-  items: NavItem[];
+  items?: NavItem[];     // now optional; we’ll fall back to defaults
   className?: string;
 };
 
-// Helper: cast plain string paths to a typed Route
+// Helper: cast plain string paths to a typed Route (for typedRoutes)
 const toRoute = (href: string): Route => (href as unknown as Route);
+
+// Safe default nav
+const DEFAULT_ITEMS: NavItem[] = [
+  { href: "/portal", label: "Dashboard", exact: true },
+  { href: "/portal/clients", label: "Clients" },
+  { href: "/portal/tests", label: "Tests" },
+  { href: "/portal/results", label: "Results" }
+];
 
 export default function NavClient({ items, className }: Props) {
   const pathname = usePathname() || "/";
+  const list = items && items.length ? items : DEFAULT_ITEMS;
 
   return (
     <nav className={clsx("flex flex-col gap-1", className)}>
-      {items.map((it) => {
+      {list.map((it) => {
         const active = it.exact ? pathname === it.href : pathname.startsWith(it.href);
-
         return (
           <Link
             key={it.href}
@@ -40,8 +49,7 @@ export default function NavClient({ items, className }: Props) {
             )}
             aria-current={active ? "page" : undefined}
           >
-            {it.icon && <span className="mr-2 inline-flex">{it.icon}</span>}
-            <span className="truncate">{it.label}</span>
+            {it.label}
           </Link>
         );
       })}

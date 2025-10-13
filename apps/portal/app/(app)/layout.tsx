@@ -1,32 +1,25 @@
-import { ReactNode } from 'react';
-import NavClient from './NavClient';
+import "../globals.css";
+import type { ReactNode } from "react";
+import NavClient from "./NavClient";
 
-const SIDEBAR_BG = '#110b79';
-const APP_BG = '#484995';
+export default function AppLayout({ children }: { children: ReactNode }) {
+  // You can tweak these or rely on NavClient's built-in defaults
+  const items = [
+    { href: "/portal", label: "Dashboard", exact: true },
+    { href: "/portal/clients", label: "Clients" },
+    { href: "/portal/tests", label: "Tests" },
+    { href: "/portal/results", label: "Results" }
+  ];
 
-export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <div style={{ backgroundColor: APP_BG, minHeight: '100vh' }}>
-      <div className="mx-auto flex max-w-7xl gap-0 px-4 py-6 md:gap-6 md:px-6">
-        {/* Sidebar */}
-        <aside
-          className="hidden w-64 shrink-0 rounded-2xl p-5 md:block"
-          style={{ backgroundColor: SIDEBAR_BG }}
-        >
-          <div className="mb-6">
-            <div className="text-lg font-semibold text-white">MindCanvas</div>
-            <div className="text-xs text-white/70">Competency Coach</div>
-          </div>
+    <div className="min-h-screen grid grid-cols-[220px_1fr] gap-6 p-6">
+      <aside className="rounded-2xl border border-white/10 bg-white/5 p-4">
+        <NavClient items={items} />
+      </aside>
 
-          {/* Client nav handles active link highlighting */}
-          <NavClient />
-        </aside>
-
-        {/* Content card */}
-        <main className="w-full">
-          <div className="rounded-2xl bg-white shadow-sm">{children}</div>
-        </main>
-      </div>
+      <main className="rounded-2xl border border-white/10 bg-white/5 p-6">
+        {children}
+      </main>
     </div>
   );
 }
