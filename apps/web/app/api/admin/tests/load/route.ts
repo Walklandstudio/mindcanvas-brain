@@ -1,9 +1,6 @@
-// app/api/admin/tests/load/route.ts
 import { NextResponse } from "next/server";
 
-// Minimal shape the builder expects
 export async function GET() {
-  // Stable 15-Q snapshot (text only; points map stays in your scoring layer)
   const questions = [
     { id: "q1", text: "How do you prefer to tackle new tasks?" },
     { id: "q2", text: "Which statement describes you best in a team setting?" },
