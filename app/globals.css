@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root{
+  --mc-c1:#64bae2; /* light blue */
+  --mc-c2:#2d8fc4; /* mid blue  */
+  --mc-c3:#015a8b; /* deep blue */
+}
+
+/* gradient sweep for the “Signature” word */
+@keyframes gradient-x {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.animate-gradient-x {
+  background-size: 200% 200%;
+  animation: gradient-x 9s ease-in-out infinite;
+}
+
+/* glossy button shimmer */
+.shine { position: relative; overflow: hidden; }
+.shine::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,.28), transparent);
+  translate: -120% 0;
+}
+.shine:hover::after { transition: translate .9s ease; translate: 120% 0; }
+
+/* ==== MindCanvas Global Background (shared) ==== */
+/* Uses a deep blue radial + subtle grid, like your landing hero */
+
+.mc-bg {
+  /* deep to darker radial */
+  background:
+    radial-gradient(1200px 800px at 50% -200px, rgba(29, 78, 137, 0.35), rgba(2, 6, 23, 0.85) 60%, #020617 95%),
+    /* grid lines */
+    linear-gradient(#0b1f33 1px, transparent 1px),
+    linear-gradient(90deg, #0b1f33 1px, transparent 1px),
+    /* base */
+    #06101d;
+  background-size:
+    auto,
+    60px 60px,
+    60px 60px,
+    auto;
+  background-position:
+    center,
+    center,
+    center,
+    center;
+}
+
+/* Optional: card look helpers used in generator page */
+.mc-card {
+  @apply rounded-2xl border border-white/10 bg-white/5 shadow-lg;
+}
+.mc-btn {
+  @apply inline-flex items-center justify-center rounded-xl px-4 py-2 font-medium transition;
+}
+.mc-btn-primary {
+  @apply mc-btn bg-sky-600 hover:bg-sky-500 text-white;
+}
+.mc-btn-ghost {
+  @apply mc-btn bg-white/10 hover:bg-white/20 text-white;
+}
+.mc-input {
+  @apply w-full rounded-xl bg-white text-black px-3 py-2 outline-none;
+}
+.mc-select {
+  @apply w-full rounded-xl bg-white text-black px-3 py-2 outline-none;
+}
