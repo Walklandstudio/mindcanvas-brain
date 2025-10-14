@@ -1,58 +1,71 @@
-// app/report/[id]/PdfButton.tsx
-'use client';
+"use client";
 
-import { useCallback, useState } from 'react';
+import React from "react";
 
-type Props = { targetId?: string };
+type Props = {
+  /** The report (submission) id used by the API route */
+  id: string;
+  /** Optional: file name (without .pdf) */
+  filename?: string;
+  className?: string;
+  children?: React.ReactNode;
+};
 
-export default function PdfButton({ targetId = 'report-root' }: Props) {
-  const [busy, setBusy] = useState(false);
+export default function PdfButton({
+  id,
+  filename = "report",
+  className,
+  children,
+}: Props) {
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
 
-  const onClick = useCallback(async () => {
-    const node = document.getElementById(targetId);
-    if (!node || busy) return;
+  const handleClick = async () => {
     setBusy(true);
+    setErr(null);
     try {
-      // Lazy-load on demand to keep initial bundle small
-      const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
-        import('jspdf'),
-        import('html2canvas'),
-      ]);
+      // Fetch server-rendered PDF (generated with @react-pdf/renderer)
+      const res = await fetch(`/api/report/${id}/pdf`, {
+        method: "GET",
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `PDF request failed: ${res.status}`);
+      }
 
-      // give charts a tick to finish rendering
-      await new Promise((r) => setTimeout(r, 120));
-
-      const canvas = await html2canvas(node, { scale: 2, useCORS: true });
-      const img = canvas.toDataURL('image/png');
-
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = pdf.internal.pageSize.getHeight();
-
-      const ratio = Math.min(pw / canvas.width, ph / canvas.height);
-      const w = canvas.width * ratio;
-      const h = canvas.height * ratio;
-      const x = (pw - w) / 2;
-      const y = 24;
-
-      pdf.addImage(img, 'PNG', x, y, w, h);
-      pdf.save('Competency-Coach-Report.pdf');
-    } catch (e) {
-      console.error('PDF export failed:', e);
-      alert('Sorry, PDF export failed. Please try again.');
+      // Turn into a Blob and download
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      setErr(msg);
     } finally {
       setBusy(false);
     }
-  }, [targetId, busy]);
+  };
 
   return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      className="inline-flex items-center px-4 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium disabled:opacity-60"
-      title="Download this report as PDF"
-    >
-      {busy ? 'Preparing…' : 'Download PDF'}
-    </button>
+    <div className={className}>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy}
+        className="rounded-md bg-white/10 px-3 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
+      >
+        {busy ? "Generating…" : children ?? "Download PDF"}
+      </button>
+      {err && (
+        <p className="mt-2 text-xs text-red-400">
+          Failed to generate PDF: {err}
+        </p>
+      )}
+    </div>
   );
 }

@@ -1,106 +1,94 @@
-'use client';
+"use client";
 
-import { useMemo } from 'react';
+import React from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList,
-} from 'recharts';
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  LabelList,
+} from "recharts";
+import PdfButton from "./PdfButton";
+import clsx from "clsx";
 
-type Flow = { A: number; B: number; C: number; D: number };
-type ProfileRow = { code: string; name: string; pct: number; colorHex?: string };
+type Row = { name: string; value: number };
+type AnyRecord = Record<string, any>;
 
-export type ReportData = {
-  person?: { name?: string | null };
-  profile?: { code?: string; name?: string; colorHex?: string } | null;
-  flow: Flow;
-  profiles: ProfileRow[];
+/** Props compatible with both usages:
+ *  - old: <ReportClient id="..." rows={[...]}/>
+ *  - new: <ReportClient reportId="..." data={...}/>
+ */
+type Props = {
+  // “new” shape used by page.tsx
+  data?: AnyRecord;
+  reportId?: string;
+
+  // “old”/alternate shape
+  id?: string;
+  rows?: Row[];
+  title?: string;
+
+  className?: string;
 };
 
-export default function ReportClient({ data, reportId }: { data: ReportData; reportId: string }) {
-  const personName = data.person?.name ?? '—';
+export default function ReportClient(props: Props) {
+  // Prefer the new props coming from page.tsx
+  const dataObj: AnyRecord | undefined = props.data;
+  const id =
+    props.reportId ??
+    props.id ??
+    (typeof dataObj?.id === "string" ? dataObj.id : undefined);
 
-  const flowRows = useMemo(() => {
-    const arr = [
-      { key: 'A', label: 'Catalyst', value: data.flow?.A ?? 0, color: '#4ea5ff' },
-      { key: 'B', label: 'Communications', value: data.flow?.B ?? 0, color: '#f2a31b' },
-      { key: 'C', label: 'Rhythmic', value: data.flow?.C ?? 0, color: '#1fb874' },
-      { key: 'D', label: 'Observer', value: data.flow?.D ?? 0, color: '#7e5bef' },
-    ];
-    return arr.sort((a, b) => b.value - a.value);
-  }, [data.flow]);
+  const title: string =
+    props.title ??
+    (typeof dataObj?.title === "string" ? dataObj.title : "Report");
 
-  const profileRows = useMemo(() => {
-    const order = [...(data.profiles ?? [])].sort((a, b) => b.pct - a.pct);
-    const palette = {
-      P1: '#175f15',
-      P2: '#2ecc2f',
-      P3: '#ea430e',
-      P4: '#f52905',
-      P5: '#f3c90d',
-      P6: '#f8ee18',
-      P7: '#5d5d5d',
-      P8: '#8a8583',
-    } as Record<string, string>;
-    return order.map(p => ({
-      label: p.name,
-      value: p.pct,
-      color: p.colorHex || palette[p.code] || '#111827',
-    }));
-  }, [data.profiles]);
+  // Try to pull chart rows from various possible shapes
+  const rowsFromData: Row[] | undefined = Array.isArray(dataObj?.rows)
+    ? (dataObj!.rows as Row[])
+    : Array.isArray(dataObj?.chartRows)
+    ? (dataObj!.chartRows as Row[])
+    : undefined;
+
+  const data: Row[] =
+    props.rows && props.rows.length
+      ? props.rows
+      : rowsFromData && rowsFromData.length
+      ? rowsFromData
+      : [
+          // fallback demo data so the UI still renders
+          { name: "Discover", value: 24 },
+          { name: "Define", value: 38 },
+          { name: "Design", value: 22 },
+          { name: "Deliver", value: 16 },
+        ];
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
-      {/* Header with Download */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Report</h1>
-          <p className="text-sm text-gray-600">Welcome, {personName}.</p>
-        </div>
-        <a
-          href={`/api/report/${reportId}/pdf`}
-          className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:opacity-90"
-        >
-          Download PDF
-        </a>
+    <section className={clsx("w-full space-y-4", props.className)}>
+      <header className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">{title}</h1>
+        {id ? <PdfButton id={id}>Download PDF</PdfButton> : null}
+      </header>
+
+      <div className="h-64 w-full rounded-2xl border border-white/10 bg-white/5 p-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart layout="vertical" data={data} margin={{ left: 16, right: 16 }}>
+            <XAxis type="number" domain={[0, 100]} hide />
+            <YAxis type="category" dataKey="name" width={160} />
+            {/* Recharts v3 typing: accept unknown and coerce */}
+            <Tooltip formatter={(value: unknown) => `${Number(value ?? 0)}%`} />
+            <Bar dataKey="value" radius={[6, 6, 6, 6]} isAnimationActive>
+              <LabelList
+                dataKey="value"
+                position="right"
+                formatter={(label: unknown) => `${Number(label ?? 0)}%`}
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-
-      <hr className="mb-6 border-gray-200" />
-
-      <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-        <section>
-          <h2 className="mb-3 text-lg font-medium">Your Coaching Flow</h2>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart layout="vertical" data={flowRows} margin={{ left: 16, right: 16 }}>
-                <XAxis type="number" domain={[0, 100]} hide />
-                <YAxis type="category" dataKey="label" tick={{ fontSize: 12 }} width={140} />
-                <Tooltip formatter={(v: number) => `${v}%`} />
-                <Bar dataKey="value" radius={[6, 6, 6, 6]} isAnimationActive>
-                  <LabelList dataKey="value" position="right" formatter={(v: number) => `${v}%`} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="mb-3 text-lg font-medium">Primary & Auxiliary Profiles</h2>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart layout="vertical" data={profileRows} margin={{ left: 16, right: 16 }}>
-                <XAxis type="number" domain={[0, 100]} hide />
-                <YAxis type="category" dataKey="label" tick={{ fontSize: 12 }} width={220} />
-                <Tooltip formatter={(v: number) => `${v}%`} />
-                <Bar dataKey="value" radius={[6, 6, 6, 6]}>
-                  <LabelList dataKey="value" position="right" formatter={(v: number) => `${v}%`} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-      </div>
-
-      <hr className="my-8 border-gray-200" />
-      {/* Add Welcome/Outline copy below if desired */}
-    </div>
+    </section>
   );
 }
