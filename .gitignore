@@ -25,3 +25,4 @@ pnpm-debug.log*
 .vercel/
 apps/web/.next
 apps/web/build.out
+apps/web/node_modules
