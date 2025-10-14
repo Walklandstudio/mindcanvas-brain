@@ -1,5 +1,10 @@
 {
   "name": "mindcanvas-brain",
   "private": true,
-  "workspaces": ["apps/*"]
+  "workspaces": [
+    "apps/*"
+  ],
+  "devDependencies": {
+    "@types/node": "^24.7.2"
+  }
 }
