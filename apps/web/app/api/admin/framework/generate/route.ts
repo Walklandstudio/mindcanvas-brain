@@ -5,71 +5,35 @@ import { suggestFrameworkNames } from "@/app/_lib/ai";
 export const runtime = "nodejs";
 
 type Body = {
-  orgId?: string;
+  orgId: string;         // required for this legacy route
   orgName?: string;
   industry?: string;
   sector?: string;
-  brandTone?: string;
   primaryGoal?: string;
-  dryRun?: boolean; // if true OR if orgId missing ⇒ preview only
+  brandTone?: string;
+  ownerId?: string | null;
 };
 
-function slugify(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
-function normalizeId(s?: string) {
-  return (s || "").trim().replace(/^:/, "");
-}
-function isLikelyId(s?: string) {
-  if (!s) return false;
-  const x = s.trim();
-  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const ulid = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
-  const cuidish = /^[a-z0-9_-]{12,}$/i;
-  return uuid.test(x) || ulid.test(x) || cuidish.test(x);
-}
+const normalizeId = (s?: string) => (s || "").trim().replace(/^:/, "");
+const isUUID = (s?: string) =>
+  !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
 
-    const orgIdRaw = normalizeId(body.orgId);
-    const hasOrg = isLikelyId(orgIdRaw);
-    const dryRun = body.dryRun || !hasOrg;
-
-    // 1) Build the branded names via AI (your existing helper has fallbacks)
-    const branding = await suggestFrameworkNames({
-      industry: body.industry || "General",
-      sector: body.sector || "General",
-      primaryGoal: body.primaryGoal || "Improve team performance",
-      brandTone: body.brandTone || "confident, modern, human",
-    });
-
-    const frameworkName = `${body.orgName || "Signature"} — Core Framework`.trim();
-    const slug = slugify(frameworkName) || "core-framework";
-
-    if (dryRun) {
-      // 2A) Preview only — don't touch DB
-      return NextResponse.json({
-        ok: true,
-        preview: {
-          frequencies: branding.frequencies,
-          profiles: branding.profiles,
-          imagePrompts: branding.imagePrompts,
-          name: frameworkName,
-          slug,
-        },
-        note: hasOrg ? "dryRun requested" : "no orgId detected, returning preview",
-      });
+    const orgId = normalizeId(body.orgId);
+    if (!isUUID(orgId)) {
+      return NextResponse.json({ error: "Invalid orgId" }, { status: 400 });
     }
 
-    // 2B) Save to DB (org must exist for FK)
     const supabase = supabaseAdmin();
 
+    // Check org exists
     const { data: org, error: orgErr } = await supabase
       .from("organizations")
       .select("id, name")
-      .eq("id", orgIdRaw)
+      .eq("id", orgId)
       .single();
 
     if (orgErr || !org) {
@@ -79,20 +43,35 @@ export async function POST(req: Request) {
       );
     }
 
-    const meta = {
-      frequencies: branding.frequencies,
-      profiles: branding.profiles,
-      imagePrompts: branding.imagePrompts,
-      source: "ai.suggestFrameworkNames",
+    // Build proposal
+    const proposal = await suggestFrameworkNames({
+      industry: body.industry || "General",
+      sector: body.sector || "General",
+      brandTone: body.brandTone || "confident, modern, human",
+      primaryGoal: body.primaryGoal || "Improve team performance",
+    });
+
+    const frequency_meta = {
+      frequencies: proposal.frequencies,
+      profiles: proposal.profiles,
+      imagePrompts: proposal.imagePrompts,
+      A: { name: proposal.frequencies.A, color: "red",    image_prompt: proposal.imagePrompts.A, image_url: null },
+      B: { name: proposal.frequencies.B, color: "yellow", image_prompt: proposal.imagePrompts.B, image_url: null },
+      C: { name: proposal.frequencies.C, color: "green",  image_prompt: proposal.imagePrompts.C, image_url: null },
+      D: { name: proposal.frequencies.D, color: "blue",   image_prompt: proposal.imagePrompts.D, image_url: null },
     };
 
+    const name = `${body.orgName || org.name} — Core Framework`;
+
+    // Insert into **frameworks** (your real table)
     const { data, error } = await supabase
-      .from("org_frameworks")
+      .from("frameworks")
       .insert({
-        org_id: orgIdRaw,
-        name: frameworkName,
-        slug,
-        meta,
+        org_id: orgId,
+        name,
+        version: "1",
+        owner_id: body.ownerId ?? null,
+        frequency_meta,
       })
       .select()
       .single();

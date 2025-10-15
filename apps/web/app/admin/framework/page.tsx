@@ -2,26 +2,36 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type GoalsState = { industry?: string; sector?: string; primary_goal?: string };
-type Preview = {
-  frequencies: Record<"A"|"B"|"C"|"D", string>;
-  profiles: { name: string; frequency: "A"|"B"|"C"|"D" }[];
-  imagePrompts?: Record<"A"|"B"|"C"|"D", string>;
+const COLORS = {
+  A: "#ef4444", // red
+  B: "#f59e0b", // yellow
+  C: "#10b981", // green
+  D: "#3b82f6", // blue
+};
+
+type FrameworkRecord = {
+  id?: string;
+  org_id: string | null;
+  name: string;
+  version: string | null;
+  created_at?: string | null;
+  owner_id?: string | null;
+  frequency_meta: any;
 };
 
 export default function FrameworkPage() {
   const [orgId, setOrgId] = useState("");
-  const [goals, setGoals] = useState<GoalsState | null>(null);
-  const [orgName, setOrgName] = useState("");
-  const [brandTone, setBrandTone] = useState("confident, modern, human");
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [fw, setFw] = useState<FrameworkRecord | null>(null);
+  const [note, setNote] = useState<string>("");
 
   useEffect(() => {
-    const fromStorage = (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
-    const fromUrl = (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("orgId")) || "";
+    const fromStorage =
+      (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
+    const fromUrl =
+      (typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("orgId")) || "";
     const val = (fromStorage || fromUrl || "").replace(/^:/, "").trim();
     setOrgId(val);
   }, []);
@@ -32,158 +42,137 @@ export default function FrameworkPage() {
       try {
         setLoading(true);
         setErr("");
-        const res = await fetch("/api/onboarding/get?step=goals", { cache: "no-store" });
+
+        const gRes = await fetch("/api/onboarding/get?step=goals", { cache: "no-store" });
+        const g = (await gRes.json().catch(() => ({})))?.data || {};
+
+        const res = await fetch("/api/admin/framework/auto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orgId: orgId || undefined,
+            orgName: "",
+            industry: g?.industry || "General",
+            sector: g?.sector || "General",
+            primaryGoal: g?.primary_goal || "Improve team performance",
+            brandTone: "confident, modern, human",
+          }),
+        });
+
         const j = await res.json().catch(() => ({}));
-        if (mounted) setGoals(j?.data || null);
+        if (!res.ok) throw new Error(j?.error || "Failed to generate/load framework");
+        setNote(j?.note || "");
+
+        const record = (j.framework || j.preview) as FrameworkRecord;
+        if (mounted) setFw(record || null);
       } catch (e: any) {
-        if (mounted) setErr(e?.message || "Failed to load goals");
+        if (mounted) setErr(e?.message || "Failed to load framework");
       } finally {
         if (mounted) setLoading(false);
       }
     })();
-    return () => { mounted = false; };
-  }, []);
+    return () => {
+      mounted = false;
+    };
+  }, [orgId]);
 
-  const canPreview = useMemo(() => !loading && !busy, [loading, busy]);
-  const canSave = useMemo(() => !loading && !busy && !!orgId && !!preview, [loading, busy, orgId, preview]);
+  const groups = useMemo(() => {
+    if (!fw?.frequency_meta) return null;
 
-  async function handleGenerate(dryRun: boolean) {
-    try {
-      setBusy(true);
-      setErr("");
+    const fm = fw.frequency_meta;
+    const frequencies =
+      fm.frequencies ||
+      { A: fm?.A?.name || "A", B: fm?.B?.name || "B", C: fm?.C?.name || "C", D: fm?.D?.name || "D" };
 
-      const payload = {
-        orgId: dryRun ? undefined : orgId || undefined,
-        orgName: orgName || undefined,
-        industry: goals?.industry || "General",
-        sector: goals?.sector || "General",
-        primaryGoal: goals?.primary_goal || "Improve team performance",
-        brandTone: brandTone || "confident, modern, human",
-        dryRun, // <— new flag
-      };
+    const profiles: { name: string; frequency: "A" | "B" | "C" | "D" }[] =
+      fm.profiles || [];
 
-      const res = await fetch("/api/admin/framework/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const j = await res.json().catch(() => ({}));
-
-      if (!res.ok) throw new Error(j?.error || "Framework generation failed");
-
-      if (j?.preview) {
-        setPreview(j.preview);
-      } else if (j?.framework) {
-        // We saved to DB successfully
-        setPreview(j.framework.meta || null);
-        alert("Framework created successfully.");
-        // e.g., navigate to a details page if you have one
-        // window.location.href = `/admin/framework/${j.framework.id}`;
-      } else {
-        throw new Error("Unexpected response");
-      }
-    } catch (e: any) {
-      setErr(e?.message || "Failed to generate framework");
-    } finally {
-      setBusy(false);
-    }
-  }
+    return (["A", "B", "C", "D"] as const).map((f) => ({
+      f,
+      title: frequencies[f],
+      color: COLORS[f],
+      profiles: profiles
+        .filter((p) => p.frequency === f)
+        .map((p) => p.name),
+    }));
+  }, [fw]);
 
   return (
-    <main className="max-w-3xl mx-auto p-6 text-white">
-      <h1 className="text-2xl font-semibold">Framework Generator</h1>
-      <p className="text-white/70 mt-1">We’ll use your Goals plus AI to seed a 4×8 framework for your organization.</p>
+    <main className="max-w-4xl mx-auto p-6 text-white">
+      <h1 className="text-2xl font-semibold">Framework</h1>
+      <p className="text-white/70 mt-1">Auto-generated from your onboarding. No action needed here.</p>
 
-      {loading && <p className="mt-4 text-white/70">Loading…</p>}
-
-      {!loading && !orgId && (
-        <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-400/40 text-yellow-100 text-sm">
-          No organization id detected. You can still <b>Preview</b> your framework.
-          Add <code>?orgId=&lt;id&gt;</code> or set it earlier to enable <b>Save</b>.
-        </div>
-      )}
-
+      {loading && <p className="mt-4 text-white/70">Generating…</p>}
       {err && (
         <div className="mt-4 p-3 rounded-lg bg-red-500/20 border border-red-400/40 text-red-100 text-sm">
           {err}
         </div>
       )}
 
-      <div className="mt-6 grid gap-4">
-        <label className="block">
-          <span className="block text-sm mb-1">Organization Name (optional override)</span>
-          <input
-            className="w-full rounded-lg bg-white text-black p-3"
-            value={orgName}
-            onChange={(e) => setOrgName(e.target.value)}
-            placeholder="e.g., Team Puzzle"
-          />
-        </label>
+      {!loading && !err && fw && groups && (
+        <>
+          <div className="text-white/70 text-sm mt-3">{fw.name}</div>
 
-        <label className="block">
-          <span className="block text-sm mb-1">Brand Tone</span>
-          <input
-            className="w-full rounded-lg bg-white text-black p-3"
-            value={brandTone}
-            onChange={(e) => setBrandTone(e.target.value)}
-            placeholder='e.g., "confident, modern, human"'
-          />
-        </label>
-
-        <div className="rounded-lg bg-white/5 p-4 border border-white/10">
-          <p className="text-sm text-white/70 mb-2">From Goals (read-only)</p>
-          <div className="grid gap-2 text-sm">
-            <div><span className="text-white/50">Industry:</span> {goals?.industry || "—"}</div>
-            <div><span className="text-white/50">Sector:</span> {goals?.sector || "—"}</div>
-            <div><span className="text-white/50">Primary Goal:</span> {goals?.primary_goal || "—"}</div>
+          {/* Circle */}
+          <div className="relative mx-auto mt-6 w-72 h-72 rounded-full border border-white/20">
+            <div className="absolute inset-8 rounded-full border border-white/10" />
+            <FreqLabel pos="top" label={groups[0].title} color={groups[0].color} />
+            <FreqLabel pos="right" label={groups[1].title} color={groups[1].color} />
+            <FreqLabel pos="bottom" label={groups[2].title} color={groups[2].color} />
+            <FreqLabel pos="left" label={groups[3].title} color={groups[3].color} />
           </div>
-        </div>
-      </div>
 
-      <div className="mt-6 flex gap-3">
-        <a className="px-4 py-2 rounded-xl bg-white/10 border border-white/20" href="/onboarding/goals">Back</a>
-        <button
-          onClick={() => handleGenerate(true)}
-          disabled={!canPreview}
-          className="px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-60"
-        >
-          {busy ? "Generating…" : "Preview Framework"}
-        </button>
-        <button
-          onClick={() => handleGenerate(false)}
-          disabled={!canSave}
-          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium disabled:opacity-60"
-        >
-          {busy ? "Saving…" : "Save Framework"}
-        </button>
-      </div>
-
-      {/* Preview grid */}
-      {preview && (
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-3">Preview</h2>
-          <div className="grid gap-6 md:grid-cols-2">
-            {(["A","B","C","D"] as const).map((f) => (
-              <div key={f} className="rounded-lg border border-white/10 p-4">
-                <div className="text-sm text-white/60">Frequency {f}</div>
-                <div className="text-lg font-medium">{preview.frequencies[f]}</div>
-                <ul className="mt-3 list-disc pl-5 text-white/90">
-                  {preview.profiles.filter(p => p.frequency === f).map((p, i) => (
-                    <li key={`${f}-${i}`}>{p.name}</li>
+          {/* Lists */}
+          <div className="grid md:grid-cols-2 gap-6 mt-8">
+            {groups.map((g) => (
+              <div key={g.f} className="rounded-lg border border-white/10 p-4">
+                <div className="text-sm text-white/60">Frequency {g.f}</div>
+                <div className="text-lg font-semibold" style={{ color: g.color }}>
+                  {g.title}
+                </div>
+                <ul className="mt-3 list-disc pl-5">
+                  {g.profiles.length === 0 && (
+                    <li className="text-white/60">No profiles provided</li>
+                  )}
+                  {g.profiles.map((name: string, i: number) => (
+                    <li key={i}>{name}</li>
                   ))}
                 </ul>
-                {preview.imagePrompts?.[f as "A"|"B"|"C"|"D"] && (
-                  <p className="mt-3 text-xs text-white/50">
-                    Image prompt: {preview.imagePrompts[f as "A"|"B"|"C"|"D"]}
-                  </p>
-                )}
               </div>
             ))}
           </div>
-        </div>
-      )}
 
-      <p className="mt-6 text-xs text-white/50">orgId: <code>{orgId || "(not set)"}</code></p>
+          {note && <p className="mt-4 text-xs text-white/50">Note: {note}</p>}
+          <p className="mt-6 text-xs text-white/50">
+            orgId: <code>{orgId || "(not set — preview mode)"} </code>
+          </p>
+        </>
+      )}
     </main>
+  );
+}
+
+function FreqLabel({
+  pos,
+  label,
+  color,
+}: {
+  pos: "top" | "right" | "bottom" | "left";
+  label: string;
+  color: string;
+}) {
+  const stylePos: Record<string, React.CSSProperties> = {
+    top: { top: 0, left: "50%", transform: "translate(-50%, -50%)" },
+    right: { right: 0, top: "50%", transform: "translate(50%, -50%)" },
+    bottom: { bottom: 0, left: "50%", transform: "translate(-50%, 50%)" },
+    left: { left: 0, top: "50%", transform: "translate(-50%, -50%)" },
+  };
+  return (
+    <span
+      className="absolute px-3 py-1 rounded-full text-sm font-medium shadow"
+      style={{ backgroundColor: color, ...stylePos[pos] }}
+    >
+      {label || "—"}
+    </span>
   );
 }

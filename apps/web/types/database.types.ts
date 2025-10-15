@@ -13,46 +13,51 @@ export interface Database {
         Row: {
           id: string;
           name: string;
-          logo_url: string | null;
+          slug: string | null;
           created_at: string | null;
-          updated_at: string | null;
+          owner_user_id: string | null;
         };
         Insert: {
           id?: string;
           name: string;
-          logo_url?: string | null;
+          slug?: string | null;
+          owner_user_id?: string | null;
         };
         Update: {
           name?: string;
-          logo_url?: string | null;
+          slug?: string | null;
+          owner_user_id?: string | null;
         };
         Relationships: [];
       };
 
-      org_frameworks: {
+      frameworks: {
         Row: {
           id: string;
-          org_id: string; // FK → organizations.id
+          org_id: string;
           name: string;
-          slug: string;
-          meta: Json | null;
+          version: string | null;
           created_at: string | null;
+          owner_id: string | null;
+          frequency_meta: Json | null;
         };
         Insert: {
           id?: string;
           org_id: string;
           name: string;
-          slug: string;
-          meta?: Json | null;
+          version?: string | null;
+          owner_id?: string | null;
+          frequency_meta?: Json | null;
         };
         Update: {
           name?: string;
-          slug?: string;
-          meta?: Json | null;
+          version?: string | null;
+          owner_id?: string | null;
+          frequency_meta?: Json | null;
         };
         Relationships: [
           {
-            foreignKeyName: "org_frameworks_org_id_fkey";
+            foreignKeyName: "frameworks_org_id_fkey";
             columns: ["org_id"];
             referencedRelation: "organizations";
             referencedColumns: ["id"];
