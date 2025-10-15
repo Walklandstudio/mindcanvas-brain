@@ -21,7 +21,7 @@ export async function GET() {
   const orgId = await getOrgId();
   const sb = svc();
 
-  const fw = await sb.from('org_frameworks').select('id, frequency_meta').eq('org_id', orgId).maybeSingle();
+  const fw = await sb.from('org_frameworks').select('id,frequency_meta').eq('org_id', orgId).maybeSingle();
   if (fw.error) return NextResponse.json({ error: fw.error.message }, { status: 500 });
 
   const profiles = await sb
@@ -34,7 +34,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     framework_id: fw.data?.id ?? null,
-    frequency_meta: fw.data?.frequency_meta ?? null,
+    frequency_meta: (fw.data?.frequency_meta as any)?.A ? fw.data?.frequency_meta : null,
     profiles: profiles.data ?? [],
   });
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Branding = {
@@ -18,7 +18,7 @@ const fallback: Branding = {
   secondary: '#64bae2',
   accent: '#015a8b',
   font: '',
-  tone: ''
+  tone: '',
 };
 
 async function load(): Promise<Branding> {
@@ -44,22 +44,30 @@ export default function BrandingPage() {
 
   useEffect(() => { (async () => setData(await load()))(); }, []);
 
-  const doSave = useCallback(async (d: Branding) => {
+  const doSave = useCallback(async (next: Branding) => {
     setSaving(true);
-    try { await save(d); } finally { setSaving(false); }
+    try { await save(next); } finally { setSaving(false); }
   }, []);
 
-  const onNext = async () => { await doSave(data); router.push('/onboarding/goals'); };
   const onBack = async () => { await doSave(data); router.push('/onboarding/company'); };
+  const onNext = async () => { await doSave(data); router.push('/onboarding/goals'); };
 
   const onLogo = async (file: File | null) => {
     if (!file) return;
     const fd = new FormData();
     fd.append('file', file);
-    const res = await fetch('/api/onboarding/branding/upload-logo', { method: 'POST', body: fd, credentials: 'include' });
+    const res = await fetch('/api/onboarding/branding/upload-logo', {
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+    });
     const json = await res.json();
-    if (json?.url) setData(s => ({ ...s, logoUrl: json.url }));
-    else alert(json?.error || 'Upload failed');
+    if (json?.url) {
+      const next = { ...data, logoUrl: json.url };
+      setData(next); await doSave(next);
+    } else {
+      alert(json?.error || 'Upload failed');
+    }
   };
 
   const swatch = (label: string, key: keyof Branding) => (
@@ -70,16 +78,10 @@ export default function BrandingPage() {
         className="h-10 w-full rounded-md border border-white/20 bg-transparent"
         value={(data[key] as string) ?? '#000000'}
         onChange={(e) => setData((s) => ({ ...s, [key]: e.target.value }))}
+        onBlur={() => doSave({ ...data })}
       />
     </label>
   );
-
-  const previewCopy = useMemo(() => {
-    const voice = data.tone?.trim()
-      ? data.tone
-      : 'Clear, confident, and practical guidance that reflects your brand voice.';
-    return voice;
-  }, [data.tone]);
 
   return (
     <main className="mx-auto max-w-6xl p-6 text-white">
@@ -143,35 +145,22 @@ export default function BrandingPage() {
           </label>
 
           <div className="mt-4 flex gap-3">
-            <button
-              onClick={onBack}
-              className="rounded-md bg-white/10 px-4 py-2 border border-white/20"
-            >
+            <button onClick={onBack} className="rounded-md bg-white/10 px-4 py-2 border border-white/20">
               ← Back
             </button>
-            <button
-              onClick={() => doSave(data)}
-              className="rounded-md bg-white/10 px-4 py-2 border border-white/20"
-            >
+            <button onClick={() => doSave(data)} className="rounded-md bg-white/10 px-4 py-2 border border-white/20">
               Save
             </button>
-            <button
-              onClick={onNext}
-              className="rounded-md bg-sky-600 px-4 py-2 text-white"
-            >
+            <button onClick={onNext} className="rounded-md bg-sky-600 px-4 py-2 text-white">
               Continue →
             </button>
           </div>
         </div>
 
         {/* Right: preview */}
-        <div
-          className="rounded-2xl p-6 border border-white/10"
-          style={{ background: data.bg }}
-        >
+        <div className="rounded-2xl p-6 border border-white/10" style={{ background: data.bg }}>
           <div className="flex items-center justify-between">
-            <div className="h-10 w-10 rounded-md"
-                 style={{ background: data.primary }} />
+            <div className="h-10 w-10 rounded-md" style={{ background: data.primary }} />
             <div className="text-white/80">Your Logo</div>
           </div>
 
@@ -180,7 +169,7 @@ export default function BrandingPage() {
           </h2>
 
           <p className="mt-3 leading-relaxed" style={{ color: data.secondary }}>
-            {previewCopy}
+            {data.tone?.trim() || 'Clear, confident, and practical guidance that reflects your brand voice.'}
           </p>
 
           <div className="mt-6 flex items-center gap-4 text-sm">
