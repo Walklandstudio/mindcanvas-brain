@@ -1,92 +1,84 @@
-"use client";
+'use client';
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from 'react';
 
 type Profile = {
   id: string;
   name: string;
-  frequency: "A" | "B" | "C" | "D";
+  frequency: 'A' | 'B' | 'C' | 'D';
   image_url: string | null;
   ordinal: number | null;
-  summary?: string | null;
-  strengths?: string | null; // newline-separated bullets
 };
 
-export default function FrameworkClient(props: {
-  orgId: string | null;
-  frameworkId: string | null;
-  initialProfiles: Profile[];
-  initialFrequencies: Record<"A" | "B" | "C" | "D", string> | null;
-}) {
-  const freqNames = props.initialFrequencies ?? { A: "A", B: "B", C: "C", D: "D" };
-
-  const grouped = useMemo(() => {
-    const by: Record<"A" | "B" | "C" | "D", Profile[]> = { A: [], B: [], C: [], D: [] };
-    for (const p of props.initialProfiles) by[p.frequency].push(p);
-    (Object.keys(by) as Array<keyof typeof by>).forEach((k) =>
-      by[k].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
-    );
-    return by;
-  }, [props.initialProfiles]);
-
-  const freqChip = (code: "A" | "B" | "C" | "D") => (
-    <div key={code} className="rounded-2xl border border-white/10 bg-white/5 px-6 py-4">
-      <div className="flex items-center gap-3">
-        <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center"> {code} </div>
-        <div className="font-semibold">{freqNames[code]}</div>
-      </div>
+function Toast({ text, type }: { text: string; type: 'success' | 'error' }) {
+  return (
+    <div
+      className={[
+        'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-xl px-4 py-2 shadow-lg',
+        type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white',
+      ].join(' ')}
+    >
+      {text}
     </div>
   );
+}
 
-  const card = (p: Profile) => {
-    const bullets = (p.strengths ?? "")
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .slice(0, 4);
+export default function FrameworkClient() {
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [freqNames, setFreqNames] = useState<Record<'A'|'B'|'C'|'D', string> | null>(null);
+  const [toast, setToast] = useState<{ text: string; type: 'success'|'error' } | null>(null);
 
-    return (
-      <div key={p.id} className="mc-card p-5">
-        <div className="flex items-start gap-3">
-          <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-sm">
-            {p.frequency}
-          </div>
-          <div className="flex-1">
-            <div className="font-semibold">{p.name}</div>
-            <div className="text-xs text-white/60">Frequency {p.frequency}</div>
-          </div>
-        </div>
+  async function load() {
+    const r = await fetch('/api/framework/get', { credentials: 'include' }).catch(() => null);
+    const j = await r?.json().catch(() => null);
+    setProfiles(j?.profiles ?? []);
+    setFreqNames(j?.frequency_meta ?? null);
+  }
 
-        {p.summary && <p className="mt-3 text-sm leading-relaxed">{p.summary}</p>}
+  useEffect(() => { load(); }, []);
 
-        {bullets.length > 0 && (
-          <ul className="mt-3 list-disc pl-6 text-sm space-y-1">
-            {bullets.map((b, i) => (
-              <li key={i}>{b}</li>
-            ))}
-          </ul>
-        )}
-      </div>
-    );
-  };
+  const grouped = useMemo(() => {
+    const by: Record<'A'|'B'|'C'|'D', Profile[]> = { A: [], B: [], C: [], D: [] };
+    for (const p of profiles) by[p.frequency].push(p);
+    (Object.keys(by) as Array<keyof typeof by>).forEach(k => by[k].sort((a,b)=>(a.ordinal??0)-(b.ordinal??0)));
+    return by;
+  }, [profiles]);
 
   return (
-    <div className="space-y-8">
-      {/* Frequency chips */}
-      <div className="space-y-3">
-        <div className="text-sm font-medium text-white/70">Frequencies</div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {(["A", "B", "C", "D"] as const).map((k) => freqChip(k))}
+    <>
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold mb-2">Framework</h2>
+          <p className="text-white/60 text-sm">
+            {profiles.length ? 'Edit profile names and images.' : 'Preparing a default framework for your org…'}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {(['A','B','C','D'] as const).map(code => (
+            <div key={code} className="space-y-3">
+              <div className="text-sm font-semibold text-white/90">
+                {code} — {freqNames?.[code] ?? code}
+              </div>
+              <div className="grid gap-3">
+                {(grouped[code] ?? []).map(p => (
+                  <div key={p.id} className="mc-card p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 rounded-xl overflow-hidden bg-white/10 flex items-center justify-center">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {p.image_url ? <img src={p.image_url} alt={p.name} className="object-cover h-12 w-12" /> : <span className="text-white/40 text-xs">no image</span>}
+                      </div>
+                      <div className="font-medium">{p.name}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Profile cards */}
-      <div className="space-y-3">
-        <div className="text-sm font-medium text-white/70">Recommended Profiles</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(["A", "B", "C", "D"] as const).flatMap((k) => grouped[k].map(card))}
-        </div>
-      </div>
-    </div>
+      {toast && <Toast text={toast.text} type={toast.type} />}
+    </>
   );
 }

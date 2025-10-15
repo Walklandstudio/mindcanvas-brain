@@ -1,119 +1,46 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getServiceClient } from "@/app/_lib/supabase";
-import { randomUUID } from "crypto";
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
 
-const TABLE = "org_onboarding";
-const ORG_COOKIE = "mc_org_id";
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-type Company = { website?: string; linkedin?: string; industry?: string; sector?: string };
-type Body = {
-  step: "company" | "account" | "branding" | "goals";
-  data: unknown;
-  recomputeProgress?: boolean;
-};
+function svc() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE!
+  );
+}
 
-function computeProgress(d: any): number {
-  let total = 0;
-  let filled = 0;
-
-  // company (4)
-  total += 4;
-  if (d?.company?.website) filled++;
-  if (d?.company?.linkedin) filled++;
-  if (d?.company?.industry) filled++;
-  if (d?.company?.sector) filled++;
-
-  // account (example fields – adjust or leave)
-  if (d?.account) {
-    const keys = ["email", "name"];
-    total += keys.length;
-    filled += keys.filter((k) => (d.account?.[k] ?? "").toString().trim()).length;
-  }
-
-  // branding (example)
-  if (d?.branding) {
-    const keys = ["logoUrl"];
-    total += keys.length;
-    filled += keys.filter((k) => (d.branding?.[k] ?? "").toString().trim()).length;
-  }
-
-  // goals (example)
-  if (d?.goals) {
-    const keys = ["primaryGoal"];
-    total += keys.length;
-    filled += keys.filter((k) => (d.goals?.[k] ?? "").toString().trim()).length;
-  }
-
-  if (total === 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((filled / total) * 100)));
+async function getOrgId() {
+  const c = await cookies();
+  return c.get('mc_org_id')?.value ?? '00000000-0000-0000-0000-000000000001';
 }
 
 export async function POST(req: Request) {
-  const supabase = getServiceClient();
+  const body = await req.json().catch(() => ({}));
+  const step = String(body.step || 'company');
+  const patch = (body.data ?? {}) as Record<string, any>;
+  const orgId = await getOrgId();
+  const sb = svc();
 
-  const cookieStore = await cookies();
-  let orgId = cookieStore.get(ORG_COOKIE)?.value;
-  if (!orgId) orgId = randomUUID();
+  // Ensure row exists
+  const ex = await sb.from('org_onboarding').select('data').eq('org_id', orgId).maybeSingle();
+  const existing = (ex.data?.data ?? {}) as any;
 
-  let body: Body;
-  try {
-    body = (await req.json()) as Body;
-  } catch {
-    return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
-  }
-  if (!body?.step || !body?.data) {
-    return NextResponse.json({ message: "Missing step or data" }, { status: 400 });
-  }
+  // Merge by step key
+  const nextData = {
+    ...existing,
+    [step]: { ...(existing?.[step] ?? {}), ...patch },
+  };
 
-  // Fetch current state (if any)
-  const { data: existing, error: selErr } = await supabase
-    .from(TABLE)
-    .select("data")
-    .eq("org_id", orgId)
-    .maybeSingle();
-
-  if (selErr && !/row not found/i.test(selErr.message || "")) {
-    // If table exists problem (e.g., missing column), surface it clearly
-    return NextResponse.json({ message: selErr.message || "Select failed" }, { status: 500 });
+  if (!ex.data) {
+    const ins = await sb.from('org_onboarding').insert([{ org_id: orgId, data: nextData }]).select('org_id').maybeSingle();
+    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
+  } else {
+    const upd = await sb.from('org_onboarding').update({ data: nextData }).eq('org_id', orgId);
+    if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
   }
 
-  const current = (existing?.data as any) ?? {};
-  const merged = { ...current };
-
-  if (body.step === "company") merged.company = { ...(current.company ?? {}), ...(body.data as Company) };
-  if (body.step === "account") merged.account = { ...(current.account ?? {}), ...(body.data as Record<string, unknown>) };
-  if (body.step === "branding") merged.branding = { ...(current.branding ?? {}), ...(body.data as Record<string, unknown>) };
-  if (body.step === "goals") merged.goals = { ...(current.goals ?? {}), ...(body.data as Record<string, unknown>) };
-
-  if (body.recomputeProgress) {
-    merged.progress = computeProgress(merged);
-  }
-
-  const { error: upErr } = await supabase
-    .from(TABLE)
-    .upsert(
-      {
-        org_id: orgId,
-        data: merged,
-        progress: merged.progress ?? computeProgress(merged),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "org_id" }
-    );
-
-  if (upErr) {
-    return NextResponse.json({ message: upErr.message || "Upsert failed" }, { status: 500 });
-  }
-
-  const res = NextResponse.json({ ok: true, data: merged }, { status: 200 });
-  if (!cookieStore.get(ORG_COOKIE)?.value) {
-    res.cookies.set(ORG_COOKIE, orgId, {
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 180,
-      path: "/",
-    });
-  }
-  return res;
+  return NextResponse.json({ ok: true });
 }

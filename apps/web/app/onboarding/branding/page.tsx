@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import useOnboardingAutosave from '../_lib/useOnboardingAutosave';
 
 type Branding = {
   brandDesc?: string;
@@ -14,10 +13,10 @@ type Branding = {
 
 const fallback: Branding = {
   brandDesc: '',
-  bg: '#2b6cb0',
-  primary: '#4f84e6',
-  secondary: '#e6a03d',
-  accent: '#1f2937',
+  bg: '#0b1324',
+  primary: '#2d8fc4',
+  secondary: '#64bae2',
+  accent: '#015a8b',
   font: '',
   tone: ''
 };
@@ -34,26 +33,24 @@ async function save(data: Branding) {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ step: 'branding', data, recomputeProgress: true }),
+    body: JSON.stringify({ step: 'branding', data }),
   });
 }
 
 export default function BrandingPage() {
   const router = useRouter();
   const [data, setData] = useState<Branding>(fallback);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { (async () => setData(await load()))(); }, []);
-  const saveCb = useCallback((d: Branding) => save(d), []);
-  useOnboardingAutosave<Branding>(data, saveCb, 600);
 
-  const onNext = async () => { await save(data); router.push('/onboarding/goals'); };
+  const doSave = useCallback(async (d: Branding) => {
+    setSaving(true);
+    try { await save(d); } finally { setSaving(false); }
+  }, []);
 
-  const previewCopy = useMemo(() => {
-    const voice = data.tone?.trim()
-      ? data.tone
-      : 'Clear, confident, and practical guidance that reflects your brand voice.';
-    return voice;
-  }, [data.tone]);
+  const onNext = async () => { await doSave(data); router.push('/onboarding/goals'); };
+  const onBack = async () => { await doSave(data); router.push('/onboarding/company'); };
 
   const onLogo = async (file: File | null) => {
     if (!file) return;
@@ -77,9 +74,19 @@ export default function BrandingPage() {
     </label>
   );
 
+  const previewCopy = useMemo(() => {
+    const voice = data.tone?.trim()
+      ? data.tone
+      : 'Clear, confident, and practical guidance that reflects your brand voice.';
+    return voice;
+  }, [data.tone]);
+
   return (
     <main className="mx-auto max-w-6xl p-6 text-white">
-      <h1 className="text-2xl font-semibold mb-6">Step 3 — Branding</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Step 3 — Branding</h1>
+        <div className="text-sm text-white/60">{saving ? 'Saving…' : ''}</div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: form */}
@@ -90,6 +97,7 @@ export default function BrandingPage() {
               className="rounded-md border border-white/20 bg-white text-black px-3 py-2 min-h-24"
               value={data.brandDesc ?? ''}
               onChange={(e) => setData((s) => ({ ...s, brandDesc: e.target.value }))}
+              onBlur={() => doSave({ ...data })}
             />
           </label>
 
@@ -107,6 +115,7 @@ export default function BrandingPage() {
               className="rounded-md border border-white/20 bg-white text-black px-3 py-2"
               value={data.font ?? ''}
               onChange={(e) => setData((s) => ({ ...s, font: e.target.value }))}
+              onBlur={() => doSave({ ...data })}
             />
           </label>
 
@@ -116,6 +125,7 @@ export default function BrandingPage() {
               className="rounded-md border border-white/20 bg-white text-black px-3 py-2 min-h-24"
               value={data.tone ?? ''}
               onChange={(e) => setData((s) => ({ ...s, tone: e.target.value }))}
+              onBlur={() => doSave({ ...data })}
             />
           </label>
 
@@ -134,7 +144,13 @@ export default function BrandingPage() {
 
           <div className="mt-4 flex gap-3">
             <button
-              onClick={() => save(data)}
+              onClick={onBack}
+              className="rounded-md bg-white/10 px-4 py-2 border border-white/20"
+            >
+              ← Back
+            </button>
+            <button
+              onClick={() => doSave(data)}
               className="rounded-md bg-white/10 px-4 py-2 border border-white/20"
             >
               Save
@@ -143,7 +159,7 @@ export default function BrandingPage() {
               onClick={onNext}
               className="rounded-md bg-sky-600 px-4 py-2 text-white"
             >
-              Save & Next
+              Continue →
             </button>
           </div>
         </div>

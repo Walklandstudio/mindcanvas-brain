@@ -1,135 +1,115 @@
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
+import { suggestFrameworkNames, buildProfileCopy } from '../../../../../app/_lib/ai';
 
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getServiceClient } from "../../../../_lib/supabase";
-import { suggestFrameworkNames, buildProfileCopy } from "../../../../_lib/ai";
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-function defaults() {
-  return {
-    frequencies: { A: "Pioneers", B: "Collaborators", C: "Operators", D: "Analysts" },
-    profiles: [
-      { name: "Catalyst", frequency: "A" as const },
-      { name: "Visionary", frequency: "A" as const },
-      { name: "People Connector", frequency: "B" as const },
-      { name: "Culture Builder", frequency: "B" as const },
-      { name: "Process Coordinator", frequency: "C" as const },
-      { name: "System Planner", frequency: "C" as const },
-      { name: "Quality Controller", frequency: "D" as const },
-      { name: "Risk Optimiser", frequency: "D" as const },
-    ],
-  };
+function svc() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE!
+  );
+}
+
+async function getOrgId() {
+  const c = await cookies();
+  return c.get('mc_org_id')?.value ?? '00000000-0000-0000-0000-000000000001';
 }
 
 export async function POST() {
-  const sb = getServiceClient();
-  const c = await cookies();                         // ⬅️ await here
-  let orgId = c.get("mc_org_id")?.value ?? null;
+  const orgId = await getOrgId();
+  const sb = svc();
 
-  if (!orgId) {
-    const { data: orgIns, error: orgErr } = await sb
-      .from("organizations")
-      .insert({ name: "Demo Org" })
-      .select("id")
-      .maybeSingle();
-    if (orgErr) return NextResponse.json({ message: orgErr.message }, { status: 500 });
-    orgId = orgIns?.id as string;
-  }
+  // Get onboarding context
+  const ob = await sb.from('org_onboarding').select('data').eq('org_id', orgId).maybeSingle();
+  if (ob.error) return NextResponse.json({ error: ob.error.message }, { status: 500 });
+  const company = ob.data?.data?.company ?? {};
+  const branding = ob.data?.data?.branding ?? {};
+  const goals = ob.data?.data?.goals ?? {};
 
-  const { data: ob } = await sb
-    .from("org_onboarding")
-    .select("data")
-    .eq("org_id", orgId)
+  const industry = company?.industry || goals?.industry || '';
+  const sector   = company?.sector   || goals?.sector   || '';
+  const brandTone = branding?.tone || branding?.brandTone || 'confident, modern, human';
+
+  // Ensure a framework row exists (name is NOT NULL in your schema)
+  const fwName = 'Signature Profile Framework';
+  const fwEx = await sb
+    .from('org_frameworks')
+    .select('id, frequency_meta, name')
+    .eq('org_id', orgId)
+    .limit(1)
     .maybeSingle();
 
-  const od = (ob?.data as any) ?? {};
-  const industry = od?.company?.industry ?? od?.goals?.industry ?? "General";
-  const sector   = od?.company?.sector   ?? od?.goals?.sector   ?? "General";
-  const brandTone =
-    od?.branding?.tone ?? od?.branding?.brandTone ?? "confident, modern, human";
-  const primaryGoal = od?.goals?.primaryGoal ?? "Improve team performance";
-  const company = od?.account?.companyName ?? od?.company?.name ?? "Company";
-
-  const ai = await suggestFrameworkNames({
-    industry,
-    sector,
-    brandTone,
-    primaryGoal,
-  });
-
-  const freqs = ai?.frequencies ?? defaults().frequencies;
-  const profs =
-    (ai?.profiles as Array<{ name: string; frequency: "A" | "B" | "C" | "D" }>) ??
-    defaults().profiles;
-
-  let frameworkId: string | null = null;
-  {
-    const { data } = await sb
-      .from("org_frameworks")
-      .select("id")
-      .eq("org_id", orgId)
-      .limit(1);
-    const fw = Array.isArray(data) ? data[0] : data ?? null;
-
-    if (fw?.id) {
-      frameworkId = fw.id as string;
-    } else {
-      const legacyFreqMeta = {
-        A: { name: freqs.A },
-        B: { name: freqs.B },
-        C: { name: freqs.C },
-        D: { name: freqs.D },
-      };
-      const { data: ins, error } = await sb
-        .from("org_frameworks")
-        .insert([{ org_id: orgId, frequency_meta: legacyFreqMeta }])
-        .select("id")
-        .maybeSingle();
-      if (error) return NextResponse.json({ message: error.message }, { status: 500 });
-      frameworkId = ins?.id ?? null;
-    }
-  }
+  let frameworkId = fwEx.data?.id as string | undefined;
 
   if (!frameworkId) {
-    return NextResponse.json({ message: "failed to ensure framework" }, { status: 500 });
+    const ins = await sb
+      .from('org_frameworks')
+      .insert([{ org_id: orgId, name: fwName, frequency_meta: {} }])
+      .select('id')
+      .maybeSingle();
+    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    frameworkId = ins.data!.id;
+  } else if (!fwEx.data?.name) {
+    // Backfill name if existing row had null (to satisfy not-null going forward)
+    await sb.from('org_frameworks').update({ name: fwName }).eq('id', frameworkId).eq('org_id', orgId);
   }
 
-  const rows = await Promise.all(
-    profs.slice(0, 8).map(async (p, i) => {
-      const copy = await buildProfileCopy({
-        brandTone,
-        industry,
-        sector,
-        company,
-        frequencyName: freqs[p.frequency] ?? p.frequency,
-        profileName: p.name,
-      });
+  // Ask AI for frequency labels + profile names (safe fallback inside)
+  const names = await suggestFrameworkNames({
+    industry, sector, brandTone, primaryGoal: goals?.primaryGoal || goals?.goal || ''
+  });
 
-      return {
-        org_id: orgId!,
-        framework_id: frameworkId!,
-        name: p.name,
-        frequency: p.frequency,
-        ordinal: i + 1,
-        image_url: null,
-        summary: copy.summary ?? "",
-        strengths: (copy.strengths ?? []).join("\n"),
-      };
-    })
-  );
+  // Persist frequency_meta
+  await sb.from('org_frameworks')
+    .update({ frequency_meta: {
+      A: { name: names.frequencies.A },
+      B: { name: names.frequencies.B },
+      C: { name: names.frequencies.C },
+      D: { name: names.frequencies.D },
+    } })
+    .eq('id', frameworkId)
+    .eq('org_id', orgId);
 
-  const { error: delErr } = await sb
-    .from("org_profiles")
-    .delete()
-    .eq("org_id", orgId)
-    .eq("framework_id", frameworkId);
-  if (delErr) return NextResponse.json({ message: delErr.message }, { status: 500 });
+  // Clear & insert exactly 8 profiles (A–D × 2)
+  await sb.from('org_profiles').delete().eq('org_id', orgId).eq('framework_id', frameworkId);
 
-  const { error: insErr } = await sb.from("org_profiles").insert(rows);
-  if (insErr) return NextResponse.json({ message: insErr.message }, { status: 500 });
+  // Build 8 with short summaries (AI fallback handled inside buildProfileCopy)
+  const toInsert: any[] = [];
+  const freqOrder: ('A'|'B'|'C'|'D')[] = ['A','A','B','B','C','C','D','D'];
+  for (let i = 0; i < 8; i++) {
+    const p = names.profiles[i];
+    const freq = p?.frequency as 'A'|'B'|'C'|'D' || freqOrder[i];
+    const name = (p?.name as string) || `Profile ${i+1}`;
+    const copy = await buildProfileCopy({
+      brandTone,
+      industry,
+      sector,
+      company: company?.website || 'Demo Org',
+      frequencyName: names.frequencies[freq],
+      profileName: name,
+    });
+    toInsert.push({
+      org_id: orgId,
+      framework_id: frameworkId,
+      name,
+      frequency: freq,
+      ordinal: i + 1,
+      summary: copy.summary,
+      image_url: null
+    });
+  }
 
-  const res = NextResponse.json({ ok: true, orgId, frameworkId });
-  res.cookies.set("mc_org_id", orgId, { path: "/", sameSite: "lax" });
-  return res;
+  const insProfiles = await sb.from('org_profiles').insert(toInsert).select('id');
+  if (insProfiles.error) return NextResponse.json({ error: insProfiles.error.message }, { status: 500 });
+
+  return NextResponse.json({
+    ok: true,
+    orgId,
+    frameworkId,
+    frequencies: names.frequencies,
+    count: toInsert.length
+  });
 }

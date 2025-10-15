@@ -1,51 +1,30 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getServiceClient } from "@/app/_lib/supabase";
-import { randomUUID } from "crypto";
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
 
-const TABLE = "org_onboarding";
-const ORG_COOKIE = "mc_org_id";
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-type OnboardingData = {
-  account?: Record<string, unknown>;
-  company?: { website?: string; linkedin?: string; industry?: string; sector?: string };
-  branding?: Record<string, unknown>;
-  goals?: Record<string, unknown>;
-  progress?: number;
-};
-
-function newDefault(): OnboardingData {
-  return { account: {}, company: {}, branding: {}, goals: {}, progress: 0 };
+function svc() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE!
+  );
 }
 
-export async function GET() {
-  const cookieStore = await cookies();
-  let orgId = cookieStore.get(ORG_COOKIE)?.value;
+async function getOrgId() {
+  const c = await cookies();
+  return c.get('mc_org_id')?.value ?? '00000000-0000-0000-0000-000000000001';
+}
 
-  if (!orgId) {
-    orgId = randomUUID();
-    const res = NextResponse.json(newDefault());
-    res.cookies.set(ORG_COOKIE, orgId, {
-      httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 180, path: "/",
-    });
-    return res;
-  }
+export async function GET(req: Request) {
+  const step = new URL(req.url).searchParams.get('step') || 'company';
+  const orgId = await getOrgId();
+  const sb = svc();
 
-  const supabase = getServiceClient();
+  const r = await sb.from('org_onboarding').select('data').eq('org_id', orgId).maybeSingle();
+  if (r.error) return NextResponse.json({ error: r.error.message }, { status: 500 });
 
-  try {
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select("data, progress")
-      .eq("org_id", orgId)
-      .maybeSingle();
-
-    if (error) return NextResponse.json(newDefault(), { status: 200 });
-
-    const payload = (data?.data as OnboardingData) ?? newDefault();
-    if (typeof data?.progress === "number") payload.progress = data.progress;
-    return NextResponse.json(payload, { status: 200 });
-  } catch {
-    return NextResponse.json(newDefault(), { status: 200 });
-  }
+  const data = (r.data?.data ?? {}) as any;
+  return NextResponse.json({ ok: true, data: data?.[step] ?? {} });
 }
