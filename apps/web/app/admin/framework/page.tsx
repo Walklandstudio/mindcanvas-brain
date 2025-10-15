@@ -1,34 +1,57 @@
-// apps/web/app/admin/framework/page.tsx
-import { ensureFrameworkForOrg, DEMO_ORG_ID } from "../../_lib/framework";
+import { cookies } from "next/headers";
+import { getServiceClient } from "@/app/_lib/supabase";
 import FrameworkClient from "./FrameworkClient";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
-export const runtime = "nodejs";
 
-export default async function Page() {
-  let data: any = null;
-  try {
-    data = await ensureFrameworkForOrg(DEMO_ORG_ID);
-  } catch (e: any) {
-    return (
-      <main className="max-w-3xl mx-auto p-6 text-white">
-        <h1 className="text-2xl font-semibold">Framework</h1>
-        <p className="mt-4 text-red-300">Failed to prepare framework: {e?.message || String(e)}</p>
-      </main>
-    );
+type Profile = {
+  id: string;
+  name: string;
+  frequency: "A" | "B" | "C" | "D";
+  image_url: string | null;
+  ordinal: number | null;
+};
+
+export default async function FrameworkPage() {
+  const cookieStore = await cookies();
+  const orgId = cookieStore.get("mc_org_id")?.value ?? null;
+
+  const supabase = getServiceClient();
+
+  let frameworkId: string | null = null;
+  let initialFrequencies: Record<"A" | "B" | "C" | "D", string> | null = null;
+  let initialProfiles: Profile[] = [];
+
+  if (orgId) {
+    // Pull framework (to get frequency labels from meta)
+    const { data: fw } = await supabase
+      .from("org_frameworks")
+      .select("id, meta")
+      .eq("org_id", orgId)
+      .maybeSingle();
+
+    frameworkId = (fw?.id as string) ?? null;
+    const meta = (fw?.meta as any) || {};
+    if (meta?.frequencies) {
+      initialFrequencies = meta.frequencies as Record<"A" | "B" | "C" | "D", string>;
+    }
+
+    // Pull profiles
+    const { data: profs } = await supabase
+      .from("org_profiles")
+      .select("id, name, frequency, image_url, ordinal")
+      .eq("org_id", orgId)
+      .order("ordinal", { ascending: true });
+
+    initialProfiles = (profs as any as Profile[]) ?? [];
   }
 
   return (
-    <main className="max-w-6xl mx-auto p-6 text-white">
-      <h1 className="text-2xl font-semibold">Framework</h1>
-      <p className="text-white/70">Frequencies and profiles are generated from your onboarding data.</p>
-      <div className="mt-6">
-        <FrameworkClient
-          frequencyMeta={data.frequency_meta as any}
-          profiles={data.profiles as any}
-        />
-      </div>
-    </main>
+    <FrameworkClient
+      orgId={orgId}
+      frameworkId={frameworkId}
+      initialProfiles={initialProfiles}
+      initialFrequencies={initialFrequencies}
+    />
   );
 }
