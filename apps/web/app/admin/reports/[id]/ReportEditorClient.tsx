@@ -1,153 +1,132 @@
-// apps/web/app/admin/reports/[id]/ReportEditorClient.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-type Report = { strengths: string; challenges: string; roles: string; guidance: string; approved: boolean; };
-type Loader = {
-  profile: { id: string; name: string; frequency: "A" | "B" | "C" | "D" };
-  frequencyName: string;
-  report: Report & { profile_id: string };
-  context: { brandTone: string; industry: string; sector: string; company: string };
+type Sections = {
+  summary?: string;
+  strengths?: string;
+  challenges?: string;
+  roles?: string;
+  guidance?: string;
 };
 
-export default function ReportEditorClient({ id }: { id: string }) {
-  const [data, setData] = useState<Loader | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+export default function ReportEditorClient(props: {
+  orgId: string;
+  frameworkId: string | null;
+  profile: { id: string; name: string; frequency: "A"|"B"|"C"|"D"; image_url: string | null };
+  frequencyNames: Record<"A"|"B"|"C"|"D", string> | null;
+  initialSections: Sections;
+  initialApproved: boolean;
+}) {
+  const [sections, setSections] = useState<Sections>(props.initialSections ?? {});
+  const [approved, setApproved] = useState<boolean>(props.initialApproved);
   const [busy, setBusy] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const freqLabel = props.frequencyNames?.[props.profile.frequency] ?? props.profile.frequency;
 
-  function notify(s: string) { setToast(s); setTimeout(() => setToast(null), 2400); }
-
-  async function load() {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/admin/reports/${id}`, { cache: "no-store" });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr(j?.error || `Failed to load (HTTP ${res.status})`);
-        setData(null);
-      } else {
-        setData(j);
-      }
-    } catch (e: any) {
-      setErr(e?.message || "Network error");
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
-
-  async function save() {
-    if (!data) return;
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/admin/reports/${id}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data.report),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || "Save failed");
-      notify("Draft saved ✓");
-    } catch (e: any) {
-      notify(e?.message || "Save failed");
-    } finally { setSaving(false); }
-  }
-
-  async function draftAI() {
-    setBusy("draft");
-    try {
-      const res = await fetch(`/api/admin/reports/${id}?action=draft`, { method: "POST" });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || "AI draft failed");
-      await load();
-      notify("AI draft created");
-    } catch (e: any) {
-      notify(e?.message || "AI draft failed");
-    } finally { setBusy(null); }
-  }
-
-  async function signoff() {
-    setBusy("signoff");
-    try {
-      const res = await fetch(`/api/admin/reports/${id}?action=signoff`, { method: "POST" });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || "Sign-off failed");
-      await load();
-      notify("Report approved ✓");
-    } catch (e: any) {
-      notify(e?.message || "Sign-off failed");
-    } finally { setBusy(null); }
-  }
-
-  if (loading) {
-    return <main className="max-w-5xl mx-auto p-6 text-white"><div className="text-white/80">Loading…</div></main>;
-  }
-
-  if (err) {
+  function textArea(
+    label: string,
+    key: keyof Sections,
+    placeholder: string
+  ) {
     return (
-      <main className="max-w-5xl mx-auto p-6 text-white">
-        <a href="/admin/reports/signoff" className="text-white/70 hover:text-white text-sm">← Back</a>
-        <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
-          <div className="text-red-300 font-medium">Couldn’t load this report</div>
-          <div className="text-red-200/90 text-sm mt-1 break-words">{err}</div>
-          <div className="mt-4 flex gap-2">
-            <button onClick={load} className="px-3 py-2 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15">Retry</button>
-            <a href="/admin/reports/signoff" className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500">Back to Reports</a>
-          </div>
-        </div>
-      </main>
+      <label className="block">
+        <div className="text-sm text-white/70 mb-1">{label}</div>
+        <textarea
+          className="w-full rounded-xl bg-white text-black px-3 py-2 min-h-28"
+          placeholder={placeholder}
+          value={(sections[key] as string) ?? ""}
+          onChange={(e) => setSections((s) => ({ ...s, [key]: e.target.value }))}
+          disabled={approved}
+        />
+      </label>
     );
   }
 
-  if (!data) return <main className="max-w-5xl mx-auto p-6 text-white">No data.</main>;
+  async function call(op: "draft" | "save" | "approve") {
+    setBusy(op);
+    try {
+      const res = await fetch(`/api/admin/reports/${props.profile.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          op,
+          sections: op === "draft" ? undefined : sections,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.message || "Request failed");
 
-  const { profile, frequencyName } = data;
+      // server returns new sections/approved on success
+      if (json.sections) setSections(json.sections);
+      if (typeof json.approved === "boolean") setApproved(json.approved);
+    } catch (e: any) {
+      alert(e?.message || "Error");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
-    <main className="max-w-6xl mx-auto p-6 text-white">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
+        <div className="h-12 w-12 rounded-xl bg-white/10 overflow-hidden flex items-center justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {props.profile.image_url ? (
+            <img
+              src={props.profile.image_url}
+              alt={props.profile.name}
+              className="object-cover h-12 w-12"
+            />
+          ) : (
+            <span className="text-white/40 text-xs">no image</span>
+          )}
+        </div>
         <div>
-          <a href="/admin/reports/signoff" className="text-white/70 hover:text-white text-sm">← Back</a>
-          <h1 className="text-2xl font-semibold mt-2">Report Builder</h1>
-          <div className="text-white/70 text-sm">
-            Profile: <span className="font-medium text-white">{profile.name}</span> · Frequency {profile.frequency} ({frequencyName})
+          <div className="text-lg font-semibold">{props.profile.name}</div>
+          <div className="text-sm text-white/70">
+            {props.profile.frequency} · {freqLabel}
           </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={draftAI} disabled={busy === "draft"} className="px-3 py-2 rounded-xl bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50">
-            {busy === "draft" ? "Drafting…" : "Use AI → Draft sections"}
-          </button>
-          <button onClick={save} disabled={saving} className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50">
-            {saving ? "Saving…" : "Save draft"}
-          </button>
-          <button onClick={signoff} disabled={busy === "signoff"} className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50">
-            {busy === "signoff" ? "Signing…" : "Sign off"}
-          </button>
-        </div>
+        {approved && (
+          <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-emerald-600/20 border border-emerald-500/40 text-emerald-200">
+            Approved
+          </span>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-        <Section title="Strengths"  value={data.report.strengths}  onChange={(v) => setData({ ...data, report: { ...data.report, strengths: v } })} />
-        <Section title="Challenges" value={data.report.challenges} onChange={(v) => setData({ ...data, report: { ...data.report, challenges: v } })} />
-        <Section title="Ideal Roles" value={data.report.roles} onChange={(v) => setData({ ...data, report: { ...data.report, roles: v } })} />
-        <Section title="Guidance"   value={data.report.guidance}   onChange={(v) => setData({ ...data, report: { ...data.report, guidance: v } })} />
+      <div className="grid gap-4">
+        {textArea("Summary (1–2 lines)", "summary", "Concise blurb for the index card…")}
+        {textArea("Strengths (2 short paragraphs)", "strengths", "…")}
+        {textArea("Challenges (2 short paragraphs)", "challenges", "…")}
+        {textArea("Ideal Roles (1–2 short paragraphs)", "roles", "…")}
+        {textArea("Guidance (2 short paragraphs)", "guidance", "…")}
       </div>
 
-      {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl bg-white/10 border border-white/15">{toast}</div>}
-    </main>
-  );
-}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => call("draft")}
+          disabled={!!busy || approved}
+          className="mc-btn-ghost"
+        >
+          {busy === "draft" ? "Drafting…" : "Use AI → Draft"}
+        </button>
 
-function Section({ title, value, onChange }: { title: string; value: string; onChange: (v: string) => void; }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-      <div className="text-sm font-medium mb-2">{title}</div>
-      <textarea className="w-full h-56 rounded-xl bg-black/20 border border-white/10 p-3 outline-none" value={value} onChange={(e) => onChange(e.target.value)} />
+        <button
+          onClick={() => call("save")}
+          disabled={!!busy || approved}
+          className="mc-btn-ghost"
+        >
+          {busy === "save" ? "Saving…" : "Save Draft"}
+        </button>
+
+        <button
+          onClick={() => call("approve")}
+          disabled={!!busy || approved}
+          className="mc-btn-primary"
+        >
+          {busy === "approve" ? "Locking…" : "Approve & Lock"}
+        </button>
+      </div>
     </div>
   );
 }
