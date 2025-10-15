@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getServiceClient } from "../../../../_lib/supabase"; // <-- 4 levels up to app/_lib
+import { getServiceClient } from "../../../../_lib/supabase";
 import { draftReportSections, buildProfileCopy } from "../../../../_lib/ai";
 
 export async function POST(req: Request) {
@@ -16,9 +16,10 @@ export async function POST(req: Request) {
   const q = new URL(req.url).searchParams;
   const overwrite = (q.get("overwrite") || "false") === "true";
 
+  // Older schema: only frequency_meta exists
   const { data: fw, error: fwErr } = await sb
     .from("org_frameworks")
-    .select("id, meta, frequency_meta")
+    .select("id, frequency_meta")
     .eq("org_id", orgId)
     .order("updated_at", { ascending: false })
     .limit(1)
@@ -26,14 +27,13 @@ export async function POST(req: Request) {
   if (fwErr || !fw) return NextResponse.json({ message: fwErr?.message || "framework not found" }, { status: 404 });
   const frameworkId = fw.id as string;
 
-  const meta = (fw.meta as any) || {};
   const legacy = (fw.frequency_meta as any) || {};
-  const frequencyNames: Record<"A"|"B"|"C"|"D", string> =
-    (meta.frequencies as any) ??
-    (["A","B","C","D"].reduce((acc: any, k) => {
-      acc[k] = legacy?.[k]?.name ?? k;
-      return acc;
-    }, {} as Record<"A"|"B"|"C"|"D", string>));
+  const frequencyNames: Record<"A"|"B"|"C"|"D", string> = {
+    A: legacy?.A?.name ?? "A",
+    B: legacy?.B?.name ?? "B",
+    C: legacy?.C?.name ?? "C",
+    D: legacy?.D?.name ?? "D",
+  };
 
   const { data: profiles, error: pErr } = await sb
     .from("org_profiles")

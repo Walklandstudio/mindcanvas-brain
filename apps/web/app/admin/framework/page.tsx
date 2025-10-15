@@ -9,7 +9,6 @@ export const dynamic = "force-dynamic";
 export default async function FrameworkPage() {
   const sb = getServiceClient();
 
-  // Next 15: cookies() is async in the server runtime
   const c = await cookies();
   const orgId: string | null = c.get("mc_org_id")?.value ?? null;
 
@@ -25,24 +24,23 @@ export default async function FrameworkPage() {
     );
   }
 
-  // Load framework + profiles
+  // NOTE: only select frequency_meta; older schema doesn't have "meta"
   const { data: fw } = await sb
     .from("org_frameworks")
-    .select("id, meta, frequency_meta")
+    .select("id, frequency_meta")
     .eq("org_id", orgId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   const frameworkId = fw?.id ?? null;
-  const meta = (fw?.meta as any) || {};
   const legacy = (fw?.frequency_meta as any) || {};
-  const frequencyNames: Record<"A" | "B" | "C" | "D", string> =
-    (meta?.frequencies as any) ??
-    (["A", "B", "C", "D"].reduce((acc: any, k) => {
-      acc[k] = legacy?.[k]?.name ?? k;
-      return acc;
-    }, {} as Record<"A" | "B" | "C" | "D", string>));
+  const frequencyNames: Record<"A" | "B" | "C" | "D", string> = {
+    A: legacy?.A?.name ?? "A",
+    B: legacy?.B?.name ?? "B",
+    C: legacy?.C?.name ?? "C",
+    D: legacy?.D?.name ?? "D",
+  };
 
   const { data: profiles } = await sb
     .from("org_profiles")
