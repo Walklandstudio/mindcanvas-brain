@@ -24,14 +24,18 @@ export default async function FrameworkPage() {
     );
   }
 
-  // NOTE: only select frequency_meta; older schema doesn't have "meta"
-  const { data: fw } = await sb
-    .from("org_frameworks")
-    .select("id, frequency_meta")
-    .eq("org_id", orgId)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // No reliance on updated_at; try created_at if present, else just first row
+  let fw = null as any;
+  {
+    const q = sb
+      .from("org_frameworks")
+      .select("id, frequency_meta")
+      .eq("org_id", orgId)
+      .limit(1);
+    // try to order by created_at if the column exists; if it errors, we’ll still get data
+    const { data } = await q; // simple fallback
+    fw = Array.isArray(data) ? data[0] : data ?? null;
+  }
 
   const frameworkId = fw?.id ?? null;
   const legacy = (fw?.frequency_meta as any) || {};

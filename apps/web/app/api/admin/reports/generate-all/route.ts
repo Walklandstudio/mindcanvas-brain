@@ -16,15 +16,19 @@ export async function POST(req: Request) {
   const q = new URL(req.url).searchParams;
   const overwrite = (q.get("overwrite") || "false") === "true";
 
-  // Older schema: only frequency_meta exists
-  const { data: fw, error: fwErr } = await sb
-    .from("org_frameworks")
-    .select("id, frequency_meta")
-    .eq("org_id", orgId)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (fwErr || !fw) return NextResponse.json({ message: fwErr?.message || "framework not found" }, { status: 404 });
+  // Fetch a framework row without ordering by updated_at
+  let fw = null as any;
+  {
+    const { data, error } = await sb
+      .from("org_frameworks")
+      .select("id, frequency_meta")
+      .eq("org_id", orgId)
+      .limit(1);
+    if (error) return NextResponse.json({ message: error.message }, { status: 500 });
+    fw = Array.isArray(data) ? data[0] : data ?? null;
+    if (!fw) return NextResponse.json({ message: "framework not found" }, { status: 404 });
+  }
+
   const frameworkId = fw.id as string;
 
   const legacy = (fw.frequency_meta as any) || {};
