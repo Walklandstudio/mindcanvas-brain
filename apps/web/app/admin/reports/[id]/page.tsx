@@ -5,12 +5,12 @@ import ReportEditorClient from "./ReportEditorClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportDetail({
-  params,
-}: {
-  params: { id: string };
-}) {
-  const profileId = params.id;
+export default async function ReportDetail(
+  props: { params: Promise<{ id: string }> } // Next 15: params is a Promise
+) {
+  const { id: profileId } = await props.params;
+
+  // Next 15 server runtime: cookies() returns a Promise
   const cookieStore = await cookies();
   const orgId = cookieStore.get("mc_org_id")?.value ?? null;
 
@@ -28,7 +28,7 @@ export default async function ReportDetail({
     );
   }
 
-  // Load framework (need id + frequency labels)
+  // Framework (id + frequency labels)
   const { data: fw } = await supabase
     .from("org_frameworks")
     .select("id, meta")
@@ -67,7 +67,7 @@ export default async function ReportDetail({
         orgId={orgId}
         frameworkId={frameworkId}
         profile={{
-          id: profile?.id!,
+          id: (profile as any)?.id!,
           name: (profile as any)?.name ?? "Profile",
           frequency: (profile as any)?.frequency ?? "A",
           image_url: (profile as any)?.image_url ?? null,

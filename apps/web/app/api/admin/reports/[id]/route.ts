@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 import { getServiceClient } from "../../../../_lib/supabase";
 import { draftReportSections } from "../../../../_lib/ai";
 
-/** Canonical sections shape (all keys optional but ALWAYS present on the object) */
+/** Canonical sections shape (all keys optional) */
 type ReportSections = {
   summary?: string;
   strengths?: string;
@@ -15,31 +15,29 @@ type ReportSections = {
   guidance?: string;
 };
 
-/** Loose DB row (jsonb + legacy columns) */
 type RowReport = {
-  sections?: any;
-  strengths?: any;
-  challenges?: any;
-  roles?: any;
-  guidance?: any;
+  sections?: unknown;
+  strengths?: unknown;
+  challenges?: unknown;
+  roles?: unknown;
+  guidance?: unknown;
   approved?: boolean;
 };
 
-/** Return ALL keys so TS knows .summary exists on the type */
-function normalizeSections(x: any): ReportSections {
-  const s = (x && typeof x === "object") ? x : {};
-  const out: ReportSections = {
+function normalizeSections(x: unknown): ReportSections {
+  const s = (x && typeof x === "object") ? (x as Record<string, unknown>) : {};
+  return {
     summary: typeof s.summary === "string" ? s.summary : undefined,
     strengths: typeof s.strengths === "string" ? s.strengths : undefined,
     challenges: typeof s.challenges === "string" ? s.challenges : undefined,
     roles: typeof s.roles === "string" ? s.roles : undefined,
     guidance: typeof s.guidance === "string" ? s.guidance : undefined,
   };
-  return out;
 }
 
-/** Merge jsonb + legacy; jsonb wins; return ALL keys present */
-function coalesceReportRow(row: RowReport | null | undefined): { sections: ReportSections; approved: boolean } {
+function coalesceReportRow(
+  row: RowReport | null | undefined
+): { sections: ReportSections; approved: boolean } {
   const jsonb = normalizeSections(row?.sections);
   const legacy = normalizeSections({
     strengths: row?.strengths,
@@ -47,26 +45,19 @@ function coalesceReportRow(row: RowReport | null | undefined): { sections: Repor
     roles: row?.roles,
     guidance: row?.guidance,
   });
+
   const merged: ReportSections = {
-    summary: jsonb.summary, // legacy had no summary
+    summary: jsonb.summary,
     strengths: jsonb.strengths ?? legacy.strengths,
     challenges: jsonb.challenges ?? legacy.challenges,
     roles: jsonb.roles ?? legacy.roles,
     guidance: jsonb.guidance ?? legacy.guidance,
   };
-  // Ensure all keys exist on the object literal for TS
-  return {
-    sections: {
-      summary: merged.summary,
-      strengths: merged.strengths,
-      challenges: merged.challenges,
-      roles: merged.roles,
-      guidance: merged.guidance,
-    },
-    approved: !!row?.approved,
-  };
+
+  return { sections: merged, approved: !!row?.approved };
 }
 
+// Next 15: cookies() is async in server runtime
 async function getOrgId(): Promise<string | null> {
   const c = await cookies();
   return c.get("mc_org_id")?.value ?? null;
@@ -77,16 +68,14 @@ async function loadContext(
   orgId: string,
   profileId: string
 ) {
-  // Profile
   const { data: prof, error: profErr } = await sb
     .from("org_profiles")
-    .select("id, name, frequency, framework_id, image_url")
+    .select("id, name, frequency, framework_id")
     .eq("id", profileId)
     .eq("org_id", orgId)
     .maybeSingle();
   if (profErr || !prof) throw new Error(profErr?.message || "profile not found");
 
-  // Framework (labels: meta.frequencies OR legacy frequency_meta)
   const { data: fw } = await sb
     .from("org_frameworks")
     .select("id, meta, frequency_meta")
@@ -96,14 +85,13 @@ async function loadContext(
 
   const meta = (fw?.meta as any) || {};
   const legacy = (fw?.frequency_meta as any) || {};
-  const frequencies =
+  const frequencies: Record<"A" | "B" | "C" | "D", string> =
     (meta?.frequencies as Record<"A" | "B" | "C" | "D", string> | undefined) ??
     (["A", "B", "C", "D"].reduce((acc: any, k) => {
       acc[k] = legacy?.[k]?.name ?? k;
       return acc;
     }, {} as Record<"A" | "B" | "C" | "D", string>));
 
-  // Onboarding context
   const { data: ob } = await sb
     .from("org_onboarding")
     .select("data")
@@ -122,7 +110,7 @@ async function loadContext(
       frequency: prof.frequency as "A" | "B" | "C" | "D",
       framework_id: prof.framework_id as string,
     },
-    frequencyNames: frequencies as Record<"A" | "B" | "C" | "D", string>,
+    frequencyNames: frequencies,
     onboarding: { brandTone, industry, sector, company },
   };
 }
@@ -147,7 +135,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   return NextResponse.json({
     profile: { id: ctx.profile.id, name: ctx.profile.name, frequency: ctx.profile.frequency },
     frequencyName: ctx.frequencyNames[ctx.profile.frequency],
-    sections, // has .summary in the type
+    sections,
     approved,
   });
 }
@@ -167,7 +155,6 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ message: "invalid json" }, { status: 400 });
   }
 
-  // Load current
   const { data: current } = await sb
     .from("org_profile_reports")
     .select("sections, strengths, challenges, roles, guidance, approved")
@@ -176,32 +163,43 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     .eq("profile_id", ctx.profile.id)
     .maybeSingle();
 
-  let { sections, approved } = coalesceReportRow(current as RowReport);
-  // Make TS absolutely certain about the shape:
-  sections = {
-    summary: sections.summary,
-    strengths: sections.strengths,
-    challenges: sections.challenges,
-    roles: sections.roles,
-    guidance: sections.guidance,
+  const coalesced = coalesceReportRow(current as RowReport);
+
+  // Start from current, fully typed
+  let sections: ReportSections = {
+    summary: coalesced.sections.summary,
+    strengths: coalesced.sections.strengths,
+    challenges: coalesced.sections.challenges,
+    roles: coalesced.sections.roles,
+    guidance: coalesced.sections.guidance,
   };
+  let approved = coalesced.approved;
 
   if (body.op === "draft") {
-    const ai = await draftReportSections({
+    // The AI helper’s TS signature doesn’t include `summary`. Map via `any`.
+    const aiAny = (await draftReportSections({
       brandTone: ctx.onboarding.brandTone,
       industry: ctx.onboarding.industry,
       sector: ctx.onboarding.sector,
       company: ctx.onboarding.company,
       frequencyName: ctx.frequencyNames[ctx.profile.frequency],
       profileName: ctx.profile.name,
-    });
+    })) as any;
+
+    const aiSections: ReportSections = {
+      summary: typeof aiAny?.summary === "string" ? aiAny.summary : undefined,
+      strengths: typeof aiAny?.strengths === "string" ? aiAny.strengths : undefined,
+      challenges: typeof aiAny?.challenges === "string" ? aiAny.challenges : undefined,
+      roles: typeof aiAny?.roles === "string" ? aiAny.roles : undefined,
+      guidance: typeof aiAny?.guidance === "string" ? aiAny.guidance : undefined,
+    };
 
     sections = {
-      summary: ai?.summary ?? sections.summary,
-      strengths: ai?.strengths ?? sections.strengths,
-      challenges: ai?.challenges ?? sections.challenges,
-      roles: ai?.roles ?? sections.roles,
-      guidance: ai?.guidance ?? sections.guidance,
+      summary: aiSections.summary ?? sections.summary,
+      strengths: aiSections.strengths ?? sections.strengths,
+      challenges: aiSections.challenges ?? sections.challenges,
+      roles: aiSections.roles ?? sections.roles,
+      guidance: aiSections.guidance ?? sections.guidance,
     };
     approved = false;
   } else if (body.op === "save") {
@@ -232,7 +230,6 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ message: "invalid op" }, { status: 400 });
   }
 
-  // Upsert by (org_id, framework_id, profile_id)
   const { error: upErr } = await sb
     .from("org_profile_reports")
     .upsert(
@@ -240,7 +237,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
         org_id: orgId,
         framework_id: ctx.profile.framework_id,
         profile_id: ctx.profile.id,
-        sections: sections as any, // write JSONB
+        sections: sections as any,
         approved,
         updated_at: new Date().toISOString(),
       },

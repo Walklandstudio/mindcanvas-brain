@@ -39,8 +39,10 @@ function blurbFromSections(sections: Sections | null | undefined): string {
 }
 
 export default async function ReportsIndex() {
+  // Next 15: cookies() is async in server code
   const cookieStore = await cookies();
   const orgId = cookieStore.get("mc_org_id")?.value ?? null;
+
   const supabase = getServiceClient();
 
   if (!orgId) {
@@ -52,7 +54,7 @@ export default async function ReportsIndex() {
     );
   }
 
-  // Load framework (for labels) and profiles (8)
+  // Framework (for labels) and id
   const { data: fw } = await supabase
     .from("org_frameworks")
     .select("id, meta")
@@ -63,6 +65,7 @@ export default async function ReportsIndex() {
   const freqNames =
     ((fw?.meta as any)?.frequencies as Record<"A" | "B" | "C" | "D", string> | undefined) ?? null;
 
+  // 8 profiles
   const { data: profs } = await supabase
     .from("org_profiles")
     .select("id, name, frequency, image_url, ordinal")
@@ -71,7 +74,7 @@ export default async function ReportsIndex() {
 
   const profiles: Profile[] = (profs as any) ?? [];
 
-  // Load any existing reports (approved flag + sections for blurb)
+  // Existing reports
   const { data: reps } = await supabase
     .from("org_profile_reports")
     .select("profile_id, sections, approved")
