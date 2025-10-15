@@ -6,39 +6,115 @@ import { cookies } from "next/headers";
 import { getServiceClient } from "../../../../_lib/supabase";
 import { draftReportSections, buildProfileCopy } from "../../../../_lib/ai";
 
-export async function POST(req: Request) {
-  const sb = getServiceClient();
+function freqNamesFromLegacy(legacy: any) {
+  return {
+    A: legacy?.A?.name ?? "A",
+    B: legacy?.B?.name ?? "B",
+    C: legacy?.C?.name ?? "C",
+    D: legacy?.D?.name ?? "D",
+  } as Record<"A" | "B" | "C" | "D", string>;
+}
 
-  const c = await cookies();
-  const orgId = c.get("mc_org_id")?.value ?? null;
-  if (!orgId) return NextResponse.json({ message: "no org" }, { status: 400 });
-
-  const q = new URL(req.url).searchParams;
-  const overwrite = (q.get("overwrite") || "false") === "true";
-
-  // Fetch a framework row without ordering by updated_at
-  let fw = null as any;
+async function ensureFrameworkAndProfiles(sb: any, orgId: string) {
+  // Try existing
+  let frameworkId: string | null = null;
   {
     const { data, error } = await sb
       .from("org_frameworks")
       .select("id, frequency_meta")
       .eq("org_id", orgId)
       .limit(1);
-    if (error) return NextResponse.json({ message: error.message }, { status: 500 });
-    fw = Array.isArray(data) ? data[0] : data ?? null;
-    if (!fw) return NextResponse.json({ message: "framework not found" }, { status: 404 });
+    if (error) throw new Error(error.message);
+    const fw = Array.isArray(data) ? data[0] : data ?? null;
+    if (fw?.id) {
+      frameworkId = fw.id as string;
+    } else {
+      // create framework
+      const { data: ins, error: e2 } = await sb
+        .from("org_frameworks")
+        .insert([{ org_id: orgId, frequency_meta: { A: { name: "A" }, B: { name: "B" }, C: { name: "C" }, D: { name: "D" } } }])
+        .select("id")
+        .maybeSingle();
+      if (e2) throw new Error(e2.message);
+      frameworkId = ins?.id ?? null;
+      if (!frameworkId) throw new Error("failed to create framework");
+    }
   }
 
-  const frameworkId = fw.id as string;
+  // Ensure 8 profiles
+  const { data: profs, error: pErr } = await sb
+    .from("org_profiles")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("framework_id", frameworkId);
+  if (pErr) throw new Error(pErr.message);
 
-  const legacy = (fw.frequency_meta as any) || {};
-  const frequencyNames: Record<"A"|"B"|"C"|"D", string> = {
-    A: legacy?.A?.name ?? "A",
-    B: legacy?.B?.name ?? "B",
-    C: legacy?.C?.name ?? "C",
-    D: legacy?.D?.name ?? "D",
-  };
+  if ((profs ?? []).length < 8) {
+    const defaults = [
+      { name: "Catalyst", frequency: "A" as const, ordinal: 1 },
+      { name: "Visionary", frequency: "A" as const, ordinal: 2 },
+      { name: "People Connector", frequency: "B" as const, ordinal: 3 },
+      { name: "Culture Builder", frequency: "B" as const, ordinal: 4 },
+      { name: "Process Coordinator", frequency: "C" as const, ordinal: 5 },
+      { name: "System Planner", frequency: "C" as const, ordinal: 6 },
+      { name: "Quality Controller", frequency: "D" as const, ordinal: 7 },
+      { name: "Risk Optimiser", frequency: "D" as const, ordinal: 8 },
+    ].map((p) => ({
+      org_id: orgId,
+      framework_id: frameworkId,
+      name: p.name,
+      frequency: p.frequency,
+      ordinal: p.ordinal,
+      image_url: null,
+      summary: "",
+      strengths: "",
+    }));
 
+    const { error: insErr } = await sb.from("org_profiles").insert(defaults);
+    if (insErr) throw new Error(insErr.message);
+  }
+
+  return frameworkId!;
+}
+
+export async function POST(req: Request) {
+  const sb = getServiceClient();
+
+  const c = await cookies();
+  let orgId = c.get("mc_org_id")?.value ?? null;
+  if (!orgId) {
+    // Create an org row so FKs pass (if organizations table exists)
+    const { data: orgIns, error: orgErr } = await sb
+      .from("organizations")
+      .insert({ name: "Demo Org" })
+      .select("id")
+      .maybeSingle();
+    if (orgErr) return NextResponse.json({ message: orgErr.message }, { status: 500 });
+    orgId = orgIns?.id ?? null;
+    if (!orgId) return NextResponse.json({ message: "failed to create org" }, { status: 500 });
+  }
+
+  // Ensure framework + profiles exist
+  let frameworkId: string;
+  try {
+    frameworkId = await ensureFrameworkAndProfiles(sb, orgId);
+  } catch (e: any) {
+    return NextResponse.json({ message: e?.message || "ensure failed" }, { status: 500 });
+  }
+
+  const q = new URL(req.url).searchParams;
+  const overwrite = (q.get("overwrite") || "false") === "true";
+
+  // Read frequency names
+  const { data: fwMeta } = await sb
+    .from("org_frameworks")
+    .select("frequency_meta")
+    .eq("id", frameworkId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  const frequencyNames = freqNamesFromLegacy(fwMeta?.frequency_meta || {});
+
+  // Profiles
   const { data: profiles, error: pErr } = await sb
     .from("org_profiles")
     .select("id,name,frequency,summary")
@@ -47,6 +123,7 @@ export async function POST(req: Request) {
     .order("ordinal", { ascending: true });
   if (pErr) return NextResponse.json({ message: pErr.message }, { status: 500 });
 
+  // Onboarding context
   const { data: ob } = await sb
     .from("org_onboarding")
     .select("data")
@@ -126,5 +203,8 @@ export async function POST(req: Request) {
     results.push({ profileId: prof.id, created: !existing, updated: !!existing });
   }
 
-  return NextResponse.json({ ok: true, count: results.length, results }, { status: 200 });
+  const res = NextResponse.json({ ok: true, count: results.length, results }, { status: 200 });
+  // Ensure the cookie is set so subsequent pages work
+  res.cookies.set("mc_org_id", orgId, { path: "/", sameSite: "lax" });
+  return res;
 }

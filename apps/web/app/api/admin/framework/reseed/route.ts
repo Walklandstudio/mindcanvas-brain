@@ -1,84 +1,110 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getServiceClient } from "@/app/_lib/supabase";
-import { suggestFrameworkNames, generateImageURL } from "@/app/_lib/ai";
-import { randomUUID } from "crypto";
-
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/*
-Assumes tables (adjust names if yours differ):
-  - org_frameworks(id uuid pk default gen_random_uuid(), org_id uuid unique, name text, meta jsonb, updated_at timestamptz)
-  - org_profiles(id uuid pk default gen_random_uuid(), org_id uuid, framework_id uuid, name text, frequency text, image_url text, ordinal int)
-*/
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { getServiceClient } from "../../../../_lib/supabase";
 
+function defaultFrequencyNames() {
+  return { A: "A", B: "B", C: "C", D: "D" };
+}
+function defaultProfiles() {
+  return [
+    { name: "Catalyst", frequency: "A" as const, ordinal: 1 },
+    { name: "Visionary", frequency: "A" as const, ordinal: 2 },
+    { name: "People Connector", frequency: "B" as const, ordinal: 3 },
+    { name: "Culture Builder", frequency: "B" as const, ordinal: 4 },
+    { name: "Process Coordinator", frequency: "C" as const, ordinal: 5 },
+    { name: "System Planner", frequency: "C" as const, ordinal: 6 },
+    { name: "Quality Controller", frequency: "D" as const, ordinal: 7 },
+    { name: "Risk Optimiser", frequency: "D" as const, ordinal: 8 },
+  ];
+}
+
+/** Create org if missing, then framework + 8 profiles. Idempotent. */
 export async function POST() {
-  const cookieStore = await cookies();
-  let orgId = cookieStore.get("mc_org_id")?.value || randomUUID();
+  const sb = getServiceClient();
+  const c = await cookies();
 
-  const supabase = getServiceClient();
+  let orgId = c.get("mc_org_id")?.value ?? null;
 
-  // 1) Pull onboarding data
-  const { data: ob } = await supabase
-    .from("org_onboarding")
-    .select("data")
-    .eq("org_id", orgId)
-    .maybeSingle();
+  // 1) Ensure org
+  if (!orgId) {
+    // Try to reuse any org from org_onboarding; if none, create a minimal one.
+    let createdOrgId: string | null = null;
 
-  const od = (ob?.data as any) ?? {};
-  const industry = od?.company?.industry ?? "General";
-  const sector = od?.company?.sector ?? "General";
-  const brandTone = od?.branding?.tone ?? od?.branding?.brandTone ?? "confident, modern, human";
-  const primaryGoal = od?.goals?.primaryGoal ?? "Improve team performance";
+    // Attempt to create a minimal organizations row (if table exists + allowed)
+    const { data: orgIns, error: orgErr } = await sb
+      .from("organizations")
+      .insert({ name: "Demo Org" })
+      .select("id")
+      .maybeSingle();
 
-  // 2) Ask AI to suggest frequency labels + 8 profiles, and prompts
-  const suggestion = await suggestFrameworkNames({ industry, sector, brandTone, primaryGoal });
-  const frequencies = suggestion.frequencies; // {A,B,C,D}
-  const pairs = suggestion.profiles as Array<{ name: string; frequency: "A"|"B"|"C"|"D" }>;
-  const prompts = suggestion.imagePrompts as Record<"A"|"B"|"C"|"D", string>;
+    if (orgErr) {
+      // If organizations table is locked down in RLS, fall back to a random UUID-less path:
+      // but most schemas have this FK; we surface the error if that’s the case.
+      return NextResponse.json({ message: orgErr.message }, { status: 500 });
+    }
+    createdOrgId = orgIns?.id ?? null;
+    if (!createdOrgId) {
+      return NextResponse.json({ message: "failed to create org" }, { status: 500 });
+    }
+    orgId = createdOrgId;
+  }
 
-  // 3) Upsert the framework row for this org, store frequencies in meta
-  const { data: fwRow, error: fwErr } = await supabase
-    .from("org_frameworks")
-    .upsert(
-      { org_id: orgId, name: "Default Framework", meta: { frequencies } },
-      { onConflict: "org_id" }
-    )
+  // 2) Ensure framework
+  let frameworkId: string | null = null;
+  {
+    const { data } = await sb
+      .from("org_frameworks")
+      .select("id, frequency_meta")
+      .eq("org_id", orgId)
+      .limit(1);
+    const fwRow = Array.isArray(data) ? data[0] : data ?? null;
+
+    if (fwRow?.id) {
+      frameworkId = fwRow.id as string;
+    } else {
+      const freqMeta = defaultFrequencyNames();
+      const { data: ins, error } = await sb
+        .from("org_frameworks")
+        .insert([{ org_id: orgId, frequency_meta: freqMeta }])
+        .select("id")
+        .maybeSingle();
+      if (error) return NextResponse.json({ message: error.message }, { status: 500 });
+      frameworkId = ins?.id ?? null;
+      if (!frameworkId) return NextResponse.json({ message: "failed to create framework" }, { status: 500 });
+    }
+  }
+
+  // 3) Ensure 8 profiles
+  const { data: existingProfiles, error: pErr } = await sb
+    .from("org_profiles")
     .select("id")
-    .maybeSingle();
+    .eq("org_id", orgId)
+    .eq("framework_id", frameworkId);
+  if (pErr) return NextResponse.json({ message: pErr.message }, { status: 500 });
 
-  if (fwErr) return NextResponse.json({ message: fwErr.message }, { status: 500 });
-
-  const frameworkId = fwRow?.id;
-  if (!frameworkId) return NextResponse.json({ message: "framework id missing" }, { status: 500 });
-
-  // 4) Reset any existing profiles for idempotency
-  await supabase.from("org_profiles").delete().eq("org_id", orgId).eq("framework_id", frameworkId);
-
-  // 5) Build 8 new profiles using AI images (safe fallback inside helper)
-  const rows = [];
-  for (let i = 0; i < pairs.length; i++) {
-    const p = pairs[i];
-    const ordinal = i + 1;
-    const prompt = (prompts?.[p.frequency] as string) || "abstract geometric brand icon";
-    const image_url = await generateImageURL(prompt);
-    rows.push({
-      id: randomUUID(),
+  if ((existingProfiles ?? []).length < 8) {
+    const base = defaultProfiles().map((p) => ({
       org_id: orgId,
       framework_id: frameworkId,
       name: p.name,
       frequency: p.frequency,
-      ordinal,
-      image_url,
-    });
+      ordinal: p.ordinal,
+      image_url: null,
+      summary: "",
+      strengths: "",
+    }));
+    const { error: bulkErr } = await sb.from("org_profiles").insert(base);
+    if (bulkErr) return NextResponse.json({ message: bulkErr.message }, { status: 500 });
   }
 
-  const { error: insErr } = await supabase.from("org_profiles").insert(rows);
-  if (insErr) return NextResponse.json({ message: insErr.message }, { status: 500 });
-
-  const res = NextResponse.json({ ok: true, frameworkId, frequencies, count: rows.length }, { status: 200 });
-  if (!cookieStore.get("mc_org_id")?.value) {
-    res.cookies.set("mc_org_id", orgId, { httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 180, path: "/" });
+  // 4) Return and set cookie if we had to create the org
+  const res = NextResponse.json({ ok: true, orgId, frameworkId });
+  const currentCookie = c.get("mc_org_id")?.value;
+  if (!currentCookie) {
+    res.cookies.set("mc_org_id", orgId!, { path: "/", sameSite: "lax" });
   }
   return res;
 }
