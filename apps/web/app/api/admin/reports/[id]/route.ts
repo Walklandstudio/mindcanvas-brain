@@ -47,7 +47,7 @@ function coalesceReportRow(
   });
 
   const merged: ReportSections = {
-    summary: jsonb.summary,
+    summary: jsonb.summary, // legacy had no summary
     strengths: jsonb.strengths ?? legacy.strengths,
     challenges: jsonb.challenges ?? legacy.challenges,
     roles: jsonb.roles ?? legacy.roles,
@@ -63,11 +63,20 @@ async function getOrgId(): Promise<string | null> {
   return c.get("mc_org_id")?.value ?? null;
 }
 
+/** Extract [id] from /api/admin/reports/[id] */
+function getIdFromUrl(req: Request): string | null {
+  const { pathname } = new URL(req.url);
+  const parts = pathname.split("/").filter(Boolean);
+  const i = parts.lastIndexOf("reports");
+  return i >= 0 && parts[i + 1] ? parts[i + 1] : null;
+}
+
 async function loadContext(
   sb: ReturnType<typeof getServiceClient>,
   orgId: string,
   profileId: string
 ) {
+  // Profile
   const { data: prof, error: profErr } = await sb
     .from("org_profiles")
     .select("id, name, frequency, framework_id")
@@ -76,6 +85,7 @@ async function loadContext(
     .maybeSingle();
   if (profErr || !prof) throw new Error(profErr?.message || "profile not found");
 
+  // Framework (labels: meta.frequencies OR legacy frequency_meta)
   const { data: fw } = await sb
     .from("org_frameworks")
     .select("id, meta, frequency_meta")
@@ -92,6 +102,7 @@ async function loadContext(
       return acc;
     }, {} as Record<"A" | "B" | "C" | "D", string>));
 
+  // Onboarding context
   const { data: ob } = await sb
     .from("org_onboarding")
     .select("data")
@@ -115,12 +126,15 @@ async function loadContext(
   };
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request) {
   const orgId = await getOrgId();
   if (!orgId) return NextResponse.json({ message: "no org" }, { status: 400 });
 
+  const profileId = getIdFromUrl(req);
+  if (!profileId) return NextResponse.json({ message: "invalid id" }, { status: 400 });
+
   const sb = getServiceClient();
-  const ctx = await loadContext(sb, orgId, params.id);
+  const ctx = await loadContext(sb, orgId, profileId);
 
   const { data: row } = await sb
     .from("org_profile_reports")
@@ -140,12 +154,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   });
 }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+export async function PUT(req: Request) {
   const orgId = await getOrgId();
   if (!orgId) return NextResponse.json({ message: "no org" }, { status: 400 });
 
+  const profileId = getIdFromUrl(req);
+  if (!profileId) return NextResponse.json({ message: "invalid id" }, { status: 400 });
+
   const sb = getServiceClient();
-  const ctx = await loadContext(sb, orgId, params.id);
+  const ctx = await loadContext(sb, orgId, profileId);
 
   type Body = { op: "draft" | "save" | "approve"; sections?: ReportSections };
   let body: Body;
@@ -176,7 +193,6 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   let approved = coalesced.approved;
 
   if (body.op === "draft") {
-    // The AI helper’s TS signature doesn’t include `summary`. Map via `any`.
     const aiAny = (await draftReportSections({
       brandTone: ctx.onboarding.brandTone,
       industry: ctx.onboarding.industry,
