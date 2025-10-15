@@ -1,9 +1,16 @@
 // apps/web/app/_lib/ai.ts
+import "server-only";
 import OpenAI from "openai";
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+/** Lazy server-only client so build doesn't fail without the key */
+let _client: OpenAI | null = null;
+function getClient() {
+  if (_client) return _client;
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is missing (set it in Vercel → Settings → Environment Variables)");
+  _client = new OpenAI({ apiKey });
+  return _client;
+}
 
 function tryParseJSON(s: string) { try { return JSON.parse(s); } catch { return null; } }
 
@@ -11,6 +18,7 @@ function tryParseJSON(s: string) { try { return JSON.parse(s); } catch { return 
 export async function suggestFrameworkNames(input: {
   industry: string; sector: string; brandTone: string; primaryGoal: string;
 }) {
+  const client = getClient();
   const prompt = `
 You are branding a 4-frequency × 8-profile framework for a company.
 
@@ -78,6 +86,7 @@ export async function buildProfileCopy(input: {
   brandTone: string; industry: string; sector: string; company: string;
   frequencyName: string; profileName: string;
 }) {
+  const client = getClient();
   const prompt = `
 Write concise copy in the tone "${input.brandTone}" for a profile card.
 
@@ -113,6 +122,7 @@ export async function draftReportSections(input: {
   brandTone: string; industry: string; sector: string; company: string;
   frequencyName: string; profileName: string;
 }) {
+  const client = getClient();
   const prompt = `
 Write a professional report draft in the tone "${input.brandTone}" for:
 Company: ${input.company}
@@ -149,19 +159,20 @@ Keep it concise and non-fluffy.
 
 /** Generate an image URL; safe for TS. */
 export async function generateImageURL(prompt: string): Promise<string> {
+  const client = getClient();
   try {
     const resp = await client.images.generate({ model: "gpt-image-1", prompt, size: "512x512" });
-    const arr = resp?.data ?? [];
-    const first = Array.isArray(arr) ? arr[0] : undefined;
-    const b64 = first && (first as any).b64_json as string | undefined;
+    const first = resp?.data?.[0] as any;
+    const b64 = first?.b64_json as string | undefined;
     if (!b64) throw new Error("no-image");
     return `data:image/png;base64,${b64}`;
   } catch {
     const svg =
       `<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512'><defs><linearGradient id='g' x1='0' x2='1' y1='0' y2='1'><stop offset='0' stop-color='#2d8fc4'/><stop offset='1' stop-color='#64bae2'/></linearGradient></defs><rect fill='url(#g)' width='512' height='512'/></svg>`;
-    const base64 = (typeof Buffer !== "undefined"
-      ? Buffer.from(svg).toString("base64")
-      : btoa(unescape(encodeURIComponent(svg))));
+    const base64 =
+      typeof Buffer !== "undefined"
+        ? Buffer.from(svg).toString("base64")
+        : btoa(unescape(encodeURIComponent(svg)));
     return `data:image/svg+xml;base64,${base64}`;
   }
 }
