@@ -1,39 +1,64 @@
-// apps/web/app/api/onboarding/get/route.ts
-export const runtime = "nodejs";
-
 import { NextResponse } from "next/server";
-import { getServiceClient } from "../../../_lib/supabase";
+import { cookies } from "next/headers";
+import { getServiceClient } from "@/app/_lib/supabase";
+import { randomUUID } from "crypto";
 
-const ORG_ID = "00000000-0000-0000-0000-000000000001";
-const VALID_STEPS = new Set(["create_account", "company", "branding", "goals"]);
+const TABLE = "org_onboarding";
+const ORG_COOKIE = "mc_org_id";
 
-export async function GET(req: Request) {
-  const supabase = getServiceClient();
+/** shape we persist in `data` column */
+type OnboardingData = {
+  account?: Record<string, unknown>;
+  company?: {
+    website?: string;
+    linkedin?: string;
+    industry?: string;
+    sector?: string;
+  };
+  branding?: Record<string, unknown>;
+  goals?: Record<string, unknown>;
+  progress?: number;
+};
 
-  const url = new URL(req.url);
-  const step = url.searchParams.get("step") || "";
-  if (!VALID_STEPS.has(step)) {
-    return NextResponse.json({ error: "Invalid step" }, { status: 400 });
+function newDefault(): OnboardingData {
+  return { account: {}, company: {}, branding: {}, goals: {}, progress: 0 };
+}
+
+export async function GET() {
+  // NOTE: in this Next version, cookies() is async
+  const cookieStore = await cookies();
+  let orgId = cookieStore.get(ORG_COOKIE)?.value;
+
+  // If no org cookie yet, set one and return defaults
+  if (!orgId) {
+    orgId = randomUUID();
+    const res = NextResponse.json(newDefault());
+    res.cookies.set(ORG_COOKIE, orgId, {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 180, // 6 months
+      path: "/",
+    });
+    return res;
   }
 
-  await supabase.from("organizations").upsert(
-    { id: ORG_ID, name: "Demo Org" },
-    { onConflict: "id" }
-  );
+  const supabase = getServiceClient();
 
-  await supabase.from("org_onboarding").upsert(
-    { org_id: ORG_ID },
-    { onConflict: "org_id" }
-  );
+  try {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("data")
+      .eq("org_id", orgId)
+      .maybeSingle();
 
-  const sel = await supabase
-    .from("org_onboarding")
-    .select(`${step}`)
-    .eq("org_id", ORG_ID)
-    .maybeSingle();
+    if (error) {
+      // Soft default if table missing / row not found / RLS etc.
+      return NextResponse.json(newDefault(), { status: 200 });
+    }
 
-  if (sel.error) return NextResponse.json({ error: sel.error.message }, { status: 500 });
-
-  const payload = (sel.data as any)?.[step] ?? {};
-  return NextResponse.json({ data: payload });
+    return NextResponse.json((data?.data as OnboardingData) ?? newDefault(), { status: 200 });
+  } catch {
+    // Any unexpected error -> default so the UI remains usable
+    return NextResponse.json(newDefault(), { status: 200 });
+  }
 }
