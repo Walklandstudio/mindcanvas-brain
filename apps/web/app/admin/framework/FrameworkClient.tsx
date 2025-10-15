@@ -1,154 +1,146 @@
-// apps/web/app/admin/framework/FrameworkClient.tsx
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
-type F = "A" | "B" | "C" | "D";
-type FrequencyMeta = Record<F, { name?: string; image_url?: string; image_prompt?: string }>;
 type Profile = {
   id: string;
   name: string;
-  frequency: F;
-  ordinal: number;
-  image_url?: string | null;
-  summary?: string | null;
-  strengths?: string[] | null;
+  frequency: "A" | "B" | "C" | "D";
+  image_url: string | null;
+  ordinal: number | null;
 };
 
-export default function FrameworkClient({
-  frequencyMeta,
-  profiles,
-}: {
-  frequencyMeta: FrequencyMeta;
-  profiles: Profile[];
+function Toast({ text, type }: { text: string; type: "success" | "error" }) {
+  return (
+    <div
+      className={[
+        "fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-xl px-4 py-2 shadow-lg",
+        type === "success" ? "bg-emerald-600 text-white" : "bg-red-600 text-white",
+      ].join(" ")}
+    >
+      {text}
+    </div>
+  );
+}
+
+export default function FrameworkClient(props: {
+  orgId: string | null;
+  frameworkId: string | null;
+  initialProfiles: Profile[];
+  initialFrequencies: Record<"A" | "B" | "C" | "D", string> | null;
 }) {
+  const router = useRouter();
+  const [profiles, setProfiles] = useState<Profile[]>(props.initialProfiles);
+  const [freqNames, setFreqNames] = useState(props.initialFrequencies);
+  const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
 
-  function notify(s: string) {
-    setToast(s);
-    setTimeout(() => setToast(null), 3000);
-  }
+  // Auto-seed if org exists but has 0 profiles (or if orgId is null; reseed will set cookie)
+  useEffect(() => {
+    if (profiles.length === 0) {
+      (async () => {
+        setBusy(true);
+        try {
+          const res = await fetch("/api/admin/framework/reseed", { method: "POST" });
+          if (!res.ok) throw new Error(await res.text());
+          setToast({ text: "Framework seeded successfully", type: "success" });
+          router.refresh();
+        } catch (e: any) {
+          setToast({ text: e?.message || "Failed to seed framework", type: "error" });
+        } finally {
+          setBusy(false);
+          setTimeout(() => setToast(null), 2500);
+        }
+      })();
+    }
+  }, [profiles.length, router]);
 
-  const ready = (profiles?.length || 0) >= 8;
+  const grouped = useMemo(() => {
+    const byFreq: Record<"A" | "B" | "C" | "D", Profile[]> = { A: [], B: [], C: [], D: [] };
+    for (const p of profiles) byFreq[p.frequency]?.push(p);
+    (Object.keys(byFreq) as Array<keyof typeof byFreq>).forEach((k) => byFreq[k].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)));
+    return byFreq;
+  }, [profiles]);
 
-  async function generateImages() {
-    setBusy(true);
+  async function saveProfile(id: string, patch: Partial<Profile>) {
     try {
-      const res = await fetch("/api/admin/framework/generate-images", { method: "POST" });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || "Image generation failed");
-      notify("Images generated");
-      // refresh
-      location.reload();
+      const res = await fetch(`/api/admin/profiles/${id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+      setToast({ text: "Saved", type: "success" });
     } catch (e: any) {
-      notify(e?.message || "Image generation failed");
+      setToast({ text: e?.message || "Save failed", type: "error" });
     } finally {
-      setBusy(false);
+      setTimeout(() => setToast(null), 2000);
     }
   }
 
-  return (
-    <div>
-      {/* Frequencies row */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Frequencies</h2>
-        <button
-          onClick={generateImages}
-          disabled={busy}
-          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 hover:bg-white/15 disabled:opacity-50 text-sm"
-        >
-          {busy ? "Generating…" : "Generate Images"}
-        </button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {(["A", "B", "C", "D"] as F[]).map((F) => {
-          const title = frequencyMeta?.[F]?.name || `Frequency ${F}`;
-          const img = frequencyMeta?.[F]?.image_url || null;
-          return (
-            <section key={F} className="border border-white/10 rounded-2xl p-4 bg-white/5">
-              <div className="flex items-center gap-3">
-                {img ? (
-                  <img src={img} alt={title} className="w-10 h-10 rounded-lg object-cover" />
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-white/10 grid place-items-center text-sm">{F}</div>
-                )}
-                <h2 className="text-lg font-semibold">{title}</h2>
+  function FreqColumn({ code }: { code: "A" | "B" | "C" | "D" }) {
+    const pretty = freqNames?.[code] ?? code;
+    return (
+      <div className="space-y-3">
+        <div className="text-sm font-semibold text-white/90">
+          {code} — {pretty}
+        </div>
+        <div className="grid gap-3">
+          {(grouped[code] ?? []).map((p) => (
+            <div key={p.id} className="mc-card p-4">
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 rounded-xl overflow-hidden bg-white/10 flex items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {p.image_url ? <img src={p.image_url} alt={p.name} className="object-cover h-12 w-12" /> : <span className="text-white/40 text-xs">no image</span>}
+                </div>
+                <input
+                  className="mc-input max-w-xs"
+                  defaultValue={p.name}
+                  onBlur={(e) => {
+                    const v = e.currentTarget.value.trim();
+                    if (v && v !== p.name) saveProfile(p.id, { name: v });
+                  }}
+                />
+                <input
+                  className="mc-input"
+                  placeholder="Image URL"
+                  defaultValue={p.image_url ?? ""}
+                  onBlur={(e) => {
+                    const v = e.currentTarget.value.trim();
+                    if (v !== (p.image_url ?? "")) saveProfile(p.id, { image_url: v || null });
+                  }}
+                />
               </div>
-            </section>
-          );
-        })}
-      </div>
-
-      {/* Profiles grid */}
-      <div className="mt-8">
-        <h3 className="text-xl font-semibold mb-3">Recommended Profiles</h3>
-        {!profiles?.length ? (
-          <div className="text-white/60 text-sm">Preparing profiles… reload in a moment.</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {profiles
-              .slice()
-              .sort((a, b) => a.ordinal - b.ordinal)
-              .map((p) => (
-                <article key={p.id} className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                  <div className="flex items-start gap-3">
-                    {p.image_url ? (
-                      <img src={p.image_url} alt={p.name} className="w-12 h-12 rounded-lg object-cover" />
-                    ) : (
-                      <div className="w-12 h-12 rounded-lg bg-white/10 grid place-items-center text-sm">
-                        {p.frequency}
-                      </div>
-                    )}
-                    <div>
-                      <div className="text-base font-semibold">{p.name}</div>
-                      <div className="text-xs text-white/60">Frequency {p.frequency}</div>
-                    </div>
-                  </div>
-                  {p.summary && <p className="text-white/85 mt-3 text-sm">{p.summary}</p>}
-                  {Array.isArray(p.strengths) && p.strengths.length > 0 && (
-                    <ul className="mt-3 text-sm list-disc list-inside text-white/85">
-                      {p.strengths.slice(0, 4).map((s, i) => (
-                        <li key={i}>{s}</li>
-                      ))}
-                    </ul>
-                  )}
-                </article>
-              ))}
-          </div>
-        )}
-      </div>
-
-      {/* Next step CTA */}
-      <div className="mt-10 flex items-center justify-between">
-        <div className="text-white/70 text-sm">
-          {ready
-            ? "Looks good? Proceed to build and brand the test."
-            : "You’ll be able to continue once the 8 profiles are ready."}
+            </div>
+          ))}
         </div>
-        {ready ? (
-          <Link
-            href="/admin/test-builder"
-            className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium"
-          >
-            Start Test Builder →
-          </Link>
-        ) : (
-          <button
-            disabled
-            className="px-4 py-2 rounded-xl bg-white/10 text-white/40 border border-white/15 cursor-not-allowed"
-          >
-            Start Test Builder
-          </button>
-        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Framework</h1>
+          <p className="text-white/60 text-sm">
+            {profiles.length ? "Edit profile names and images." : "Preparing a default framework for your org…"}
+          </p>
+        </div>
+        <div className="text-sm text-white/60">{busy ? "Seeding…" : null}</div>
       </div>
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl bg-white/10 border border-white/15">
-          {toast}
-        </div>
-      )}
+      {/* Grid A/B/C/D */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <FreqColumn code="A" />
+        <FreqColumn code="B" />
+        <FreqColumn code="C" />
+        <FreqColumn code="D" />
+      </div>
+
+      {toast && <Toast text={toast.text} type={toast.type} />}
     </div>
   );
 }

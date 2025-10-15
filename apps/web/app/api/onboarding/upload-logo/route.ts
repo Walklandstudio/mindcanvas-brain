@@ -1,27 +1,36 @@
-import 'server-only';
-import { NextResponse } from 'next/server';
-import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
+import { NextResponse } from "next/server";
+import { getServiceClient } from "@/app/_lib/supabase";
+import { randomUUID } from "crypto";
 
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const form = await req.formData();
-  const file = form.get('file') as File | null;
-  if (!file) return NextResponse.json({ error: 'missing_file' }, { status: 400 });
+  const file = form.get("file") as File | null;
+  if (!file) return NextResponse.json({ error: "missing file" }, { status: 400 });
 
-  const svc = admin();
-  const { orgId } = await getOwnerOrgAndFramework();
+  const supabase = getServiceClient();
 
-  const ext = file.name.split('.').pop() || 'bin';
-  const path = `${orgId}/logo.${ext}`;
+  // Ensure bucket exists (no-op if it already does)
+  try {
+    await supabase.storage.createBucket("branding-logos", { public: true });
+  } catch (_) {
+    // ignore if it already exists
+  }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const { data, error } = await svc.storage
-    .from('branding')
-    .upload(path, new Uint8Array(arrayBuffer), { upsert: true, contentType: file.type });
+  const arrbuf = await file.arrayBuffer();
+  const path = `${randomUUID()}-${file.name}`.replace(/\s+/g, "_");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { error: upErr } = await supabase
+    .storage
+    .from("branding-logos")
+    .upload(path, new Uint8Array(arrbuf), {
+      contentType: file.type || "image/*",
+      upsert: false
+    });
 
-  const { data: pub } = svc.storage.from('branding').getPublicUrl(path);
-  return NextResponse.json({ url: pub.publicUrl });
+  if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+
+  const { data: pub } = supabase.storage.from("branding-logos").getPublicUrl(path);
+  return NextResponse.json({ url: pub.publicUrl }, { status: 200 });
 }

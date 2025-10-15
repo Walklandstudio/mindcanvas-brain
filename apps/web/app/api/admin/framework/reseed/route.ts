@@ -1,68 +1,84 @@
-// apps/web/app/api/admin/framework/reseed/route.ts
-export const runtime = "nodejs";
-
 import { NextResponse } from "next/server";
-import { getServiceClient } from "../../../../_lib/supabase";
+import { cookies } from "next/headers";
+import { getServiceClient } from "@/app/_lib/supabase";
+import { suggestFrameworkNames, generateImageURL } from "@/app/_lib/ai";
+import { randomUUID } from "crypto";
 
-const ORG_ID = "00000000-0000-0000-0000-000000000001";
+export const dynamic = "force-dynamic";
 
-const DEFAULT_PROFILES = [
-  { name: "Visionary", frequency: "A", ordinal: 1 },
-  { name: "Spark",     frequency: "A", ordinal: 2 },
-  { name: "Connector", frequency: "B", ordinal: 3 },
-  { name: "Deal-Maker",frequency: "B", ordinal: 4 },
-  { name: "Coordinator",frequency: "C", ordinal: 5 },
-  { name: "Planner",   frequency: "C", ordinal: 6 },
-  { name: "Controller",frequency: "D", ordinal: 7 },
-  { name: "Optimiser", frequency: "D", ordinal: 8 },
-];
+/*
+Assumes tables (adjust names if yours differ):
+  - org_frameworks(id uuid pk default gen_random_uuid(), org_id uuid unique, name text, meta jsonb, updated_at timestamptz)
+  - org_profiles(id uuid pk default gen_random_uuid(), org_id uuid, framework_id uuid, name text, frequency text, image_url text, ordinal int)
+*/
 
-async function handle() {
+export async function POST() {
+  const cookieStore = await cookies();
+  let orgId = cookieStore.get("mc_org_id")?.value || randomUUID();
+
   const supabase = getServiceClient();
 
-  // Ensure org + framework
-  await supabase.from("organizations").upsert(
-    { id: ORG_ID, name: "Demo Org" },
-    { onConflict: "id" }
-  );
-
-  let frameworkId: string | undefined;
-
-  const fw0 = await supabase
-    .from("org_frameworks")
-    .select("id")
-    .eq("org_id", ORG_ID)
+  // 1) Pull onboarding data
+  const { data: ob } = await supabase
+    .from("org_onboarding")
+    .select("data")
+    .eq("org_id", orgId)
     .maybeSingle();
-  if (fw0.error) return NextResponse.json({ error: fw0.error.message }, { status: 500 });
 
-  if (!fw0.data?.id) {
-    const created = await supabase
-      .from("org_frameworks")
-      .insert({ org_id: ORG_ID, name: "Signature", version: 1, frequency_meta: { A:{},B:{},C:{},D:{} } })
-      .select("id")
-      .single();
-    if (created.error) return NextResponse.json({ error: created.error.message }, { status: 500 });
-    frameworkId = created.data.id;
-  } else {
-    frameworkId = fw0.data.id;
+  const od = (ob?.data as any) ?? {};
+  const industry = od?.company?.industry ?? "General";
+  const sector = od?.company?.sector ?? "General";
+  const brandTone = od?.branding?.tone ?? od?.branding?.brandTone ?? "confident, modern, human";
+  const primaryGoal = od?.goals?.primaryGoal ?? "Improve team performance";
+
+  // 2) Ask AI to suggest frequency labels + 8 profiles, and prompts
+  const suggestion = await suggestFrameworkNames({ industry, sector, brandTone, primaryGoal });
+  const frequencies = suggestion.frequencies; // {A,B,C,D}
+  const pairs = suggestion.profiles as Array<{ name: string; frequency: "A"|"B"|"C"|"D" }>;
+  const prompts = suggestion.imagePrompts as Record<"A"|"B"|"C"|"D", string>;
+
+  // 3) Upsert the framework row for this org, store frequencies in meta
+  const { data: fwRow, error: fwErr } = await supabase
+    .from("org_frameworks")
+    .upsert(
+      { org_id: orgId, name: "Default Framework", meta: { frequencies } },
+      { onConflict: "org_id" }
+    )
+    .select("id")
+    .maybeSingle();
+
+  if (fwErr) return NextResponse.json({ message: fwErr.message }, { status: 500 });
+
+  const frameworkId = fwRow?.id;
+  if (!frameworkId) return NextResponse.json({ message: "framework id missing" }, { status: 500 });
+
+  // 4) Reset any existing profiles for idempotency
+  await supabase.from("org_profiles").delete().eq("org_id", orgId).eq("framework_id", frameworkId);
+
+  // 5) Build 8 new profiles using AI images (safe fallback inside helper)
+  const rows = [];
+  for (let i = 0; i < pairs.length; i++) {
+    const p = pairs[i];
+    const ordinal = i + 1;
+    const prompt = (prompts?.[p.frequency] as string) || "abstract geometric brand icon";
+    const image_url = await generateImageURL(prompt);
+    rows.push({
+      id: randomUUID(),
+      org_id: orgId,
+      framework_id: frameworkId,
+      name: p.name,
+      frequency: p.frequency,
+      ordinal,
+      image_url,
+    });
   }
 
-  const del = await supabase.from("org_profiles").delete().eq("framework_id", frameworkId!);
-  if (del.error) return NextResponse.json({ error: del.error.message }, { status: 500 });
+  const { error: insErr } = await supabase.from("org_profiles").insert(rows);
+  if (insErr) return NextResponse.json({ message: insErr.message }, { status: 500 });
 
-  const rows = DEFAULT_PROFILES.map((p) => ({
-    org_id: ORG_ID,
-    framework_id: frameworkId!,
-    name: p.name,
-    frequency: p.frequency,
-    ordinal: p.ordinal,
-  }));
-
-  const ins = await supabase.from("org_profiles").insert(rows).select("id");
-  if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
-
-  return NextResponse.json({ ok: true, framework_id: frameworkId, count: ins.data.length });
+  const res = NextResponse.json({ ok: true, frameworkId, frequencies, count: rows.length }, { status: 200 });
+  if (!cookieStore.get("mc_org_id")?.value) {
+    res.cookies.set("mc_org_id", orgId, { httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 180, path: "/" });
+  }
+  return res;
 }
-
-export async function POST() { return handle(); }
-export async function GET()  { return handle(); }

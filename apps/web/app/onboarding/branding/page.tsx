@@ -34,7 +34,7 @@ async function save(data: Branding) {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ step: 'branding', data }),
+    body: JSON.stringify({ step: 'branding', data, recomputeProgress: true }),
   });
 }
 
@@ -48,7 +48,6 @@ export default function BrandingPage() {
 
   const onNext = async () => { await save(data); router.push('/onboarding/goals'); };
 
-  // Demo “report preview” content (AI later)
   const previewCopy = useMemo(() => {
     const voice = data.tone?.trim()
       ? data.tone
@@ -80,7 +79,7 @@ export default function BrandingPage() {
 
   return (
     <main className="mx-auto max-w-6xl p-6 text-white">
-      <h1 className="text-2xl font-semibold mb-6">Step 2 — Branding</h1>
+      <h1 className="text-2xl font-semibold mb-6">Step 3 — Branding</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: form */}
