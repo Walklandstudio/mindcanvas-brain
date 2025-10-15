@@ -6,64 +6,11 @@ import { cookies } from "next/headers";
 import { getServiceClient } from "../../../../_lib/supabase";
 import { draftReportSections } from "../../../../_lib/ai";
 
-/** Canonical sections shape (all keys optional) */
-type ReportSections = {
-  summary?: string;
-  strengths?: string;
-  challenges?: string;
-  roles?: string;
-  guidance?: string;
-};
-
-type RowReport = {
-  sections?: unknown;
-  strengths?: unknown;
-  challenges?: unknown;
-  roles?: unknown;
-  guidance?: unknown;
-  approved?: boolean;
-};
-
-function normalizeSections(x: unknown): ReportSections {
-  const s = (x && typeof x === "object") ? (x as Record<string, unknown>) : {};
-  return {
-    summary: typeof s.summary === "string" ? s.summary : undefined,
-    strengths: typeof s.strengths === "string" ? s.strengths : undefined,
-    challenges: typeof s.challenges === "string" ? s.challenges : undefined,
-    roles: typeof s.roles === "string" ? s.roles : undefined,
-    guidance: typeof s.guidance === "string" ? s.guidance : undefined,
-  };
+async function getOrgId() {
+  const c = await cookies();                        // ⬅️ await here
+  return c.get("mc_org_id")?.value ?? "00000000-0000-0000-0000-000000000001";
 }
 
-function coalesceReportRow(
-  row: RowReport | null | undefined
-): { sections: ReportSections; approved: boolean } {
-  const jsonb = normalizeSections(row?.sections);
-  const legacy = normalizeSections({
-    strengths: row?.strengths,
-    challenges: row?.challenges,
-    roles: row?.roles,
-    guidance: row?.guidance,
-  });
-
-  const merged: ReportSections = {
-    summary: jsonb.summary, // legacy had no summary
-    strengths: jsonb.strengths ?? legacy.strengths,
-    challenges: jsonb.challenges ?? legacy.challenges,
-    roles: jsonb.roles ?? legacy.roles,
-    guidance: jsonb.guidance ?? legacy.guidance,
-  };
-
-  return { sections: merged, approved: !!row?.approved };
-}
-
-// Next 15: cookies() is async in server runtime
-async function getOrgId(): Promise<string | null> {
-  const c = await cookies();
-  return c.get("mc_org_id")?.value ?? null;
-}
-
-/** Extract [id] from /api/admin/reports/[id] */
 function getIdFromUrl(req: Request): string | null {
   const { pathname } = new URL(req.url);
   const parts = pathname.split("/").filter(Boolean);
@@ -71,196 +18,172 @@ function getIdFromUrl(req: Request): string | null {
   return i >= 0 && parts[i + 1] ? parts[i + 1] : null;
 }
 
-async function loadContext(
-  sb: ReturnType<typeof getServiceClient>,
-  orgId: string,
-  profileId: string
-) {
-  // Profile
-  const { data: prof, error: profErr } = await sb
-    .from("org_profiles")
-    .select("id, name, frequency, framework_id")
-    .eq("id", profileId)
-    .eq("org_id", orgId)
-    .maybeSingle();
-  if (profErr || !prof) throw new Error(profErr?.message || "profile not found");
-
-  // Framework (labels: meta.frequencies OR legacy frequency_meta)
-  const { data: fw } = await sb
-    .from("org_frameworks")
-    .select("id, meta, frequency_meta")
-    .eq("id", prof.framework_id)
-    .eq("org_id", orgId)
-    .maybeSingle();
-
-  const meta = (fw?.meta as any) || {};
-  const legacy = (fw?.frequency_meta as any) || {};
-  const frequencies: Record<"A" | "B" | "C" | "D", string> =
-    (meta?.frequencies as Record<"A" | "B" | "C" | "D", string> | undefined) ??
-    (["A", "B", "C", "D"].reduce((acc: any, k) => {
-      acc[k] = legacy?.[k]?.name ?? k;
-      return acc;
-    }, {} as Record<"A" | "B" | "C" | "D", string>));
-
-  // Onboarding context
-  const { data: ob } = await sb
-    .from("org_onboarding")
-    .select("data")
-    .eq("org_id", orgId)
-    .maybeSingle();
-  const od = (ob?.data as any) ?? {};
-  const brandTone = od?.branding?.tone ?? od?.branding?.brandTone ?? "confident, modern, human";
-  const industry = od?.company?.industry ?? od?.goals?.industry ?? "General";
-  const sector   = od?.company?.sector   ?? od?.goals?.sector   ?? "General";
-  const company  = od?.account?.companyName ?? od?.company?.name ?? "Company";
-
-  return {
-    profile: {
-      id: prof.id as string,
-      name: prof.name as string,
-      frequency: prof.frequency as "A" | "B" | "C" | "D",
-      framework_id: prof.framework_id as string,
-    },
-    frequencyNames: frequencies,
-    onboarding: { brandTone, industry, sector, company },
-  };
-}
-
 export async function GET(req: Request) {
-  const orgId = await getOrgId();
-  if (!orgId) return NextResponse.json({ message: "no org" }, { status: 400 });
-
-  const profileId = getIdFromUrl(req);
-  if (!profileId) return NextResponse.json({ message: "invalid id" }, { status: 400 });
-
   const sb = getServiceClient();
-  const ctx = await loadContext(sb, orgId, profileId);
+  const orgId = await getOrgId();
+  const pid = getIdFromUrl(req);
+  if (!pid) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
-  const { data: row } = await sb
-    .from("org_profile_reports")
-    .select("sections, strengths, challenges, roles, guidance, approved")
+  const prof = await sb
+    .from("org_profiles")
+    .select("id,name,frequency,framework_id,summary,strengths,image_url")
+    .eq("id", pid)
     .eq("org_id", orgId)
-    .eq("framework_id", ctx.profile.framework_id)
-    .eq("profile_id", ctx.profile.id)
     .maybeSingle();
-
-  const { sections, approved } = coalesceReportRow(row as RowReport);
-
-  return NextResponse.json({
-    profile: { id: ctx.profile.id, name: ctx.profile.name, frequency: ctx.profile.frequency },
-    frequencyName: ctx.frequencyNames[ctx.profile.frequency],
-    sections,
-    approved,
-  });
-}
-
-export async function PUT(req: Request) {
-  const orgId = await getOrgId();
-  if (!orgId) return NextResponse.json({ message: "no org" }, { status: 400 });
-
-  const profileId = getIdFromUrl(req);
-  if (!profileId) return NextResponse.json({ message: "invalid id" }, { status: 400 });
-
-  const sb = getServiceClient();
-  const ctx = await loadContext(sb, orgId, profileId);
-
-  type Body = { op: "draft" | "save" | "approve"; sections?: ReportSections };
-  let body: Body;
-  try {
-    body = (await req.json()) as Body;
-  } catch {
-    return NextResponse.json({ message: "invalid json" }, { status: 400 });
+  if (prof.error || !prof.data) {
+    return NextResponse.json({ error: prof.error?.message || "profile not found" }, { status: 404 });
   }
 
-  const { data: current } = await sb
-    .from("org_profile_reports")
-    .select("sections, strengths, challenges, roles, guidance, approved")
+  const fw = await sb
+    .from("org_frameworks")
+    .select("id,frequency_meta")
+    .eq("id", prof.data.framework_id)
     .eq("org_id", orgId)
-    .eq("framework_id", ctx.profile.framework_id)
-    .eq("profile_id", ctx.profile.id)
     .maybeSingle();
+  if (fw.error) return NextResponse.json({ error: fw.error.message }, { status: 500 });
 
-  const coalesced = coalesceReportRow(current as RowReport);
+  const freqName =
+    (fw.data?.frequency_meta as any)?.[prof.data.frequency]?.name ||
+    `Frequency ${prof.data.frequency}`;
 
-  // Start from current, fully typed
-  let sections: ReportSections = {
-    summary: coalesced.sections.summary,
-    strengths: coalesced.sections.strengths,
-    challenges: coalesced.sections.challenges,
-    roles: coalesced.sections.roles,
-    guidance: coalesced.sections.guidance,
-  };
-  let approved = coalesced.approved;
-
-  if (body.op === "draft") {
-    const aiAny = (await draftReportSections({
-      brandTone: ctx.onboarding.brandTone,
-      industry: ctx.onboarding.industry,
-      sector: ctx.onboarding.sector,
-      company: ctx.onboarding.company,
-      frequencyName: ctx.frequencyNames[ctx.profile.frequency],
-      profileName: ctx.profile.name,
-    })) as any;
-
-    const aiSections: ReportSections = {
-      summary: typeof aiAny?.summary === "string" ? aiAny.summary : undefined,
-      strengths: typeof aiAny?.strengths === "string" ? aiAny.strengths : undefined,
-      challenges: typeof aiAny?.challenges === "string" ? aiAny.challenges : undefined,
-      roles: typeof aiAny?.roles === "string" ? aiAny.roles : undefined,
-      guidance: typeof aiAny?.guidance === "string" ? aiAny.guidance : undefined,
-    };
-
-    sections = {
-      summary: aiSections.summary ?? sections.summary,
-      strengths: aiSections.strengths ?? sections.strengths,
-      challenges: aiSections.challenges ?? sections.challenges,
-      roles: aiSections.roles ?? sections.roles,
-      guidance: aiSections.guidance ?? sections.guidance,
-    };
-    approved = false;
-  } else if (body.op === "save") {
-    if (body.sections && typeof body.sections === "object") {
-      const add = normalizeSections(body.sections);
-      sections = {
-        summary: add.summary ?? sections.summary,
-        strengths: add.strengths ?? sections.strengths,
-        challenges: add.challenges ?? sections.challenges,
-        roles: add.roles ?? sections.roles,
-        guidance: add.guidance ?? sections.guidance,
-      };
-    }
-    approved = false;
-  } else if (body.op === "approve") {
-    if (body.sections && typeof body.sections === "object") {
-      const add = normalizeSections(body.sections);
-      sections = {
-        summary: add.summary ?? sections.summary,
-        strengths: add.strengths ?? sections.strengths,
-        challenges: add.challenges ?? sections.challenges,
-        roles: add.roles ?? sections.roles,
-        guidance: add.guidance ?? sections.guidance,
-      };
-    }
-    approved = true;
-  } else {
-    return NextResponse.json({ message: "invalid op" }, { status: 400 });
-  }
-
-  const { error: upErr } = await sb
+  const ensure = await sb
     .from("org_profile_reports")
     .upsert(
       {
         org_id: orgId,
-        framework_id: ctx.profile.framework_id,
-        profile_id: ctx.profile.id,
-        sections: sections as any,
-        approved,
+        framework_id: prof.data.framework_id,
+        profile_id: pid,
+        sections: {
+          summary: prof.data.summary ?? "",
+          strengths: "",
+          challenges: "",
+          roles: "",
+          guidance: "",
+        },
+        approved: false,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "org_id,framework_id,profile_id" }
-    );
+    )
+    .select("*")
+    .maybeSingle();
+  if (ensure.error) return NextResponse.json({ error: ensure.error.message }, { status: 500 });
 
-  if (upErr) return NextResponse.json({ message: upErr.message }, { status: 500 });
+  return NextResponse.json({
+    profile: prof.data,
+    frequencyName: freqName,
+    report: ensure.data,
+  });
+}
 
-  return NextResponse.json({ ok: true, sections, approved }, { status: 200 });
+export async function POST(req: Request) {
+  const sb = getServiceClient();
+  const orgId = await getOrgId();
+  const pid = getIdFromUrl(req);
+  if (!pid) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+
+  const url = new URL(req.url);
+  const action = url.searchParams.get("action") || "save";
+
+  const prof = await sb
+    .from("org_profiles")
+    .select("name,frequency,framework_id")
+    .eq("id", pid)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  if (prof.error || !prof.data) return NextResponse.json({ error: "profile not found" }, { status: 404 });
+
+  if (action === "draft") {
+    const fw = await sb
+      .from("org_frameworks")
+      .select("frequency_meta")
+      .eq("id", prof.data.framework_id)
+      .eq("org_id", orgId)
+      .maybeSingle();
+
+    const { data: ob } = await sb
+      .from("org_onboarding")
+      .select("data")
+      .eq("org_id", orgId)
+      .maybeSingle();
+    const od = (ob?.data as any) ?? {};
+    const brandTone =
+      od?.branding?.tone ?? od?.branding?.brandTone ?? "confident, modern, human";
+    const industry = od?.company?.industry ?? od?.goals?.industry ?? "General";
+    const sector   = od?.company?.sector   ?? od?.goals?.sector   ?? "General";
+    const company  = od?.account?.companyName ?? od?.company?.name ?? "Company";
+
+    const frequencyName =
+      (fw.data?.frequency_meta as any)?.[prof.data.frequency]?.name ||
+      `Frequency ${prof.data.frequency}`;
+
+    const ai = (await draftReportSections({
+      brandTone,
+      industry,
+      sector,
+      company,
+      frequencyName,
+      profileName: prof.data.name,
+    })) as any;
+
+    const sections = {
+      summary:
+        (ai?.summary as string | undefined)?.trim() ||
+        `${prof.data.name} — concise positioning based on ${frequencyName}.`,
+      strengths: String(ai?.strengths ?? "• Drives progress\n• Collaborates well\n• Reliable execution"),
+      challenges: String(ai?.challenges ?? "• Overextends at times\n• Needs clearer priorities"),
+      roles: String(ai?.roles ?? "Ideal in roles that leverage these strengths and align to the frequency."),
+      guidance: String(ai?.guidance ?? "Use practical rituals and artifacts to enable consistent performance."),
+    };
+
+    const upd = await sb
+      .from("org_profile_reports")
+      .upsert(
+        {
+          org_id: orgId,
+          framework_id: prof.data.framework_id,
+          profile_id: pid,
+          sections: sections as any,
+          approved: false,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "org_id,framework_id,profile_id" }
+      );
+    if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+
+    return NextResponse.json({ ok: true, sections });
+  }
+
+  if (action === "signoff") {
+    const upd = await sb
+      .from("org_profile_reports")
+      .update({
+        approved: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("org_id", orgId)
+      .eq("profile_id", pid);
+    if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, approved: true });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const upd = await sb
+    .from("org_profile_reports")
+    .update({
+      sections: {
+        summary: String(body.summary ?? ""),
+        strengths: String(body.strengths ?? ""),
+        challenges: String(body.challenges ?? ""),
+        roles: String(body.roles ?? ""),
+        guidance: String(body.guidance ?? ""),
+      } as any,
+      approved: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("org_id", orgId)
+    .eq("profile_id", pid);
+
+  if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }

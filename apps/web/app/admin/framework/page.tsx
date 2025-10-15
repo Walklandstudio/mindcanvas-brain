@@ -1,4 +1,4 @@
-/* Server component */
+/* Server component: Framework landing with frequency chips + profile cards */
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { getServiceClient } from "../../_lib/supabase";
@@ -8,47 +8,45 @@ export const dynamic = "force-dynamic";
 
 export default async function FrameworkPage() {
   const sb = getServiceClient();
-
-  const c = await cookies();
-  const orgId: string | null = c.get("mc_org_id")?.value ?? null;
+  const c = await cookies();               // ⬅️ await here
+  const orgId = c.get("mc_org_id")?.value ?? null;
 
   if (!orgId) {
     return (
-      <main className="p-6 text-white">
-        <h1 className="text-2xl font-semibold mb-2">Framework</h1>
-        <p className="opacity-80">No org detected. Please complete onboarding.</p>
+      <main className="mx-auto max-w-6xl p-6 text-white">
+        <h1 className="text-2xl font-semibold">Framework</h1>
+        <p className="text-white/70 mt-1">
+          No org detected yet. Please complete onboarding first.
+        </p>
         <div className="mt-4">
-          <Link className="underline" href="/onboarding/create-account">Go to Onboarding</Link>
+          <Link className="underline" href="/onboarding/create-account">
+            Go to Onboarding
+          </Link>
         </div>
       </main>
     );
   }
 
-  // No reliance on updated_at; try created_at if present, else just first row
-  let fw = null as any;
-  {
-    const q = sb
-      .from("org_frameworks")
-      .select("id, frequency_meta")
-      .eq("org_id", orgId)
-      .limit(1);
-    // try to order by created_at if the column exists; if it errors, we’ll still get data
-    const { data } = await q; // simple fallback
-    fw = Array.isArray(data) ? data[0] : data ?? null;
-  }
+  const { data: fwRows } = await sb
+    .from("org_frameworks")
+    .select("id, frequency_meta")
+    .eq("org_id", orgId)
+    .limit(1);
 
+  const fw = Array.isArray(fwRows) ? fwRows[0] : fwRows ?? null;
   const frameworkId = fw?.id ?? null;
+
   const legacy = (fw?.frequency_meta as any) || {};
-  const frequencyNames: Record<"A" | "B" | "C" | "D", string> = {
+  const freqNames: Record<"A" | "B" | "C" | "D", string> = {
     A: legacy?.A?.name ?? "A",
     B: legacy?.B?.name ?? "B",
     C: legacy?.C?.name ?? "C",
     D: legacy?.D?.name ?? "D",
   };
 
-  const { data: profiles } = await sb
+  const { data: profiles = [] } = await sb
     .from("org_profiles")
-    .select("id,name,frequency,image_url,ordinal")
+    .select("id,name,frequency,image_url,ordinal,summary,strengths")
     .eq("org_id", orgId)
     .eq("framework_id", frameworkId)
     .order("ordinal", { ascending: true });
@@ -58,32 +56,35 @@ export default async function FrameworkPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Framework</h1>
-          <p className="text-white/70">Edit names and images; then draft the 8 profile reports.</p>
+          <p className="text-white/70">
+            Frequencies and profiles are generated from your onboarding data.
+          </p>
         </div>
 
-        {/* Generate reports button */}
-        <form action="/api/admin/reports/generate-all" method="post" className="flex items-center gap-3">
-          <button
-            type="submit"
-            className="rounded-xl px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white"
-          >
-            Generate 8 Reports
-          </button>
+        <div className="flex items-center gap-3">
+          <form action="/api/admin/framework/generate" method="post">
+            <button
+              className="rounded-2xl px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white"
+              type="submit"
+            >
+              Generate from Onboarding
+            </button>
+          </form>
           <Link
             href="/admin/reports"
-            className="rounded-xl px-4 py-2 bg-white/10 border border-white/15 hover:bg-white/20"
+            className="rounded-2xl px-4 py-2 bg-white/10 border border-white/15 hover:bg-white/20"
           >
             Go to Reports
           </Link>
-        </form>
+        </div>
       </div>
 
       <div className="mt-6">
         <FrameworkClient
           orgId={orgId}
           frameworkId={frameworkId}
-          initialProfiles={(profiles ?? []) as any}
-          initialFrequencies={frequencyNames}
+          initialProfiles={profiles as any}
+          initialFrequencies={freqNames}
         />
       </div>
     </main>
