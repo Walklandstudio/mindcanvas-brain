@@ -70,12 +70,26 @@ const INTEGRATIONS = [
 
 export default function GoalsPage() {
   const router = useRouter();
+  const [orgId, setOrgId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedTick, setSavedTick] = useState(0);
   const [err, setErr] = useState<string>("");
   const [data, setData] = useState<GoalsState>(DEFAULTS);
 
+  // Read orgId from localStorage or ?orgId=... and normalize
+  useEffect(() => {
+    const fromStorage =
+      (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
+    const fromUrl =
+      (typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("orgId")) ||
+      "";
+    const val = (fromStorage || fromUrl || "").replace(/^:/, "").trim();
+    setOrgId(val);
+  }, []);
+
+  // Initial load for this step (optional API you already wired)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -101,10 +115,17 @@ export default function GoalsPage() {
     setSaving(true);
     setErr("");
     try {
+      if (!orgId) {
+        throw new Error(
+          "Missing organization id. Please restart onboarding or go back a step so we can capture your org."
+        );
+      }
+
       const res = await fetch("/api/onboarding/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: "goals", data }),
+        // ✅ include orgId so the API route can validate & write
+        body: JSON.stringify({ orgId, step: "goals", data }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Failed to save");
@@ -117,7 +138,7 @@ export default function GoalsPage() {
     }
   }
 
-  const canSave = useMemo(() => !loading && !saving, [loading, saving]);
+  const canSave = useMemo(() => !loading && !saving && !!orgId, [loading, saving, orgId]);
 
   if (loading) {
     return (
@@ -134,6 +155,14 @@ export default function GoalsPage() {
       <p className="text-white/70 mt-1">
         Define the intent and shape of your organization’s test. These answers will guide the Framework generator.
       </p>
+
+      {/* Helpful banner if orgId is missing */}
+      {!orgId && (
+        <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-400/40 text-yellow-100 text-sm">
+          We couldn’t detect your organization id. Please go back to the previous step to capture it,
+          or add <code>?orgId=&lt;your-id&gt;</code> to the URL.
+        </div>
+      )}
 
       {err && (
         <div className="mt-4 p-3 rounded-lg bg-red-500/20 border border-red-400/40 text-red-100 text-sm">
@@ -152,7 +181,9 @@ export default function GoalsPage() {
           >
             <option value="">Select…</option>
             {INDUSTRIES.map((x) => (
-              <option key={x} value={x}>{x}</option>
+              <option key={x} value={x}>
+                {x}
+              </option>
             ))}
           </select>
         </label>
@@ -167,7 +198,9 @@ export default function GoalsPage() {
           >
             <option value="">Select…</option>
             {SECTORS.map((x) => (
-              <option key={x} value={x}>{x}</option>
+              <option key={x} value={x}>
+                {x}
+              </option>
             ))}
           </select>
         </label>
@@ -185,7 +218,9 @@ export default function GoalsPage() {
 
         {/* Align with mission */}
         <label className="block">
-          <span className="block text-sm mb-1">How does this test align with your company’s mission or vision?</span>
+          <span className="block text-sm mb-1">
+            How does this test align with your company’s mission or vision?
+          </span>
           <textarea
             className="w-full rounded-lg bg-white text-black p-3"
             rows={3}
@@ -196,7 +231,9 @@ export default function GoalsPage() {
 
         {/* Outcomes */}
         <label className="block">
-          <span className="block text-sm mb-1">What specific outcomes would you like participants to achieve after completing the test?</span>
+          <span className="block text-sm mb-1">
+            What specific outcomes would you like participants to achieve after completing the test?
+          </span>
           <textarea
             className="w-full rounded-lg bg-white text-black p-3"
             rows={3}
@@ -217,7 +254,9 @@ export default function GoalsPage() {
 
         {/* Audience challenges */}
         <label className="block">
-          <span className="block text-sm mb-1">Are there any challenges your audience faces that the test could help address?</span>
+          <span className="block text-sm mb-1">
+            Are there any challenges your audience faces that the test could help address?
+          </span>
           <textarea
             className="w-full rounded-lg bg-white text-black p-3"
             rows={3}
@@ -268,7 +307,9 @@ export default function GoalsPage() {
           >
             <option value="">Select…</option>
             {INTEGRATIONS.map((x) => (
-              <option key={x} value={x}>{x}</option>
+              <option key={x} value={x}>
+                {x}
+              </option>
             ))}
           </select>
         </label>
@@ -281,7 +322,10 @@ export default function GoalsPage() {
               className="w-full rounded-lg bg-white text-black p-3"
               value={data.pricing_model || ""}
               onChange={(e) =>
-                setData((d) => ({ ...d, pricing_model: (e.target.value as GoalsState["pricing_model"]) || "" }))
+                setData((d) => ({
+                  ...d,
+                  pricing_model: (e.target.value as GoalsState["pricing_model"]) || "",
+                }))
               }
             >
               <option value="">Select…</option>
@@ -298,7 +342,10 @@ export default function GoalsPage() {
               className="w-full rounded-lg bg-white text-black p-3"
               value={data.price_point ?? ""}
               onChange={(e) =>
-                setData((d) => ({ ...d, price_point: e.target.value === "" ? null : Number(e.target.value) }))
+                setData((d) => ({
+                  ...d,
+                  price_point: e.target.value === "" ? null : Number(e.target.value),
+                }))
               }
               placeholder="0"
               min={0}
@@ -334,6 +381,11 @@ export default function GoalsPage() {
           {savedTick > 0 && <span className="text-white/70 text-sm ml-1">Saved ✓</span>}
         </div>
       </div>
+
+      {/* Debug hint (remove later) */}
+      <p className="mt-4 text-xs text-white/50">
+        orgId: <code>{orgId || "(not set)"}</code>
+      </p>
     </main>
   );
 }
