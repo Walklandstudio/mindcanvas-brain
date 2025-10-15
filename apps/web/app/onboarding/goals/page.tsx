@@ -104,7 +104,7 @@ export default function GoalsPage() {
     } catch (e: any) {
       // Show error but do not disable navigation forever
       setErr(e?.message || "Save failed (non-blocking)");
-      if (goNext) router.push("/admin/framework");
+      if (goNext) router.push("/onboarding/summary");
     } finally {
       setSaving(false);
     }
