@@ -13,37 +13,36 @@ type Body = {
   recomputeProgress?: boolean;
 };
 
-/** compute a rough overall % based on non-empty fields across known sections */
 function computeProgress(d: any): number {
   let total = 0;
   let filled = 0;
 
-  // company: 4 fields
+  // company (4)
   total += 4;
   if (d?.company?.website) filled++;
   if (d?.company?.linkedin) filled++;
   if (d?.company?.industry) filled++;
   if (d?.company?.sector) filled++;
 
-  // account (example): email, name (adjust to your schema or keep at zero weight)
+  // account (example fields – adjust or leave)
   if (d?.account) {
     const keys = ["email", "name"];
     total += keys.length;
-    filled += keys.filter((k) => (d.account?.[k] ?? "").toString().trim().length > 0).length;
+    filled += keys.filter((k) => (d.account?.[k] ?? "").toString().trim()).length;
   }
 
-  // branding (example): logoUrl
+  // branding (example)
   if (d?.branding) {
     const keys = ["logoUrl"];
     total += keys.length;
-    filled += keys.filter((k) => (d.branding?.[k] ?? "").toString().trim().length > 0).length;
+    filled += keys.filter((k) => (d.branding?.[k] ?? "").toString().trim()).length;
   }
 
-  // goals (example): primaryGoal
+  // goals (example)
   if (d?.goals) {
     const keys = ["primaryGoal"];
     total += keys.length;
-    filled += keys.filter((k) => (d.goals?.[k] ?? "").toString().trim().length > 0).length;
+    filled += keys.filter((k) => (d.goals?.[k] ?? "").toString().trim()).length;
   }
 
   if (total === 0) return 0;
@@ -52,29 +51,36 @@ function computeProgress(d: any): number {
 
 export async function POST(req: Request) {
   const supabase = getServiceClient();
+
   const cookieStore = await cookies();
   let orgId = cookieStore.get(ORG_COOKIE)?.value;
+  if (!orgId) orgId = randomUUID();
 
-  if (!orgId) {
-    orgId = randomUUID();
+  let body: Body;
+  try {
+    body = (await req.json()) as Body;
+  } catch {
+    return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
   }
-
-  const body = (await req.json()) as Body;
   if (!body?.step || !body?.data) {
     return NextResponse.json({ message: "Missing step or data" }, { status: 400 });
   }
 
-  // fetch existing
+  // Fetch current state (if any)
   const { data: existing, error: selErr } = await supabase
     .from(TABLE)
     .select("data")
     .eq("org_id", orgId)
     .maybeSingle();
 
-  const current = (existing?.data as any) ?? {};
+  if (selErr && !/row not found/i.test(selErr.message || "")) {
+    // If table exists problem (e.g., missing column), surface it clearly
+    return NextResponse.json({ message: selErr.message || "Select failed" }, { status: 500 });
+  }
 
-  // merge per step
-  let merged = { ...current };
+  const current = (existing?.data as any) ?? {};
+  const merged = { ...current };
+
   if (body.step === "company") merged.company = { ...(current.company ?? {}), ...(body.data as Company) };
   if (body.step === "account") merged.account = { ...(current.account ?? {}), ...(body.data as Record<string, unknown>) };
   if (body.step === "branding") merged.branding = { ...(current.branding ?? {}), ...(body.data as Record<string, unknown>) };
@@ -84,16 +90,22 @@ export async function POST(req: Request) {
     merged.progress = computeProgress(merged);
   }
 
-  // upsert by org_id (idempotent)
   const { error: upErr } = await supabase
     .from(TABLE)
-    .upsert({ org_id: orgId, data: merged, updated_at: new Date().toISOString() }, { onConflict: "org_id" });
+    .upsert(
+      {
+        org_id: orgId,
+        data: merged,
+        progress: merged.progress ?? computeProgress(merged),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "org_id" }
+    );
 
   if (upErr) {
-    return NextResponse.json({ message: upErr.message ?? "Failed to save" }, { status: 500 });
+    return NextResponse.json({ message: upErr.message || "Upsert failed" }, { status: 500 });
   }
 
-  // set org cookie if it wasn’t present
   const res = NextResponse.json({ ok: true, data: merged }, { status: 200 });
   if (!cookieStore.get(ORG_COOKIE)?.value) {
     res.cookies.set(ORG_COOKIE, orgId, {
