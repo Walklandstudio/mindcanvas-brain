@@ -7,26 +7,29 @@ type Draft = {
   howTo: string;
   coreOverview: { profileInDepth: string; frequencyName: string };
   idealEnvironment: string;
-  strengths: string[];      // bullet list (one per line in UI)
-  challenges: string[];     // bullet list
+  strengths: string[];
+  challenges: string[];
   idealRoles: string;
   guidance: string;
-  realWorldExamples: string[]; // exactly 2 examples
+  realWorldExamples: string[];
   additionalInfo: string;
 };
 
 export default function ProfileEdit() {
-  const params = new URLSearchParams(
-    typeof window !== "undefined" ? window.location.search : ""
-  );
-  const [name, setName] = useState(params.get("name") || "Profile");
+  const params =
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+
+  // ✅ Define frequency FIRST so it exists in scope for any later usage
   const [frequency, setFrequency] = useState<"A" | "B" | "C" | "D">(
-    ((params.get("frequency") as any) || "A") as "A" | "B" | "C" | "D"
+    (params.get("frequency") as "A" | "B" | "C" | "D") || "A"
   );
+
+  const [name, setName] = useState(params.get("name") || "Profile");
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
 
+  // ✅ Define draft state locally (no top-level `draft` symbol)
   const [draft, setDraft] = useState<Draft>({
     intro: "",
     howTo: "",
@@ -40,7 +43,6 @@ export default function ProfileEdit() {
     additionalInfo: "",
   });
 
-  // Generate from AI using FULL onboarding context (goals are fetched here)
   async function generate() {
     try {
       setLoading(true);
@@ -54,10 +56,9 @@ export default function ProfileEdit() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           company: "Your Organization",
-          goals, // full onboarding context
+          goals,
           profileName: name,
           frequencyName: `Frequency ${frequency}`,
-          // brandTone optional: omit to derive from goals automatically
         }),
       });
 
@@ -88,35 +89,42 @@ export default function ProfileEdit() {
     }
   }
 
-  // Save to localStorage then navigate to preview/sign-off
-  function saveAndPreview() {
-    const payload = { name, frequency, draft };
-    if (typeof window !== "undefined") {
-      localStorage.setItem("mc_profile_preview", JSON.stringify(payload));
-      window.location.href = "/admin/profiles/preview";
+  async function saveAndPreview() {
+    try {
+      const orgId = (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || null;
+
+      const res = await fetch("/api/admin/profiles/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // ✅ All identifiers are in scope; explicit object is fine
+        body: JSON.stringify({
+          orgId,
+          profileName: name,
+          frequency: frequency,
+          content: draft,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.error || "Save failed");
+
+      window.location.href = `/admin/profiles/preview?id=${j.id}`;
+    } catch (e: any) {
+      alert(e?.message || "Save failed");
     }
   }
 
-  // Helpers to convert textarea ↔ bullets
   const strengthsText = (draft.strengths || []).join("\n");
   const challengesText = (draft.challenges || []).join("\n");
 
   return (
     <main className="max-w-3xl mx-auto p-8 text-white">
       <h1 className="text-3xl font-semibold">Profile Editor</h1>
-      <p className="text-white/60 mb-6">
-        Generate and edit content for the selected profile. No extra metadata fields — just the report sections.
-      </p>
+      <p className="text-white/60 mb-6">Generate and edit content for the selected profile.</p>
 
-      {/* Row: profile name + frequency */}
       <div className="grid grid-cols-2 gap-4">
         <label className="block">
           <span className="block text-sm text-white/60">Profile name</span>
-          <input
-            className="w-full rounded bg-white text-black p-3"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+          <input className="w-full rounded bg-white text-black p-3" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label className="block">
           <span className="block text-sm text-white/60">Frequency</span>
@@ -138,12 +146,9 @@ export default function ProfileEdit() {
       </div>
 
       {err && (
-        <div className="mt-4 p-3 rounded-lg bg-red-500/20 border border-red-400/40 text-red-100 text-sm">
-          {err}
-        </div>
+        <div className="mt-4 p-3 rounded-lg bg-red-500/20 border border-red-400/40 text-red-100 text-sm">{err}</div>
       )}
 
-      {/* Sections */}
       <div className="mt-8 grid gap-6">
         <EditorBlock
           title="Section 1 · Welcome / Introduction"
@@ -197,7 +202,13 @@ export default function ProfileEdit() {
           value={strengthsText}
           rows={5}
           onChange={(v) =>
-            setDraft((d) => ({ ...d, strengths: v.split("\n").map((s) => s.trim()).filter(Boolean) }))
+            setDraft((d) => ({
+              ...d,
+              strengths: v
+                .split("\n")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            }))
           }
         />
 
@@ -206,7 +217,13 @@ export default function ProfileEdit() {
           value={challengesText}
           rows={5}
           onChange={(v) =>
-            setDraft((d) => ({ ...d, challenges: v.split("\n").map((s) => s.trim()).filter(Boolean) }))
+            setDraft((d) => ({
+              ...d,
+              challenges: v
+                .split("\n")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            }))
           }
         />
 
