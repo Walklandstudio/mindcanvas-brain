@@ -1,30 +1,59 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/app/_lib/supabase/server";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
-function svc() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!
-  );
+type Body = {
+  orgId: string;
+  name?: string;
+  logoUrl?: string;
+};
+
+// Simple inline validation — avoids zod dependency
+function parse(body: unknown): Body {
+  if (!body || typeof body !== "object") throw new Error("Missing body");
+  const b = body as Record<string, unknown>;
+
+  const orgId = String(b.orgId || "");
+  if (!/^[0-9a-fA-F-]{36}$/.test(orgId)) throw new Error("Invalid orgId");
+
+  const name = b.name ? String(b.name) : undefined;
+  const logoUrl = b.logoUrl ? String(b.logoUrl) : undefined;
+
+  return { orgId, name, logoUrl };
 }
 
-async function getOrgId() {
-  const c = await cookies();
-  return c.get('mc_org_id')?.value ?? '00000000-0000-0000-0000-000000000001';
-}
+export async function POST(req: Request) {
+  try {
+    const payload = parse(await req.json());
+    const supabase = supabaseAdmin();
 
-export async function GET(req: Request) {
-  const step = new URL(req.url).searchParams.get('step') || 'company';
-  const orgId = await getOrgId();
-  const sb = svc();
+    const patch: { name?: string; logo_url?: string | null } = {};
+    if (payload.name) patch.name = payload.name;
+    if (payload.logoUrl) patch.logo_url = payload.logoUrl;
 
-  const r = await sb.from('org_onboarding').select('data').eq('org_id', orgId).maybeSingle();
-  if (r.error) return NextResponse.json({ error: r.error.message }, { status: 500 });
+    // If nothing to update, skip DB call
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({ ok: true, message: "Nothing to update" });
+    }
 
-  const data = (r.data?.data ?? {}) as any;
-  return NextResponse.json({ ok: true, data: data?.[step] ?? {} });
+    // Update organization record
+    const { data, error } = await supabase
+      .from("organizations")
+      .update(patch)
+      .eq("id", payload.orgId)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true, organization: data });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message ?? "Invalid payload" },
+      { status: 400 }
+    );
+  }
 }

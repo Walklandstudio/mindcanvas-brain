@@ -1,56 +1,52 @@
-// apps/web/app/api/admin/framework/save/route.ts
 import { NextResponse } from "next/server";
-import { getServiceClient } from "../../../../_lib/supabase";
+import { supabaseAdmin } from "@/app/_lib/supabase/server";
 
-const ORG_ID = "00000000-0000-0000-0000-000000000001";
+export const runtime = "nodejs";
+
+type Body = {
+  orgId: string;
+  name?: string;
+  logoUrl?: string;
+};
+
+function parse(body: unknown): Body {
+  if (!body || typeof body !== "object") throw new Error("Missing body");
+  const b = body as Record<string, unknown>;
+  const orgId = String(b.orgId || "");
+  if (!/^[0-9a-fA-F-]{36}$/.test(orgId)) throw new Error("Invalid orgId");
+  return {
+    orgId,
+    name: b.name ? String(b.name) : undefined,
+    logoUrl: b.logoUrl ? String(b.logoUrl) : undefined,
+  };
+}
 
 export async function POST(req: Request) {
-  const supabase = getServiceClient();
-  const body = await req.json();
+  try {
+    const payload = parse(await req.json());
+    const supabase = supabaseAdmin();
 
-  if (!body?.type) return NextResponse.json({ error: "Missing type" }, { status: 400 });
+    const patch: { name?: string; logo_url?: string | null } = {};
+    if (payload.name) patch.name = payload.name;
+    if (payload.logoUrl) patch.logo_url = payload.logoUrl;
 
-  if (body.type === "frequency") {
-    const letter = body.letter as "A" | "B" | "C" | "D";
-    if (!letter) return NextResponse.json({ error: "Missing letter" }, { status: 400 });
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({ ok: true, message: "Nothing to update" });
+    }
 
-    const { data: fw, error: fwErr } = await supabase
-      .from("org_frameworks")
-      .select("id,frequency_meta")
-      .eq("org_id", ORG_ID)
-      .maybeSingle();
-    if (fwErr) return NextResponse.json({ error: fwErr.message }, { status: 500 });
-    if (!fw) return NextResponse.json({ error: "No framework for org" }, { status: 404 });
+    const { data, error } = await supabase
+      .from("organizations")
+      .update(patch)
+      .eq("id", payload.orgId)
+      .select()
+      .single();
 
-    const meta = (fw.frequency_meta as any) || {};
-    meta[letter] = {
-      ...(meta[letter] || {}),
-      ...(body.name ? { name: body.name } : {}),
-      ...(body.image_url ? { image_url: body.image_url } : {}),
-    };
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
 
-    const { error: upErr } = await supabase
-      .from("org_frameworks")
-      .update({ frequency_meta: meta })
-      .eq("id", fw.id);
-    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, organization: data });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Invalid payload" }, { status: 400 });
   }
-
-  if (body.type === "profile") {
-    const id = body.id as string;
-    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-
-    const patch: Record<string, any> = {};
-    if (body.name !== undefined) patch.name = body.name;
-    if (body.image_url !== undefined) patch.image_url = body.image_url;
-
-    const { error: pErr } = await supabase.from("org_profiles").update(patch).eq("id", id);
-    if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
-
-    return NextResponse.json({ ok: true });
-  }
-
-  return NextResponse.json({ error: "Invalid type" }, { status: 400 });
 }

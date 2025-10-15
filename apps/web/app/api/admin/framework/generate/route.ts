@@ -1,103 +1,98 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createClient } from '@supabase/supabase-js';
-import { suggestFrameworkNames, buildProfileCopy } from '../../../../../app/_lib/ai';
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/app/_lib/supabase/server";
+import { suggestFrameworkNames } from "@/app/_lib/ai";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
-function svc() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!
-  );
+type Body = {
+  orgId: string;
+  orgName?: string;
+
+  // optional onboarding context for naming
+  industry?: string;
+  sector?: string;
+  brandTone?: string;
+  primaryGoal?: string;
+};
+
+// Minimal inline validation (no zod)
+function parse(body: unknown): Body {
+  if (!body || typeof body !== "object") throw new Error("Missing body");
+  const b = body as Record<string, unknown>;
+  const orgId = String(b.orgId || "");
+  if (!/^[0-9a-fA-F-]{36}$/.test(orgId)) throw new Error("Invalid orgId");
+
+  return {
+    orgId,
+    orgName: b.orgName ? String(b.orgName) : undefined,
+    industry: b.industry ? String(b.industry) : undefined,
+    sector: b.sector ? String(b.sector) : undefined,
+    brandTone: b.brandTone ? String(b.brandTone) : undefined,
+    primaryGoal: b.primaryGoal ? String(b.primaryGoal) : undefined,
+  };
 }
 
-async function getOrgId() {
-  const c = await cookies();
-  return c.get('mc_org_id')?.value ?? '00000000-0000-0000-0000-000000000001';
+function slugify(input: string) {
+  return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
-export async function POST() {
-  const orgId = await getOrgId();
-  const sb = svc();
+export async function POST(req: Request) {
+  try {
+    const payload = parse(await req.json());
+    const supabase = supabaseAdmin();
 
-  // Pull onboarding
-  const ob = await sb.from('org_onboarding').select('data').eq('org_id', orgId).maybeSingle();
-  if (ob.error) return NextResponse.json({ error: ob.error.message }, { status: 500 });
+    // 1) Ensure org exists (prevents FK errors)
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .eq("id", payload.orgId)
+      .single();
 
-  const company = ob.data?.data?.company ?? {};
-  const branding = ob.data?.data?.branding ?? {};
-  const goals = ob.data?.data?.goals ?? {};
-  const industry = company?.industry || goals?.industry || '';
-  const sector   = company?.sector   || goals?.sector   || '';
-  const brandTone = branding?.tone || branding?.brandTone || 'confident, modern, human';
+    if (orgErr || !org) {
+      return NextResponse.json(
+        { error: "Organization not found for orgId", details: orgErr?.message },
+        { status: 400 }
+      );
+    }
 
-  // Ensure framework row exists *with a name* (fix NOT NULL issue)
-  const defaultName = 'Signature Profile Framework';
-  const fwEx = await sb.from('org_frameworks').select('id,name,frequency_meta').eq('org_id', orgId).limit(1).maybeSingle();
-
-  let frameworkId = fwEx.data?.id as string | undefined;
-  if (!frameworkId) {
-    const ins = await sb
-      .from('org_frameworks')
-      .insert([{ org_id: orgId, name: defaultName, frequency_meta: {} }])
-      .select('id')
-      .maybeSingle();
-    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
-    frameworkId = ins.data!.id;
-  } else if (!fwEx.data?.name) {
-    await sb.from('org_frameworks').update({ name: defaultName }).eq('id', frameworkId).eq('org_id', orgId);
-  }
-
-  // Get names from AI (with internal fallbacks)
-  const names = await suggestFrameworkNames({
-    industry, sector, brandTone, primaryGoal: goals?.primaryGoal || goals?.goal || ''
-  });
-
-  // Save frequency labels
-  await sb.from('org_frameworks')
-    .update({ frequency_meta: {
-      A: { name: names.frequencies.A },
-      B: { name: names.frequencies.B },
-      C: { name: names.frequencies.C },
-      D: { name: names.frequencies.D },
-    }})
-    .eq('id', frameworkId)
-    .eq('org_id', orgId);
-
-  // Replace profiles A–D × 2
-  await sb.from('org_profiles').delete().eq('org_id', orgId).eq('framework_id', frameworkId);
-
-  const toInsert: any[] = [];
-  const freqOrder: ('A'|'B'|'C'|'D')[] = ['A','A','B','B','C','C','D','D'];
-  for (let i = 0; i < 8; i++) {
-    const p = names.profiles[i];
-    const freq = p?.frequency as 'A'|'B'|'C'|'D' || freqOrder[i];
-    const name = (p?.name as string) || `Profile ${i+1}`;
-
-    const copy = await buildProfileCopy({
-      brandTone,
-      industry,
-      sector,
-      company: company?.website || 'Demo Org',
-      frequencyName: names.frequencies[freq],
-      profileName: name,
+    // 2) Ask your AI helper to suggest frequency/profile names (with fallbacks inside)
+    const branding = await suggestFrameworkNames({
+      industry: payload.industry || "General",
+      sector: payload.sector || "General",
+      brandTone: payload.brandTone || "confident, modern, human",
+      primaryGoal: payload.primaryGoal || "Improve team performance",
     });
 
-    toInsert.push({
-      org_id: orgId,
-      framework_id: frameworkId,
-      name,
-      frequency: freq,
-      ordinal: i + 1,
-      summary: copy.summary,
-      image_url: null,
-    });
+    const baseName = `${payload.orgName || org.name} — Core Framework`;
+    const frameworkName = baseName.trim();
+    const slug = slugify(frameworkName) || "core-framework";
+
+    // Build meta to store the names/prompts you generated
+    const meta = {
+      frequencies: branding.frequencies,
+      profiles: branding.profiles,
+      imagePrompts: branding.imagePrompts,
+      source: "ai.suggestFrameworkNames",
+    };
+
+    // 3) Insert framework (typed; no "never" types)
+    const { data, error } = await supabase
+      .from("org_frameworks")
+      .insert({
+        org_id: payload.orgId,
+        name: frameworkName,
+        slug,
+        meta,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true, framework: data }, { status: 201 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Unknown error" }, { status: 400 });
   }
-
-  const insProfiles = await sb.from('org_profiles').insert(toInsert).select('id');
-  if (insProfiles.error) return NextResponse.json({ error: insProfiles.error.message }, { status: 500 });
-
-  return NextResponse.json({ ok: true, frameworkId, count: toInsert.length });
 }
