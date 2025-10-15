@@ -1,7 +1,7 @@
 // apps/web/app/onboarding/goals/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type GoalsState = {
@@ -49,22 +49,24 @@ export default function GoalsPage() {
   const [err, setErr] = useState<string>("");
   const [data, setData] = useState<GoalsState>(DEFAULTS);
 
-  // Try to pick up orgId, but we won't block if it's not there.
+  // Try to populate orgId, but DO NOT block UI if missing
   useEffect(() => {
-    const fromStorage = (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
-    const fromUrl = (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("orgId")) || "";
+    const fromStorage =
+      (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
+    const fromUrl =
+      (typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("orgId")) || "";
     const val = (fromStorage || fromUrl || "").replace(/^:/, "").trim();
     setOrgId(val);
   }, []);
 
-  // Load any existing goals
+  // Load any existing goals (non-blocking)
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const res = await fetch("/api/onboarding/get?step=goals", { cache: "no-store" });
-        if (!res.ok) throw new Error(`GET /api/onboarding/get failed (${res.status})`);
-        const j = await res.json();
+        const j = await res.json().catch(() => ({}));
         if (mounted) setData({ ...DEFAULTS, ...(j?.data || {}) });
       } catch (e: any) {
         if (mounted) setErr(e?.message || "Failed to load goals");
@@ -79,24 +81,34 @@ export default function GoalsPage() {
     setSaving(true);
     setErr("");
     try {
-      // Include orgId if we have it; otherwise route will "soft save"
+      // Send orgId if we have it; API tolerates missing id
       const res = await fetch("/api/onboarding/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgId: orgId || undefined, step: "goals", data }),
       });
+
+      // We treat any response as OK to proceed (API is tolerant; we don't block UX)
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || "Failed to save");
+      if (!res.ok && j?.error) {
+        // show message but don't block next
+        setErr(j.error);
+      }
       setSavedTick((x) => x + 1);
-      if (goNext) router.push("/admin/framework");
+
+      if (goNext) {
+        // Always allow the user forward — framework page can preview without orgId
+        router.push("/admin/framework");
+        return;
+      }
     } catch (e: any) {
-      setErr(e?.message || "Save failed");
+      // Show error but do not disable navigation forever
+      setErr(e?.message || "Save failed (non-blocking)");
+      if (goNext) router.push("/admin/framework");
     } finally {
       setSaving(false);
     }
   }
-
-  const canSave = useMemo(() => !loading && !saving, [loading, saving]);
 
   if (loading) {
     return (
@@ -291,20 +303,33 @@ export default function GoalsPage() {
       {/* Footer actions */}
       <div className="sticky bottom-0 left-0 right-0 mt-8 bg-neutral-900/70 backdrop-blur border-t border-white/10">
         <div className="max-w-3xl mx-auto p-4 flex flex-wrap items-center gap-3">
-          <button onClick={() => router.push("/onboarding/branding")} className="px-4 py-2 rounded-xl bg-white/10 border border-white/20">
+          <button
+            onClick={() => router.push("/onboarding/branding")}
+            className="px-4 py-2 rounded-xl bg-white/10 border border-white/20"
+          >
             Back
           </button>
-          <button onClick={() => save(false)} disabled={!canSave} className="px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-60">
+          <button
+            onClick={() => save(false)}
+            disabled={saving}  // ✅ only disable during fetch
+            className="px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-60"
+          >
             {saving ? "Saving…" : "Save"}
           </button>
-          <button onClick={() => save(true)} disabled={!canSave} className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium disabled:opacity-60">
+          <button
+            onClick={() => save(true)}
+            disabled={saving}  // ✅ only disable during fetch
+            className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium disabled:opacity-60"
+          >
             {saving ? "Saving…" : "Save & Next"}
           </button>
           {savedTick > 0 && <span className="text-white/70 text-sm ml-1">Saved ✓</span>}
         </div>
       </div>
 
-      <p className="mt-4 text-xs text-white/50">orgId: <code>{orgId || "(not set)"}</code></p>
+      <p className="mt-4 text-xs text-white/50">
+        orgId: <code>{orgId || "(not set)"}</code>
+      </p>
     </main>
   );
 }
