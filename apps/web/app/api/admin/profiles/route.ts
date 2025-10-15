@@ -1,66 +1,100 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
 
-function admin() {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!);
-}
-function userClient(bearer: string) {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { Authorization: bearer } } }
-  );
-}
-async function getOrgId(bearer: string) {
-  const u = userClient(bearer);
-  const { data } = await u.auth.getUser();
-  const uid = data.user?.id;
-  if (!uid) return null;
-  const a = admin();
-  const { data: m } = await a.from('org_memberships').select('org_id').eq('user_id', uid).limit(1);
-  return m?.[0]?.org_id ?? null;
-}
+export const runtime = "nodejs";
 
-export async function GET(req: Request) {
-  const auth = req.headers.get('authorization') || req.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return NextResponse.json({ ok: false, error: 'missing bearer' }, { status: 401 });
-  const orgId = await getOrgId(auth);
-  if (!orgId) return NextResponse.json({ ok: false, error: 'no org' }, { status: 401 });
+type Body = {
+  company: string;
+  goals: {
+    industry?: string; sector?: string; primary_goal?: string;
+    align_with_mission?: string; desired_outcomes?: string;
+    audience?: string; audience_challenges?: string;
+    other_insights?: string; industry_relevant_info?: string;
+    standalone_or_program?: string; integration?: string;
+    pricing_model?: "free" | "paid" | "tiered" | ""; price_point?: number | null;
+  };
+  profileName: string;
+  frequencyName: string; // e.g., "Frequency A"
+  brandTone?: string;    // optional; can be derived
+};
 
-  const a = admin();
-  const { data, error } = await a.from('profiles').select('*').eq('org_id', orgId).order('key', { ascending: true });
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, data });
+function deriveTone(goals: Body["goals"], override?: string) {
+  if (override && override.trim()) return override;
+  const base = (goals.sector || goals.industry || "").toLowerCase();
+  if (base.includes("education")) return "supportive, clear, empowering";
+  if (base.includes("finance")) return "confident, precise, trustworthy";
+  if (base.includes("health")) return "reassuring, expert, humane";
+  if (base.includes("startup") || base.includes("technology")) return "modern, energetic, pragmatic";
+  return "confident, modern, human";
 }
 
 export async function POST(req: Request) {
-  // seed defaults if none exist
-  const auth = req.headers.get('authorization') || req.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return NextResponse.json({ ok: false, error: 'missing bearer' }, { status: 401 });
-  const orgId = await getOrgId(auth);
-  if (!orgId) return NextResponse.json({ ok: false, error: 'no org' }, { status: 401 });
+  try {
+    const body = (await req.json()) as Body;
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    if (!client.apiKey) {
+      return NextResponse.json({ error: "OPENAI_API_KEY missing" }, { status: 500 });
+    }
 
-  const a = admin();
-  const { data: existing } = await a.from('profiles').select('id').eq('org_id', orgId).limit(1);
-  if (existing?.length) return NextResponse.json({ ok: true, seeded: false });
+    const tone = deriveTone(body.goals, body.brandTone);
 
-  const defs = [
-    { key: 'A1', freq_key: 'A', name: 'A1 Pioneer', color: '#1f2937', description: 'Default description A1' },
-    { key: 'A2', freq_key: 'A', name: 'A2 Catalyst', color: '#374151', description: 'Default description A2' },
-    { key: 'B1', freq_key: 'B', name: 'B1 Strategist', color: '#0f766e', description: 'Default description B1' },
-    { key: 'B2', freq_key: 'B', name: 'B2 Architect', color: '#115e59', description: 'Default description B2' },
-    { key: 'C1', freq_key: 'C', name: 'C1 Collaborator', color: '#7c3aed', description: 'Default description C1' },
-    { key: 'C2', freq_key: 'C', name: 'C2 Facilitator', color: '#6d28d9', description: 'Default description C2' },
-    { key: 'D1', freq_key: 'D', name: 'D1 Guardian', color: '#b45309', description: 'Default description D1' },
-    { key: 'D2', freq_key: 'D', name: 'D2 Steward', color: '#92400e', description: 'Default description D2' }
-  ];
+    const sys = `You create concise, practical reports. Avoid fluff. Keep paragraphs short.`;
+    const user = `
+Company: ${body.company}
+Tone: ${tone}
 
-  const rows = defs.map(d => ({ org_id: orgId, ...d }));
-  const { error } = await a.from('profiles').insert(rows);
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+Profile to draft:
+- Profile: ${body.profileName}
+- Frequency: ${body.frequencyName}
 
-  // ensure template row exists
-  await a.from('report_templates').upsert({ org_id: orgId });
+Onboarding context:
+- Industry: ${body.goals.industry || "—"}
+- Sector: ${body.goals.sector || "—"}
+- Primary goal: ${body.goals.primary_goal || "—"}
+- Mission alignment: ${body.goals.align_with_mission || "—"}
+- Desired outcomes: ${body.goals.desired_outcomes || "—"}
+- Audience: ${body.goals.audience || "—"}
+- Audience challenges: ${body.goals.audience_challenges || "—"}
+- Integration: ${body.goals.integration || "—"}
+- Pricing model: ${body.goals.pricing_model || "—"}
+- Other insights: ${body.goals.other_insights || "—"}
+- Industry-relevant info: ${body.goals.industry_relevant_info || "—"}
 
-  return NextResponse.json({ ok: true, seeded: true });
+Task:
+Draft a report with the following 10 sections. Use the tone, keep it specific to the context, and avoid generic cliches.
+
+Return STRICT JSON with this exact shape:
+{
+  "intro": "Welcome paragraph (2–3 sentences).",
+  "howTo": "How to use the report (2–3 sentences).",
+  "coreOverview": {
+    "profileInDepth": "1 short paragraph describing ${body.profileName} in this organization & sector.",
+    "frequencyName": "${body.frequencyName}"
+  },
+  "idealEnvironment": "1 short paragraph tailored to outcomes & audience.",
+  "strengths": ["bullet A","bullet B","bullet C"],
+  "challenges": ["bullet A","bullet B","bullet C"],
+  "idealRoles": "1 short paragraph mapping to roles or functions.",
+  "guidance": "2 short, practical paragraphs with actions.",
+  "realWorldExamples": "1 short paragraph with concrete examples in this industry/sector.",
+  "additionalInfo": ""
+}
+Only output JSON.
+`;
+
+    const resp = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.5,
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: user },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const json = JSON.parse(resp.choices[0]?.message?.content || "{}");
+    return NextResponse.json(json);
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Draft failed" }, { status: 400 });
+  }
 }
