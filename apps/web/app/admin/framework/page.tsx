@@ -2,81 +2,64 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type GoalsState = {
-  industry?: string;
-  sector?: string;
-  primary_goal?: string;
-  // you can add more fields if needed
+type GoalsState = { industry?: string; sector?: string; primary_goal?: string };
+type Preview = {
+  frequencies: Record<"A"|"B"|"C"|"D", string>;
+  profiles: { name: string; frequency: "A"|"B"|"C"|"D" }[];
+  imagePrompts?: Record<"A"|"B"|"C"|"D", string>;
 };
 
 export default function FrameworkPage() {
   const [orgId, setOrgId] = useState("");
   const [goals, setGoals] = useState<GoalsState | null>(null);
-  const [orgName, setOrgName] = useState<string>("");
-  const [brandTone, setBrandTone] = useState<string>("confident, modern, human");
+  const [orgName, setOrgName] = useState("");
+  const [brandTone, setBrandTone] = useState("confident, modern, human");
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
+  const [preview, setPreview] = useState<Preview | null>(null);
 
-  // Pull orgId from localStorage or ?orgId=
   useEffect(() => {
-    const fromStorage =
-      (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
-    const fromUrl =
-      (typeof window !== "undefined" &&
-        new URLSearchParams(window.location.search).get("orgId")) ||
-      "";
+    const fromStorage = (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
+    const fromUrl = (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("orgId")) || "";
     const val = (fromStorage || fromUrl || "").replace(/^:/, "").trim();
     setOrgId(val);
   }, []);
 
-  // Load goals + orgName for context
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         setLoading(true);
         setErr("");
-
-        // 1) load goals
-        const resGoals = await fetch("/api/onboarding/get?step=goals", { cache: "no-store" });
-        const jGoals = await resGoals.json().catch(() => ({}));
-        if (mounted) setGoals(jGoals?.data || null);
-
-        // 2) (optional) load orgName if you have an endpoint; otherwise leave input editable
-        // If you don’t have an org-get API, we’ll let the user type orgName manually.
-        // Example (commented out):
-        // const resOrg = await fetch(`/api/orgs/get?id=${orgId}`, { cache: "no-store" });
-        // const jOrg = await resOrg.json().catch(() => ({}));
-        // if (mounted) setOrgName(jOrg?.data?.name || "");
-
+        const res = await fetch("/api/onboarding/get?step=goals", { cache: "no-store" });
+        const j = await res.json().catch(() => ({}));
+        if (mounted) setGoals(j?.data || null);
       } catch (e: any) {
-        if (mounted) setErr(e?.message || "Failed to load data");
+        if (mounted) setErr(e?.message || "Failed to load goals");
       } finally {
         if (mounted) setLoading(false);
       }
     })();
+    return () => { mounted = false; };
+  }, []);
 
-    return () => {
-      mounted = false;
-    };
-  }, [orgId]);
+  const canPreview = useMemo(() => !loading && !busy, [loading, busy]);
+  const canSave = useMemo(() => !loading && !busy && !!orgId && !!preview, [loading, busy, orgId, preview]);
 
-  const canGenerate = useMemo(() => !loading && !generating && !!orgId, [loading, generating, orgId]);
-
-  async function handleGenerate() {
+  async function handleGenerate(dryRun: boolean) {
     try {
-      setGenerating(true);
+      setBusy(true);
       setErr("");
 
-      if (!orgId) throw new Error("Missing organization id");
       const payload = {
-        orgId,
+        orgId: dryRun ? undefined : orgId || undefined,
         orgName: orgName || undefined,
         industry: goals?.industry || "General",
         sector: goals?.sector || "General",
         primaryGoal: goals?.primary_goal || "Improve team performance",
         brandTone: brandTone || "confident, modern, human",
+        dryRun, // <— new flag
       };
 
       const res = await fetch("/api/admin/framework/generate", {
@@ -85,30 +68,38 @@ export default function FrameworkPage() {
         body: JSON.stringify(payload),
       });
       const j = await res.json().catch(() => ({}));
+
       if (!res.ok) throw new Error(j?.error || "Framework generation failed");
 
-      // Success — you can navigate to a detail page or show a confirmation
-      alert("Framework created successfully.");
-      // e.g., window.location.href = `/admin/framework/${j.framework.id}`;
+      if (j?.preview) {
+        setPreview(j.preview);
+      } else if (j?.framework) {
+        // We saved to DB successfully
+        setPreview(j.framework.meta || null);
+        alert("Framework created successfully.");
+        // e.g., navigate to a details page if you have one
+        // window.location.href = `/admin/framework/${j.framework.id}`;
+      } else {
+        throw new Error("Unexpected response");
+      }
     } catch (e: any) {
       setErr(e?.message || "Failed to generate framework");
     } finally {
-      setGenerating(false);
+      setBusy(false);
     }
   }
 
   return (
     <main className="max-w-3xl mx-auto p-6 text-white">
       <h1 className="text-2xl font-semibold">Framework Generator</h1>
-      <p className="text-white/70 mt-1">
-        We’ll use your Goals plus AI to seed a 4×8 framework for your organization.
-      </p>
+      <p className="text-white/70 mt-1">We’ll use your Goals plus AI to seed a 4×8 framework for your organization.</p>
 
       {loading && <p className="mt-4 text-white/70">Loading…</p>}
 
       {!loading && !orgId && (
         <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-400/40 text-yellow-100 text-sm">
-          We couldn’t detect your organization id. Go back to onboarding or add <code>?orgId=&lt;id&gt;</code> to the URL.
+          No organization id detected. You can still <b>Preview</b> your framework.
+          Add <code>?orgId=&lt;id&gt;</code> or set it earlier to enable <b>Save</b>.
         </div>
       )}
 
@@ -118,7 +109,6 @@ export default function FrameworkPage() {
         </div>
       )}
 
-      {/* Context fields */}
       <div className="mt-6 grid gap-4">
         <label className="block">
           <span className="block text-sm mb-1">Organization Name (optional override)</span>
@@ -151,21 +141,49 @@ export default function FrameworkPage() {
       </div>
 
       <div className="mt-6 flex gap-3">
-        <a className="px-4 py-2 rounded-xl bg-white/10 border border-white/20" href="/onboarding/goals">
-          Back
-        </a>
+        <a className="px-4 py-2 rounded-xl bg-white/10 border border-white/20" href="/onboarding/goals">Back</a>
         <button
-          onClick={handleGenerate}
-          disabled={!canGenerate}
+          onClick={() => handleGenerate(true)}
+          disabled={!canPreview}
+          className="px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-60"
+        >
+          {busy ? "Generating…" : "Preview Framework"}
+        </button>
+        <button
+          onClick={() => handleGenerate(false)}
+          disabled={!canSave}
           className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium disabled:opacity-60"
         >
-          {generating ? "Generating…" : "Generate Framework"}
+          {busy ? "Saving…" : "Save Framework"}
         </button>
       </div>
 
-      <p className="mt-6 text-xs text-white/50">
-        orgId: <code>{orgId || "(not set)"}</code>
-      </p>
+      {/* Preview grid */}
+      {preview && (
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold mb-3">Preview</h2>
+          <div className="grid gap-6 md:grid-cols-2">
+            {(["A","B","C","D"] as const).map((f) => (
+              <div key={f} className="rounded-lg border border-white/10 p-4">
+                <div className="text-sm text-white/60">Frequency {f}</div>
+                <div className="text-lg font-medium">{preview.frequencies[f]}</div>
+                <ul className="mt-3 list-disc pl-5 text-white/90">
+                  {preview.profiles.filter(p => p.frequency === f).map((p, i) => (
+                    <li key={`${f}-${i}`}>{p.name}</li>
+                  ))}
+                </ul>
+                {preview.imagePrompts?.[f as "A"|"B"|"C"|"D"] && (
+                  <p className="mt-3 text-xs text-white/50">
+                    Image prompt: {preview.imagePrompts[f as "A"|"B"|"C"|"D"]}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-6 text-xs text-white/50">orgId: <code>{orgId || "(not set)"}</code></p>
     </main>
   );
 }

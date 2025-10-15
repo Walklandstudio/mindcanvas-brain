@@ -5,47 +5,71 @@ import { suggestFrameworkNames } from "@/app/_lib/ai";
 export const runtime = "nodejs";
 
 type Body = {
-  orgId: string;
+  orgId?: string;
   orgName?: string;
-
-  // optional onboarding context for naming
   industry?: string;
   sector?: string;
   brandTone?: string;
   primaryGoal?: string;
+  dryRun?: boolean; // if true OR if orgId missing ⇒ preview only
 };
 
-// Minimal inline validation (no zod)
-function parse(body: unknown): Body {
-  if (!body || typeof body !== "object") throw new Error("Missing body");
-  const b = body as Record<string, unknown>;
-  const orgId = String(b.orgId || "");
-  if (!/^[0-9a-fA-F-]{36}$/.test(orgId)) throw new Error("Invalid orgId");
-
-  return {
-    orgId,
-    orgName: b.orgName ? String(b.orgName) : undefined,
-    industry: b.industry ? String(b.industry) : undefined,
-    sector: b.sector ? String(b.sector) : undefined,
-    brandTone: b.brandTone ? String(b.brandTone) : undefined,
-    primaryGoal: b.primaryGoal ? String(b.primaryGoal) : undefined,
-  };
+function slugify(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
-
-function slugify(input: string) {
-  return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+function normalizeId(s?: string) {
+  return (s || "").trim().replace(/^:/, "");
+}
+function isLikelyId(s?: string) {
+  if (!s) return false;
+  const x = s.trim();
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const ulid = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
+  const cuidish = /^[a-z0-9_-]{12,}$/i;
+  return uuid.test(x) || ulid.test(x) || cuidish.test(x);
 }
 
 export async function POST(req: Request) {
   try {
-    const payload = parse(await req.json());
+    const body = (await req.json()) as Body;
+
+    const orgIdRaw = normalizeId(body.orgId);
+    const hasOrg = isLikelyId(orgIdRaw);
+    const dryRun = body.dryRun || !hasOrg;
+
+    // 1) Build the branded names via AI (your existing helper has fallbacks)
+    const branding = await suggestFrameworkNames({
+      industry: body.industry || "General",
+      sector: body.sector || "General",
+      primaryGoal: body.primaryGoal || "Improve team performance",
+      brandTone: body.brandTone || "confident, modern, human",
+    });
+
+    const frameworkName = `${body.orgName || "Signature"} — Core Framework`.trim();
+    const slug = slugify(frameworkName) || "core-framework";
+
+    if (dryRun) {
+      // 2A) Preview only — don't touch DB
+      return NextResponse.json({
+        ok: true,
+        preview: {
+          frequencies: branding.frequencies,
+          profiles: branding.profiles,
+          imagePrompts: branding.imagePrompts,
+          name: frameworkName,
+          slug,
+        },
+        note: hasOrg ? "dryRun requested" : "no orgId detected, returning preview",
+      });
+    }
+
+    // 2B) Save to DB (org must exist for FK)
     const supabase = supabaseAdmin();
 
-    // 1) Ensure org exists (prevents FK errors)
     const { data: org, error: orgErr } = await supabase
       .from("organizations")
       .select("id, name")
-      .eq("id", payload.orgId)
+      .eq("id", orgIdRaw)
       .single();
 
     if (orgErr || !org) {
@@ -55,19 +79,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) Ask your AI helper to suggest frequency/profile names (with fallbacks inside)
-    const branding = await suggestFrameworkNames({
-      industry: payload.industry || "General",
-      sector: payload.sector || "General",
-      brandTone: payload.brandTone || "confident, modern, human",
-      primaryGoal: payload.primaryGoal || "Improve team performance",
-    });
-
-    const baseName = `${payload.orgName || org.name} — Core Framework`;
-    const frameworkName = baseName.trim();
-    const slug = slugify(frameworkName) || "core-framework";
-
-    // Build meta to store the names/prompts you generated
     const meta = {
       frequencies: branding.frequencies,
       profiles: branding.profiles,
@@ -75,11 +86,10 @@ export async function POST(req: Request) {
       source: "ai.suggestFrameworkNames",
     };
 
-    // 3) Insert framework (typed; no "never" types)
     const { data, error } = await supabase
       .from("org_frameworks")
       .insert({
-        org_id: payload.orgId,
+        org_id: orgIdRaw,
         name: frameworkName,
         slug,
         meta,

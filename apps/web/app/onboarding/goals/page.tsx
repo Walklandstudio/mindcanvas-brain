@@ -36,37 +36,9 @@ const DEFAULTS: GoalsState = {
   price_point: null,
 };
 
-const INDUSTRIES = [
-  "Technology",
-  "Finance",
-  "Healthcare",
-  "Education",
-  "Retail",
-  "Manufacturing",
-  "Consulting",
-  "Other",
-];
-
-const SECTORS = [
-  "B2B",
-  "B2C",
-  "Public Sector",
-  "Nonprofit",
-  "Enterprise",
-  "SMB",
-  "Startup",
-];
-
-const INTEGRATIONS = [
-  "Standalone",
-  "Zapier",
-  "Webhook",
-  "HubSpot",
-  "Salesforce",
-  "Google Sheets",
-  "Slack",
-  "Other",
-];
+const INDUSTRIES = ["Technology","Finance","Healthcare","Education","Retail","Manufacturing","Consulting","Other"];
+const SECTORS = ["B2B","B2C","Public Sector","Nonprofit","Enterprise","SMB","Startup"];
+const INTEGRATIONS = ["Standalone","Zapier","Webhook","HubSpot","Salesforce","Google Sheets","Slack","Other"];
 
 export default function GoalsPage() {
   const router = useRouter();
@@ -77,19 +49,15 @@ export default function GoalsPage() {
   const [err, setErr] = useState<string>("");
   const [data, setData] = useState<GoalsState>(DEFAULTS);
 
-  // Read orgId from localStorage or ?orgId=... and normalize
+  // Try to pick up orgId, but we won't block if it's not there.
   useEffect(() => {
-    const fromStorage =
-      (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
-    const fromUrl =
-      (typeof window !== "undefined" &&
-        new URLSearchParams(window.location.search).get("orgId")) ||
-      "";
+    const fromStorage = (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
+    const fromUrl = (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("orgId")) || "";
     const val = (fromStorage || fromUrl || "").replace(/^:/, "").trim();
     setOrgId(val);
   }, []);
 
-  // Initial load for this step (optional API you already wired)
+  // Load any existing goals
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -97,35 +65,25 @@ export default function GoalsPage() {
         const res = await fetch("/api/onboarding/get?step=goals", { cache: "no-store" });
         if (!res.ok) throw new Error(`GET /api/onboarding/get failed (${res.status})`);
         const j = await res.json();
-        if (mounted) {
-          setData({ ...DEFAULTS, ...(j?.data || {}) });
-        }
+        if (mounted) setData({ ...DEFAULTS, ...(j?.data || {}) });
       } catch (e: any) {
         if (mounted) setErr(e?.message || "Failed to load goals");
       } finally {
         if (mounted) setLoading(false);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   async function save(goNext?: boolean) {
     setSaving(true);
     setErr("");
     try {
-      if (!orgId) {
-        throw new Error(
-          "Missing organization id. Please restart onboarding or go back a step so we can capture your org."
-        );
-      }
-
+      // Include orgId if we have it; otherwise route will "soft save"
       const res = await fetch("/api/onboarding/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ✅ include orgId so the API route can validate & write
-        body: JSON.stringify({ orgId, step: "goals", data }),
+        body: JSON.stringify({ orgId: orgId || undefined, step: "goals", data }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Failed to save");
@@ -138,7 +96,7 @@ export default function GoalsPage() {
     }
   }
 
-  const canSave = useMemo(() => !loading && !saving && !!orgId, [loading, saving, orgId]);
+  const canSave = useMemo(() => !loading && !saving, [loading, saving]);
 
   if (loading) {
     return (
@@ -156,11 +114,10 @@ export default function GoalsPage() {
         Define the intent and shape of your organization’s test. These answers will guide the Framework generator.
       </p>
 
-      {/* Helpful banner if orgId is missing */}
       {!orgId && (
         <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-400/40 text-yellow-100 text-sm">
-          We couldn’t detect your organization id. Please go back to the previous step to capture it,
-          or add <code>?orgId=&lt;your-id&gt;</code> to the URL.
+          We couldn’t detect your organization id. You can still save and continue.
+          (Add <code>?orgId=&lt;id&gt;</code> later or go back to capture it.)
         </div>
       )}
 
@@ -180,11 +137,7 @@ export default function GoalsPage() {
             onChange={(e) => setData((d) => ({ ...d, industry: e.target.value }))}
           >
             <option value="">Select…</option>
-            {INDUSTRIES.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
+            {INDUSTRIES.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
         </label>
 
@@ -197,11 +150,7 @@ export default function GoalsPage() {
             onChange={(e) => setData((d) => ({ ...d, sector: e.target.value }))}
           >
             <option value="">Select…</option>
-            {SECTORS.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
+            {SECTORS.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
         </label>
 
@@ -218,9 +167,7 @@ export default function GoalsPage() {
 
         {/* Align with mission */}
         <label className="block">
-          <span className="block text-sm mb-1">
-            How does this test align with your company’s mission or vision?
-          </span>
+          <span className="block text-sm mb-1">How does this test align with your company’s mission or vision?</span>
           <textarea
             className="w-full rounded-lg bg-white text-black p-3"
             rows={3}
@@ -231,9 +178,7 @@ export default function GoalsPage() {
 
         {/* Outcomes */}
         <label className="block">
-          <span className="block text-sm mb-1">
-            What specific outcomes would you like participants to achieve after completing the test?
-          </span>
+          <span className="block text-sm mb-1">What specific outcomes would you like participants to achieve?</span>
           <textarea
             className="w-full rounded-lg bg-white text-black p-3"
             rows={3}
@@ -254,9 +199,7 @@ export default function GoalsPage() {
 
         {/* Audience challenges */}
         <label className="block">
-          <span className="block text-sm mb-1">
-            Are there any challenges your audience faces that the test could help address?
-          </span>
+          <span className="block text-sm mb-1">Audience challenges the test could help address</span>
           <textarea
             className="w-full rounded-lg bg-white text-black p-3"
             rows={3}
@@ -267,7 +210,7 @@ export default function GoalsPage() {
 
         {/* Other insights */}
         <label className="block">
-          <span className="block text-sm mb-1">Other insights you want to collect as part of your questions?</span>
+          <span className="block text-sm mb-1">Other insights to collect</span>
           <textarea
             className="w-full rounded-lg bg-white text-black p-3"
             rows={2}
@@ -289,7 +232,7 @@ export default function GoalsPage() {
 
         {/* Standalone or program */}
         <label className="block">
-          <span className="block text-sm mb-1">Will the test be standalone or part of a larger program?</span>
+          <span className="block text-sm mb-1">Standalone or part of a larger program?</span>
           <input
             className="w-full rounded-lg bg-white text-black p-3"
             value={data.standalone_or_program || ""}
@@ -299,33 +242,26 @@ export default function GoalsPage() {
 
         {/* Integration */}
         <label className="block">
-          <span className="block text-sm mb-1">How would the test be integrated with your system?</span>
+          <span className="block text-sm mb-1">Integration</span>
           <select
             className="w-full rounded-lg bg-white text-black p-3"
             value={data.integration || ""}
             onChange={(e) => setData((d) => ({ ...d, integration: e.target.value }))}
           >
             <option value="">Select…</option>
-            {INTEGRATIONS.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
+            {INTEGRATIONS.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
         </label>
 
         {/* Pricing model + price */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
-            <span className="block text-sm mb-1">Will the test be free, paid, or tiered?</span>
+            <span className="block text-sm mb-1">Free, paid, or tiered?</span>
             <select
               className="w-full rounded-lg bg-white text-black p-3"
               value={data.pricing_model || ""}
               onChange={(e) =>
-                setData((d) => ({
-                  ...d,
-                  pricing_model: (e.target.value as GoalsState["pricing_model"]) || "",
-                }))
+                setData((d) => ({ ...d, pricing_model: (e.target.value as GoalsState["pricing_model"]) || "" }))
               }
             >
               <option value="">Select…</option>
@@ -342,10 +278,7 @@ export default function GoalsPage() {
               className="w-full rounded-lg bg-white text-black p-3"
               value={data.price_point ?? ""}
               onChange={(e) =>
-                setData((d) => ({
-                  ...d,
-                  price_point: e.target.value === "" ? null : Number(e.target.value),
-                }))
+                setData((d) => ({ ...d, price_point: e.target.value === "" ? null : Number(e.target.value) }))
               }
               placeholder="0"
               min={0}
@@ -358,34 +291,20 @@ export default function GoalsPage() {
       {/* Footer actions */}
       <div className="sticky bottom-0 left-0 right-0 mt-8 bg-neutral-900/70 backdrop-blur border-t border-white/10">
         <div className="max-w-3xl mx-auto p-4 flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => router.push("/onboarding/branding")}
-            className="px-4 py-2 rounded-xl bg-white/10 border border-white/20"
-          >
+          <button onClick={() => router.push("/onboarding/branding")} className="px-4 py-2 rounded-xl bg-white/10 border border-white/20">
             Back
           </button>
-          <button
-            onClick={() => save(false)}
-            disabled={!canSave}
-            className="px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-60"
-          >
+          <button onClick={() => save(false)} disabled={!canSave} className="px-4 py-2 rounded-xl bg-white text-black font-medium disabled:opacity-60">
             {saving ? "Saving…" : "Save"}
           </button>
-          <button
-            onClick={() => save(true)}
-            disabled={!canSave}
-            className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium disabled:opacity-60"
-          >
+          <button onClick={() => save(true)} disabled={!canSave} className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-medium disabled:opacity-60">
             {saving ? "Saving…" : "Save & Next"}
           </button>
           {savedTick > 0 && <span className="text-white/70 text-sm ml-1">Saved ✓</span>}
         </div>
       </div>
 
-      {/* Debug hint (remove later) */}
-      <p className="mt-4 text-xs text-white/50">
-        orgId: <code>{orgId || "(not set)"}</code>
-      </p>
+      <p className="mt-4 text-xs text-white/50">orgId: <code>{orgId || "(not set)"}</code></p>
     </main>
   );
 }
