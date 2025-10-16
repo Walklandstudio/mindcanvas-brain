@@ -4,17 +4,17 @@ import { supabaseAdmin } from "@/app/_lib/supabase/server";
 export const runtime = "nodejs";
 
 type Body = {
-  draftId?: string;               // optional: update existing
+  draftId?: string;
   orgId?: string | null;
   profileName: string;
   frequency: "A" | "B" | "C" | "D";
-  content: any;                   // 10-section JSON
+  content: any;
 };
 
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
-    const sb: any = supabaseAdmin(); // <- untyped to avoid 'never' errors
+    const sb: any = supabaseAdmin();
 
     if (body.draftId) {
       const { data, error } = await sb
@@ -23,7 +23,6 @@ export async function POST(req: Request) {
         .eq("id", body.draftId)
         .select("id")
         .single();
-
       if (error) throw error;
       return NextResponse.json({ ok: true, id: data.id });
     }
