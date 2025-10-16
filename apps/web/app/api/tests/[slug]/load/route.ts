@@ -3,11 +3,9 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../_lib/supabase";
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { slug: string } }
-) {
-  const slug = params?.slug;
+// Use a fully compatible context type to avoid Next 15 typing issues.
+export async function GET(_req: Request, context: any) {
+  const slug: string | undefined = context?.params?.slug;
   if (!slug) return NextResponse.json({ error: "missing slug" }, { status: 400 });
 
   const sb = getServiceClient();
