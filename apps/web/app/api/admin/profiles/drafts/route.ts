@@ -3,47 +3,40 @@ import { supabaseAdmin } from "@/app/_lib/supabase/server";
 
 export const runtime = "nodejs";
 
-type Body = {
-  draftId?: string;
-  orgId?: string | null;
-  profileName: string;
-  frequency: "A" | "B" | "C" | "D";
-  content: any;
-};
-
-export async function POST(req: Request) {
+export async function GET(req: Request, { params }: any) {
   try {
-    const body = (await req.json()) as Body;
+    const sb: any = supabaseAdmin();
+    const { data, error } = await sb
+      .from("profiles_drafts")
+      .select("*")
+      .eq("id", params.id)
+      .single();
+    if (error) throw error;
+    return NextResponse.json({ ok: true, draft: data });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Not found" }, { status: 404 });
+  }
+}
+
+export async function PATCH(req: Request, { params }: any) {
+  try {
+    const { status, content } = await req.json().catch(() => ({}));
     const sb: any = supabaseAdmin();
 
-    if (body.draftId) {
-      const { data, error } = await sb
-        .from("profiles_drafts")
-        .update({ content: body.content, status: "draft" })
-        .eq("id", body.draftId)
-        .select("id")
-        .single();
-      if (error) throw error;
-      return NextResponse.json({ ok: true, id: data.id });
-    }
+    const update: any = {};
+    if (status) update.status = status;
+    if (content) update.content = content;
 
     const { data, error } = await sb
       .from("profiles_drafts")
-      .insert([
-        {
-          org_id: body.orgId ?? null,
-          profile_name: body.profileName,
-          frequency: body.frequency,
-          content: body.content,
-          status: "draft",
-        },
-      ])
-      .select("id")
+      .update(update)
+      .eq("id", params.id)
+      .select("*")
       .single();
-
     if (error) throw error;
-    return NextResponse.json({ ok: true, id: data.id });
+
+    return NextResponse.json({ ok: true, draft: data });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Save failed" }, { status: 400 });
+    return NextResponse.json({ error: e?.message ?? "Update failed" }, { status: 400 });
   }
 }
