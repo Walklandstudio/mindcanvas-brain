@@ -1,3 +1,6 @@
+// IMPORTANT: do not add a second parameter to GET/PATCH.
+// Next 15 validates the *type* of the handler signature.
+
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/_lib/supabase/server";
 
