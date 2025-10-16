@@ -4,13 +4,20 @@ import { createClient } from '../../../_lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Page({ params }: { params: { id: string } }) {
+// In Next.js 15 typed routes, params is a Promise—await it.
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
   const sb = createClient();
 
   const { data: test, error: testErr } = await sb
     .from('org_tests')
     .select('id, name, mode, status, created_at')
-    .eq('id', params.id)
+    .eq('id', id)
     .single();
 
   if (testErr || !test) return notFound();
@@ -19,11 +26,9 @@ export default async function Page({ params }: { params: { id: string } }) {
     .from('test_questions')
     .select(`
       id, idx, stem, stem_rephrased,
-      test_options (
-        id, idx, label, label_rephrased, frequency, profile, points
-      )
+      test_options ( id, idx, label, label_rephrased, frequency, profile, points )
     `)
-    .eq('test_id', test.id)
+    .eq('test_id', id)
     .order('idx');
 
   return (
