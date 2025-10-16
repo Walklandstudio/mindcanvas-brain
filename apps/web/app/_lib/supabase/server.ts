@@ -3,12 +3,8 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
-/**
- * Typed, Promise-safe cookie store wrapper.
- * In some Next/TS combos, cookies() is typed as a Promise — we normalise it here.
- */
+/** Promise-safe cookie wrapper to avoid TS "Promise<ReadonlyRequestCookies>" */
 function cookieStore() {
-  // Cast once to avoid "Promise<ReadonlyRequestCookies>" errors.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const store = (cookies as unknown as () => any)();
   return store as {
@@ -24,23 +20,13 @@ export function createClient() {
     {
       cookies: {
         get(name: string) {
-          try {
-            return cookieStore().get(name)?.value;
-          } catch {
-            return undefined;
-          }
+          try { return cookieStore().get(name)?.value; } catch { return undefined; }
         },
         set(name: string, value: string, options: CookieOptions) {
-          try {
-            cookieStore().set({ name, value, ...options });
-          } catch {
-            // ignore in dev/edge where set() may be restricted
-          }
+          try { cookieStore().set({ name, value, ...options }); } catch {}
         },
         remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore().set({ name, value: '', ...options });
-          } catch {}
+          try { cookieStore().set({ name, value: '', ...options }); } catch {}
         },
       },
     }

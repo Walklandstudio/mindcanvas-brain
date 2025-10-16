@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '../../_lib/supabase/server';
-import { orgIdFromAuth } from '../../lib/org';
+import { orgIdFromAuth } from '../../_lib/org';
 
 export async function createTestAction(params: { name: string; mode: 'free' | 'full' }) {
   const { name, mode } = params;
