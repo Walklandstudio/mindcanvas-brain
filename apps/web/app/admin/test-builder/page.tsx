@@ -1,25 +1,80 @@
-'use client';
-import { useRouter } from 'next/navigation';
-import { createTestAction } from './_actions';
+// apps/web/app/admin/test-builder/page.tsx
+import { createClient } from '../../_lib/supabase/server';
+import { orgIdFromAuth } from '../../_lib/org';
+import TopBar from './ui/TopBar';
+import Client from './ui/Client';
 
-export default function TestBuilderTopBar() {
-  const router = useRouter();
+export const dynamic = 'force-dynamic';
 
-  async function handleCreate(mode: 'free' | 'full') {
-    const name = window.prompt('Name this test:');
-    if (!name) return;
-    const { id } = await createTestAction({ name, mode });
-    router.push(`/admin/tests/${id}`);
+export default async function Page({
+  searchParams,
+}: {
+  searchParams?: Promise<{ test?: string }>;
+}) {
+  const sb = createClient();
+  const orgId = await orgIdFromAuth();
+  if (!orgId) {
+    return (
+      <main className="p-6">
+        <h1 className="text-2xl font-semibold">Test Builder</h1>
+        <p className="mt-2 text-gray-600">
+          No organization found for your account. Please finish onboarding first.
+        </p>
+      </main>
+    );
+  }
+
+  const params = (await searchParams) ?? {};
+  const { data: tests } = await sb
+    .from('org_tests')
+    .select('id,name,mode,status,created_at')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false });
+
+  const activeId = params.test ?? tests?.[0]?.id ?? null;
+
+  let active = null as
+    | (NonNullable<typeof tests>[number] & {
+        test_questions: Array<{
+          id: string;
+          idx: number;
+          stem: string;
+          stem_rephrased: string | null;
+          test_options: Array<{
+            id: string;
+            idx: number;
+            label: string;
+            label_rephrased: string | null;
+            frequency: string;
+            profile: string;
+            points: number;
+          }>;
+        }>;
+      })
+    | null;
+
+  if (activeId) {
+    const { data } = await sb
+      .from('org_tests')
+      .select(
+        `
+        id,name,mode,status,created_at,
+        test_questions (
+          id, idx, stem, stem_rephrased,
+          test_options ( id, idx, label, label_rephrased, frequency, profile, points )
+        )
+      `
+      )
+      .eq('id', activeId)
+      .single();
+    active = (data ?? null) as typeof active;
   }
 
   return (
-    <div className="flex items-center gap-3">
-      <button onClick={() => handleCreate('free')} className="px-4 py-2 rounded-2xl bg-white text-black">
-        Create Free Test
-      </button>
-      <button onClick={() => handleCreate('full')} className="px-4 py-2 rounded-2xl bg-white text-black">
-        Create Full Test
-      </button>
-    </div>
+    <main className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Test Builder</h1>
+      <TopBar tests={tests ?? []} activeId={activeId} />
+      <Client tests={tests ?? []} active={active} />
+    </main>
   );
 }
