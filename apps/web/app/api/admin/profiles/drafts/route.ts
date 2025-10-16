@@ -3,8 +3,7 @@ import { supabaseAdmin } from "@/app/_lib/supabase/server";
 
 export const runtime = "nodejs";
 
-/** Helper: get the last path segment as the `id` */
-function getId(req: Request) {
+function extractId(req: Request) {
   const { pathname } = new URL(req.url);
   const parts = pathname.split("/").filter(Boolean);
   return parts[parts.length - 1]; // .../drafts/<id>
@@ -12,7 +11,7 @@ function getId(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    const id = getId(req);
+    const id = extractId(req);
     if (!id) throw new Error("Missing id");
 
     const sb: any = supabaseAdmin();
@@ -31,7 +30,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const id = getId(req);
+    const id = extractId(req);
     if (!id) throw new Error("Missing id");
 
     const { status, content } = await req.json().catch(() => ({}));
