@@ -3,8 +3,11 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../_lib/supabase";
 
-export async function GET(_: Request, ctx: { params: { slug: string } }) {
-  const slug = ctx?.params?.slug;
+export async function GET(
+  _req: Request,
+  { params }: { params: { slug: string } }
+) {
+  const slug = params?.slug;
   if (!slug) return NextResponse.json({ error: "missing slug" }, { status: 400 });
 
   const sb = getServiceClient();
