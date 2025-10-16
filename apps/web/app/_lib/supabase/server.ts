@@ -2,6 +2,7 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createClient as createCoreClient } from '@supabase/supabase-js';
 
 /** Promise-safe cookie wrapper to avoid TS "Promise<ReadonlyRequestCookies>" */
 function cookieStore() {
@@ -13,6 +14,10 @@ function cookieStore() {
   };
 }
 
+/**
+ * Authenticated client (reads/writes as the signed-in user).
+ * Uses Next cookies for session — safe for Server Components, server actions, and API routes.
+ */
 export function createClient() {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,4 +36,17 @@ export function createClient() {
       },
     }
   );
+}
+
+/**
+ * Service-role client for trusted server code (no cookies, bypasses RLS).
+ * ONLY call this from server-only contexts (API route, server action).
+ */
+export function supabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE!;
+  return createCoreClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { 'X-Client-Info': 'mindcanvas-admin' } },
+  });
 }
