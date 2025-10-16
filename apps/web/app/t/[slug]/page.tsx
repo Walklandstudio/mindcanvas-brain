@@ -1,55 +1,72 @@
-export const runtime = "nodejs";
+"use client";
 
-import { NextResponse } from "next/server";
-import { getServiceClient } from "../../_lib/supabase";
+import { useEffect, useState } from "react";
 
-export async function GET(_: Request, ctx: { params: { slug: string } }) {
-  const sb = getServiceClient();
-  const slug = ctx.params?.slug;
-  if (!slug) return NextResponse.json({ error: "missing slug" }, { status: 400 });
+type A = { id: string; text: string; ordinal: number; points?: number };
+type Q = { id: string; qnum: number | null; text: string; answers: A[] };
 
-  // find deployment
-  const dep = await sb
-    .from("test_deployments")
-    .select("id, test_id, title, mode, status")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (dep.error || !dep.data) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (dep.data.status !== "active") return NextResponse.json({ error: "inactive" }, { status: 403 });
+export default function PublicTestPage({ params }: { params: { slug: string } }) {
+  const { slug } = params;
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string>("");
+  const [title, setTitle] = useState<string>("Profile Test");
+  const [items, setItems] = useState<Q[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({}); // question_id -> answer_id
 
-  // fetch questions/answers
-  const qs = await sb
-    .from("org_test_questions")
-    .select("id,qnum,q_no,text")
-    .eq("test_id", dep.data.test_id);
-  if (qs.error) return NextResponse.json({ error: qs.error.message }, { status: 500 });
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      setErr("");
+      try {
+        const res = await fetch(`/api/tests/${slug}/load`, { cache: "no-store" });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+        setTitle(j.title || "Profile Test");
+        setItems(j.items || []);
+      } catch (e: any) {
+        setErr(e?.message || "Failed to load test");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [slug]);
 
-  const ids = (qs.data || []).map((r: any) => r.id);
-  const ans = await sb
-    .from("org_test_answers")
-    .select("id,question_id,ordinal,text,points")
-    .in("question_id", ids);
-  if (ans.error) return NextResponse.json({ error: ans.error.message }, { status: 500 });
-
-  const byQ = new Map<string, any[]>();
-  for (const a of (ans.data || [])) {
-    const list = byQ.get(a.question_id) || [];
-    list.push(a);
-    byQ.set(a.question_id, list);
+  async function submit() {
+    alert("Submission endpoint not connected yet — wire when ready.");
   }
 
-  const items = (qs.data || [])
-    .map((q: any) => ({
-      id: q.id,
-      qnum: q.qnum ?? q.q_no ?? null,
-      text: q.text,
-      answers: (byQ.get(q.id) || []).sort((a, b) => a.ordinal - b.ordinal),
-    }))
-    .sort((a, b) => (a.qnum ?? 0) - (b.qnum ?? 0));
+  if (loading) return <main className="max-w-3xl mx-auto p-6 text-white">Loading…</main>;
+  if (err) return <main className="max-w-3xl mx-auto p-6 text-white">Error: {err}</main>;
 
-  return NextResponse.json({
-    title: dep.data.title,
-    mode: dep.data.mode,
-    items,
-  });
+  return (
+    <main className="max-w-3xl mx-auto p-6 text-white">
+      <h1 className="text-2xl font-semibold mb-4">{title}</h1>
+
+      <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        {items.map((q, idx) => (
+          <div key={q.id} className="rounded-xl bg-white/5 border border-white/10 p-4">
+            <div className="font-semibold mb-3">{(q.qnum ?? idx + 1)}. {q.text}</div>
+            <div className="grid gap-2">
+              {q.answers.map((a) => (
+                <label key={a.id} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name={q.id}
+                    value={a.id}
+                    className="accent-cyan-500"
+                    onChange={() => setAnswers((s) => ({ ...s, [q.id]: a.id }))}
+                  />
+                  <span>{a.text}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div className="pt-4">
+          <button className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500">Submit</button>
+        </div>
+      </form>
+    </main>
+  );
 }
