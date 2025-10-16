@@ -1,57 +1,53 @@
-// IMPORTANT: do not add a second parameter to GET/PATCH.
-// Next 15 validates the *type* of the handler signature.
-
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/_lib/supabase/server";
 
 export const runtime = "nodejs";
 
-function extractId(req: Request) {
-  const { pathname } = new URL(req.url);
-  const parts = pathname.split("/").filter(Boolean);
-  return parts[parts.length - 1]; // .../drafts/<id>
-}
+type Body = {
+  draftId?: string;
+  orgId?: string | null;
+  profileName: string;
+  frequency: "A" | "B" | "C" | "D";
+  content: any;
+};
 
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   try {
-    const id = extractId(req);
-    if (!id) throw new Error("Missing id");
-
+    const body = (await req.json()) as Body;
     const sb: any = supabaseAdmin();
+
+    if (body.draftId) {
+      const { data, error } = await sb
+        .from("profiles_drafts")
+        .update({ content: body.content, status: "draft" })
+        .eq("id", body.draftId)
+        .select("id")
+        .single();
+      if (error) throw error;
+      return NextResponse.json({ ok: true, id: data.id });
+    }
+
+    const normalizedOrgId =
+      body.orgId && typeof body.orgId === "string" &&
+      body.orgId !== "null" && body.orgId !== "undefined" && body.orgId.trim() !== ""
+        ? body.orgId
+        : null;
+
     const { data, error } = await sb
       .from("profiles_drafts")
-      .select("*")
-      .eq("id", id)
+      .insert([{
+        org_id: normalizedOrgId,
+        profile_name: body.profileName,
+        frequency: body.frequency,
+        content: body.content,
+        status: "draft",
+      }])
+      .select("id")
       .single();
 
     if (error) throw error;
-    return NextResponse.json({ ok: true, draft: data });
+    return NextResponse.json({ ok: true, id: data.id });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Not found" }, { status: 404 });
-  }
-}
-
-export async function PATCH(req: Request) {
-  try {
-    const id = extractId(req);
-    if (!id) throw new Error("Missing id");
-
-    const { status, content } = await req.json().catch(() => ({}));
-    const update: any = {};
-    if (status) update.status = status;
-    if (content) update.content = content;
-
-    const sb: any = supabaseAdmin();
-    const { data, error } = await sb
-      .from("profiles_drafts")
-      .update(update)
-      .eq("id", id)
-      .select("*")
-      .single();
-
-    if (error) throw error;
-    return NextResponse.json({ ok: true, draft: data });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Update failed" }, { status: 400 });
+    return NextResponse.json({ error: e?.message ?? "Save failed" }, { status: 400 });
   }
 }

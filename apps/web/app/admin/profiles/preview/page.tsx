@@ -34,7 +34,7 @@ export default function PreviewProfile() {
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error || "Sign-off failed");
-      setDraft(j.draft);
+      window.location.href = "/admin/framework";
     } catch (e: any) {
       alert(e?.message || "Sign-off failed");
     }

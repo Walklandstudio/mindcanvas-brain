@@ -1,47 +1,36 @@
-// apps/web/app/api/admin/tests/rephrase/question/route.ts
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getServiceClient } from "../../../../../_lib/supabase";
 
-type Body = { question_id: string; text: string };
-
 export async function POST(req: Request) {
-  const sb = getServiceClient();
-
-  let body: Body;
   try {
-    body = (await req.json()) as Body;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    const { question_id, text } = await req.json();
+    if (!question_id || !text) throw new Error("Missing question_id or text");
+
+    const sb = getServiceClient();
+
+    // Try to update both text + prompt (if column exists), with fallbacks.
+    const attempts = [
+      { text, prompt: text },
+      { text },
+    ];
+
+    let lastErr: string | null = null;
+    for (const payload of attempts) {
+      const up = await sb
+        .from("org_test_questions")
+        .update(payload as any)
+        .eq("id", question_id)
+        .select("id")
+        .maybeSingle();
+
+      if (!up.error && up.data?.id) return NextResponse.json({ ok: true });
+      lastErr = up.error?.message ?? lastErr;
+    }
+
+    throw new Error(lastErr || "Update failed");
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Rephrase failed" }, { status: 400 });
   }
-  if (!body?.question_id || !body?.text?.trim()) {
-    return NextResponse.json({ error: "question_id and text are required" }, { status: 400 });
-  }
-
-  // Read current row to know which columns exist
-  const q = await sb
-    .from("org_test_questions")
-    .select("*")
-    .eq("id", body.question_id)
-    .maybeSingle();
-
-  if (q.error) return NextResponse.json({ error: q.error.message }, { status: 500 });
-  if (!q.data) return NextResponse.json({ error: "Question not found" }, { status: 404 });
-
-  const fields: any = { text: body.text.trim() };
-  if (Object.prototype.hasOwnProperty.call(q.data, "prompt")) {
-    fields.prompt = body.text.trim();
-  }
-
-  const upd = await sb
-    .from("org_test_questions")
-    .update(fields)
-    .eq("id", body.question_id)
-    .select("id")
-    .maybeSingle();
-
-  if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
-
-  return NextResponse.json({ ok: true });
 }

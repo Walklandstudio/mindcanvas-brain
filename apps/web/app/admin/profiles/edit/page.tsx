@@ -19,17 +19,14 @@ export default function ProfileEdit() {
   const params =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
 
-  // ✅ Define frequency FIRST so it exists in scope for any later usage
-  const [frequency, setFrequency] = useState<"A" | "B" | "C" | "D">(
+  const [frequency] = useState<"A" | "B" | "C" | "D">(
     (params.get("frequency") as "A" | "B" | "C" | "D") || "A"
   );
-
   const [name, setName] = useState(params.get("name") || "Profile");
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
 
-  // ✅ Define draft state locally (no top-level `draft` symbol)
   const [draft, setDraft] = useState<Draft>({
     intro: "",
     howTo: "",
@@ -91,22 +88,21 @@ export default function ProfileEdit() {
 
   async function saveAndPreview() {
     try {
-      const orgId = (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || null;
+      let raw = (typeof window !== "undefined" && localStorage.getItem("mc_org_id")) || "";
+      const orgId = raw && raw !== "null" && raw !== "undefined" ? raw : null;
 
       const res = await fetch("/api/admin/profiles/drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ✅ All identifiers are in scope; explicit object is fine
         body: JSON.stringify({
           orgId,
           profileName: name,
-          frequency: frequency,
+          frequency,
           content: draft,
         }),
       });
       const j = await res.json();
-      if (!res.ok) throw new Error(j?.error || "Save failed");
-
+      if (!res.ok || !j?.id) throw new Error(j?.error || "Save failed (no id)");
       window.location.href = `/admin/profiles/preview?id=${j.id}`;
     } catch (e: any) {
       alert(e?.message || "Save failed");
