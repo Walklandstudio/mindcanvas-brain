@@ -1,7 +1,9 @@
 "use client";
 
+import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useState } from "react";
+
+export const dynamic = "force-dynamic"; // disable SSG for this page
 
 type DraftSections = {
   meta?: any;
@@ -18,6 +20,14 @@ type DraftSections = {
 };
 
 export default function ProfileEditorPage() {
+  return (
+    <Suspense fallback={<div className="max-w-4xl mx-auto p-8 text-white/70">Loading…</div>}>
+      <EditorInner />
+    </Suspense>
+  );
+}
+
+function EditorInner() {
   const params = useSearchParams();
   const router = useRouter();
 
@@ -36,14 +46,9 @@ export default function ProfileEditorPage() {
       const res = await fetch("/api/admin/profiles/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          frequency,
-        }),
+        body: JSON.stringify({ name, frequency }),
       });
-
-      // Safely handle empty/non-JSON responses
-      const text = await res.text();
+      const text = await res.text(); // tolerant to empty/non-JSON
       const j = text ? JSON.parse(text) : {};
       if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
       setData(j);
@@ -54,35 +59,25 @@ export default function ProfileEditorPage() {
     }
   }
 
-  /** Save + preview (currently just mock redirect to preview page) */
-  async function savePreview() {
-    alert("Saved. (Wire up DB persistence and redirect when ready.)");
-    router.push(`/admin/profiles/preview?name=${name}&frequency=${frequency}`);
+  /** Save + preview (wire persistence later) */
+  function savePreview() {
+    alert("Saved. (Wire up DB persistence when ready.)");
+    router.push(`/admin/profiles/preview?name=${encodeURIComponent(name)}&frequency=${encodeURIComponent(frequency)}`);
   }
 
   return (
     <main className="max-w-4xl mx-auto p-8 text-white">
       <h1 className="text-3xl font-semibold mb-2">Profile Editor</h1>
-      <p className="text-white/60 mb-6">
-        Generate and edit content for the selected profile.
-      </p>
+      <p className="text-white/60 mb-6">Generate and edit content for the selected profile.</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <label className="block">
           <span className="text-sm text-white/70">Profile name</span>
-          <input
-            className="w-full rounded-lg bg-white text-black p-3"
-            value={name}
-            readOnly
-          />
+          <input className="w-full rounded-lg bg-white text-black p-3" value={name} readOnly />
         </label>
         <label className="block">
           <span className="text-sm text-white/70">Frequency</span>
-          <input
-            className="w-full rounded-lg bg-white text-black p-3"
-            value={frequency}
-            readOnly
-          />
+          <input className="w-full rounded-lg bg-white text-black p-3" value={frequency} readOnly />
         </label>
       </div>
 
@@ -141,10 +136,7 @@ export default function ProfileEditorPage() {
                   (d) =>
                     d && {
                       ...d,
-                      core_overview: {
-                        ...d.core_overview,
-                        summary: e.target.value,
-                      },
+                      core_overview: { ...d.core_overview, summary: e.target.value },
                     }
                 )
               }
@@ -167,10 +159,7 @@ export default function ProfileEditorPage() {
               {(Array.isArray(data.strengths) ? data.strengths : [data.strengths || ""])
                 .filter(Boolean)
                 .map((s, i) => (
-                  <span
-                    key={i}
-                    className="px-3 py-1 bg-cyan-800 rounded-lg text-sm text-white/90"
-                  >
+                  <span key={i} className="px-3 py-1 bg-cyan-800 rounded-lg text-sm text-white/90">
                     {s}
                   </span>
                 ))}
@@ -213,9 +202,7 @@ export default function ProfileEditorPage() {
               className="w-full p-3 rounded-lg bg-white text-black"
               rows={3}
               value={data.real_world_examples || ""}
-              onChange={(e) =>
-                setData((d) => d && { ...d, real_world_examples: e.target.value })
-              }
+              onChange={(e) => setData((d) => d && { ...d, real_world_examples: e.target.value })}
             />
           </section>
 
@@ -225,9 +212,7 @@ export default function ProfileEditorPage() {
               className="w-full p-3 rounded-lg bg-white text-black"
               rows={3}
               value={data.additional_info || ""}
-              onChange={(e) =>
-                setData((d) => d && { ...d, additional_info: e.target.value })
-              }
+              onChange={(e) => setData((d) => d && { ...d, additional_info: e.target.value })}
             />
           </section>
 
