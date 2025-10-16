@@ -1,20 +1,18 @@
-// optional but helpful to avoid caching issues while you iterate
 export const dynamic = "force-dynamic";
 
-type SlugParams = { slug: string };
+// Keep this page as-is; just change how we read params to satisfy Next 15 typing.
+export default async function Page(props: any) {
+  // In Next 15, params can be a Promise during prerender.
+  const { slug } = (await props?.params) ?? {};
 
-// ⬇️ Change your default export to be async and accept Promise OR object
-export default async function Page(
-  { params }: { params: Promise<SlugParams> } | { params: SlugParams }
-) {
-  // ⬇️ NEW: resolve params whether Next provides a Promise or a plain object
-  const maybePromise = params as any;
-  const resolved: SlugParams = typeof maybePromise?.then === "function"
-    ? await (params as Promise<SlugParams>)
-    : (params as SlugParams);
-
-  const { slug } = resolved;
-
-  // ⬇️ keep the rest of your page exactly as it was, using `slug`
-  // e.g. return <EmbedRunner slug={slug} />
+  // 🔽 keep your existing UI below, just use `slug`
+  // Example:
+  // return <EmbedRunner slug={slug} />
+  return (
+    <iframe
+      src={`/t/${slug}`}
+      style={{ width: "100%", height: "100vh", border: 0 }}
+      allowFullScreen
+    />
+  );
 }
