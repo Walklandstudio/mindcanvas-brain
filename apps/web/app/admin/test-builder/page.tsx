@@ -93,8 +93,15 @@ export default function TestBuilderPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      alert(`Created ${mode === "free" ? "Free" : "Full"} Test`);
-      await load(); // refresh list so the new draft appears immediately
+      await load(); // refresh list so the test state reflects creation
+      const msg = `Created ${mode === "free" ? "Free" : "Full"} Test
+
+Public URL:
+${data.url || "(not returned)"}
+
+Embed (iframe):
+${data.embed_iframe || "(not returned)"}`;
+      alert(msg);
     } catch (e: any) {
       setToast(e?.message || "Create failed");
     } finally {

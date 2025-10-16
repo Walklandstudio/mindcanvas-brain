@@ -1,156 +1,77 @@
-// apps/web/app/api/admin/profiles/draft/route.ts
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import {
-  buildProfileCopy,
-  draftReportSections,
-} from "@/app/_lib/ai";
+import { getServiceClient } from "../../../../_lib/supabase";
+import { buildProfileCopy, draftReportSections } from "../../../../_lib/ai";
 
-/**
- * POST /api/admin/profiles/draft
- * Body:
- * {
- *   name: string,
- *   frequency: "A" | "B" | "C" | "D",
- *   brandTone?: string,
- *   industry?: string,
- *   sector?: string,
- *   company?: string
- * }
- *
- * Returns JSON with the 10 sections required by the editor.
- * Never throws — on any upstream error it returns a fallback JSON payload.
- */
+const ORG_ID = "00000000-0000-0000-0000-000000000001";
+
 export async function POST(req: Request) {
-  // small helpers
-  const safe = <T,>(x: T, fb: T) => (x === undefined || x === null ? fb : x);
-  const fallbackCopy = {
-    summary: "Concise positioning statement for this profile.",
-    strengths: ["Strength 1", "Strength 2", "Strength 3"],
-  };
-  const fallbackSections = {
-    strengths: "Two concise paragraphs on key strengths.",
-    challenges: "Two concise paragraphs on common challenges.",
-    roles: "Short guidance on ideal roles.",
-    guidance: "Practical guidance in two short paragraphs.",
-  };
-
+  const sb = getServiceClient();
   try {
-    const body = await req.json().catch(() => ({} as any));
-    const name = safe<string>(body?.name, "Profile");
-    const frequency = safe<"A" | "B" | "C" | "D">(body?.frequency, "A");
-    const brandTone = safe<string>(body?.brandTone, "confident, modern, human");
-    const industry = safe<string>(body?.industry, "General");
-    const sector = safe<string>(body?.sector, "General");
-    const company = safe<string>(body?.company, "Your Organization");
+    const body = await req.json().catch(() => ({}));
+    const {
+      name,             // profile name e.g. "Visionary"
+      frequency,        // "A" | "B" | "C" | "D"
+      brandTone,        // optional override
+      industry,         // optional override
+      sector,           // optional override
+      company,          // optional override
+    } = body || {};
 
-    // Ask AI for a short card blurb + strengths (robust to missing key)
-    let copy = fallbackCopy;
-    try {
-      copy = await buildProfileCopy({
-        brandTone,
-        industry,
-        sector,
-        company,
-        frequencyName: frequency,
-        profileName: name,
-      });
-      // harden shape
-      copy = {
-        summary: typeof copy?.summary === "string" ? copy.summary : fallbackCopy.summary,
-        strengths: Array.isArray(copy?.strengths) && copy.strengths.length
-          ? copy.strengths.slice(0, 3).map(String)
-          : fallbackCopy.strengths,
-      };
-    } catch {
-      copy = fallbackCopy;
+    if (!name || !frequency) {
+      return NextResponse.json({ error: "Missing name or frequency" }, { status: 400 });
     }
 
-    // Ask AI for the long sections (robust)
-    let sections = fallbackSections as any;
-    try {
-      sections = await draftReportSections({
-        brandTone,
-        industry,
-        sector,
-        company,
-        frequencyName: frequency,
-        profileName: name,
-      });
-      sections = {
-        strengths: String(sections?.strengths || fallbackSections.strengths),
-        challenges: String(sections?.challenges || fallbackSections.challenges),
-        roles: String(sections?.roles || fallbackSections.roles),
-        guidance: String(sections?.guidance || fallbackSections.guidance),
-      };
-    } catch {
-      sections = fallbackSections;
-    }
+    // Pull onboarding context as a fallback
+    const ob = await sb
+      .from("onboarding_steps")
+      .select("data,company,brand_tone,industry,sector")
+      .eq("org_id", ORG_ID)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    // Compose the 10 editor sections you specified
-    const payload = {
-      meta: {
-        name,
-        frequency,
-        brandTone,
-        industry,
-        sector,
-        company,
-      },
-      // Section 1
-      welcome: `Welcome to the ${name} profile. This draft is tailored to ${company} in ${industry}/${sector}.`,
-      // Section 2
-      how_to_use:
-        "Use this report to understand the profile’s tendencies, strengths, and common blindspots. Share it with managers and teammates for better collaboration.",
-      // Section 3
-      core_overview: {
-        profile_in_depth: `${name} — overview and positioning`,
-        frequency_label: frequency,
-        summary: copy.summary,
-      },
-      // Section 4
-      ideal_environment:
-        "AI-suggested environment based on onboarding inputs — focus, rituals, and operating norms that help this profile thrive.",
-      // Section 5
-      strengths: copy.strengths,
-      // Section 6
-      challenges: sections.challenges,
-      // Section 7
-      ideal_roles: sections.roles,
-      // Section 8
-      guidance: sections.guidance,
-      // Section 9
-      real_world_examples:
-        "Two examples will be suggested by AI in the editor. Use public figures or anonymized internal examples.",
-      // Section 10
-      additional_info: "",
+    const ctxData = ob.data?.data || {};
+    const ctx = {
+      brandTone: brandTone || ob.data?.brand_tone || ctxData.brandTone || "confident, modern, human",
+      industry: industry || ob.data?.industry || ctxData.industry || "General",
+      sector: sector || ob.data?.sector || ctxData.sector || "General",
+      company: company || ob.data?.company || ctxData.company || "Your Organization",
     };
 
-    return NextResponse.json(payload, { status: 200 });
-  } catch (e: any) {
-    // Absolute last-resort JSON (never return empty/HTML)
-    return NextResponse.json(
-      {
-        error: e?.message || "draft-failed",
-        // minimal but valid fallback so the client can still render
-        meta: { name: "Profile", frequency: "A" },
-        welcome: "Welcome.",
-        how_to_use: "How to use this report.",
-        core_overview: {
-          profile_in_depth: "Profile — overview and positioning",
-          frequency_label: "A",
-          summary: "Concise positioning statement.",
-        },
-        ideal_environment: "Suggested environment.",
-        strengths: ["Strength 1", "Strength 2", "Strength 3"],
-        challenges: "Common challenges.",
-        ideal_roles: "Ideal roles.",
-        guidance: "Practical guidance.",
-        real_world_examples: "Two example placeholders.",
-        additional_info: "",
+    // Ask AI for short blurb + sections
+    const copy = await buildProfileCopy({
+      brandTone: ctx.brandTone,
+      industry: ctx.industry,
+      sector: ctx.sector,
+      company: ctx.company,
+      frequencyName: frequency,
+      profileName: name,
+    });
+
+    const sections = await draftReportSections({
+      brandTone: ctx.brandTone,
+      industry: ctx.industry,
+      sector: ctx.sector,
+      company: ctx.company,
+      frequencyName: frequency,
+      profileName: name,
+    });
+
+    // Upsert into drafts table (or store where you prefer)
+    // If you don’t have a drafts table yet, just return the AI output to hydrate the editor.
+    return NextResponse.json({
+      ok: true,
+      draft: {
+        name,
+        frequency,
+        summary: copy.summary,
+        strengths: copy.strengths,
+        sections, // { strengths, challenges, roles, guidance }
       },
-      { status: 200 },
-    );
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }
