@@ -4,6 +4,7 @@ import { createClient } from '../../_lib/supabase/server';
 import { orgIdFromAuth } from '../../_lib/org';
 import { TEMPLATE } from './templates';
 
+/** Create a test (free/full) and return its id */
 export async function createTestAction(params: { name: string; mode: 'free' | 'full' }) {
   const { name, mode } = params;
   const sb = createClient();
@@ -25,13 +26,13 @@ export async function createTestAction(params: { name: string; mode: 'free' | 'f
   return { id: data.id as string };
 }
 
+/** Import our default question template into an existing test */
 export async function importTemplateAction(params: { testId: string }) {
   const { testId } = params;
   const sb = createClient();
   const orgId = await orgIdFromAuth();
   if (!orgId) throw new Error('No organization for current user');
 
-  // find current max idx
   const { data: existing } = await sb
     .from('test_questions')
     .select('idx')
@@ -74,4 +75,51 @@ export async function importTemplateAction(params: { testId: string }) {
   }
 
   return { ok: true };
+}
+
+/** Rephrase a question stem with AI (stubbed), then persist */
+export async function rephraseQuestionAction(params: {
+  questionId: string;
+  currentText: string;
+  brandVoice: string;
+}) {
+  const { questionId, currentText } = params;
+  const sb = createClient();
+  const orgId = await orgIdFromAuth();
+  if (!orgId) throw new Error('No organization for current user');
+
+  // TODO: plug in your AI call here; keep mapping stable
+  const rephrased = currentText;
+
+  const { error } = await sb
+    .from('test_questions')
+    .update({ stem_rephrased: rephrased })
+    .eq('id', questionId)
+    .eq('org_id', orgId);
+
+  if (error) throw new Error(error.message);
+  return { ok: true, text: rephrased };
+}
+
+/** Rephrase an option label with AI (stubbed), then persist */
+export async function rephraseOptionAction(params: {
+  optionId: string;
+  currentText: string;
+  brandVoice: string;
+}) {
+  const { optionId, currentText } = params;
+  const sb = createClient();
+  const orgId = await orgIdFromAuth();
+  if (!orgId) throw new Error('No organization for current user');
+
+  const rephrased = currentText;
+
+  const { error } = await sb
+    .from('test_options')
+    .update({ label_rephrased: rephrased })
+    .eq('id', optionId)
+    .eq('org_id', orgId);
+
+  if (error) throw new Error(error.message);
+  return { ok: true, text: rephrased };
 }
