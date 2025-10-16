@@ -2,7 +2,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { getServiceClient } from "../../../../_lib/supabase";
+import { getServiceClient } from "../../../../../_lib/supabase";
 
 function extractTestIdFromUrl(u: string): string | null {
   try {
