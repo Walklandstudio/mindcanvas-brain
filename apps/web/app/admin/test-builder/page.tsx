@@ -1,4 +1,5 @@
 // apps/web/app/admin/test-builder/page.tsx
+import { redirect } from 'next/navigation';
 import { createClient } from '../../_lib/supabase/server';
 import { orgIdFromAuth, ensureOrg } from '../../_lib/org';
 import TopBar from './ui/TopBar';
@@ -14,7 +15,13 @@ export default async function Page({
 }) {
   const sb = createClient();
 
-  // 1) Ensure org exists (auto-create if missing)
+  // 0) Auth gate — if not signed in, send to onboarding (or your sign-in)
+  const { data: userRes } = await sb.auth.getUser();
+  if (!userRes?.user) {
+    redirect('/onboarding'); // <-- change to /login if you have a login page
+  }
+
+  // 1) Ensure org (create if missing)
   let orgId = await orgIdFromAuth();
   if (!orgId) {
     orgId = await ensureOrg('Demo Org');
@@ -22,60 +29,44 @@ export default async function Page({
 
   const params = (await searchParams) ?? {};
 
-  // 2) Ensure at least one test exists
-  const { data: tests0, error: tErr0 } = await sb
+  // 2) Ensure at least one test
+  const { data: tests0 } = await sb
     .from('org_tests')
     .select('id,name,mode,status,created_at')
     .eq('org_id', orgId)
     .order('created_at', { ascending: false });
 
-  if (tErr0) {
-    console.error('load tests error', tErr0);
-  }
-
   let tests = tests0 ?? [];
   if (tests.length === 0) {
-    // create a default test
-    const { data: userRes } = await sb.auth.getUser();
-    const userId = userRes.user?.id ?? null;
-
-    const { data: created, error: cErr } = await sb
+    const { data: created } = await sb
       .from('org_tests')
       .insert({
         org_id: orgId,
         name: 'Base Assessment',
         mode: 'full',
         status: 'active',
-        created_by: userId,
+        created_by: userRes.user.id,
       })
       .select('id,name,mode,status,created_at')
       .single();
 
-    if (cErr) {
-      console.error('create default test error', cErr);
-    } else if (created) {
-      tests = [created];
-    }
+    if (created) tests = [created];
   }
 
   const activeId = params.test ?? tests?.[0]?.id ?? null;
 
-  // 3) Ensure active test has the 15 base questions (first time only)
+  // 3) Seed 15 base questions if test is empty (first time only)
   if (activeId) {
-    // count existing
-    const { data: countQs } = await sb
+    const { count } = await sb
       .from('test_questions')
       .select('id', { count: 'exact', head: true })
       .eq('test_id', activeId);
 
-    const existingCount = countQs ? (countQs as unknown as { count: number }).count : 0;
-
-    if (!existingCount || existingCount === 0) {
-      // seed template
+    if (!count || count === 0) {
       let idx = 0;
       for (const q of TEMPLATE) {
         idx += 1;
-        const { data: insQ, error: qErr } = await sb
+        const { data: insQ } = await sb
           .from('test_questions')
           .insert({
             org_id: orgId,
@@ -87,10 +78,7 @@ export default async function Page({
           })
           .select('id')
           .single();
-        if (qErr) {
-          console.error('seed question error', qErr);
-          continue;
-        }
+
         const qid = insQ!.id as string;
         const rows = q.options.map((o, i) => ({
           org_id: orgId,
@@ -103,13 +91,12 @@ export default async function Page({
           points: o.points,
           affects_scoring: (q.kind ?? 'base') === 'base',
         }));
-        const { error: oErr } = await sb.from('test_options').insert(rows);
-        if (oErr) console.error('seed options error', oErr);
+        await sb.from('test_options').insert(rows);
       }
     }
   }
 
-  // 4) Load active test with questions/options for rendering
+  // 4) Load active test with questions/options
   let active:
     | {
         id: string;

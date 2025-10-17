@@ -12,18 +12,20 @@ export async function orgIdFromAuth(): Promise<string | null> {
   return (data as string | null) ?? null;
 }
 
-/** Creates an org for the current user (owner) if none exists; returns its id. */
+/** Create an org owned by the current (authenticated) user if none exists. */
 export async function ensureOrg(name: string): Promise<string> {
   const sb = createClient();
 
-  // If the user already belongs to an org, reuse it
-  const { data: existing, error: exErr } = await sb.rpc('org_id_from_auth');
-  if (!exErr && existing) return existing as string;
+  // must be authenticated to create ownership
+  const { data: userRes } = await sb.auth.getUser();
+  if (!userRes?.user) throw new Error('auth_required');
 
-  // IMPORTANT: pass both named args so PostgREST can map them exactly
+  const { data: existing } = await sb.rpc('org_id_from_auth');
+  if (existing) return existing as string;
+
   const { data, error } = await sb.rpc('create_org_and_owner', {
     p_name: name,
-    p_slug: null as unknown as string | null, // explicit null for clarity
+    p_slug: null as unknown as string | null,
   });
   if (error) throw new Error(error.message);
   return data as string;
