@@ -1,0 +1,2 @@
+idx,text,optA,optB,optC,optD,weightsA,weightsB,weightsC,weightsD
+1,"I prefer to…","Option A","Option B","Option C","Option D","{""P1"":2,""P4"":1}","{""P4"":2,""P1"":1}","{""P2"":2,""P3"":1}","{""P3"":2,""P2"":1}"
