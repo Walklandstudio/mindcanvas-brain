@@ -16,6 +16,7 @@ export default function Client({
       idx: number;
       stem: string;
       stem_rephrased: string | null;
+      kind: 'base' | 'segment';
       test_options: Array<{
         id: string;
         idx: number;
@@ -24,6 +25,7 @@ export default function Client({
         frequency: string;
         profile: string;
         points: number;
+        affects_scoring?: boolean;
       }>;
     }>;
   } | null;
@@ -49,10 +51,7 @@ export default function Client({
   if (!qs.length) {
     return (
       <section className="rounded-2xl border p-4">
-        <p>
-          This test has no questions yet. Click <b>Import template</b> above to
-          seed defaults.
-        </p>
+        <p>This test has no questions yet. Click <b>Import template (15)</b> above to seed defaults.</p>
       </section>
     );
   }
@@ -62,7 +61,7 @@ export default function Client({
       {qs.map((q, i) => (
         <div key={q.id} className="rounded-2xl border p-4 space-y-3 bg-white">
           <div className="font-semibold">
-            {i + 1}. {q.stem_rephrased ?? q.stem}
+            {i + 1}. {q.stem_rephrased ?? q.stem} {q.kind === 'segment' && <span className="text-xs text-gray-500">(segmentation)</span>}
           </div>
 
           <RephraseQuestion q={{ id: q.id, stem: q.stem, stem_rephrased: q.stem_rephrased ?? undefined }} />
@@ -74,16 +73,12 @@ export default function Client({
               .map((o) => (
                 <div key={o.id} className="rounded-xl border p-3">
                   <div className="text-sm text-gray-500">
-                    {o.frequency} • {o.profile} • {o.points} pts
+                    {o.affects_scoring === false ? 'No Score' : `${o.frequency} • ${o.profile} • ${o.points} pts`}
                   </div>
                   <div className="mt-1">{o.label_rephrased ?? o.label}</div>
                   <div className="mt-2">
                     <RephraseOption
-                      o={{
-                        id: o.id,
-                        label: o.label,
-                        label_rephrased: o.label_rephrased ?? undefined,
-                      }}
+                      o={{ id: o.id, label: o.label, label_rephrased: o.label_rephrased ?? undefined }}
                     />
                   </div>
                 </div>

@@ -14,10 +14,7 @@ function cookieStore() {
   };
 }
 
-/**
- * Authenticated client (reads/writes as the signed-in user).
- * Uses Next cookies for session — safe for Server Components, server actions, and API routes.
- */
+/** Authenticated client (user-scoped; respects RLS) */
 export function createClient() {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,10 +35,7 @@ export function createClient() {
   );
 }
 
-/**
- * Service-role client for trusted server code (no cookies, bypasses RLS).
- * ONLY call this from server-only contexts (API route, server action).
- */
+/** Service-role (admin) client — bypasses RLS. Use only in trusted server code. */
 export function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE!;

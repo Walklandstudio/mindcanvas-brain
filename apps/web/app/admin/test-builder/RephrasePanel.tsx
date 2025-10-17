@@ -30,7 +30,7 @@ export function RephraseQuestion(props: { q: { id: string; stem: string; stem_re
         className="w-full rounded border px-3 py-2"
         value={brandVoice}
         onChange={(e) => setBrandVoice(e.target.value)}
-        placeholder="e.g., friendly, practical, no jargon"
+        placeholder="e.g., clear, friendly, no jargon"
       />
       <textarea
         className="w-full rounded border px-3 py-2 min-h-24"
@@ -38,11 +38,7 @@ export function RephraseQuestion(props: { q: { id: string; stem: string; stem_re
         onChange={(e) => setText(e.target.value)}
       />
       <div className="flex gap-2">
-        <button
-          onClick={handleAI}
-          disabled={busy}
-          className="px-3 py-2 rounded bg-black text-white"
-        >
+        <button onClick={handleAI} disabled={busy} className="px-3 py-2 rounded bg-black text-white">
           {busy ? 'Rephrasing…' : 'AI Rephrase & Save'}
         </button>
       </div>
@@ -77,11 +73,7 @@ export function RephraseOption(props: { o: { id: string; label: string; label_re
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
-      <button
-        onClick={handleAI}
-        disabled={busy}
-        className="px-3 py-2 rounded bg-black text-white"
-      >
+      <button onClick={handleAI} disabled={busy} className="px-3 py-2 rounded bg-black text-white">
         {busy ? 'Rephrasing…' : 'AI Rephrase & Save'}
       </button>
     </div>

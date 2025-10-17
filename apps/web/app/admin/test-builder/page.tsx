@@ -14,17 +14,14 @@ export default async function Page({
 }) {
   const sb = createClient();
   const orgId = await orgIdFromAuth();
-
   const params = (await searchParams) ?? {};
 
   if (!orgId) {
-    // No org after deploy / fresh login — show one-click bootstrap
     return (
       <main className="p-6 space-y-4">
         <h1 className="text-2xl font-semibold">Test Builder</h1>
         <p className="text-gray-600">
-          No organization found for your account. Click below to create a demo
-          org and continue.
+          No organization found for your account. Click below to create a demo org and continue.
         </p>
         <EnsureOrgButton />
       </main>
@@ -39,13 +36,14 @@ export default async function Page({
 
   const activeId = params.test ?? tests?.[0]?.id ?? null;
 
-  let active = null as
+  let active:
     | (NonNullable<typeof tests>[number] & {
         test_questions: Array<{
           id: string;
           idx: number;
           stem: string;
           stem_rephrased: string | null;
+          kind: 'base' | 'segment';
           test_options: Array<{
             id: string;
             idx: number;
@@ -54,10 +52,11 @@ export default async function Page({
             frequency: string;
             profile: string;
             points: number;
+            affects_scoring?: boolean;
           }>;
         }>;
       })
-    | null;
+    | null = null;
 
   if (activeId) {
     const { data } = await sb
@@ -66,8 +65,8 @@ export default async function Page({
         `
         id,name,mode,status,created_at,
         test_questions (
-          id, idx, stem, stem_rephrased,
-          test_options ( id, idx, label, label_rephrased, frequency, profile, points )
+          id, idx, stem, stem_rephrased, kind,
+          test_options ( id, idx, label, label_rephrased, frequency, profile, points, affects_scoring )
         )
       `
       )
