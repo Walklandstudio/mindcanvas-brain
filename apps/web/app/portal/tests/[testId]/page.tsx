@@ -1,16 +1,21 @@
 // apps/web/app/portal/tests/[testId]/page.tsx
 import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
 
-export default async function TestDetailPage({ params }: { params: { testId: string } }) {
+export default async function TestDetailPage({
+  params,
+}: {
+  params: Promise<{ testId: string }>;
+}) {
+  const { testId } = await params;
   const sb = await getServerSupabase();
   const org = await getActiveOrg(sb);
 
-  // Accept both UUID and slug in [testId]
+  // Try UUID, then slug
   const byId = await sb
     .from("org_tests")
     .select("id, name, slug, status, mode, created_at")
     .eq("org_id", org.id)
-    .eq("id", params.testId)
+    .eq("id", testId)
     .maybeSingle();
 
   const test =
@@ -19,7 +24,7 @@ export default async function TestDetailPage({ params }: { params: { testId: str
       .from("org_tests")
       .select("id, name, slug, status, mode, created_at")
       .eq("org_id", org.id)
-      .eq("slug", params.testId)
+      .eq("slug", testId)
       .maybeSingle()).data;
 
   if (!test) {

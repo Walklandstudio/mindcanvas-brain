@@ -1,7 +1,12 @@
 // apps/web/app/portal/submissions/[id]/page.tsx
 import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
 
-export default async function SubmissionDetailPage({ params }: { params: { id: string } }) {
+export default async function SubmissionDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
   const sb = await getServerSupabase();
   const org = await getActiveOrg(sb);
 
@@ -9,7 +14,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
     .from("test_submissions")
     .select("id, test_id, taker_name, taker_email, profile, flow, score, submitted_at, report_json")
     .eq("org_id", org.id)
-    .eq("id", params.id)
+    .eq("id", id)
     .maybeSingle();
 
   if (error || !data) {
