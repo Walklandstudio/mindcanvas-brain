@@ -253,8 +253,10 @@ async function main() {
           question_id: qid,
           idx: o.idx,
           code: o.code,
-          label: o.text,  // <-- set label
-          text: o.text,   // <-- set text too
+          label: o.text,
+          text: o.text,
+          profile: "generic" as const,   // <-- NEW
+          frequency: "standard" as const,
           weights,
         };
 
@@ -263,7 +265,15 @@ async function main() {
           if (error) throw error;
         } else {
           const { error } = await sb.from("test_options")
-            .update({ idx: o.idx, code: o.code, label: o.text, text: o.text, weights })
+            .update({
+              idx: base.idx,
+              code: base.code,
+              label: base.label,
+              text: base.text,
+              profile: base.profile,
+              frequency: base.frequency,
+              weights: base.weights
+            })
             .eq("id", existingOpt.id);
           if (error) throw error;
         }

@@ -133,8 +133,10 @@ export async function POST(req: Request) {
           question_id: qid,
           idx: opt.idx,
           code: opt.code,
-          label: opt.text,  // <-- set label
-          text: opt.text,   // <-- set text too
+          label: opt.text,
+          text: opt.text,
+          profile: "generic" as const,     // <-- NEW
+          frequency: "standard" as const,  // <-- NEW
           weights: opt.weights as any,
         };
 
@@ -143,7 +145,15 @@ export async function POST(req: Request) {
           if (insOErr) return NextResponse.json({ error: insOErr.message }, { status: 400 });
         } else {
           const { error: updOErr } = await sb.from("test_options")
-            .update({ idx: opt.idx, code: opt.code, label: opt.text, text: opt.text, weights: opt.weights as any })
+            .update({
+              idx: base.idx,
+              code: base.code,
+              label: base.label,
+              text: base.text,
+              profile: base.profile,
+              frequency: base.frequency,
+              weights: base.weights
+            })
             .eq("id", existingOpt.id);
           if (updOErr) return NextResponse.json({ error: updOErr.message }, { status: 400 });
         }
