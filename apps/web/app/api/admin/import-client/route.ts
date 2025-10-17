@@ -86,7 +86,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: orgSelErr.message }, { status: 400 });
   }
 
-  // Make orgId a definite string (no union)
   let orgId: string;
   if (!existingOrgBySlug) {
     const { data: orgIns, error: orgInsErr } = await sb
@@ -95,7 +94,10 @@ export async function POST(req: Request) {
       .select("id")
       .maybeSingle();
     if (orgInsErr || !orgIns) {
-      return NextResponse.json({ error: orgInsErr?.message ?? "failed to create org" }, { status: 400 });
+      return NextResponse.json(
+        { error: orgInsErr?.message ?? "failed to create org" },
+        { status: 400 }
+      );
     }
     orgId = String(orgIns.id);
   } else {
@@ -206,7 +208,13 @@ export async function POST(req: Request) {
       if (!qid) {
         const { data: insQ, error: qErr } = await sb
           .from("test_questions")
-          .insert({ org_id: orgId, test_id: testId, idx: q.idx, text: q.text })
+          .insert({
+            org_id: orgId,
+            test_id: testId,
+            idx: q.idx,
+            order: q.idx, // keep "order" synced
+            text: q.text,
+          })
           .select("id")
           .maybeSingle();
         if (qErr || !insQ) return NextResponse.json({ error: qErr?.message ?? "failed creating question" }, { status: 400 });
@@ -215,7 +223,7 @@ export async function POST(req: Request) {
       } else {
         const { error: updQErr } = await sb
           .from("test_questions")
-          .update({ text: q.text })
+          .update({ text: q.text, order: q.idx })
           .eq("id", qid);
         if (updQErr) return NextResponse.json({ error: updQErr.message }, { status: 400 });
       }

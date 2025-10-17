@@ -104,7 +104,7 @@ async function main() {
   const { org, profiles, tests, questions } = args;
   const dry = Boolean(args.dry);
 
-  // Hard validation first so TS can narrow types afterwards
+  // Validate required args so TS can narrow types
   if (!org || !profiles || !tests) {
     console.error(
       "Usage: tsx scripts/import-client.ts --org org.csv --profiles profiles.csv --tests tests.csv [--questions questions.csv] [--dry]"
@@ -112,7 +112,7 @@ async function main() {
     process.exit(1);
   }
 
-  // After the check above, create narrowed, definite strings for TS:
+  // Narrowed definite strings
   const orgPath = path.resolve(org);
   const profilesPath = path.resolve(profiles);
   const testsPath = path.resolve(tests);
@@ -174,9 +174,9 @@ async function main() {
         .select("id")
         .maybeSingle();
       if (error) throw error;
-      orgId = data!.id as string;
+      orgId = String(data!.id);
     } else {
-      orgId = existing.id as string;
+      orgId = String(existing.id);
       const { error } = await sb
         .from("organizations")
         .update({ name: orgRow.name })
@@ -233,7 +233,7 @@ async function main() {
         .select("id")
         .maybeSingle();
       if (error) throw error;
-      testIdBySlug.set(t.slug, data!.id as string);
+      testIdBySlug.set(t.slug, String(data!.id));
     } else {
       const { data, error } = await sb
         .from("org_tests")
@@ -246,7 +246,7 @@ async function main() {
         .select("id")
         .maybeSingle();
       if (error) throw error;
-      testIdBySlug.set(t.slug, (data ?? existing).id as string);
+      testIdBySlug.set(t.slug, String((data ?? existing).id));
     }
   }
 
@@ -270,10 +270,17 @@ async function main() {
     for (const r of qRows) {
       const idx = Number(r.idx);
       let qid = qIdByIdx.get(idx);
+
       if (!qid) {
         const { data: ins, error } = await sb
           .from("test_questions")
-          .insert({ org_id: orgId, test_id: testId, idx, text: r.text })
+          .insert({
+            org_id: orgId,
+            test_id: testId,
+            idx,
+            order: idx, // keep "order" in sync with idx
+            text: r.text,
+          })
           .select("id")
           .maybeSingle();
         if (error) throw error;
@@ -282,7 +289,7 @@ async function main() {
       } else {
         const { error } = await sb
           .from("test_questions")
-          .update({ text: r.text })
+          .update({ text: r.text, order: idx }) // keep "order" synced
           .eq("id", qid);
         if (error) throw error;
       }
