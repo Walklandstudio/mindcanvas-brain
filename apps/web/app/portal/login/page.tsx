@@ -1,25 +1,82 @@
 // apps/web/app/portal/login/page.tsx
-import Link from "next/link";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useState } from "react";
 
-export default function PortalLoginPage() {
+export default function LoginPage() {
+  const [user, setUser] = useState("");       // email
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/portal/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: user, password }),
+      });
+      if (res.redirected) {
+        window.location.href = res.url;
+        return;
+      }
+      const json = await res.json();
+      if (!json.ok) {
+        setError(json.error || "Login failed");
+      } else {
+        window.location.href = json.next || "/portal/home";
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-md py-10">
-      <h1 className="text-2xl font-semibold">Client Portal Login</h1>
-      <p className="mt-2 text-gray-600">
-        Use your MindCanvas account or an invite link. If you’re already logged in,
-        return to the <Link href="/portal/home" className="underline">Portal Home</Link>.
-      </p>
-      <div className="mt-6 space-y-3">
-        {/* Replace with your actual auth UI (Supabase Auth UI / custom magic link form) */}
-        <a href="/auth/signin" className="inline-block border px-4 py-2 rounded hover:bg-gray-50">
-          Continue with Email
-        </a>
-        <a href="/auth/signin?provider=google" className="block text-sm underline">
-          Continue with Google
-        </a>
-      </div>
+    <div className="min-h-dvh flex items-center justify-center bg-[#0b0f16] text-white">
+      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 border border-white/15 rounded-xl p-6">
+        <h1 className="text-xl font-semibold">Client Portal Login</h1>
+
+        {error && <div className="text-red-400 text-sm">{error}</div>}
+
+        <div>
+          <label className="block text-sm mb-1">User (enter email address)</label>
+          <input
+            className="w-full rounded-md border border-white/20 bg-transparent p-2"
+            type="email"
+            value={user}
+            onChange={(e) => setUser(e.currentTarget.value)}
+            placeholder="you@company.com"
+            autoComplete="email"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1">Password (enter password)</label>
+          <input
+            className="w-full rounded-md border border-white/20 bg-transparent p-2"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.currentTarget.value)}
+            placeholder="••••••••"
+            autoComplete="current-password"
+            required
+          />
+        </div>
+
+        <button
+          className="w-full rounded-md border border-white/25 py-2 hover:bg-white/5 disabled:opacity-50"
+          type="submit"
+          disabled={loading}
+        >
+          {loading ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
     </div>
   );
 }
