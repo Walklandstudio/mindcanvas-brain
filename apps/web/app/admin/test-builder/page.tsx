@@ -15,13 +15,13 @@ export default async function Page({
 }) {
   const sb = createClient();
 
-  // 0) Auth gate — if not signed in, send to onboarding
+  // Server-side auth check (no client flicker)
   const { data: userRes } = await sb.auth.getUser();
   if (!userRes?.user) {
-    redirect('/onboarding');
+    redirect('/onboarding?next=%2Fadmin%2Ftest-builder');
   }
 
-  // 1) Ensure org (create if missing)
+  // Ensure org
   let orgId = await orgIdFromAuth();
   if (!orgId) {
     orgId = await ensureOrg('Demo Org');
@@ -29,7 +29,7 @@ export default async function Page({
 
   const params = (await searchParams) ?? {};
 
-  // 2) Ensure at least one test
+  // Ensure at least one test
   const { data: tests0 } = await sb
     .from('org_tests')
     .select('id,name,mode,status,created_at')
@@ -55,7 +55,7 @@ export default async function Page({
 
   const activeId = params.test ?? tests?.[0]?.id ?? null;
 
-  // 3) Seed 15 base questions if test is empty (first time only)
+  // Seed 15 base questions once
   if (activeId) {
     const { count } = await sb
       .from('test_questions')
@@ -96,34 +96,8 @@ export default async function Page({
     }
   }
 
-  // 4) Load active test with questions/options
-  let active:
-    | {
-        id: string;
-        name: string;
-        mode: string;
-        status: string;
-        created_at: string;
-        test_questions: Array<{
-          id: string;
-          idx: number;
-          stem: string;
-          stem_rephrased: string | null;
-          kind: 'base' | 'segment';
-          test_options: Array<{
-            id: string;
-            idx: number;
-            label: string;
-            label_rephrased: string | null;
-            frequency: string;
-            profile: string;
-            points: number;
-            affects_scoring?: boolean;
-          }>;
-        }>;
-      }
-    | null = null;
-
+  // Load for render
+  let active: any = null;
   if (activeId) {
     const { data } = await sb
       .from('org_tests')
@@ -138,7 +112,7 @@ export default async function Page({
       )
       .eq('id', activeId)
       .single();
-    active = (data ?? null) as typeof active;
+    active = data ?? null;
   }
 
   return (
