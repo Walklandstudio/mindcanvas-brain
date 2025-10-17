@@ -16,10 +16,15 @@ export async function orgIdFromAuth(): Promise<string | null> {
 export async function ensureOrg(name: string): Promise<string> {
   const sb = createClient();
 
-  const { data: existing } = await sb.rpc('org_id_from_auth');
-  if (existing) return existing as string;
+  // If the user already belongs to an org, reuse it
+  const { data: existing, error: exErr } = await sb.rpc('org_id_from_auth');
+  if (!exErr && existing) return existing as string;
 
-  const { data, error } = await sb.rpc('create_org_and_owner', { p_name: name });
+  // IMPORTANT: pass both named args so PostgREST can map them exactly
+  const { data, error } = await sb.rpc('create_org_and_owner', {
+    p_name: name,
+    p_slug: null as unknown as string | null, // explicit null for clarity
+  });
   if (error) throw new Error(error.message);
   return data as string;
 }
