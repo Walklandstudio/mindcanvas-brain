@@ -3,6 +3,7 @@ import { createClient } from '../../_lib/supabase/server';
 import { orgIdFromAuth } from '../../_lib/org';
 import TopBar from './ui/TopBar';
 import Client from './ui/Client';
+import { EnsureOrgButton } from './ui/controls/EnsureOrgButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,18 +14,23 @@ export default async function Page({
 }) {
   const sb = createClient();
   const orgId = await orgIdFromAuth();
+
+  const params = (await searchParams) ?? {};
+
   if (!orgId) {
+    // No org after deploy / fresh login — show one-click bootstrap
     return (
-      <main className="p-6">
+      <main className="p-6 space-y-4">
         <h1 className="text-2xl font-semibold">Test Builder</h1>
-        <p className="mt-2 text-gray-600">
-          No organization found for your account. Please finish onboarding first.
+        <p className="text-gray-600">
+          No organization found for your account. Click below to create a demo
+          org and continue.
         </p>
+        <EnsureOrgButton />
       </main>
     );
   }
 
-  const params = (await searchParams) ?? {};
   const { data: tests } = await sb
     .from('org_tests')
     .select('id,name,mode,status,created_at')

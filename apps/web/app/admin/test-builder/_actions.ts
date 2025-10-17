@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '../../_lib/supabase/server';
-import { orgIdFromAuth } from '../../_lib/org';
+import { orgIdFromAuth, ensureOrg } from '../../_lib/org';
 import { TEMPLATE } from './templates';
 
 /** Create a test (free/full) and return its id */
@@ -24,6 +24,12 @@ export async function createTestAction(params: { name: string; mode: 'free' | 'f
 
   if (error) throw new Error(error.message);
   return { id: data.id as string };
+}
+
+/** One-click bootstrap org (used by EnsureOrgButton) */
+export async function ensureOrgAction({ name }: { name: string }) {
+  await ensureOrg(name);
+  return { ok: true };
 }
 
 /** Import our default question template into an existing test */
@@ -77,7 +83,34 @@ export async function importTemplateAction(params: { testId: string }) {
   return { ok: true };
 }
 
-/** Rephrase a question stem with AI (stubbed), then persist */
+/** Bring back your "Create public URL + iframe" feature */
+export async function createPublicLinkAction(params: { testId: string }) {
+  const { testId } = params;
+  const sb = createClient();
+  const orgId = await orgIdFromAuth();
+  if (!orgId) throw new Error('No organization for current user');
+
+  const { data, error } = await sb
+    .from('test_takers')
+    .insert({
+      org_id: orgId,
+      test_id: testId,
+      email: `public+${crypto.randomUUID()}@example.com`,
+      name: 'Public Link',
+    })
+    .select('token')
+    .single();
+
+  if (error) throw new Error(error.message);
+  const token = data!.token as string;
+
+  const base = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://mindcanvas-staging.vercel.app';
+  const url = `${base}/t/${token}`;
+  const iframe = `<iframe src="${base}/t/${token}/embed" width="100%" height="800" frameborder="0" allowfullscreen></iframe>`;
+  return { url, iframe };
+}
+
+/** Rephrase question */
 export async function rephraseQuestionAction(params: {
   questionId: string;
   currentText: string;
@@ -88,9 +121,7 @@ export async function rephraseQuestionAction(params: {
   const orgId = await orgIdFromAuth();
   if (!orgId) throw new Error('No organization for current user');
 
-  // TODO: plug in your AI call here; keep mapping stable
-  const rephrased = currentText;
-
+  const rephrased = currentText; // TODO plug AI
   const { error } = await sb
     .from('test_questions')
     .update({ stem_rephrased: rephrased })
@@ -101,7 +132,7 @@ export async function rephraseQuestionAction(params: {
   return { ok: true, text: rephrased };
 }
 
-/** Rephrase an option label with AI (stubbed), then persist */
+/** Rephrase option */
 export async function rephraseOptionAction(params: {
   optionId: string;
   currentText: string;
@@ -112,8 +143,7 @@ export async function rephraseOptionAction(params: {
   const orgId = await orgIdFromAuth();
   if (!orgId) throw new Error('No organization for current user');
 
-  const rephrased = currentText;
-
+  const rephrased = currentText; // TODO plug AI
   const { error } = await sb
     .from('test_options')
     .update({ label_rephrased: rephrased })

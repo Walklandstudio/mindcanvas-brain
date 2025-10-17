@@ -1,7 +1,11 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createTestAction, importTemplateAction } from '../_actions';
+import {
+  createTestAction,
+  importTemplateAction,
+  createPublicLinkAction,
+} from '../_actions';
 
 export default function TopBar({
   tests,
@@ -23,7 +27,7 @@ export default function TopBar({
   async function onImport() {
     if (!activeId) return;
     const ok = window.confirm(
-      'Import the default question template into this test?\n(Existing questions keep their order; duplicates are skipped.)'
+      'Import the default question template into this test?'
     );
     if (!ok) return;
     await importTemplateAction({ testId: activeId });
@@ -34,6 +38,14 @@ export default function TopBar({
     const sp = new URLSearchParams(search?.toString() ?? '');
     sp.set('test', id);
     router.push(`/admin/test-builder?${sp.toString()}`);
+  }
+
+  async function onPublicLink() {
+    if (!activeId) return;
+    const { url, iframe } = await createPublicLinkAction({ testId: activeId });
+    alert(
+      `Created Public Test\n\nPublic URL:\n${url}\n\nEmbed (iframe):\n${iframe}`
+    );
   }
 
   return (
@@ -67,13 +79,23 @@ export default function TopBar({
             </option>
           ))}
         </select>
+
         <button
           onClick={onImport}
           disabled={!activeId}
           className="px-3 py-2 rounded-2xl border"
-          title="Seed questions for the selected test"
+          title="Seed questions"
         >
           Import template
+        </button>
+
+        <button
+          onClick={onPublicLink}
+          disabled={!activeId}
+          className="px-3 py-2 rounded-2xl border"
+          title="Create public link + iframe"
+        >
+          Get public link
         </button>
       </div>
     </div>
