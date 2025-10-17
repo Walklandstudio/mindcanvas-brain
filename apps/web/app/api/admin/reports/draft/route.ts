@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { createClient } from '@/app/_lib/supabase/server';
-import { orgIdFromAuth } from '@/app/_lib/org';
+import { createClient } from '../../../../_lib/supabase/server';
+import { orgIdFromAuth } from '../../../../_lib/org';
 
 export async function POST(req: Request) {
   const { testId, content } = await req.json();
@@ -12,7 +12,8 @@ export async function POST(req: Request) {
   const { data: userRes, error: authErr } = await sb.auth.getUser();
   if (authErr || !userRes.user) return NextResponse.json({ error: 'no-user' }, { status: 401 });
 
-  const { data, error } = await sb.from('report_drafts')
+  const { data, error } = await sb
+    .from('report_drafts')
     .insert({ org_id: orgId, test_id: testId, content, created_by: userRes.user.id })
     .select('id')
     .single();
