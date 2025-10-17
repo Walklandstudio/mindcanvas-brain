@@ -1,9 +1,16 @@
 // apps/web/app/portal/tests/page.tsx
 import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
 
-export default async function TestsPage({ searchParams }: { searchParams?: { slug?: string } }) {
+export default async function TestsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ slug?: string }>;
+}) {
   const sb = await getServerSupabase();
   const org = await getActiveOrg(sb);
+
+  const sp = (await searchParams) ?? {};
+  const slug = sp.slug;
 
   const base = sb
     .from("org_tests")
@@ -11,7 +18,6 @@ export default async function TestsPage({ searchParams }: { searchParams?: { slu
     .eq("org_id", org.id)
     .order("created_at", { ascending: false });
 
-  const slug = searchParams?.slug;
   const { data: tests } = slug ? await base.eq("slug", slug) : await base;
 
   return (
@@ -41,7 +47,9 @@ export default async function TestsPage({ searchParams }: { searchParams?: { slu
             ))}
             {(!tests || tests.length === 0) && (
               <tr>
-                <td className="p-3 text-gray-500" colSpan={5}>No tests found.</td>
+                <td className="p-3 text-gray-500" colSpan={5}>
+                  No tests found.
+                </td>
               </tr>
             )}
           </tbody>
@@ -49,7 +57,9 @@ export default async function TestsPage({ searchParams }: { searchParams?: { slu
       </div>
 
       <div>
-        <a className="text-blue-600 hover:underline" href="/portal/home">← Back to Home</a>
+        <a className="text-blue-600 hover:underline" href="/portal/home">
+          ← Back to Home
+        </a>
       </div>
     </div>
   );
