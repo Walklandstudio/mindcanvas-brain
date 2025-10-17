@@ -248,19 +248,22 @@ async function main() {
           .maybeSingle();
         if (optSelErr) throw optSelErr;
 
+        const base = {
+          org_id: orgId,
+          question_id: qid,
+          idx: o.idx,
+          code: o.code,
+          label: o.text,  // <-- set label
+          text: o.text,   // <-- set text too
+          weights,
+        };
+
         if (!existingOpt) {
-          const { error } = await sb.from("test_options").insert({
-            org_id: orgId,
-            question_id: qid,
-            idx: o.idx,         // <— set idx
-            code: o.code,
-            text: o.text,
-            weights,
-          });
+          const { error } = await sb.from("test_options").insert(base);
           if (error) throw error;
         } else {
           const { error } = await sb.from("test_options")
-            .update({ idx: o.idx, text: o.text, weights })
+            .update({ idx: o.idx, code: o.code, label: o.text, text: o.text, weights })
             .eq("id", existingOpt.id);
           if (error) throw error;
         }

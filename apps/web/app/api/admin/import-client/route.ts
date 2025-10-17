@@ -128,19 +128,22 @@ export async function POST(req: Request) {
           .select("id").eq("org_id", orgId).eq("question_id", qid).eq("code", opt.code).maybeSingle();
         if (optSelErr) return NextResponse.json({ error: optSelErr.message }, { status: 400 });
 
+        const base = {
+          org_id: orgId,
+          question_id: qid,
+          idx: opt.idx,
+          code: opt.code,
+          label: opt.text,  // <-- set label
+          text: opt.text,   // <-- set text too
+          weights: opt.weights as any,
+        };
+
         if (!existingOpt) {
-          const { error: insOErr } = await sb.from("test_options").insert({
-            org_id: orgId,
-            question_id: qid,
-            idx: opt.idx,     // <— set idx
-            code: opt.code,
-            text: opt.text,
-            weights: opt.weights as any,
-          });
+          const { error: insOErr } = await sb.from("test_options").insert(base);
           if (insOErr) return NextResponse.json({ error: insOErr.message }, { status: 400 });
         } else {
           const { error: updOErr } = await sb.from("test_options")
-            .update({ idx: opt.idx, text: opt.text, weights: opt.weights as any })
+            .update({ idx: opt.idx, code: opt.code, label: opt.text, text: opt.text, weights: opt.weights as any })
             .eq("id", existingOpt.id);
           if (updOErr) return NextResponse.json({ error: updOErr.message }, { status: 400 });
         }
