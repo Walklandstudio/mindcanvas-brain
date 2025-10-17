@@ -1,4 +1,3 @@
-// apps/web/app/_lib/org.ts
 import 'server-only';
 import { createClient } from './supabase/server';
 
@@ -12,11 +11,9 @@ export async function orgIdFromAuth(): Promise<string | null> {
   return (data as string | null) ?? null;
 }
 
-/** Create an org owned by the current (authenticated) user if none exists. */
 export async function ensureOrg(name: string): Promise<string> {
   const sb = createClient();
 
-  // must be authenticated to create ownership
   const { data: userRes } = await sb.auth.getUser();
   if (!userRes?.user) throw new Error('auth_required');
 

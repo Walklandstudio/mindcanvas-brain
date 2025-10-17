@@ -15,10 +15,10 @@ export default async function Page({
 }) {
   const sb = createClient();
 
-  // 0) Auth gate — if not signed in, send to onboarding (or your sign-in)
+  // 0) Auth gate — if not signed in, send to onboarding
   const { data: userRes } = await sb.auth.getUser();
   if (!userRes?.user) {
-    redirect('/onboarding'); // <-- change to /login if you have a login page
+    redirect('/onboarding');
   }
 
   // 1) Ensure org (create if missing)
