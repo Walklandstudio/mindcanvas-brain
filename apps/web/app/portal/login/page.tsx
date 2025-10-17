@@ -18,17 +18,35 @@ export default function LoginPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: user, password }),
+        redirect: "manual", // don’t auto-follow; we expect JSON
       });
-      if (res.redirected) {
-        window.location.href = res.url;
+
+      // Try to parse JSON if possible
+      const ct = res.headers.get("content-type") || "";
+      let json: any = null;
+
+      if (ct.includes("application/json")) {
+        json = await res.json();
+      } else {
+        // Fallback: read text and surface status
+        const txt = await res.text().catch(() => "");
+        if (!res.ok) {
+          setError(txt || `Login failed (HTTP ${res.status})`);
+          setLoading(false);
+          return;
+        }
+        // If OK but not JSON, just go to home
+        window.location.href = "/portal/home";
         return;
       }
-      const json = await res.json();
-      if (!json.ok) {
-        setError(json.error || "Login failed");
-      } else {
-        window.location.href = json.next || "/portal/home";
+
+      if (!res.ok || !json?.ok) {
+        setError(json?.error || `Login failed (HTTP ${res.status})`);
+        setLoading(false);
+        return;
       }
+
+      window.location.href = json.next || "/portal/home";
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
     } finally {
