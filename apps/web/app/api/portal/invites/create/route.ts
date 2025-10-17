@@ -1,22 +1,32 @@
 // apps/web/app/api/portal/invites/create/route.ts
 import { NextResponse } from "next/server";
-import { ensurePortalMember } from "@/app/_lib/portal";
+import { getServerSupabase, ensurePortalMember } from "@/app/_lib/portal";
 
 export async function POST(req: Request) {
-  const { supabase, orgId } = await ensurePortalMember();
-  const form = await req.formData();
-  const email = String(form.get("email") || "").trim().toLowerCase();
+  const sb = await getServerSupabase();
+  const orgId = await ensurePortalMember({ sb });
+
+  const body = await req.json().catch(() => ({} as any));
+  const email = String(body.email || "").trim().toLowerCase();
+  const role = (body.role as string) || "client";
+
   if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
 
-  const { data, error } = await supabase.from("portal_invites").insert({
-    org_id: orgId,
-    email,
-    role: "client",
-    status: "pending",
-  }).select("*").maybeSingle();
+  // upsert invite
+  const { data, error } = await sb
+    .from("portal_invites")
+    .upsert(
+      {
+        org_id: orgId,
+        email,
+        role,
+        status: "pending",
+      },
+      { onConflict: "org_id,email" }
+    )
+    .select("id, token, status, created_at")
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-  // TODO: send email with link to /portal/invite/accept?token=...
-  return NextResponse.redirect("/portal/people", { status: 302 });
+  return NextResponse.json({ ok: true, invite: data }, { status: 200 });
 }

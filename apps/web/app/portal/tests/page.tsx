@@ -1,52 +1,55 @@
 // apps/web/app/portal/tests/page.tsx
-import Link from "next/link";
-import { ensurePortalMember } from "@/app/_lib/portal";
+import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
 
-export const dynamic = "force-dynamic";
+export default async function TestsPage({ searchParams }: { searchParams?: { slug?: string } }) {
+  const sb = await getServerSupabase();
+  const org = await getActiveOrg(sb);
 
-export default async function PortalTestsPage() {
-  const { supabase, orgId } = await ensurePortalMember();
-  const { data: tests } = await supabase
+  const base = sb
     .from("org_tests")
-    .select("*")
-    .eq("org_id", orgId)
+    .select("id, name, slug, status, mode, created_at")
+    .eq("org_id", org.id)
     .order("created_at", { ascending: false });
 
+  const slug = searchParams?.slug;
+  const { data: tests } = slug ? await base.eq("slug", slug) : await base;
+
   return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-4">Tests</h1>
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-left">
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Tests — {org.name}</h1>
+
+      <div className="rounded-lg border overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50 text-left text-sm">
             <tr>
-              <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2">Mode</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Created</th>
-              <th className="px-3 py-2">Actions</th>
+              <th className="p-3">Name</th>
+              <th className="p-3">Slug</th>
+              <th className="p-3">Mode</th>
+              <th className="p-3">Status</th>
+              <th className="p-3">Created</th>
             </tr>
           </thead>
-          <tbody>
-            {(tests ?? []).map((t: any) => (
-              <tr key={t.id} className="border-t">
-                <td className="px-3 py-2">{t.name ?? t.slug ?? t.id}</td>
-                <td className="px-3 py-2">{t.mode ?? "full"}</td>
-                <td className="px-3 py-2">{t.status ?? "active"}</td>
-                <td className="px-3 py-2">{new Date(t.created_at).toLocaleDateString()}</td>
-                <td className="px-3 py-2">
-                  <Link href={`/portal/tests/${t.id}`} className="underline">Open</Link>
-                </td>
+          <tbody className="divide-y">
+            {(tests ?? []).map((t) => (
+              <tr key={t.id} className="hover:bg-gray-50">
+                <td className="p-3">{t.name}</td>
+                <td className="p-3">{t.slug}</td>
+                <td className="p-3">{t.mode}</td>
+                <td className="p-3">{t.status}</td>
+                <td className="p-3">{new Date(t.created_at as any).toLocaleString()}</td>
               </tr>
             ))}
             {(!tests || tests.length === 0) && (
               <tr>
-                <td className="px-3 py-6 text-center text-gray-500" colSpan={5}>
-                  No tests yet
-                </td>
+                <td className="p-3 text-gray-500" colSpan={5}>No tests found.</td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+
+      <div>
+        <a className="text-blue-600 hover:underline" href="/portal/home">← Back to Home</a>
       </div>
     </div>
   );

@@ -1,33 +1,56 @@
 // apps/web/app/portal/settings/page.tsx
-import { ensurePortalMember, getOrgBrand } from "@/app/_lib/portal";
+import { getServerSupabase, getActiveOrg, getOrgBrand } from "@/app/_lib/portal";
 
-export const dynamic = "force-dynamic";
+export default async function SettingsPage() {
+  const sb = await getServerSupabase();           // ✅ returns the Supabase client
+  const org = await getActiveOrg(sb);             // ✅ resolves the active org
+  const brand = await getOrgBrand(org.id, sb);    // ✅ current branding (or defaults)
 
-export default async function PortalSettingsPage() {
-  const { supabase, orgId } = await ensurePortalMember();
-  const brand = await getOrgBrand(orgId);
-
-  // Basic form posting to the same page via Route Handler (below), but to keep MVP short,
-  // we'll do a direct upsert here using Server Actions in the next iteration if needed.
-  // For now just SHOW current settings:
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Brand Settings</h1>
-      <div className="border rounded-lg p-4 space-y-2">
-        <div><span className="text-sm text-gray-600">Logo URL:</span> <code className="text-xs break-all">{brand?.logo_url ?? "—"}</code></div>
-        <div><span className="text-sm text-gray-600">Brand voice:</span> {brand?.brand_voice ?? "—"}</div>
-        <div><span className="text-sm text-gray-600">Audience:</span> {brand?.audience ?? "—"}</div>
-        <div><span className="text-sm text-gray-600">Notes:</span> {brand?.notes ?? "—"}</div>
-      </div>
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Settings — {org.name}</h1>
 
-      <form action="/app/api/portal/settings/save" method="post" className="border rounded-lg p-4 space-y-3">
-        <h2 className="text-lg font-semibold">Update</h2>
-        <input className="border rounded px-3 py-2 w-full" name="logo_url" placeholder="https://.../logo.png" defaultValue={brand?.logo_url ?? ""} />
-        <textarea className="border rounded px-3 py-2 w-full" name="brand_voice" placeholder="Warm, concise, empowering">{brand?.brand_voice ?? ""}</textarea>
-        <input className="border rounded px-3 py-2 w-full" name="audience" placeholder="Leaders, HR, People Ops" defaultValue={brand?.audience ?? ""} />
-        <textarea className="border rounded px-3 py-2 w-full" name="notes" placeholder="Internal notes...">{brand?.notes ?? ""}</textarea>
-        <button className="border rounded px-4 py-2 hover:bg-gray-50" type="submit">Save</button>
+      <form
+        action="/api/portal/settings/save"
+        method="post"
+        className="space-y-4 max-w-xl border rounded-xl p-4"
+      >
+        <input type="hidden" name="org_id" value={org.id} />
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Logo URL</label>
+          <input
+            name="logo_url"
+            defaultValue={brand.logo_url ?? ""}
+            className="w-full border rounded-md p-2"
+            placeholder="https://…"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Brand voice</label>
+          <textarea
+            name="brand_voice"
+            defaultValue={brand.brand_voice ?? ""}
+            rows={5}
+            className="w-full border rounded-md p-2"
+            placeholder="How should copy sound for this org?"
+          />
+        </div>
+
+        <div className="pt-2">
+          <button
+            type="submit"
+            className="inline-flex items-center rounded-md border px-4 py-2 hover:bg-gray-50"
+          >
+            Save
+          </button>
+        </div>
       </form>
+
+      <div className="pt-4">
+        <a className="text-blue-600 hover:underline" href="/portal/home">← Back to Home</a>
+      </div>
     </div>
   );
 }

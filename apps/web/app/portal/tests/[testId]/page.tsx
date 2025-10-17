@@ -1,66 +1,85 @@
 // apps/web/app/portal/tests/[testId]/page.tsx
-import { ensurePortalMember } from "@/app/_lib/portal";
+import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
 
-export const dynamic = "force-dynamic";
+export default async function TestDetailPage({ params }: { params: { testId: string } }) {
+  const sb = await getServerSupabase();
+  const org = await getActiveOrg(sb);
 
-type Params = { testId: string };
-
-export default async function PortalTestDetailPage(
-  { params }: { params: Promise<Params> }
-) {
-  const { testId } = await params; // 👈 await the params
-  const { supabase, orgId } = await ensurePortalMember();
-
-  const { data: test } = await supabase
+  // Accept both UUID and slug in [testId]
+  const byId = await sb
     .from("org_tests")
-    .select("*")
-    .eq("org_id", orgId)
-    .eq("id", testId)
+    .select("id, name, slug, status, mode, created_at")
+    .eq("org_id", org.id)
+    .eq("id", params.testId)
     .maybeSingle();
 
+  const test =
+    byId.data ??
+    (await sb
+      .from("org_tests")
+      .select("id, name, slug, status, mode, created_at")
+      .eq("org_id", org.id)
+      .eq("slug", params.testId)
+      .maybeSingle()).data;
+
   if (!test) {
-    return <div className="text-red-600">Test not found or not accessible.</div>;
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-semibold">Test not found</h1>
+      </div>
+    );
   }
 
-  const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/t/${test.slug ?? test.id}`;
-  const iframeSnippet = `<iframe src="${publicUrl}" width="100%" height="800" style="border:0;"></iframe>`;
+  const { data: questions } = await sb
+    .from("test_questions")
+    .select("id, idx, text")
+    .eq("org_id", org.id)
+    .eq("test_id", test.id)
+    .order("idx", { ascending: true });
 
-  const { count } = await supabase
-    .from("test_submissions")
-    .select("id", { count: "exact", head: true })
-    .eq("org_id", orgId)
-    .eq("test_id", test.id);
+  const { data: options } = await sb
+    .from("test_options")
+    .select("id, question_id, idx, code, label, text")
+    .eq("org_id", org.id)
+    .in(
+      "question_id",
+      (questions ?? []).map((q: any) => q.id)
+    )
+    .order("idx", { ascending: true });
+
+  const optsByQ = new Map<string, any[]>();
+  (options ?? []).forEach((o: any) => {
+    const arr = optsByQ.get(o.question_id) ?? [];
+    arr.push(o);
+    optsByQ.set(o.question_id, arr);
+  });
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">{test.name ?? test.slug ?? test.id}</h1>
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">{test.name}</h1>
+      <div className="text-sm text-gray-600">/{test.slug} · {test.status} · {test.mode}</div>
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <div className="border rounded-lg p-4">
-          <div className="text-sm text-gray-600">Status</div>
-          <div className="text-lg font-medium">{test.status ?? "active"}</div>
-        </div>
-        <div className="border rounded-lg p-4">
-          <div className="text-sm text-gray-600">Mode</div>
-          <div className="text-lg font-medium">{test.mode ?? "full"}</div>
-        </div>
-        <div className="border rounded-lg p-4">
-          <div className="text-sm text-gray-600">Completed</div>
-          <div className="text-lg font-medium">{count ?? 0}</div>
-        </div>
-      </section>
+      <div className="rounded-lg border">
+        {(questions ?? []).map((q: any) => (
+          <div key={q.id} className="p-4 border-b last:border-b-0">
+            <div className="font-medium mb-2">Q{q.idx}. {q.text}</div>
+            <ul className="list-disc ml-6 space-y-1">
+              {(optsByQ.get(q.id) ?? []).map((o: any) => (
+                <li key={o.id}>
+                  <span className="font-medium">{o.code}.</span> {o.text ?? o.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {(!questions || questions.length === 0) && (
+          <div className="p-4 text-gray-500">No questions yet.</div>
+        )}
+      </div>
 
-      <section>
-        <h2 className="text-lg font-semibold mb-2">Share</h2>
-        <div className="rounded border p-3 bg-gray-50">
-          <div className="text-sm">Public URL</div>
-          <code className="block break-all text-xs mt-1">{publicUrl}</code>
-        </div>
-        <div className="rounded border p-3 bg-gray-50 mt-3">
-          <div className="text-sm mb-1">Embed (iframe)</div>
-          <code className="block break-all text-xs whitespace-pre">{iframeSnippet}</code>
-        </div>
-      </section>
+      <div>
+        <a className="text-blue-600 hover:underline" href="/portal/tests">← Back to Tests</a>
+      </div>
     </div>
   );
 }
