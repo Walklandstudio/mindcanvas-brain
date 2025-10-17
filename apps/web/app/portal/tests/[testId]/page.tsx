@@ -3,13 +3,19 @@ import { ensurePortalMember } from "@/app/_lib/portal";
 
 export const dynamic = "force-dynamic";
 
-export default async function PortalTestDetailPage({ params }: { params: { testId: string } }) {
+type Params = { testId: string };
+
+export default async function PortalTestDetailPage(
+  { params }: { params: Promise<Params> }
+) {
+  const { testId } = await params; // 👈 await the params
   const { supabase, orgId } = await ensurePortalMember();
+
   const { data: test } = await supabase
     .from("org_tests")
     .select("*")
     .eq("org_id", orgId)
-    .eq("id", params.testId)
+    .eq("id", testId)
     .maybeSingle();
 
   if (!test) {
@@ -19,7 +25,7 @@ export default async function PortalTestDetailPage({ params }: { params: { testI
   const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/t/${test.slug ?? test.id}`;
   const iframeSnippet = `<iframe src="${publicUrl}" width="100%" height="800" style="border:0;"></iframe>`;
 
-  const { data: stats } = await supabase
+  const { count } = await supabase
     .from("test_submissions")
     .select("id", { count: "exact", head: true })
     .eq("org_id", orgId)
@@ -40,7 +46,7 @@ export default async function PortalTestDetailPage({ params }: { params: { testI
         </div>
         <div className="border rounded-lg p-4">
           <div className="text-sm text-gray-600">Completed</div>
-          <div className="text-lg font-medium">{stats ?? 0}</div>
+          <div className="text-lg font-medium">{count ?? 0}</div>
         </div>
       </section>
 

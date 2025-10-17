@@ -1,16 +1,17 @@
 // apps/web/app/_lib/portal.ts
-import { cookies as getCookies, headers as getHeaders } from "next/headers";
+import { cookies as getCookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 async function getSupabaseServer() {
+  // In your setup, cookies() returns a Promise — await it.
   const cookieStore = await getCookies();
-  const h = await getHeaders();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   return createServerClient(supabaseUrl, supabaseAnon, {
+    // Provide the CookieMethodsServer implementation using the cookieStore we awaited.
     cookies: {
       get(name: string): string | undefined {
         return cookieStore.get(name)?.value;
@@ -21,10 +22,6 @@ async function getSupabaseServer() {
       remove(name: string, options: CookieOptions): void {
         cookieStore.set({ name, value: "", ...options });
       }
-    },
-    headers: {
-      "x-forwarded-host": h.get("x-forwarded-host") ?? "",
-      "x-forwarded-proto": h.get("x-forwarded-proto") ?? ""
     }
   });
 }
