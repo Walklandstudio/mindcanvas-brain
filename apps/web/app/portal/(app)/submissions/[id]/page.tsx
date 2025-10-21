@@ -20,7 +20,8 @@ type Submission = {
 async function loadSubmission(submissionId: string) {
   const sb = getAdminClient();
   const orgId = await getActiveOrgId();
-  if (!orgId) return { orgId: null as string | null, sub: null as Submission | null, testName: null as string | null };
+  if (!orgId)
+    return { orgId: null as string | null, sub: null as Submission | null, testName: null as string | null };
 
   // 1) Get submission (scoped to active org)
   const { data: sub } = await sb
@@ -36,19 +37,11 @@ async function loadSubmission(submissionId: string) {
   let testName: string | null = null;
 
   if (sub.test_id) {
-    const { data: ot } = await sb
-      .from("org_tests")
-      .select("id,name")
-      .eq("id", sub.test_id)
-      .maybeSingle();
+    const { data: ot } = await sb.from("org_tests").select("id,name").eq("id", sub.test_id).maybeSingle();
     if (ot?.name) {
       testName = ot.name as any;
     } else {
-      const { data: legacy } = await sb
-        .from("tests")
-        .select("id,name")
-        .eq("id", sub.test_id)
-        .maybeSingle();
+      const { data: legacy } = await sb.from("tests").select("id,name").eq("id", sub.test_id).maybeSingle();
       testName = (legacy as any)?.name ?? null;
     }
   }
@@ -56,8 +49,11 @@ async function loadSubmission(submissionId: string) {
   return { orgId, sub: sub as Submission, testName };
 }
 
-export default async function SubmissionDetailPage({ params }: { params: { id: string } }) {
-  const { orgId, sub, testName } = await loadSubmission(params.id);
+// NOTE: Next 15 PageProps makes `params` async-like → read it via `await props.params`
+export default async function SubmissionDetailPage(props: any) {
+  const { id } = (await props.params) as { id: string };
+
+  const { orgId, sub, testName } = await loadSubmission(id);
 
   if (!orgId) {
     return (
