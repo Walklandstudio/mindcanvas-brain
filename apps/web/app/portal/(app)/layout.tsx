@@ -1,113 +1,77 @@
 // apps/web/app/portal/(app)/layout.tsx
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
+import { ReactNode } from "react";
+import { getAdminClient, getActiveOrgId } from "@/app/_lib/portal";
 
-/**
- * Authenticated layout for all /portal/(app)/* pages.
- * - Redirects to /portal/login if user is not signed in.
- * - Displays top navigation and active organization context.
- * - Wraps protected portal pages: /portal/home, /portal/tests, etc.
- */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export const metadata = {
-  title: "Client Portal | MindCanvas",
-  description: "Access your MindCanvas client dashboard and reports.",
-};
+type Org = { id: string; name: string; slug: string };
 
-export default async function PortalAppLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  // ✅ Require authentication
-  const sb = await getServerSupabase();
-  const { data: auth } = await sb.auth.getUser();
+async function loadActiveOrg(): Promise<Org | null> {
+  const orgId = await getActiveOrgId();
+  if (!orgId) return null;
 
-  if (!auth?.user) {
-    redirect("/portal/login");
-  }
+  const sb = getAdminClient();
+  const { data } = await sb
+    .from("organizations")
+    .select("id,name,slug")
+    .eq("id", orgId)
+    .maybeSingle();
 
-  // ✅ Try to resolve active org for context
-  let org: { id: string; name: string; slug: string } | null = null;
-  try {
-    org = await getActiveOrg();
-  } catch {
-    org = null;
-  }
+  if (!data) return null;
+  return { id: (data as any).id, name: (data as any).name, slug: (data as any).slug };
+}
+
+export default async function PortalAppLayout({ children }: { children: ReactNode }) {
+  const org = await loadActiveOrg();
 
   return (
-    <html lang="en">
-      <body className="min-h-dvh bg-[#0b0f16] text-white antialiased">
-        {/* ─── Header / Navbar ─────────────────────────── */}
-        <header className="border-b border-white/15">
-          <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
-            <div className="font-semibold text-lg tracking-wide">
-              MindCanvas Portal
-            </div>
-            <nav className="flex items-center gap-6 text-sm md:text-base">
-              <Link href="/portal/home" className="hover:opacity-80">
+    <div className="min-h-dvh bg-slate-50">
+      {/* Top nav */}
+      <header className="border-b bg-white/70 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+          <div className="flex items-center gap-4">
+            <Link href="/portal/home" className="font-semibold">
+              MindCanvas
+            </Link>
+            <nav className="hidden gap-3 text-sm sm:flex">
+              <Link href="/portal/home" className="hover:underline">
                 Home
               </Link>
-              <Link href="/portal/tests" className="hover:opacity-80">
+              <Link href="/portal/tests" className="hover:underline">
                 Tests
               </Link>
-              <Link href="/portal/people" className="hover:opacity-80">
+              <Link href="/portal/people" className="hover:underline">
                 People
               </Link>
-              <Link href="/portal/submissions" className="hover:opacity-80">
+              <Link href="/portal/submissions" className="hover:underline">
                 Submissions
               </Link>
-              <Link href="/portal/settings" className="hover:opacity-80">
+              <Link href="/portal/settings" className="hover:underline">
                 Settings
               </Link>
-              <Link href="/portal/orgs" className="hover:opacity-80">
+              <Link href="/portal/orgs" className="hover:underline">
                 Orgs
               </Link>
-
-              <form action="/api/portal/logout" method="post">
-                <button
-                  className="hover:opacity-80 text-sm ml-3 border border-white/20 rounded-md px-3 py-1"
-                  type="submit"
-                >
-                  Log out
-                </button>
-              </form>
             </nav>
           </div>
-        </header>
 
-        {/* ─── Org banner ──────────────────────────────── */}
-        <div className="bg-white/5 border-b border-white/10">
-          <div className="mx-auto max-w-6xl px-4 py-2 text-sm flex items-center justify-between">
-            <div>
-              {org ? (
-                <>
-                  Active org:{" "}
-                  <span className="font-medium">{org.name}</span>{" "}
-                  <span className="text-white/60">/{org.slug}</span>
-                </>
-              ) : (
-                <span className="text-amber-300">
-                  No active org — pick one in Orgs.
-                </span>
-              )}
-            </div>
-
-            <div className="flex gap-3">
-              <Link
-                className="underline hover:opacity-80"
-                href="/portal/orgs"
-              >
-                Switch org
-              </Link>
-            </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-slate-600">
+              {org ? org.name : "No active org"}
+            </span>
+            <form action="/api/portal/logout" method="post">
+              <button className="rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50">
+                Log out
+              </button>
+            </form>
           </div>
         </div>
+      </header>
 
-        {/* ─── Page content ─────────────────────────────── */}
-        <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
-      </body>
-    </html>
+      {/* Page content */}
+      <main className="mx-auto max-w-6xl p-4">{children}</main>
+    </div>
   );
 }
