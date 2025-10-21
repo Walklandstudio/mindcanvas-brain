@@ -1,54 +1,70 @@
 // apps/web/app/_lib/portal.ts
-import { cookies, headers } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
-import type { Database } from "@/types/supabase"; // adjust if your generated types differ
+// Compatibility bridge for existing portal and admin code.
+// Restores missing exports to unblock build.
 
-export function supabaseServer() {
-  const cookieStore = cookies();
-  const h = headers();
-  return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          cookieStore.set({ name, value: "", ...options });
-        },
-      },
-      headers: {
-        "x-forwarded-host": h.get("x-forwarded-host") ?? "",
-        "x-forwarded-proto": h.get("x-forwarded-proto") ?? "",
-        "x-forwarded-for": h.get("x-forwarded-for") ?? "",
-      },
-    }
-  );
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE!;
+
+/**
+ * Generic server-side Supabase client (anon key)
+ */
+export function getServerSupabase() {
+  return createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
-// get active org via portal_members (first membership wins) or header override
-export async function getActiveOrgId() {
-  const supabase = supabaseServer();
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
-  if (authErr || !user) return null;
+/**
+ * Admin-level Supabase client (service role key)
+ */
+export function getAdminClient() {
+  return createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
-  // optional override: X-Active-Org
-  const h = headers();
-  const override = h.get("x-active-org");
-  if (override) return override;
-
-  const { data: mem } = await supabase
+/**
+ * Fetch active org for logged-in portal member.
+ * (Returns first org membership if no slug supplied.)
+ */
+export async function getActiveOrg(userId?: string) {
+  const sb = getAdminClient();
+  if (!userId) return null;
+  const { data } = await sb
     .from("portal_members")
     .select("org_id")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .limit(1)
     .maybeSingle();
-  return mem?.org_id ?? null;
+  return data?.org_id ?? null;
+}
+
+/**
+ * Simple brand settings lookup (org-scoped)
+ */
+export async function getOrgBrand(orgId: string) {
+  const sb = getAdminClient();
+  const { data } = await sb
+    .from("org_brand_settings")
+    .select("*")
+    .eq("org_id", orgId)
+    .maybeSingle();
+  return data ?? null;
+}
+
+/**
+ * Ensure user is portal member of given org
+ */
+export async function ensurePortalMember(userId: string, orgId: string) {
+  const sb = getAdminClient();
+  const { data } = await sb
+    .from("portal_members")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  return !!data;
 }
