@@ -6,11 +6,8 @@ import { supabaseAdmin } from "@/app/_lib/supabaseAdmin";
  * GET: fetch questions/options for the test behind a token.
  * Returns: { ok:boolean, questions?: Array<{id, prompt, options:[{id,label,points}] }>, error? }
  */
-export async function GET(
-  _req: Request,
-  context: { params: { token: string } }
-) {
-  const token = context.params.token;
+export async function GET(_req: Request, context: any) {
+  const token: string = context?.params?.token;
   const sb = supabaseAdmin();
 
   const { data: link } = await sb
