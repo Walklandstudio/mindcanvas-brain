@@ -2,15 +2,24 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/_lib/supabaseAdmin";
 
+/** Extract the token from the request URL (no context arg needed) */
+function extractTokenFromUrl(req: Request): string {
+  const url = new URL(req.url);
+  // /api/public/test/<token> -> last segment is the token
+  const parts = url.pathname.split("/").filter(Boolean);
+  return parts[parts.length - 1] || "";
+}
+
 /**
  * GET: basic meta for public landing (/t/[token])
  * Returns: { ok:boolean, data?: { name, test_id, token }, error? }
  */
-export async function GET(
-  _req: Request,
-  context: { params: { token: string } }
-) {
-  const token = context.params.token;
+export async function GET(req: Request) {
+  const token = extractTokenFromUrl(req);
+  if (!token) {
+    return NextResponse.json({ ok: false, error: "missing token" }, { status: 400 });
+  }
+
   const sb = supabaseAdmin();
 
   const { data: link } = await sb
@@ -23,14 +32,13 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "invalid link" }, { status: 404 });
   }
 
-  // Support either legacy `tests` or new `org_tests` as the canonical tests table.
-  // Try `org_tests` first; fall back to `tests` if not found.
+  // Try org_tests first; fall back to legacy tests
   let testName: string | null = null;
 
   const { data: orgTest } = await sb
     .from("org_tests")
     .select("id, name")
-    .eq("id", link.test_id)
+    .eq("id", (link as any).test_id)
     .maybeSingle();
 
   if (orgTest?.name) {
@@ -39,7 +47,7 @@ export async function GET(
     const { data: legacyTest } = await sb
       .from("tests")
       .select("id, name")
-      .eq("id", link.test_id)
+      .eq("id", (link as any).test_id)
       .maybeSingle();
     testName = (legacyTest as any)?.name ?? "Test";
   }
@@ -55,11 +63,12 @@ export async function GET(
  * Body fields used: first_name, last_name, email (others ignored for now)
  * Returns: { ok:boolean, id?: string, error? }
  */
-export async function POST(
-  req: Request,
-  context: { params: { token: string } }
-) {
-  const token = context.params.token;
+export async function POST(req: Request) {
+  const token = extractTokenFromUrl(req);
+  if (!token) {
+    return NextResponse.json({ ok: false, error: "missing token" }, { status: 400 });
+  }
+
   const sb = supabaseAdmin();
   const body = await req.json().catch(() => ({}));
 
