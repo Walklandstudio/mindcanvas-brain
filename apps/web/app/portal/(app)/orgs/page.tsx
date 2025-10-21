@@ -1,102 +1,132 @@
-// apps/web/app/portal/orgs/page.tsx
+// apps/web/app/portal/(app)/orgs/page.tsx
 import Link from "next/link";
-import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
+import { getAdminClient, getActiveOrgId } from "@/app/_lib/portal";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type Org = { id: string; name: string; slug: string };
+
+async function loadActiveOrg(): Promise<Org | null> {
+  const orgId = await getActiveOrgId();
+  if (!orgId) return null;
+
+  const sb = getAdminClient();
+  const { data } = await sb
+    .from("organizations")
+    .select("id,name,slug")
+    .eq("id", orgId)
+    .maybeSingle();
+
+  if (!data) return null;
+  return { id: (data as any).id, name: (data as any).name, slug: (data as any).slug };
+}
+
+async function loadMemberOrgs(): Promise<Org[]> {
+  const sb = getAdminClient();
+
+  // Get up to 100 org_ids the current portal context belongs to (shim behavior)
+  const { data: memberships } = await sb
+    .from("portal_members")
+    .select("org_id")
+    .limit(100);
+
+  const ids = Array.from(
+    new Set((memberships ?? []).map((m: any) => m.org_id).filter(Boolean))
+  );
+
+  if (ids.length === 0) return [];
+
+  const { data: orgs } = await sb
+    .from("organizations")
+    .select("id,name,slug")
+    .in("id", ids);
+
+  return (orgs ?? []).map((o: any) => ({
+    id: o.id,
+    name: o.name,
+    slug: o.slug,
+  }));
+}
 
 export default async function OrgsPage() {
-  const sb = await getServerSupabase();
-
-  // Try to get an active org; if none, we’ll still render the list.
-  let active: { id: string; name: string; slug: string } | null = null;
-  try {
-    active = await getActiveOrg(sb);
-  } catch {
-    active = null;
-  }
-
-  const { data: orgs, error } = await sb
-    .from("organizations")
-    .select("id, name, slug, created_at")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-semibold">Organizations</h1>
-        <p className="text-red-400 mt-4">Failed to load organizations: {error.message}</p>
-      </div>
-    );
-  }
+  const [active, orgs] = await Promise.all([loadActiveOrg(), loadMemberOrgs()]);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Organizations</h1>
-        <Link href="/portal/home" className="text-blue-400 hover:underline">
-          ← Back to Home
+    <main className="mx-auto max-w-4xl p-6">
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Organizations</h1>
+          <p className="text-sm text-slate-500">
+            {active ? (
+              <>
+                Active org: <span className="font-medium">{active.name}</span>
+              </>
+            ) : (
+              "No active organization found."
+            )}
+          </p>
+        </div>
+        <Link
+          href="/portal/home"
+          className="rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50"
+        >
+          Back to Portal
         </Link>
       </div>
 
-      {active ? (
-        <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-sm">
-          Active org: <span className="font-medium">{active.name}</span>{" "}
-          <span className="text-white/60">/{active.slug}</span>
+      {orgs.length === 0 ? (
+        <div className="mt-8 rounded-xl border border-black/10 bg-white p-6">
+          <p className="text-slate-600">
+            You don’t appear to be a member of any organizations yet.
+          </p>
         </div>
       ) : (
-        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-sm">
-          No active org set. Pick one below.
-        </div>
-      )}
-
-      <div className="rounded-lg border overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-white/5 text-left text-sm">
-            <tr>
-              <th className="p-3">Name</th>
-              <th className="p-3">Slug</th>
-              <th className="p-3">Created</th>
-              <th className="p-3"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/10">
-            {(orgs ?? []).map((o) => (
-              <tr key={o.id} className="hover:bg-white/5">
-                <td className="p-3">{o.name}</td>
-                <td className="p-3 text-white/80">/{o.slug}</td>
-                <td className="p-3">{new Date(o.created_at as any).toLocaleString()}</td>
-                <td className="p-3 text-right">
-                  {active?.id === o.id ? (
-                    <span className="text-green-400">Active</span>
-                  ) : (
-                    <Link
-                      href={`/portal/use?slug=${encodeURIComponent(o.slug)}&next=/portal/home`}
-                      className="text-blue-400 hover:underline"
-                    >
-                      Use this org
-                    </Link>
+        <ul className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {orgs.map((o) => {
+            const isActive = active?.id === o.id;
+            return (
+              <li
+                key={o.id}
+                className={`rounded-xl border p-4 ${
+                  isActive ? "border-black/30 bg-white" : "border-black/10 bg-white"
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="font-medium leading-tight">{o.name}</h2>
+                    <p className="text-xs text-slate-500">/{o.slug}</p>
+                  </div>
+                  {isActive && (
+                    <span className="rounded-md border px-2 py-0.5 text-xs text-slate-600">
+                      Active
+                    </span>
                   )}
-                </td>
-              </tr>
-            ))}
-            {(!orgs || orgs.length === 0) && (
-              <tr>
-                <td className="p-3 text-white/60" colSpan={4}>
-                  No organizations found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Link
+                    href="/portal/home"
+                    className="inline-flex items-center rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50"
+                  >
+                    Open
+                  </Link>
 
-      {/* Quick links to jump directly into common pages for the active org */}
-      {active && (
-        <div className="flex gap-4">
-          <Link className="text-blue-400 hover:underline" href="/portal/tests">Go to Tests</Link>
-          <Link className="text-blue-400 hover:underline" href="/portal/submissions">Go to Submissions</Link>
-          <Link className="text-blue-400 hover:underline" href="/portal/people">Go to People</Link>
-          <Link className="text-blue-400 hover:underline" href="/portal/settings">Go to Settings</Link>
-        </div>
+                  {/* If you have an org-switch endpoint like /api/portal/use, enable this:
+                      <form action={`/api/portal/use?org=${o.id}`} method="post">
+                        <button
+                          className="inline-flex items-center rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50"
+                          disabled={isActive}
+                        >
+                          Make Active
+                        </button>
+                      </form>
+                  */}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
-    </div>
+    </main>
   );
 }
