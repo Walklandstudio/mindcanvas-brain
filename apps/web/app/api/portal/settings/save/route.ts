@@ -1,48 +1,59 @@
 // apps/web/app/api/portal/settings/save/route.ts
-import { NextResponse } from "next/server";
-import { getServerSupabase, ensurePortalMember } from "@/app/_lib/portal";
+import { supabaseAdmin } from "@/app/_lib/supabaseAdmin";
+import { getActiveOrgId } from "@/app/_lib/portal";
 
 export async function POST(req: Request) {
-  try {
-    const sb = await getServerSupabase();
+  const sb = supabaseAdmin();
 
-    // Accept both application/x-www-form-urlencoded (from <form>) and JSON bodies.
-    let org_id = "";
-    let logo_url: string | null = null;
-    let brand_voice: string | null = null;
+  // Determine org: priority = body.org_id > ?orgId override > first active membership
+  const url = new URL(req.url);
+  const queryOrgId = url.searchParams.get("orgId");
+  const body = (await req.json().catch(() => ({}))) as any;
 
-    const ct = req.headers.get("content-type") || "";
-    if (ct.includes("application/json")) {
-      const body = await req.json().catch(() => ({} as any));
-      org_id = body.org_id || "";
-      logo_url = body.logo_url ?? null;
-      brand_voice = body.brand_voice ?? null;
-    } else {
-      const form = await req.formData();
-      org_id = String(form.get("org_id") || "");
-      logo_url = (form.get("logo_url") ? String(form.get("logo_url")) : null) ?? null;
-      brand_voice = (form.get("brand_voice") ? String(form.get("brand_voice")) : null) ?? null;
-    }
+  const org_id: string | null =
+    (typeof body.org_id === "string" && body.org_id) ||
+    queryOrgId ||
+    (await getActiveOrgId());
 
-    // Guard: ensure the current portal context can write to this org (demo bypass allows-through)
-    const resolvedOrgId = await ensurePortalMember({ orgId: org_id, sb });
-
-    // Upsert branding
-    const { error } = await sb.from("org_brand_settings").upsert({
-      org_id: resolvedOrgId,
-      logo_url,
-      brand_voice,
+  if (!org_id) {
+    return new Response(JSON.stringify({ ok: false, error: "No active org found" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
     });
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-    }
-
-    // For form posts, redirect back to settings. For JSON, return JSON.
-    if (!ct.includes("application/json")) {
-      return NextResponse.redirect(new URL("/portal/settings", req.url), { status: 303 });
-    }
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "unexpected error" }, { status: 500 });
   }
+
+  // Whitelist fields we expect in org_brand_settings to avoid type errors on unknown keys.
+  const allow = [
+    "logo_url",
+    "name",
+    "brand_color",
+    "primary_color",
+    "secondary_color",
+    "accent_color",
+    "brand_voice",
+    "theme",
+    "header_title",
+    "footer_text",
+  ] as const;
+
+  const payload: Record<string, any> = { org_id };
+  for (const k of allow) {
+    if (k in body) payload[k] = body[k];
+  }
+
+  // Upsert branding (idempotent on org_id)
+  const { error } = await sb
+    .from("org_brand_settings")
+    .upsert(payload, { onConflict: "org_id" });
+
+  if (error) {
+    return new Response(JSON.stringify({ ok: false, error: error.message }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { "content-type": "application/json" },
+  });
 }
