@@ -1,66 +1,49 @@
-// apps/web/app/portal/submissions/page.tsx
-import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
+import { getActiveOrgId, supabaseServer } from "@/app/_lib/portal";
 
 export default async function SubmissionsPage() {
-  const sb = await getServerSupabase();
-  const org = await getActiveOrg(sb);
+  const supabase = supabaseServer();
+  const orgId = await getActiveOrgId();
+  if (!orgId) return <main className="p-6">No organization context.</main>;
 
-  const { data } = await sb
+  const { data: rows } = await supabase
     .from("test_submissions")
-    .select("id, test_id, taker_name, taker_email, profile, flow, score, submitted_at")
-    .eq("org_id", org.id)
-    .order("submitted_at", { ascending: false })
+    .select("id, started_at, completed_at, total_points, frequency, profile, test_id, taker_id")
+    .eq("org_id", orgId)
+    .order("started_at", { ascending: false })
     .limit(200);
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Submissions — {org.name}</h1>
-
-      <div className="rounded-lg border overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 text-left text-sm">
+    <main className="p-6">
+      <h1 className="text-2xl font-semibold mb-4">Submissions</h1>
+      <div className="rounded-md border overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50">
             <tr>
-              <th className="p-3">Name</th>
-              <th className="p-3">Email</th>
-              <th className="p-3">Profile</th>
-              <th className="p-3">Flow</th>
-              <th className="p-3">Score</th>
-              <th className="p-3">Date</th>
-              <th className="p-3"></th>
+              <th className="px-3 py-2 text-left">Date</th>
+              <th className="px-3 py-2 text-left">Status</th>
+              <th className="px-3 py-2 text-left">Result</th>
+              <th className="px-3 py-2 text-left">Points</th>
+              <th className="px-3 py-2 text-left">ID</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
-            {(data ?? []).map((r: any) => (
-              <tr key={r.id}>
-                <td className="p-3">{r.taker_name}</td>
-                <td className="p-3">{r.taker_email}</td>
-                <td className="p-3">{r.profile}</td>
-                <td className="p-3">{r.flow}</td>
-                <td className="p-3">{r.score}</td>
-                <td className="p-3">{new Date(r.submitted_at).toLocaleString()}</td>
-                <td className="p-3">
-                  <a className="text-blue-600 hover:underline" href={`/portal/submissions/${r.id}`}>
-                    View
-                  </a>
-                </td>
+          <tbody>
+            {(rows ?? []).map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="px-3 py-2">{new Date(r.started_at!).toLocaleString()}</td>
+                <td className="px-3 py-2">{r.completed_at ? "Completed" : "In progress"}</td>
+                <td className="px-3 py-2">{r.frequency ?? "—"} {r.profile ? `· ${r.profile}` : ""}</td>
+                <td className="px-3 py-2">{r.total_points ?? 0}</td>
+                <td className="px-3 py-2">{r.id}</td>
               </tr>
             ))}
-            {(!data || data.length === 0) && (
+            {(rows ?? []).length === 0 && (
               <tr>
-                <td className="p-3 text-gray-500" colSpan={7}>
-                  No submissions yet.
-                </td>
+                <td colSpan={5} className="px-3 py-4 text-gray-500">No submissions yet.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-
-      <div className="flex gap-4">
-        <a className="text-blue-600 hover:underline" href="/api/portal/export/submissions.csv">
-          Export all (CSV)
-        </a>
-      </div>
-    </div>
+    </main>
   );
 }

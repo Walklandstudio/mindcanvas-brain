@@ -1,35 +1,46 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/app/_lib/supabaseAdmin";
 
-function admin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!
-  );
-}
+export async function GET(
+  _req: Request,
+  { params }: { params: { token: string } }
+) {
+  const sb = supabaseAdmin();
 
-export async function GET(_req: Request, { params }: any) {
-  const token = params?.token as string;
-  if (!token) return NextResponse.json({ ok:false, error:'missing token' }, { status:400 });
-
-  const a = admin();
-  const { data: link } = await a
-    .from('test_links')
-    .select('test_id, mode')
-    .eq('token', token)
+  const { data: link } = await sb
+    .from("test_links")
+    .select("id, org_id, test_id")
+    .eq("token", params.token)
     .maybeSingle();
-  if (!link) return NextResponse.json({ ok:false, error:'invalid link' }, { status:404 });
+  if (!link) return NextResponse.json({ error: "invalid link" }, { status: 404 });
 
-  const q = a
-    .from('test_questions')
-    .select('id, text, type, "order"')
-    .eq('test_id', link.test_id)
-    .order('order', { ascending: true });
+  // Adapt names if your tables differ (legacy vs new).
+  const { data: qs, error } = await sb
+    .from("test_questions")
+    .select("id, prompt, order_index")
+    .eq("test_id", link.test_id)
+    .order("order_index", { ascending: true });
 
-  const { data, error } = link.mode === 'free'
-    ? await q.eq('visible_in_free', true)
-    : await q;
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  if (error) return NextResponse.json({ ok:false, error:error.message }, { status:500 });
-  return NextResponse.json({ ok:true, data, mode: link.mode });
+  const qIds = (qs ?? []).map((q) => q.id);
+  const { data: ops } = await sb
+    .from("test_options")
+    .select("id, question_id, label, points")
+    .in("question_id", qIds.length ? qIds : ["00000000-0000-0000-0000-000000000000"]);
+
+  const byQ = new Map<string, any[]>();
+  (ops ?? []).forEach((o) => {
+    const arr = byQ.get(o.question_id) ?? [];
+    arr.push({ id: o.id, label: o.label, points: o.points ?? 0 });
+    byQ.set(o.question_id, arr);
+  });
+
+  const questions = (qs ?? []).map((q) => ({
+    id: q.id,
+    prompt: q.prompt,
+    options: byQ.get(q.id) ?? [],
+  }));
+
+  return NextResponse.json({ ok: true, questions });
 }

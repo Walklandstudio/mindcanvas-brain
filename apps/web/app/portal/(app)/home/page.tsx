@@ -1,59 +1,42 @@
-// apps/web/app/portal/home/page.tsx
-import { getServerSupabase, getActiveOrg } from "@/app/_lib/portal";
+import { getActiveOrgId, supabaseServer } from "@/app/_lib/portal";
 
 export default async function HomePage() {
-  const sb = await getServerSupabase();
-  const org = await getActiveOrg(sb);
+  const supabase = supabaseServer();
+  const orgId = await getActiveOrgId();
+  if (!orgId) return <main className="p-6">No organization context.</main>;
 
-  const [{ count: testCount }, { count: qCount }, { count: optCount }] = await Promise.all([
-    sb.from("org_tests").select("id", { count: "exact", head: true }).eq("org_id", org.id),
-    sb.from("test_questions").select("id", { count: "exact", head: true }).eq("org_id", org.id),
-    sb.from("test_options").select("id", { count: "exact", head: true }).eq("org_id", org.id),
+  const [links, subs, subs7] = await Promise.all([
+    supabase.from("test_links").select("id", { count: "exact", head: true }).eq("org_id", orgId),
+    supabase.from("test_submissions").select("id, completed_at", { count: "exact" }).eq("org_id", orgId),
+    supabase
+      .from("test_submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", orgId)
+      .gte("started_at", new Date(Date.now() - 7 * 86400_000).toISOString()),
   ]);
 
-  const { data: tests } = await sb
-    .from("org_tests")
-    .select("id, name, slug, status, mode, created_at")
-    .eq("org_id", org.id)
-    .order("created_at", { ascending: false })
-    .limit(10);
+  const totalLinks = links.count ?? 0;
+  const totalSubs = subs.count ?? 0;
+  const completed = (subs.data ?? []).filter((s) => s.completed_at).length;
+  const completionRate = totalSubs ? Math.round((completed / totalSubs) * 100) : 0;
+  const last7 = subs7.count ?? 0;
 
-  return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Client Portal — {org.name}</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card title="Tests" value={testCount ?? 0} />
-        <Card title="Questions" value={qCount ?? 0} />
-        <Card title="Options" value={optCount ?? 0} />
-      </div>
-
-      <div>
-        <h2 className="text-lg font-medium mb-2">Recent Tests</h2>
-        <div className="divide-y rounded-lg border">
-          {(tests ?? []).map((t) => (
-            <div key={t.id} className="p-4 flex items-center justify-between">
-              <div>
-                <div className="font-medium">{t.name}</div>
-                <div className="text-sm text-gray-500">/{t.slug} · {t.status} · {t.mode}</div>
-              </div>
-              <a className="text-blue-600 hover:underline" href={`/portal/tests?slug=${encodeURIComponent(t.slug)}`}>
-                View
-              </a>
-            </div>
-          ))}
-          {(!tests || tests.length === 0) && <div className="p-4 text-gray-500">No tests yet.</div>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Card({ title, value }: { title: string; value: number }) {
-  return (
+  const Card = ({ title, value }: { title: string; value: string | number }) => (
     <div className="rounded-xl border p-4">
       <div className="text-sm text-gray-500">{title}</div>
       <div className="text-2xl font-semibold">{value}</div>
     </div>
+  );
+
+  return (
+    <main className="p-6">
+      <h1 className="text-2xl font-semibold mb-4">Overview</h1>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card title="Total Links" value={totalLinks} />
+        <Card title="Total Submissions" value={totalSubs} />
+        <Card title="Completion Rate" value={`${completionRate}%`} />
+        <Card title="Last 7 Days" value={last7} />
+      </div>
+    </main>
   );
 }
