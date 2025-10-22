@@ -82,14 +82,14 @@ export async function POST(req: Request) {
   }
 
   const email: string = body?.email ?? "";
-  const full_name =
+  const name =
     [body?.first_name, body?.last_name].filter(Boolean).join(" ").trim() || null;
 
   let takerId: string | null = null;
   if (email) {
     const { data: taker, error: te } = await sb
       .from("test_takers")
-      .upsert([{ org_id: (link as any).org_id, email, full_name }], { onConflict: "org_id,email" })
+      .upsert([{ org_id: (link as any).org_id, email, name }], { onConflict: "org_id,email" })
       .select("id")
       .maybeSingle();
     if (te) return NextResponse.json({ ok: false, error: te.message }, { status: 400 });

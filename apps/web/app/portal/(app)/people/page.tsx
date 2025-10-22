@@ -27,7 +27,7 @@ export default async function PeoplePage() {
     );
   }
 
-  // ✅ use real columns: first_name, last_name (no full_name in schema)
+  // ✅ use real columns: first_name, last_name (no name in schema)
   const { data: takers, error } = await supabase
     .from("test_takers")
     .select("id, email, first_name, last_name, team, created_at")
