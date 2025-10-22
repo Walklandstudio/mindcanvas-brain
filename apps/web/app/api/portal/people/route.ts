@@ -1,37 +1,48 @@
-// GET: list takers | POST: upsert a taker
+// apps/web/app/api/portal/people/route.ts
 import { NextResponse } from "next/server";
-import { getActiveOrgId, supabaseServer } from "@/app/_lib/portal";
+import { getServerSupabase, ensurePortalMember } from "@/app/_lib/portal";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const supabase = supabaseServer();
-  const orgId = await getActiveOrgId();
-  if (!orgId) return NextResponse.json({ error: "No org" }, { status: 401 });
+  try {
+    // ✅ actually await the client
+    const sb = await getServerSupabase();
 
-  const { data, error } = await supabase
-    .from("test_takers")
-    .select("*")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
+    // ✅ ensure the caller belongs to an org; returns the resolved orgId
+    const orgId = await ensurePortalMember(sb);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ takers: data ?? [] });
-}
+    // ✅ query people (test_takers) for this org
+    const { data, error } = await sb
+      .from("test_takers")
+      .select(
+        [
+          "id",
+          "first_name",
+          "last_name",
+          "email",
+          "phone",
+          "company",
+          "team",
+          "team_function",
+          "created_at",
+          "test_id",
+          "token",
+        ].join(",")
+      )
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(200);
 
-export async function POST(req: Request) {
-  const supabase = supabaseServer();
-  const orgId = await getActiveOrgId();
-  if (!orgId) return NextResponse.json({ error: "No org" }, { status: 401 });
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
 
-  const body = await req.json().catch(() => ({}));
-  const { email, full_name } = body;
-  if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
-
-  const { data, error } = await supabase
-    .from("test_takers")
-    .upsert([{ org_id: orgId, email, full_name }], { onConflict: "org_id,email" })
-    .select("*")
-    .maybeSingle();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ taker: data });
+    return NextResponse.json({ ok: true, orgId, people: data ?? [] });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? String(err) },
+      { status: 500 }
+    );
+  }
 }
