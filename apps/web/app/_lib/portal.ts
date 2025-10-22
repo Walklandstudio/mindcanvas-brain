@@ -1,188 +1,151 @@
 // apps/web/app/_lib/portal.ts
-import { cookies } from "next/headers";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import 'server-only';
+import { cookies, headers } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
+import { readActiveOrgIdFromCookie } from './org-active';
 
-export type Org = { id: string; name: string; slug: string };
+// Local alias that won't fight supabase-js generics across versions
+type AnyClient = ReturnType<typeof createClient<any>>;
 
-const COOKIE_ORG_ID = "portal_org_id";
-
-function env(name: string) {
+// ── Env + origin helpers ──────────────────────────────────────────────────────
+function reqEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env: ${name}`);
   return v;
 }
 
-/**
- * Create a Supabase client for server/route handlers.
- * NOTE: This version of @supabase/ssr supports only `cookies` (no `headers`).
- */
-export async function getServerSupabase(): Promise<SupabaseClient> {
-  const store = await cookies();
+export async function getAppOrigin(): Promise<string> {
+  const configured = process.env.APP_ORIGIN?.replace(/\/+$/, '');
+  if (configured) return configured;
+
+  try {
+    const h = await headers();
+    const host = h.get('x-forwarded-host') || h.get('host');
+    const proto = h.get('x-forwarded-proto') || 'http';
+    if (host) return `${proto}://${host}`;
+  } catch {
+    // ignore if not in request scope
+  }
+  return 'http://localhost:3000';
+}
+
+// ── Server user-scoped Supabase client (RLS applies) ──────────────────────────
+export async function getServerSupabase() {
+  const supabaseUrl = reqEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const supabaseAnonKey = reqEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+
+  const jar = await cookies();
 
   const cookieAdapter = {
     get(name: string) {
-      return store.get(name)?.value;
+      return jar.get(name)?.value;
     },
-    set(name: string, value: string, options?: CookieOptions & { domain?: string }) {
-      store.set(name, value, options as any);
+    set(name: string, value: string, options: any) {
+      try {
+        jar.set({ name, value, ...(options || {}) });
+      } catch {}
     },
-    remove(name: string, options?: CookieOptions & { domain?: string }) {
-      store.set(name, "", { ...(options as any), maxAge: 0 });
+    remove(name: string, options: any) {
+      try {
+        jar.set({ name, value: '', ...(options || {}), maxAge: 0 });
+      } catch {}
     },
   };
 
-  return createServerClient(
-    env("NEXT_PUBLIC_SUPABASE_URL"),
-    env("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-    {
-      cookies: cookieAdapter as any,
-      cookieOptions: { name: "sb:token" },
-    }
-  ) as unknown as SupabaseClient;
+  // Let types be inferred from createServerClient
+  return createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: cookieAdapter as any,
+  });
 }
 
-/** Back-compat alias used by some files */
-export const supabaseServer = getServerSupabase;
-
-/** “Admin” client — for now, uses the same SSR client. Keep the name for back-compat. */
-export async function getAdminClient(): Promise<SupabaseClient> {
-  return getServerSupabase();
+// ── Service-role (admin) client — SERVER ONLY (bypasses RLS) ──────────────────
+declare global {
+  // eslint-disable-next-line no-var
+  var __sb_admin__: AnyClient | undefined;
 }
 
-/**
- * Get the active org id.
- * Back-compat: can be called with (sb) OR with no args (it will construct its own client).
- */
-export async function getActiveOrgId(sb?: SupabaseClient): Promise<string | null> {
-  const c = await cookies();
-  const fromCookie = c.get(COOKIE_ORG_ID)?.value;
-  if (fromCookie) return fromCookie;
+export async function getAdminClient(): Promise<AnyClient> {
+  if (global.__sb_admin__) return global.__sb_admin__!;
+  const supabaseUrl = reqEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const serviceRole = reqEnv('SUPABASE_SERVICE_ROLE_KEY');
 
-  const client = sb ?? (await getServerSupabase());
-  const { data: user } = await client.auth.getUser();
-  const uid = user?.user?.id;
-  if (!uid) return null;
+  const client = createClient(supabaseUrl, serviceRole, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { 'X-Client-Info': '@mindcanvas/web-admin' } },
+  });
 
-  const { data, error } = await client
-    .from("portal_members")
-    .select("org_id")
-    .eq("user_id", uid)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-
-  const found = data?.org_id ?? null;
-  if (found) {
-    c.set(COOKIE_ORG_ID, found, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: true,
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-    });
-  }
-  return found;
+  global.__sb_admin__ = client;
+  return client;
 }
 
-/**
- * Ensure current user is a member of the org.
- * If orgId not supplied, resolves the active one.
- * Returns the resolved org id.
- */
-export async function ensurePortalMember(
-  sbOrOrgId: SupabaseClient | string | null | undefined,
-  maybeOrgId?: string | null
-): Promise<string> {
-  let sb: SupabaseClient;
-  let orgId: string | null | undefined;
+// ── Active org resolution ─────────────────────────────────────────────────────
+export async function getActiveOrgId(sb?: AnyClient): Promise<string | null> {
+  // 1) Platform-admin “view as” cookie
+  const viaCookie = await readActiveOrgIdFromCookie();
+  if (viaCookie) return viaCookie;
 
-  // Support both call shapes: ensurePortalMember(sb, orgId) OR ensurePortalMember(sb)
-  if (typeof sbOrOrgId === "object" && sbOrOrgId !== null) {
-    sb = sbOrOrgId as SupabaseClient;
-    orgId = maybeOrgId ?? (await getActiveOrgId(sb));
-  } else {
-    // Legacy misuse: ensurePortalMember(orgId) — rarely used, but guard anyway
-    sb = await getServerSupabase();
-    orgId = (sbOrOrgId as string | null | undefined) ?? (await getActiveOrgId(sb));
-  }
+  // 2) User-scoped client
+  const userSb = sb ?? (await getServerSupabase());
 
-  if (!orgId) throw new Error("No active organization found.");
-  const { data: user } = await sb.auth.getUser();
-  const uid = user?.user?.id;
-  if (!uid) throw new Error("Not authenticated.");
+  const { data: auth } = await userSb.auth.getUser();
+  const user = auth?.user ?? null;
+  if (!user) return null;
 
-  const { data, error } = await sb
-    .from("portal_members")
-    .select("org_id")
-    .eq("org_id", orgId)
-    .eq("user_id", uid)
-    .limit(1)
-    .maybeSingle();
+  // A) portal_members
+  try {
+    const pm = await userSb
+      .from('portal_members')
+      .select('org_id')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-  if (error) throw error;
-  if (!data) throw new Error("You are not a member of this organization.");
+    if (!pm.error && pm.data?.org_id) return pm.data.org_id as string;
+  } catch {}
 
+  // B) org_members
+  try {
+    const om = await userSb
+      .from('org_members')
+      .select('org_id')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (!om.error && om.data?.org_id) return om.data.org_id as string;
+  } catch {}
+
+  // C) profiles.default_org_id
+  try {
+    const prof = await userSb
+      .from('profiles')
+      .select('default_org_id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (!prof.error && prof.data?.default_org_id) return prof.data.default_org_id as string;
+  } catch {}
+
+  return null;
+}
+
+export async function requireActiveOrgId(): Promise<string> {
+  const orgId = await getActiveOrgId();
+  if (!orgId) throw new Error('No active organization');
   return orgId;
 }
 
-/**
- * Get the active org record: { id, name, slug }.
- * Back-compat: getActiveOrg(sb) OR getActiveOrg() with no args.
- * Also supports getActiveOrg(sb, orgId) to force a specific org id.
- */
-export async function getActiveOrg(
-  sbOrOrgId?: SupabaseClient | string | null,
-  maybeOrgId?: string | null
-): Promise<Org | null> {
-  let sb: SupabaseClient;
-  let orgId: string | null | undefined;
-
-  if (typeof sbOrOrgId === "object" || sbOrOrgId === undefined || sbOrOrgId === null) {
-    sb = (sbOrOrgId as SupabaseClient) ?? (await getServerSupabase());
-    orgId = maybeOrgId ?? (await getActiveOrgId(sb));
-  } else {
-    sb = await getServerSupabase();
-    orgId = sbOrOrgId;
-  }
-
-  if (!orgId) return null;
-
-  const { data, error } = await sb
-    .from("organizations")
-    .select("id, name, slug")
-    .eq("id", orgId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) return null;
-
-  return { id: data.id as string, name: data.name as string, slug: data.slug as string };
+// ── Optional admin lookups ────────────────────────────────────────────────────
+export async function getOrgBySlug(slug: string) {
+  const admin = await getAdminClient();
+  return admin.from('organizations').select('id, name, slug').eq('slug', slug).maybeSingle();
 }
 
-/**
- * Get branding for an org. If none exists, return sensible defaults.
- * Back-compat signature: getOrgBrand(orgId, sb?) and getOrgBrand(orgId) -> uses internal client.
- */
-export async function getOrgBrand(
-  orgId: string,
-  sb?: SupabaseClient
-): Promise<{ primary_color: string; logo_url: string | null; org_id: string }> {
-  const client = sb ?? (await getServerSupabase());
-  const { data, error } = await client
-    .from("org_brand_settings")
-    .select("org_id, primary_color, logo_url")
-    .eq("org_id", orgId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-
-  return {
-    org_id: orgId,
-    primary_color: data?.primary_color ?? "#111827", // slate-900 default
-    logo_url: data?.logo_url ?? null,
-  };
+export async function getOrgName(orgId: string): Promise<string | null> {
+  const admin = await getAdminClient();
+  const { data } = await admin.from('organizations').select('name').eq('id', orgId).maybeSingle();
+  return data?.name ?? null;
 }
