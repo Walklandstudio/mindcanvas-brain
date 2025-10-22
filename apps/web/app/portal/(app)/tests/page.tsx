@@ -1,116 +1,83 @@
 // apps/web/app/portal/(app)/tests/page.tsx
-import Link from "next/link";
-import { getAdminClient, getActiveOrgId } from "@/app/_lib/portal";
+import { supabaseServer, getActiveOrgId } from "@/app/_lib/portal";
+import GenerateLinkButton from "./GenerateLinkButton";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-type TestRow = {
+type OrgTest = {
   id: string;
-  name: string | null;
-  kind?: string | null;
-  question_count?: number | null;
+  name: string;
+  slug: string | null;
+  mode: string;
+  status: string | null;
+  created_at: string;
 };
 
-async function fetchTests(): Promise<{ orgId: string | null; tests: TestRow[] }> {
-  const sb = getAdminClient();
-
-  // Find an active org (shim returns first membership if user id is not provided)
+async function getTests() {
+  const sb = await supabaseServer();
   const orgId = await getActiveOrgId();
-  if (!orgId) return { orgId: null, tests: [] };
 
-  // Try the new table first
-  const { data: orgTests, error: orgErr } = await sb
-    .from("org_tests")
-    .select("id, name, kind, question_count")
-    .eq("org_id", orgId)
-    .order("name", { ascending: true });
-
-  if (!orgErr && orgTests && orgTests.length > 0) {
-    return {
-      orgId,
-      tests: orgTests.map((t: any) => ({
-        id: t.id,
-        name: t.name ?? "Untitled",
-        kind: t.kind ?? null,
-        question_count: t.question_count ?? null,
-      })),
-    };
+  if (!orgId) {
+    return { orgId: null as string | null, tests: [] as OrgTest[], error: null as string | null };
   }
 
-  // Fallback to legacy `tests` schema if org_tests is empty or missing
-  const { data: legacy, error: legacyErr } = await sb
-    .from("tests")
-    .select("id, name, kind, question_count, org_id")
+  const { data, error } = await sb
+    .from("org_tests")
+    .select("id, name, slug, mode, status, created_at")
     .eq("org_id", orgId)
-    .order("name", { ascending: true });
+    .order("created_at", { ascending: false });
 
-  if (legacyErr || !legacy) return { orgId, tests: [] };
-
-  return {
-    orgId,
-    tests: legacy.map((t: any) => ({
-      id: t.id,
-      name: t.name ?? "Untitled",
-      kind: t.kind ?? null,
-      question_count: t.question_count ?? null,
-    })),
-  };
+  if (error) {
+    return { orgId, tests: [] as OrgTest[], error: error.message };
+  }
+  return { orgId, tests: (data || []) as OrgTest[], error: null as string | null };
 }
 
 export default async function TestsPage() {
-  const { orgId, tests } = await fetchTests();
+  const { orgId, tests, error } = await getTests();
 
   return (
-    <main className="mx-auto max-w-5xl p-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Tests</h1>
-          <p className="text-sm text-slate-500">
-            {orgId ? "Listing tests for your active organization." : "No active organization found."}
-          </p>
-        </div>
-        {/* Placeholder for future actions */}
-        <div className="text-sm text-slate-400"> </div>
+    <main className="mx-auto max-w-4xl p-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Tests</h1>
       </div>
 
-      {(!orgId || tests.length === 0) && (
-        <div className="mt-8 rounded-xl border border-black/10 bg-white p-6">
-          <p className="text-slate-600">
-            {orgId
-              ? "No tests found for this organization."
-              : "Please ensure your account is a member of at least one organization."}
-          </p>
+      <p className="text-sm text-slate-600 mt-1">
+        Generate a public link and share it with test takers. Submissions will appear in your dashboard.
+      </p>
+
+      {error && (
+        <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
         </div>
       )}
 
-      {orgId && tests.length > 0 && (
-        <ul className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {tests.map((t) => (
-            <li key={t.id} className="rounded-xl border border-black/10 bg-white p-4">
-              <div className="flex items-start justify-between">
-                <h2 className="font-medium leading-tight">{t.name}</h2>
-                <span className="rounded-md border px-2 py-0.5 text-xs text-slate-600">
-                  {t.kind ?? "test"}
-                </span>
+      <div className="mt-6 grid gap-4">
+        {tests.length === 0 && (
+          <div className="rounded-lg border p-6 text-sm text-slate-600">
+            {orgId
+              ? "No tests found for this organization."
+              : "No active organization selected. Please switch orgs or re-login."}
+          </div>
+        )}
+
+        {tests.map((t) => (
+          <article key={t.id} className="rounded-xl border border-black/10 bg-white p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="text-base font-medium">{t.name}</div>
+                <div className="text-xs text-slate-500">
+                  slug: <code>{t.slug || "—"}</code> · mode: <code>{t.mode}</code>{" "}
+                  {t.status ? (
+                    <>
+                      · status: <code>{t.status}</code>
+                    </>
+                  ) : null}
+                </div>
               </div>
-              <p className="mt-1 text-xs text-slate-500">
-                {typeof t.question_count === "number"
-                  ? `${t.question_count} questions`
-                  : "Questions: –"}
-              </p>
-              <div className="mt-3">
-                <Link
-                  href={`/portal/tests/${t.id}`}
-                  className="inline-flex items-center rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50"
-                >
-                  Open
-                </Link>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+              <GenerateLinkButton testId={t.id} />
+            </div>
+          </article>
+        ))}
+      </div>
     </main>
   );
 }

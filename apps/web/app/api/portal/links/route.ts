@@ -1,59 +1,92 @@
+// apps/web/app/api/portal/links/route.ts
 import { NextResponse } from "next/server";
-import { getActiveOrgId, supabaseServer } from "@/app/_lib/portal";
-import { customAlphabet } from "nanoid";
+import { supabaseServer, getActiveOrgId } from "@/app/_lib/portal";
 
-const nano = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 14);
-
-export async function GET(req: Request) {
-  const supabase = supabaseServer();
-  const orgId = await getActiveOrgId();
-  if (!orgId) return NextResponse.json({ error: "No org" }, { status: 401 });
-
-  const { searchParams } = new URL(req.url);
-  const testId = searchParams.get("testId");
-
-  let q = supabase.from("test_links").select("*").eq("org_id", orgId).order("created_at", { ascending: false });
-  if (testId) q = q.eq("test_id", testId);
-
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ links: data ?? [] });
-}
-
+/**
+ * POST /api/portal/links
+ * Body: { test_id: string, max_uses?: number, mode?: "full" | "free" }
+ * Returns: { url: string, token: string }
+ */
 export async function POST(req: Request) {
-  const supabase = supabaseServer();
-  const orgId = await getActiveOrgId();
-  if (!orgId) return NextResponse.json({ error: "No org" }, { status: 401 });
+  try {
+    const sb = await supabaseServer();
 
-  const payload = await req.json().catch(() => ({}));
-  const { testId, takerEmail, takerName, expiresAt, maxUses = 1 } = payload || {};
-  if (!testId) return NextResponse.json({ error: "testId required" }, { status: 400 });
+    // 🔧 getActiveOrgId() in your codebase does not take parameters
+    const orgId = await getActiveOrgId();
+    if (!orgId) {
+      return NextResponse.json(
+        { error: "No active organization in session." },
+        { status: 401 }
+      );
+    }
 
-  // Ensure test exists and belongs to org
-  const { data: test } = await supabase.from("org_tests").select("id").eq("id", testId).eq("org_id", orgId).maybeSingle();
-  if (!test) return NextResponse.json({ error: "Invalid test" }, { status: 404 });
+    const body = (await req.json().catch(() => ({}))) as {
+      test_id?: string;
+      max_uses?: number;
+      mode?: string;
+    };
 
-  // Ensure taker (optional)
-  let takerId: string | null = null;
-  if (takerEmail) {
-    const { data: taker, error: te } = await supabase
-      .from("test_takers")
-      .upsert([{ org_id: orgId, email: takerEmail, full_name: takerName }], { onConflict: "org_id,email" })
-      .select("id")
+    const test_id = String(body?.test_id || "").trim();
+    const max_uses =
+      Number.isFinite(body?.max_uses) && Number(body?.max_uses) > 0
+        ? Number(body?.max_uses)
+        : 5;
+    const mode = (body?.mode || "full") as "full" | "free";
+
+    if (!test_id) {
+      return NextResponse.json({ error: "Missing test_id." }, { status: 400 });
+    }
+
+    // Ensure the test belongs to the active org
+    const { data: testRow, error: testErr } = await sb
+      .from("org_tests")
+      .select("id, org_id")
+      .eq("id", test_id)
+      .eq("org_id", orgId)
       .maybeSingle();
-    if (te) return NextResponse.json({ error: te.message }, { status: 400 });
-    takerId = taker?.id ?? null;
+
+    if (testErr) {
+      return NextResponse.json({ error: testErr.message }, { status: 500 });
+    }
+    if (!testRow) {
+      return NextResponse.json(
+        { error: "Test not found in your organization." },
+        { status: 404 }
+      );
+    }
+
+    // Simple unique token; swap for ULID/UUID if you prefer
+    const token = `${orgId.slice(0, 2)}${Date.now()}`;
+
+    const { data: inserted, error: insErr } = await sb
+      .from("test_links")
+      .insert({
+        org_id: orgId,
+        test_id,
+        token,
+        mode,
+        max_uses,
+      })
+      .select("token")
+      .single();
+
+    if (insErr) {
+      return NextResponse.json({ error: insErr.message }, { status: 500 });
+    }
+
+    // Build absolute URL: prefer NEXT_PUBLIC_APP_URL, fallback to request Host
+    const configured =
+      process.env.NEXT_PUBLIC_APP_URL &&
+      process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+    const host = req.headers.get("host");
+    const origin = configured || (host ? `https://${host}` : "");
+    const url = `${origin}/t/${inserted.token}`;
+
+    return NextResponse.json({ url, token: inserted.token });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Unexpected error." },
+      { status: 500 }
+    );
   }
-
-  const token = nano();
-  const { data: link, error } = await supabase
-    .from("test_links")
-    .insert([{ org_id: orgId, test_id: testId, taker_id: takerId, token, expires_at: expiresAt ?? null, max_uses: maxUses }])
-    .select("*")
-    .maybeSingle();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-  const publicUrl = `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/t/${token}`;
-  return NextResponse.json({ link, publicUrl });
 }
