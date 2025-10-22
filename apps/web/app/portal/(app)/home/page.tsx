@@ -1,42 +1,68 @@
-import { getActiveOrgId, supabaseServer } from "@/app/_lib/portal";
+// apps/web/app/portal/(app)/home/page.tsx
+import { getServerSupabase, ensurePortalMember } from "@/app/_lib/portal";
 
+/**
+ * Server component: Organization dashboard home
+ * - Shows counts for links and submissions (total + last 7 days)
+ */
 export default async function HomePage() {
-  const supabase = supabaseServer();
-  const orgId = await getActiveOrgId();
-  if (!orgId) return <main className="p-6">No organization context.</main>;
+  // ✅ get a real Supabase client (await!)
+  const sb = await getServerSupabase();
 
-  const [links, subs, subs7] = await Promise.all([
-    supabase.from("test_links").select("id", { count: "exact", head: true }).eq("org_id", orgId),
-    supabase.from("test_submissions").select("id, completed_at", { count: "exact" }).eq("org_id", orgId),
-    supabase
+  // ✅ ensure the caller is a member; returns the active orgId
+  const orgId = await ensurePortalMember(sb);
+
+  // compute date 7 days ago in ISO format
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  // Run the three count queries in parallel
+  const [linksCountRes, allSubsCountRes, subs7dCountRes] = await Promise.all([
+    sb
+      .from("test_links")
+      .select("id", { head: true, count: "exact" })
+      .eq("org_id", orgId),
+
+    sb
       .from("test_submissions")
-      .select("id", { count: "exact", head: true })
+      .select("id", { head: true, count: "exact" })
+      .eq("org_id", orgId),
+
+    sb
+      .from("test_submissions")
+      .select("id", { head: true, count: "exact" })
       .eq("org_id", orgId)
-      .gte("started_at", new Date(Date.now() - 7 * 86400_000).toISOString()),
+      // Schema shows "submitted_at" (not "completed_at")
+      .gte("submitted_at", sevenDaysAgo),
   ]);
 
-  const totalLinks = links.count ?? 0;
-  const totalSubs = subs.count ?? 0;
-  const completed = (subs.data ?? []).filter((s) => s.completed_at).length;
-  const completionRate = totalSubs ? Math.round((completed / totalSubs) * 100) : 0;
-  const last7 = subs7.count ?? 0;
+  if (linksCountRes.error) throw new Error(linksCountRes.error.message);
+  if (allSubsCountRes.error) throw new Error(allSubsCountRes.error.message);
+  if (subs7dCountRes.error) throw new Error(subs7dCountRes.error.message);
 
-  const Card = ({ title, value }: { title: string; value: string | number }) => (
-    <div className="rounded-xl border p-4">
-      <div className="text-sm text-gray-500">{title}</div>
-      <div className="text-2xl font-semibold">{value}</div>
-    </div>
-  );
+  const linksCount = linksCountRes.count ?? 0;
+  const subsCount = allSubsCountRes.count ?? 0;
+  const subs7dCount = subs7dCountRes.count ?? 0;
 
   return (
-    <main className="p-6">
-      <h1 className="text-2xl font-semibold mb-4">Overview</h1>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card title="Total Links" value={totalLinks} />
-        <Card title="Total Submissions" value={totalSubs} />
-        <Card title="Completion Rate" value={`${completionRate}%`} />
-        <Card title="Last 7 Days" value={last7} />
-      </div>
+    <main className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Overview</h1>
+
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Active Links</div>
+          <div className="text-3xl font-bold mt-1">{linksCount}</div>
+        </div>
+
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Total Submissions</div>
+          <div className="text-3xl font-bold mt-1">{subsCount}</div>
+        </div>
+
+        <div className="rounded-2xl border p-4">
+          <div className="text-sm text-gray-500">Submissions (7 days)</div>
+          <div className="text-3xl font-bold mt-1">{subs7dCount}</div>
+        </div>
+      </section>
     </main>
   );
 }
