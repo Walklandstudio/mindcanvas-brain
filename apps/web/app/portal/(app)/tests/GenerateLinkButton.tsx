@@ -1,81 +1,91 @@
-// apps/web/app/portal/(app)/tests/GenerateLinkButton.tsx
-"use client";
+'use client';
 
-import * as React from "react";
+import * as React from 'react';
+
+type Props = {
+  /** Pass either testId or testSlug (preferred). testKey remains for back-compat. */
+  testId?: string;
+  testSlug?: string;
+  testKey?: string;
+  label?: string;
+  kind?: 'full' | 'free';
+  maxUses?: number;
+  className?: string;
+};
 
 export default function GenerateLinkButton({
   testId,
   testSlug,
-  label = "Generate link",
-  className = "",
-}: {
-  testId?: string;
-  testSlug?: string;
-  label?: string;
-  className?: string;
-}) {
-  const [loading, setLoading] = React.useState(false);
-  const [url, setUrl] = React.useState<string | null>(null);
-  const [err, setErr] = React.useState<string | null>(null);
+  testKey,
+  label = 'Create & Copy Link',
+  kind = 'full',
+  maxUses = 1,
+  className,
+}: Props) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [lastUrl, setLastUrl] = React.useState<string | null>(null);
 
-  async function onClick() {
-    setLoading(true);
-    setErr(null);
-    setUrl(null);
+  const resolvedTestKey = React.useMemo(() => {
+    // Prefer explicit id/slug; fall back to legacy testKey
+    return (testId ?? testSlug ?? testKey ?? '').trim();
+  }, [testId, testSlug, testKey]);
+
+  async function handleClick() {
+    setBusy(true);
+    setError(null);
+    setLastUrl(null);
+
     try {
-      const res = await fetch("/api/portal/links", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(testId ? { testId } : { testSlug }),
+      if (!resolvedTestKey) throw new Error('Missing test identifier');
+
+      const res = await fetch('/api/portal/links', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ testKey: resolvedTestKey, kind, maxUses }),
       });
-      const j = await res.json();
-      if (!j?.ok) throw new Error(j?.error || "Failed to create link");
-      setUrl(j.data.url);
-      // Try to copy
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+      const url: string = data.url;
+      setLastUrl(url);
+
+      // Best-effort clipboard copy
       try {
-        await navigator.clipboard.writeText(j.data.url);
-      } catch {}
+        await navigator.clipboard.writeText(url);
+      } catch {
+        /* ignore */
+      }
     } catch (e: any) {
-      setErr(e?.message || "Failed to create link");
+      setError(e?.message || 'Failed to create link');
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <div className={`inline-flex items-center gap-2 ${className}`}>
+    <div className={className}>
       <button
-        onClick={onClick}
-        className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-        disabled={loading}
-        aria-busy={loading}
+        type="button"
+        onClick={handleClick}
+        disabled={busy}
+        className="px-3 py-2 rounded-xl border text-sm disabled:opacity-60"
       >
-        {loading ? "Creating…" : label}
+        {busy ? 'Creating…' : label}
       </button>
 
-      {url && (
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="text-xs underline text-blue-600"
-          title="Open link in new tab"
-        >
-          Open
-        </a>
-      )}
+      {error && <p className="mt-2 text-red-600 text-sm">{error}</p>}
 
-      {url && (
-        <button
-          onClick={() => navigator.clipboard.writeText(url)}
-          className="text-xs underline"
-          title="Copy to clipboard"
-        >
-          Copy
-        </button>
+      {lastUrl && (
+        <div className="mt-2 text-sm">
+          <div className="font-medium">Invite link created</div>
+          <a href={lastUrl} target="_blank" rel="noreferrer" className="underline break-all">
+            {lastUrl}
+          </a>
+          <div className="text-xs text-gray-600 mt-1">Link copied to clipboard (if permitted).</div>
+        </div>
       )}
-
-      {err && <span className="text-xs text-red-600">{err}</span>}
     </div>
   );
 }

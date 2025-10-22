@@ -1,83 +1,77 @@
 // apps/web/app/portal/(app)/tests/page.tsx
-import { supabaseServer, getActiveOrgId } from "@/app/_lib/portal";
-import GenerateLinkButton from "./GenerateLinkButton";
+import 'server-only';
+import { getServerSupabase, getActiveOrgId } from '@/app/_lib/portal';
+import GenerateLinkButton from './GenerateLinkButton';
 
 type OrgTest = {
   id: string;
   name: string;
-  slug: string | null;
-  mode: string;
-  status: string | null;
-  created_at: string;
+  slug: string;
+  mode?: string | null;
+  status?: string | null;
+  created_at?: string | null;
 };
 
-async function getTests() {
-  const sb = await supabaseServer();
-  const orgId = await getActiveOrgId();
-
-  if (!orgId) {
-    return { orgId: null as string | null, tests: [] as OrgTest[], error: null as string | null };
-  }
-
-  const { data, error } = await sb
-    .from("org_tests")
-    .select("id, name, slug, mode, status, created_at")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return { orgId, tests: [] as OrgTest[], error: error.message };
-  }
-  return { orgId, tests: (data || []) as OrgTest[], error: null as string | null };
-}
+export const dynamic = 'force-dynamic';
 
 export default async function TestsPage() {
-  const { orgId, tests, error } = await getTests();
+  const sb = await getServerSupabase();
+  const orgId = await getActiveOrgId(sb);
+
+  if (!orgId) {
+    return (
+      <div className="p-6">
+        <h1 className="text-lg font-semibold">Tests</h1>
+        <p className="mt-2 text-sm text-gray-600">
+          No active organization. If you’re a platform admin, set one at <a className="underline" href="/admin">/admin</a>.
+        </p>
+      </div>
+    );
+  }
+
+  const { data: tests, error } = await sb
+    .from('org_tests')
+    .select('id, name, slug, mode, status, created_at')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <h1 className="text-lg font-semibold">Tests</h1>
+        <p className="mt-2 text-sm text-red-600">Error loading tests: {error.message}</p>
+      </div>
+    );
+  }
 
   return (
-    <main className="mx-auto max-w-4xl p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Tests</h1>
-      </div>
+    <div className="p-6 space-y-4">
+      <h1 className="text-lg font-semibold">Tests</h1>
 
-      <p className="text-sm text-slate-600 mt-1">
-        Generate a public link and share it with test takers. Submissions will appear in your dashboard.
-      </p>
-
-      {error && (
-        <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <div className="mt-6 grid gap-4">
-        {tests.length === 0 && (
-          <div className="rounded-lg border p-6 text-sm text-slate-600">
-            {orgId
-              ? "No tests found for this organization."
-              : "No active organization selected. Please switch orgs or re-login."}
-          </div>
-        )}
-
-        {tests.map((t) => (
-          <article key={t.id} className="rounded-xl border border-black/10 bg-white p-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="grid gap-3">
+        {(tests as OrgTest[] ?? []).map((t) => (
+          <div key={t.id} className="rounded-xl border p-3">
+            <div className="flex items-center justify-between">
               <div>
-                <div className="text-base font-medium">{t.name}</div>
-                <div className="text-xs text-slate-500">
-                  slug: <code>{t.slug || "—"}</code> · mode: <code>{t.mode}</code>{" "}
-                  {t.status ? (
-                    <>
-                      · status: <code>{t.status}</code>
-                    </>
-                  ) : null}
+                <div className="font-medium">{t.name}</div>
+                <div className="text-xs text-gray-600">{t.slug}</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {t.mode ?? '—'} · {t.status ?? '—'}
                 </div>
               </div>
-              <GenerateLinkButton testId={t.id} />
+
+              <div className="flex items-center gap-2">
+                {/* Create & Copy Link for this test */}
+                <GenerateLinkButton testSlug={t.slug} />
+              </div>
             </div>
-          </article>
+          </div>
         ))}
       </div>
-    </main>
+
+      {(!tests || tests.length === 0) && (
+        <p className="text-sm text-gray-600">No tests yet.</p>
+      )}
+    </div>
   );
 }
