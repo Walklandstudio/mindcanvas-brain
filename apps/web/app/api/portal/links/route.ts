@@ -1,92 +1,133 @@
 // apps/web/app/api/portal/links/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer, getActiveOrgId } from "@/app/_lib/portal";
+import {
+  getServerSupabase,
+  getActiveOrgId,
+  ensurePortalMember,
+  getActiveOrg,
+  type Org,
+} from "@/app/_lib/portal";
 
-/**
- * POST /api/portal/links
- * Body: { test_id: string, max_uses?: number, mode?: "full" | "free" }
- * Returns: { url: string, token: string }
- */
+type Body =
+  | { testId: string; maxUses?: number; expiresInDays?: number; kind?: "full" | "free" }
+  | { testSlug: string; maxUses?: number; expiresInDays?: number; kind?: "full" | "free" };
+
 export async function POST(req: Request) {
   try {
-    const sb = await supabaseServer();
+    const sb = await getServerSupabase();
 
-    // 🔧 getActiveOrgId() in your codebase does not take parameters
-    const orgId = await getActiveOrgId();
+    // Resolve org
+    const orgId = await getActiveOrgId(sb);
     if (!orgId) {
+      return NextResponse.json({ ok: false, error: "No active org." }, { status: 401 });
+    }
+    await ensurePortalMember(sb, orgId);
+
+    // Get org details (for token prefix, display, etc.)
+    let org: Org | null = null;
+    try {
+      org = await getActiveOrg(sb, orgId);
+    } catch {
+      org = null;
+    }
+
+    // Parse body
+    const body = (await req.json().catch(() => ({}))) as Body;
+    const maxUses = Number((body as any).maxUses ?? 1);
+    const expiresInDays = Number((body as any).expiresInDays ?? 30);
+    const kind = (body as any).kind === "free" ? "free" : "full";
+
+    // Resolve test id (UUID or slug)
+    let testId: string | null = null;
+
+    if ("testId" in body && body.testId) {
+      const { data: own, error: ownErr } = await sb
+        .from("org_tests")
+        .select("id")
+        .eq("id", body.testId)
+        .eq("org_id", orgId)
+        .limit(1)
+        .maybeSingle();
+      if (ownErr) throw ownErr;
+      if (!own) {
+        return NextResponse.json(
+          { ok: false, error: "Test not found in this org." },
+          { status: 404 }
+        );
+      }
+      testId = own.id as string;
+    } else if ("testSlug" in body && body.testSlug) {
+      const { data: row, error: rowErr } = await sb
+        .from("org_tests")
+        .select("id")
+        .eq("org_id", orgId)
+        .eq("slug", body.testSlug)
+        .limit(1)
+        .maybeSingle();
+      if (rowErr) throw rowErr;
+      if (!row) {
+        return NextResponse.json(
+          { ok: false, error: "Test slug not found in this org." },
+          { status: 404 }
+        );
+      }
+      testId = row.id as string;
+    } else {
       return NextResponse.json(
-        { error: "No active organization in session." },
-        { status: 401 }
+        { ok: false, error: "Provide 'testId' or 'testSlug'." },
+        { status: 400 }
       );
     }
 
-    const body = (await req.json().catch(() => ({}))) as {
-      test_id?: string;
-      max_uses?: number;
-      mode?: string;
-    };
+    // Generate token prefix by org slug
+    let prefix = "lk";
+    if (org?.slug?.startsWith("team")) prefix = "tp";
+    else if (org?.slug?.startsWith("competency")) prefix = "cc";
+    const token = `${prefix}${Math.floor(Date.now() / 1000)}`;
 
-    const test_id = String(body?.test_id || "").trim();
-    const max_uses =
-      Number.isFinite(body?.max_uses) && Number(body?.max_uses) > 0
-        ? Number(body?.max_uses)
-        : 5;
-    const mode = (body?.mode || "full") as "full" | "free";
+    // Expiry
+    const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
 
-    if (!test_id) {
-      return NextResponse.json({ error: "Missing test_id." }, { status: 400 });
-    }
-
-    // Ensure the test belongs to the active org
-    const { data: testRow, error: testErr } = await sb
-      .from("org_tests")
-      .select("id, org_id")
-      .eq("id", test_id)
-      .eq("org_id", orgId)
+    // Insert link
+    const { data: ins, error: insErr } = await sb
+      .from("test_links")
+      .insert([
+        {
+          org_id: orgId,
+          test_id: testId,
+          token,
+          kind,
+          max_uses: maxUses,
+          expires_at: expiresAt,
+        },
+      ])
+      .select("id, token")
       .maybeSingle();
 
-    if (testErr) {
-      return NextResponse.json({ error: testErr.message }, { status: 500 });
-    }
-    if (!testRow) {
-      return NextResponse.json(
-        { error: "Test not found in your organization." },
-        { status: 404 }
-      );
+    if (insErr) throw insErr;
+    if (!ins) {
+      return NextResponse.json({ ok: false, error: "Failed to create link." }, { status: 500 });
     }
 
-    // Simple unique token; swap for ULID/UUID if you prefer
-    const token = `${orgId.slice(0, 2)}${Date.now()}`;
+    // Absolute URL
+    const site =
+      process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    const url = site ? `${site}/t/${ins.token}` : `/t/${ins.token}`;
 
-    const { data: inserted, error: insErr } = await sb
-      .from("test_links")
-      .insert({
-        org_id: orgId,
-        test_id,
-        token,
-        mode,
-        max_uses,
-      })
-      .select("token")
-      .single();
-
-    if (insErr) {
-      return NextResponse.json({ error: insErr.message }, { status: 500 });
-    }
-
-    // Build absolute URL: prefer NEXT_PUBLIC_APP_URL, fallback to request Host
-    const configured =
-      process.env.NEXT_PUBLIC_APP_URL &&
-      process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
-    const host = req.headers.get("host");
-    const origin = configured || (host ? `https://${host}` : "");
-    const url = `${origin}/t/${inserted.token}`;
-
-    return NextResponse.json({ url, token: inserted.token });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Unexpected error." },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      ok: true,
+      data: {
+        id: ins.id,
+        token: ins.token,
+        url,
+        maxUses,
+        kind,
+        expiresInDays,
+      },
+    });
+  } catch (err: any) {
+    console.error("POST /api/portal/links error:", err?.message || err);
+    return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
   }
 }
