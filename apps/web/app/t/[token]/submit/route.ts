@@ -1,8 +1,10 @@
-// apps/web/app/t/[token]/submit/route.ts
 import { NextResponse } from 'next/server';
 import { getAdminClient } from '@/app/_lib/portal';
 
-const WINDOW_MS = 60_000; // 1 min
+export const runtime = 'nodejs';
+
+// simple in-memory throttle (per Vercel instance)
+const WINDOW_MS = 60_000;
 const LIMIT_PER_IP = 12;
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
@@ -18,14 +20,22 @@ function throttle(ip: string) {
   return false;
 }
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '0.0.0.0';
+export async function POST(req: Request) {
+  // grab token from URL: /t/{token}/submit
+  const { pathname } = new URL(req.url);
+  const parts = pathname.split('/'); // ["", "t", "{token}", "submit"]
+  const token = parts[2] || '';
+
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    '0.0.0.0';
+
   if (throttle(ip)) {
     return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 });
   }
 
   const sb = await getAdminClient();
-  const token = params.token;
 
   // 1) Load link
   const { data: link, error: linkErr } = await sb
@@ -43,15 +53,16 @@ export async function POST(req: Request, { params }: { params: { token: string }
     return NextResponse.json({ error: 'Link expired.' }, { status: 410 });
   }
 
-  // 3) Uses check (count submissions for this token)
-  const { count: usedCount } = await sb
+  // 3) Uses check (⚠️ use `count` from Supabase response)
+  const usedRes = await sb
     .from('test_submissions')
     .select('id', { count: 'exact', head: true })
     .eq('org_id', link.org_id)
     .eq('test_id', link.test_id)
     .eq('link_token', token);
 
-  if ((usedCount ?? 0) >= (link.max_uses ?? 1)) {
+  const usedCount = usedRes.count ?? 0;
+  if (usedCount >= (link.max_uses ?? 1)) {
     return NextResponse.json({ error: 'Link already used.' }, { status: 409 });
   }
 
@@ -62,10 +73,9 @@ export async function POST(req: Request, { params }: { params: { token: string }
   const totals     = body?.totals ?? {};
   const answers    = body?.answers ?? {};
 
-  // 5) (Optional) upsert taker (NO GHL)
+  // 5) Optional taker upsert (no GHL)
   let takerId: string | null = null;
   if (takerEmail) {
-    // Adjust fields to your real schema: email + name (not full_name)
     const upsert = await sb
       .from('test_takers')
       .upsert(
