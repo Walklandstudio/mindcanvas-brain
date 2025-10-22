@@ -1,68 +1,62 @@
 // apps/web/app/portal/(app)/home/page.tsx
-import { getServerSupabase, ensurePortalMember } from "@/app/_lib/portal";
+import React from "react";
+import { getAdminClient, getActiveOrgId } from "@/app/_lib/portal";
 
-/**
- * Server component: Organization dashboard home
- * - Shows counts for links and submissions (total + last 7 days)
- */
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
-  // ✅ get a real Supabase client (await!)
-  const sb = await getServerSupabase();
+  const supabase = await getAdminClient();
+  const orgId = await getActiveOrgId(supabase);
 
-  // ✅ ensure the caller is a member; returns the active orgId
-  const orgId = await ensurePortalMember(sb);
+  if (!orgId) {
+    return (
+      <main className="p-6">
+        <h1 className="text-xl font-semibold">Portal</h1>
+        <p className="text-gray-500 mt-2">No active organization.</p>
+      </main>
+    );
+  }
 
-  // compute date 7 days ago in ISO format
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const sevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Run the three count queries in parallel
-  const [linksCountRes, allSubsCountRes, subs7dCountRes] = await Promise.all([
-    sb
+  const [linksRes, subsRes, subs7Res] = await Promise.all([
+    supabase
       .from("test_links")
-      .select("id", { head: true, count: "exact" })
+      .select("id", { count: "exact", head: true })
       .eq("org_id", orgId),
-
-    sb
+    supabase
       .from("test_submissions")
-      .select("id", { head: true, count: "exact" })
+      .select("id, submitted_at", { count: "exact" })
       .eq("org_id", orgId),
-
-    sb
+    supabase
       .from("test_submissions")
-      .select("id", { head: true, count: "exact" })
+      .select("id", { count: "exact", head: true })
       .eq("org_id", orgId)
-      // Schema shows "submitted_at" (not "completed_at")
-      .gte("submitted_at", sevenDaysAgo),
+      .gte("submitted_at", sevenDaysAgoIso),
   ]);
 
-  if (linksCountRes.error) throw new Error(linksCountRes.error.message);
-  if (allSubsCountRes.error) throw new Error(allSubsCountRes.error.message);
-  if (subs7dCountRes.error) throw new Error(subs7dCountRes.error.message);
-
-  const linksCount = linksCountRes.count ?? 0;
-  const subsCount = allSubsCountRes.count ?? 0;
-  const subs7dCount = subs7dCountRes.count ?? 0;
+  const linksCount = linksRes.count ?? 0;
+  const subsCount = subsRes.count ?? (subsRes.data?.length ?? 0);
+  const subs7Count = subs7Res.count ?? 0;
 
   return (
     <main className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Overview</h1>
+      <h1 className="text-2xl font-semibold">Portal Overview</h1>
 
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Active Links</div>
-          <div className="text-3xl font-bold mt-1">{linksCount}</div>
-        </div>
-
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Total Submissions</div>
-          <div className="text-3xl font-bold mt-1">{subsCount}</div>
-        </div>
-
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm text-gray-500">Submissions (7 days)</div>
-          <div className="text-3xl font-bold mt-1">{subs7dCount}</div>
-        </div>
-      </section>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard label="Links" value={linksCount} />
+        <StatCard label="Submissions (all time)" value={subsCount} />
+        <StatCard label="Submissions (7d)" value={subs7Count} />
+      </div>
     </main>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border p-4">
+      <div className="text-sm text-gray-500">{label}</div>
+      <div className="text-3xl font-semibold mt-1">{value}</div>
+    </div>
   );
 }
