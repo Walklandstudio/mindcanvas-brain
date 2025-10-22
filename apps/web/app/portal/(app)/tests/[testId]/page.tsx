@@ -1,166 +1,147 @@
-// apps/web/app/portal/(app)/tests/[testId]/page.tsx
-import Link from "next/link";
+import React from "react";
 import { getAdminClient, getActiveOrgId } from "@/app/_lib/portal";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-type TestRow = {
+type Params = { testId: string };
+
+type LinkRow = {
   id: string;
-  name: string | null;
-  kind?: string | null;
-  question_count?: number | null;
-  slug?: string | null;
+  token: string;
+  created_at: string;
+  max_uses: number | null;
+  uses: number | null;
+  mode: string | null;
+  kind: string | null;
 };
 
-async function loadTest(orgId: string, testIdOrSlug: string): Promise<TestRow | null> {
-  const sb = getAdminClient();
+export default async function TestDetailPage({
+  params,
+}: {
+  params: Promise<Params>;
+}) {
+  const { testId: testIdOrSlug } = await params;
 
-  // 1) Try org_tests by id
-  const { data: byId } = await sb
-    .from("org_tests")
-    .select("id,name,kind,question_count,slug,org_id")
-    .eq("org_id", orgId)
-    .eq("id", testIdOrSlug)
-    .maybeSingle();
+  // ✅ await the client factory
+  const sb = await getAdminClient();
 
-  if (byId) {
-    const t: any = byId;
-    return {
-      id: t.id,
-      name: t.name ?? "Untitled",
-      kind: t.kind ?? null,
-      question_count: t.question_count ?? null,
-      slug: t.slug ?? null,
-    };
-  }
-
-  // 2) Try org_tests by slug
-  const { data: bySlug } = await sb
-    .from("org_tests")
-    .select("id,name,kind,question_count,slug,org_id")
-    .eq("org_id", orgId)
-    .eq("slug", testIdOrSlug)
-    .maybeSingle();
-
-  if (bySlug) {
-    const t: any = bySlug;
-    return {
-      id: t.id,
-      name: t.name ?? "Untitled",
-      kind: t.kind ?? null,
-      question_count: t.question_count ?? null,
-      slug: t.slug ?? null,
-    };
-  }
-
-  // 3) Fallback to legacy tests by id
-  const { data: legacyById } = await sb
-    .from("tests")
-    .select("id,name,kind,question_count,slug,org_id")
-    .eq("org_id", orgId)
-    .eq("id", testIdOrSlug)
-    .maybeSingle();
-
-  if (legacyById) {
-    const t: any = legacyById;
-    return {
-      id: t.id,
-      name: t.name ?? "Untitled",
-      kind: t.kind ?? null,
-      question_count: t.question_count ?? null,
-      slug: t.slug ?? null,
-    };
-  }
-
-  // 4) Legacy by slug
-  const { data: legacyBySlug } = await sb
-    .from("tests")
-    .select("id,name,kind,question_count,slug,org_id")
-    .eq("org_id", orgId)
-    .eq("slug", testIdOrSlug)
-    .maybeSingle();
-
-  if (legacyBySlug) {
-    const t: any = legacyBySlug;
-    return {
-      id: t.id,
-      name: t.name ?? "Untitled",
-      kind: t.kind ?? null,
-      question_count: t.question_count ?? null,
-      slug: t.slug ?? null,
-    };
-  }
-
-  return null;
-}
-
-// NOTE: Next 15 PageProps makes `params` async-like → read it via `await props.params`
-export default async function TestDetailPage(props: any) {
-  const { testId } = (await props.params) as { testId: string };
-
-  const orgId = await getActiveOrgId();
+  const orgId = await getActiveOrgId(sb);
   if (!orgId) {
     return (
-      <main className="mx-auto max-w-4xl p-6">
-        <h1 className="text-2xl font-semibold">Test</h1>
-        <p className="mt-2 text-sm text-slate-600">No active organization found.</p>
-        <div className="mt-6">
-          <Link className="rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50" href="/portal/tests">
-            Back to Tests
-          </Link>
-        </div>
+      <main className="p-6">
+        <h1 className="text-2xl font-semibold mb-2">Test</h1>
+        <p className="text-gray-600">No active organization.</p>
       </main>
     );
   }
 
-  const test = await loadTest(orgId, testId);
+  // Try lookup by UUID, then by slug (both scoped to org)
+  const { data: byId } = await sb
+    .from("org_tests")
+    .select("id,name,slug,mode,status,created_at,org_id")
+    .eq("org_id", orgId)
+    .eq("id", testIdOrSlug)
+    .maybeSingle();
+
+  let test = byId;
+  if (!test) {
+    const { data: bySlug } = await sb
+      .from("org_tests")
+      .select("id,name,slug,mode,status,created_at,org_id")
+      .eq("org_id", orgId)
+      .eq("slug", testIdOrSlug)
+      .maybeSingle();
+    test = bySlug ?? null;
+  }
 
   if (!test) {
     return (
-      <main className="mx-auto max-w-4xl p-6">
-        <h1 className="text-2xl font-semibold">Test</h1>
-        <p className="mt-2 text-sm text-slate-600">Test not found in this organization.</p>
-        <div className="mt-6">
-          <Link className="rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50" href="/portal/tests">
-            Back to Tests
-          </Link>
-        </div>
+      <main className="p-6">
+        <h1 className="text-2xl font-semibold mb-2">Test</h1>
+        <p className="text-red-600">
+          Test “{testIdOrSlug}” not found for this organization.
+        </p>
       </main>
     );
   }
 
-  return (
-    <main className="mx-auto max-w-4xl p-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">{test.name}</h1>
-          <p className="text-sm text-slate-500">
-            {test.kind ?? "test"} · {typeof test.question_count === "number" ? `${test.question_count} questions` : "—"}
-          </p>
-          <p className="text-xs text-slate-400 mt-1 break-all">
-            ID: {test.id}
-            {test.slug ? ` · /${test.slug}` : ""}
-          </p>
-        </div>
-        <Link className="rounded-md border px-3 py-1.5 text-sm hover:bg-slate-50" href="/portal/tests">
-          Back to Tests
-        </Link>
-      </div>
+  // Optional: get question count via a HEAD+count query
+  const { count: qCount = 0 } = await sb
+    .from("test_questions")
+    .select("id", { head: true, count: "exact" })
+    .eq("org_id", orgId)
+    .eq("test_id", test.id);
 
-      {/* Placeholder: actions / links */}
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-black/10 bg-white p-4">
-          <h2 className="text-sm font-medium text-slate-700">Invite link</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Generate links from the <code>/portal/tests</code> list or via API. (UI coming soon)
-          </p>
+  // Optional: recent links for this test
+  const { data: linksRaw } = await sb
+    .from("test_links")
+    .select("id, token, created_at, max_uses, uses, mode, kind")
+    .eq("org_id", orgId)
+    .eq("test_id", test.id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  // ✅ Narrow null away for TS
+  const links: LinkRow[] = linksRaw ?? [];
+
+  return (
+    <main className="p-6 space-y-6">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold">{test.name}</h1>
+        <p className="text-sm text-gray-600">
+          slug: <span className="font-mono">{test.slug ?? "—"}</span>
+        </p>
+      </header>
+
+      <section className="border rounded-xl p-4">
+        <h2 className="text-lg font-medium mb-3">Details</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div>
+            <div className="text-gray-500">ID</div>
+            <div className="font-mono break-all">{test.id}</div>
+          </div>
+          <div>
+            <div className="text-gray-500">Mode</div>
+            <div>{test.mode}</div>
+          </div>
+          <div>
+            <div className="text-gray-500">Status</div>
+            <div>{test.status ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-gray-500">Created</div>
+            <div>{new Date(test.created_at).toLocaleString()}</div>
+          </div>
+          <div>
+            <div className="text-gray-500">Questions</div>
+            <div>{qCount}</div>
+          </div>
         </div>
-        <div className="rounded-xl border border-black/10 bg-white p-4">
-          <h2 className="text-sm font-medium text-slate-700">Recent submissions</h2>
-          <p className="mt-1 text-sm text-slate-600">This panel will show the latest activity for this test.</p>
-        </div>
-      </div>
+      </section>
+
+      <section className="border rounded-xl p-4">
+        <h2 className="text-lg font-medium mb-3">Recent Links</h2>
+        {links.length === 0 ? (
+          <p className="text-sm text-gray-600">No links yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {links.map((l) => (
+              <li key={l.id} className="flex items-center justify-between">
+                <div className="text-sm">
+                  <div className="font-mono">{l.token}</div>
+                  <div className="text-gray-500">
+                    {new Date(l.created_at).toLocaleString()} • {l.uses}/
+                    {l.max_uses ?? "∞"} uses
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide">
+                  {l.kind ?? l.mode ?? "full"}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }
