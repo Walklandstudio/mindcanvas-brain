@@ -1,112 +1,74 @@
 // apps/web/app/portal/(app)/settings/page.tsx
-import { getAdminClient, getActiveOrgId, getOrgBrand } from "@/app/_lib/portal";
+import React from "react";
+import { getAdminClient, getActiveOrgId } from "@/app/_lib/portal";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-type Org = { id: string; name: string; slug: string };
+export default async function SettingsPage() {
+  // ✅ resolve the Supabase client (await the promise)
+  const sb = await getAdminClient();
 
-async function loadActiveOrg(): Promise<Org | null> {
-  const orgId = await getActiveOrgId();
-  if (!orgId) return null;
+  // ✅ figure out which org we're in
+  const orgId = await getActiveOrgId(sb);
+  if (!orgId) {
+    return (
+      <main className="p-6 space-y-3">
+        <h1 className="text-2xl font-semibold">Settings</h1>
+        <p className="text-gray-500">No active organization.</p>
+      </main>
+    );
+  }
 
-  const sb = getAdminClient();
-  const { data } = await sb
+  // ✅ load org core fields
+  const { data: org, error: orgErr } = await sb
     .from("organizations")
     .select("id,name,slug")
     .eq("id", orgId)
     .maybeSingle();
 
-  if (!data) return null;
-  return { id: (data as any).id, name: (data as any).name, slug: (data as any).slug };
-}
+  // ✅ load optional brand settings if present
+  const { data: brand, error: brandErr } = await sb
+    .from("org_brand_settings")
+    .select("company_name, logo_url, primary_color, accent_color")
+    .eq("org_id", orgId)
+    .maybeSingle();
 
-export default async function SettingsPage() {
-  const org = await loadActiveOrg();
-  if (!org) {
+  if (orgErr) {
     return (
-      <main className="mx-auto max-w-3xl p-6">
+      <main className="p-6 space-y-3">
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          No active organization found. Please ensure your account is a member of an org.
-        </p>
+        <p className="text-red-600">Failed to load organization: {orgErr.message}</p>
       </main>
     );
   }
 
-  const brand = await getOrgBrand(org.id);
-
   return (
-    <main className="mx-auto max-w-3xl p-6">
+    <main className="p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Settings</h1>
-      <p className="mt-1 text-sm text-slate-500">
-        Organization: <span className="font-medium">{org.name}</span> ({org.slug})
-      </p>
 
-      <form
-        className="mt-6 space-y-4 rounded-xl border border-black/10 bg-white p-6"
-        action="/api/portal/settings/save"
-        method="post"
-      >
-        <input type="hidden" name="org_id" value={org.id} />
-
-        <div>
-          <label className="block text-sm font-medium">Logo URL</label>
-          <input
-            name="logo_url"
-            defaultValue={(brand as any)?.logo_url ?? ""}
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="https://…"
-          />
+      <section className="rounded-xl border p-4 space-y-2">
+        <h2 className="text-lg font-medium">Organization</h2>
+        <div className="text-sm text-gray-700">
+          <div><span className="font-medium">Name:</span> {org?.name ?? "—"}</div>
+          <div><span className="font-medium">Slug:</span> {org?.slug ?? "—"}</div>
+          <div className="text-gray-400 text-xs mt-1">ID: {org?.id}</div>
         </div>
+      </section>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <label className="block text-sm font-medium">Primary color</label>
-            <input
-              name="primary_color"
-              defaultValue={(brand as any)?.primary_color ?? ""}
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              placeholder="#000000"
-            />
+      <section className="rounded-xl border p-4 space-y-3">
+        <h2 className="text-lg font-medium">Branding</h2>
+
+        {brandErr ? (
+          <p className="text-red-600 text-sm">Failed to load branding: {brandErr.message}</p>
+        ) : (
+          <div className="text-sm text-gray-700 space-y-1">
+            <div><span className="font-medium">Company name:</span> {brand?.company_name ?? "—"}</div>
+            <div><span className="font-medium">Logo URL:</span> {brand?.logo_url ?? "—"}</div>
+            <div><span className="font-medium">Primary color:</span> {brand?.primary_color ?? "—"}</div>
+            <div><span className="font-medium">Accent color:</span> {brand?.accent_color ?? "—"}</div>
           </div>
-          <div>
-            <label className="block text-sm font-medium">Secondary color</label>
-            <input
-              name="secondary_color"
-              defaultValue={(brand as any)?.secondary_color ?? ""}
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              placeholder="#666666"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium">Accent color</label>
-            <input
-              name="accent_color"
-              defaultValue={(brand as any)?.accent_color ?? ""}
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              placeholder="#FF9900"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium">Brand voice</label>
-          <textarea
-            name="brand_voice"
-            defaultValue={(brand as any)?.brand_voice ?? ""}
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            rows={4}
-            placeholder="Tone, writing guidelines, etc."
-          />
-        </div>
-
-        <div className="pt-2">
-          <button className="rounded-md border px-4 py-2 text-sm hover:bg-slate-50">
-            Save
-          </button>
-        </div>
-      </form>
+        )}
+      </section>
     </main>
   );
 }
