@@ -1,4 +1,5 @@
-// apps/web/app/api/test/[token]/start/route.ts
+// apps/web/app/api/public/test/[token]/start/route.ts
+// Same logic as /api/test/... so old callers keep working.
 import { NextResponse } from 'next/server';
 import { getAdminClient } from '@/app/_lib/portal';
 
@@ -19,7 +20,6 @@ function tooManyUses(max: number | null, used: number | null | undefined) {
   return (used ?? 0) >= max;
 }
 
-// IMPORTANT: leave 2nd arg untyped for Next 15
 export async function POST(req: Request, context: any) {
   try {
     const token = context?.params?.token as string | undefined;
@@ -27,7 +27,6 @@ export async function POST(req: Request, context: any) {
 
     const sb = await getAdminClient();
 
-    // Your schema uses "uses" (not "uses_count"), and "mode" is NOT NULL
     const { data: link, error: linkErr } = await sb
       .from('test_links')
       .select('id, org_id, test_id, max_uses, uses, expires_at, kind, mode')
@@ -45,7 +44,6 @@ export async function POST(req: Request, context: any) {
 
     const body = (await req.json().catch(() => ({}))) as StartBody;
 
-    // Insert taker WITH test_id (fix for your NOT NULL)
     const ins = await sb
       .from('test_takers')
       .insert([
@@ -70,7 +68,6 @@ export async function POST(req: Request, context: any) {
     const takerId = ins.data?.id as string | undefined;
     if (!takerId) return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
 
-    // bump uses now (or on completion)
     await sb.from('test_links').update({ uses: ((link as any).uses ?? 0) + 1 }).eq('id', link.id);
 
     return NextResponse.json({ ok: true, takerId });
