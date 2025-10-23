@@ -1,19 +1,91 @@
 // apps/web/app/api/admin/tests/seed-if-empty/route.ts
-export const runtime = "nodejs";
+import { NextResponse } from 'next/server';
+import { getAdminClient } from '@/app/_lib/portal';
 
-import { NextResponse } from "next/server";
-import { getServiceClient } from "../../../../_lib/supabase";
+export const dynamic = 'force-dynamic';
 
-export async function GET() {
-  const supabase = getServiceClient();
-  const count = await supabase.from("base_questions").select("id", { count: "exact", head: true });
-  if (count.error) return NextResponse.json({ error: count.error.message }, { status: 500 });
-  if ((count.count ?? 0) > 0) return NextResponse.json({ ok: true, seeded: false });
+function defaultForSlug(slug: string) {
+  if (slug === 'team-puzzle') {
+    return { name: 'Team Puzzle Profile', slug: 'team-puzzle-profile' };
+  }
+  if (slug === 'competency-coach') {
+    return { name: 'Competency Coach Profile', slug: 'competency-coach-profile' };
+  }
+  // generic fallback
+  return { name: 'Org Test', slug: `${slug}-profile` };
+}
 
-  // Call the existing seeder
-  const res = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || ""}/api/admin/tests/seed-base`, { method: "POST" });
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) return NextResponse.json({ error: j.error || "seed-base failed" }, { status: 500 });
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const orgSlug = (url.searchParams.get('org') || '').trim();
 
-  return NextResponse.json({ ok: true, seeded: true, count: j.count });
+    if (!orgSlug) {
+      return NextResponse.json(
+        { error: "Missing ?org=team-puzzle|competency-coach" },
+        { status: 400 },
+      );
+    }
+
+    const sb = await getAdminClient();
+
+    // Resolve org
+    const { data: org, error: orgErr } = await sb
+      .from('organizations')
+      .select('id, slug, name')
+      .eq('slug', orgSlug)
+      .maybeSingle();
+
+    if (orgErr || !org) {
+      return NextResponse.json(
+        { error: `Org not found for slug "${orgSlug}"` },
+        { status: 404 },
+      );
+    }
+
+    // Count current tests
+    const { count } = await sb
+      .from('org_tests')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', org.id);
+
+    if ((count ?? 0) > 0) {
+      return NextResponse.json({
+        ok: true,
+        seeded: false,
+        reason: 'Tests already exist for this org',
+        org: { id: org.id, slug: org.slug, name: org.name },
+        count,
+      });
+    }
+
+    // Create a default test for this org
+    const def = defaultForSlug(org.slug);
+    const { data: inserted, error: insErr } = await sb
+      .from('org_tests')
+      .insert([
+        {
+          org_id: org.id,
+          name: def.name,
+          slug: def.slug,
+          mode: 'full',
+          status: 'active',
+        },
+      ])
+      .select('id, name, slug')
+      .limit(1);
+
+    if (insErr) {
+      return NextResponse.json({ error: insErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      seeded: true,
+      org: { id: org.id, slug: org.slug, name: org.name },
+      test: inserted?.[0] ?? null,
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
+  }
 }
