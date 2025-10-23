@@ -1,21 +1,27 @@
 // apps/web/app/t/[token]/page.tsx
 import StartForm from './StartForm';
 
+export const dynamic = 'force-dynamic';
+
 async function getMeta(token: string) {
-  // Fetch on the server to avoid CORS/extension noise and handle non-OK safely
-  const res = await fetch(`${process.env.APP_ORIGIN || ''}/api/public/test/${token}`, {
-    // If APP_ORIGIN is empty locally, Next will still resolve correctly
-    cache: 'no-store',
-  });
-  if (!res.ok) {
-    return { ok: false, error: `HTTP ${res.status}` };
-  }
+  const base = process.env.APP_ORIGIN || '';
+  const res = await fetch(`${base}/api/public/test/${token}`, { cache: 'no-store' });
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
   const text = await res.text();
-  return text ? JSON.parse(text) : { ok: false, error: 'Empty response' };
+  try {
+    return text ? JSON.parse(text) : { ok: false, error: 'Empty response' };
+  } catch {
+    return { ok: false, error: 'Invalid JSON from API' };
+  }
 }
 
-export default async function TakeTestPage({ params }: { params: { token: string } }) {
-  const { token } = params;
+// NOTE: In Next 15, params is a Promise
+export default async function TakeTestPage({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  const { token } = await params;
   const meta = await getMeta(token);
 
   if (!meta?.ok) {
