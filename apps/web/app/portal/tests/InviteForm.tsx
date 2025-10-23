@@ -2,51 +2,95 @@
 
 import * as React from 'react';
 
-export default function InviteForm() {
+type TestRow = { id: string; name: string; slug: string };
+
+export default function InviteForm({ tests }: { tests: TestRow[] }) {
   const [email, setEmail] = React.useState('');
-  const [sent, setSent] = React.useState(false);
+  const [testKey, setTestKey] = React.useState(tests[0]?.slug ?? '');
+  const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [url, setUrl] = React.useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSent(false);
+    setBusy(true);
     setError(null);
+    setUrl(null);
 
     try {
+      // Your API expects both email and testKey
       const res = await fetch('/api/portal/invites/create', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, testKey, kind: 'full', maxUses: 1 }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
-      setSent(true);
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+      // API returns { token, url } — show it and copy to clipboard
+      const inviteUrl: string = data.url;
+      setUrl(inviteUrl);
+      try { await navigator.clipboard.writeText(inviteUrl); } catch {}
       setEmail('');
     } catch (err: any) {
-      setError(err.message);
+      setError(err?.message || 'Failed to create invite');
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="border rounded-xl p-4 max-w-md space-y-3">
+    <form onSubmit={handleSubmit} className="rounded-xl border p-4 space-y-3">
       <div className="font-medium">Send test invite</div>
-      <input
-        type="email"
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-        placeholder="test.taker@example.com"
-        className="w-full border rounded-lg px-3 py-2 text-sm"
-        required
-      />
-      <button
-        type="submit"
-        disabled={!email}
-        className="px-3 py-2 bg-black text-white text-sm rounded-lg disabled:opacity-60"
-      >
-        Send Invite
-      </button>
-      {sent && <p className="text-green-600 text-sm">Invite sent!</p>}
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+
+      <div className="grid sm:grid-cols-2 gap-2">
+        <label className="text-sm">
+          <div className="mb-1 font-medium">Test</div>
+          <select
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+            value={testKey}
+            onChange={e => setTestKey(e.target.value)}
+            required
+          >
+            {tests.map(t => (
+              <option key={t.id} value={t.slug}>{t.name} ({t.slug})</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-sm">
+          <div className="mb-1 font-medium">Recipient email</div>
+          <input
+            type="email"
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+            placeholder="taker@example.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            required
+          />
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="submit"
+          className="px-3 py-2 rounded-lg border text-sm disabled:opacity-60"
+          disabled={busy}
+        >
+          {busy ? 'Sending…' : 'Send Invite'}
+        </button>
+        {error && <span className="text-sm text-red-600">{error}</span>}
+      </div>
+
+      {url && (
+        <div className="text-sm">
+          Invite link:&nbsp;
+          <a className="underline break-all" href={url} target="_blank" rel="noreferrer">
+            {url}
+          </a>
+          <div className="text-xs text-gray-600">Copied to clipboard (if permitted).</div>
+        </div>
+      )}
     </form>
   );
 }
