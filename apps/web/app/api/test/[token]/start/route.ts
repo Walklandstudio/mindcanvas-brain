@@ -14,51 +14,44 @@ type StartBody = {
   teamFunction?: string;
 };
 
-function tooManyUses(max: number | null, used: number | null) {
+function tooManyUses(max: number | null, used: number | null | undefined) {
   if (max == null) return false;
   return (used ?? 0) >= max;
 }
 
-export async function POST(req: Request, ctx: any) {
+export async function POST(req: Request, ctx: { params: { token: string } }) {
   try {
-    const token = ctx?.params?.token as string | undefined;
-    if (!token) {
-      return NextResponse.json({ error: 'Missing token' }, { status: 400 });
-    }
+    const token = ctx?.params?.token;
+    if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 400 });
 
     const sb = await getAdminClient();
 
-    // 1) Resolve link + basic guards
+    // IMPORTANT: select `uses` (your schema), not `uses_count`
     const { data: link, error: linkErr } = await sb
       .from('test_links')
-      .select('id, org_id, test_id, max_uses, uses_count, expires_at, kind')
+      .select('id, org_id, test_id, max_uses, uses, expires_at, kind, mode')
       .eq('token', token)
       .maybeSingle();
 
-    if (linkErr || !link) {
-      return NextResponse.json({ error: 'invalid or expired link' }, { status: 404 });
-    }
-    if (!link.test_id) {
-      return NextResponse.json({ error: 'Link has no test_id' }, { status: 400 });
-    }
+    if (linkErr || !link) return NextResponse.json({ error: 'invalid or expired link' }, { status: 404 });
+    if (!link.test_id) return NextResponse.json({ error: 'Link has no test_id' }, { status: 400 });
     if (link.expires_at && new Date(link.expires_at) < new Date()) {
       return NextResponse.json({ error: 'Link expired' }, { status: 410 });
     }
-    if (tooManyUses(link.max_uses, link.uses_count)) {
+    if (tooManyUses(link.max_uses as any, (link as any).uses)) {
       return NextResponse.json({ error: 'Link already used' }, { status: 409 });
     }
 
-    // 2) Read taker info
     const body = (await req.json().catch(() => ({}))) as StartBody;
 
-    // 3) Insert taker WITH test_id (this is what was missing)
-    const insertTaker = await sb
+    // Insert taker WITH test_id
+    const ins = await sb
       .from('test_takers')
       .insert([
         {
           org_id: link.org_id,
-          test_id: link.test_id, // <-- critical fix
-          link_id: link.id,      // optional but useful
+          test_id: link.test_id,   // ← critical field
+          link_id: link.id,
           email: body.email ?? null,
           first_name: body.firstName ?? null,
           last_name: body.lastName ?? null,
@@ -72,22 +65,16 @@ export async function POST(req: Request, ctx: any) {
       .select('id')
       .maybeSingle();
 
-    if (insertTaker.error) {
-      return NextResponse.json({ error: insertTaker.error.message }, { status: 500 });
-    }
+    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    const takerId = ins.data?.id as string | undefined;
+    if (!takerId) return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
 
-    const takerId = insertTaker.data?.id as string | undefined;
-    if (!takerId) {
-      return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
-    }
-
-    // 4) (Optional) bump uses_count now; or you can bump on complete
+    // Bump `uses` now (or do it on completion)
     await sb
       .from('test_links')
-      .update({ uses_count: (link.uses_count ?? 0) + 1 })
+      .update({ uses: ((link as any).uses ?? 0) + 1 })
       .eq('id', link.id);
 
-    // 5) Return ok + takerId for subsequent steps
     return NextResponse.json({ ok: true, takerId });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });

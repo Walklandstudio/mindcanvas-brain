@@ -4,9 +4,9 @@ import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
 
 type Body = {
   testKey?: string;       // org_tests.slug or org_tests.id
-  kind?: 'full' | 'free'; // default 'full'
-  maxUses?: number;       // default 1
-  expiresAt?: string;     // optional ISO timestamp
+  kind?: 'full' | 'free'; // optional; defaults to 'full'
+  maxUses?: number | null;
+  expiresAt?: string | null; // ISO
 };
 
 function makeToken(prefix = 'tp'): string {
@@ -14,30 +14,27 @@ function makeToken(prefix = 'tp'): string {
   return `${prefix}${Date.now().toString(36)}${rand}`;
 }
 
-export const runtime = 'nodejs';
-
 export async function POST(req: Request) {
   try {
     const sb = await getAdminClient();
     const orgId = await getActiveOrgId(sb);
-    if (!orgId) {
-      return NextResponse.json({ error: 'No active org' }, { status: 400 });
-    }
+    if (!orgId) return NextResponse.json({ error: 'No active org' }, { status: 400 });
 
     const body = (await req.json().catch(() => ({}))) as Body;
     const testKey = (body.testKey || '').trim();
     const kind = (body.kind || 'full') as 'full' | 'free';
-    const maxUses = Number.isFinite(body.maxUses) ? Number(body.maxUses) : 1;
+    const mode = kind; // your table requires `mode` NOT NULL; mirror kind
+    const maxUses = Number.isFinite(body.maxUses as any) ? Number(body.maxUses) : 1;
     const expiresAt = body.expiresAt ? new Date(body.expiresAt).toISOString() : null;
 
     if (!testKey) {
       return NextResponse.json({ error: 'Missing testKey (slug or id)' }, { status: 400 });
     }
 
-    // Resolve test_id from org_tests by (id or slug), scoped to org
+    // Resolve test_id by (id or slug) scoped to org
     const byId = await sb
       .from('org_tests')
-      .select('id, slug')
+      .select('id,slug')
       .eq('org_id', orgId)
       .eq('id', testKey)
       .maybeSingle();
@@ -47,7 +44,7 @@ export async function POST(req: Request) {
     if (!testId) {
       const bySlug = await sb
         .from('org_tests')
-        .select('id, slug')
+        .select('id,slug')
         .eq('org_id', orgId)
         .eq('slug', testKey)
         .maybeSingle();
@@ -63,7 +60,7 @@ export async function POST(req: Request) {
 
     const token = makeToken('tp');
 
-    const insert = await sb
+    const ins = await sb
       .from('test_links')
       .insert([
         {
@@ -71,22 +68,25 @@ export async function POST(req: Request) {
           test_id: testId,
           token,
           max_uses: maxUses,
-          kind,
           expires_at: expiresAt,
-        },
+          kind,           // optional column in your schema
+          mode,           // REQUIRED by your schema (NOT NULL)
+          uses: 0,        // initialize to 0 in your schema
+        } as any,
       ])
       .select('id, token')
       .maybeSingle();
 
-    if (insert.error) {
-      return NextResponse.json({ error: insert.error.message }, { status: 500 });
-    }
+    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
 
-    const appOrigin = (process.env.APP_ORIGIN || '').replace(/\/+$/, '');
-    const url = appOrigin ? `${appOrigin}/t/${token}` : `/t/${token}`;
+    const appOrigin = process.env.APP_ORIGIN || '';
+    const url =
+      appOrigin && appOrigin.startsWith('http')
+        ? `${appOrigin.replace(/\/+$/, '')}/t/${token}`
+        : `/t/${token}`;
 
     return NextResponse.json({ token, url }, { status: 201 });
-  } catch (err: any) {
-    return NextResponse.json({ error: String(err?.message || err) }, { status: 500 });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
   }
 }
