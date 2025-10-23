@@ -1,5 +1,6 @@
 // apps/web/app/portal/(app)/page.tsx
 import 'server-only';
+import './_client-ref'; // ← ensures client reference manifest exists
 import { getServerSupabase, getActiveOrgId } from '@/app/_lib/portal';
 
 export const dynamic = 'force-dynamic';
