@@ -2,58 +2,51 @@
 
 import * as React from 'react';
 
-export default function InviteForm({ defaultTestSlug }: { defaultTestSlug: string }) {
+export default function InviteForm() {
   const [email, setEmail] = React.useState('');
-  const [testKey, setTestKey] = React.useState(defaultTestSlug);
-  const [busy, setBusy] = React.useState(false);
-  const [url, setUrl] = React.useState<string | null>(null);
-  const [err, setErr] = React.useState<string | null>(null);
+  const [sent, setSent] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true); setErr(null); setUrl(null);
+    setSent(false);
+    setError(null);
+
     try {
       const res = await fetch('/api/portal/invites/create', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, testKey, kind: 'full', maxUses: 1 }),
+        body: JSON.stringify({ email }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setUrl(data.url);
-      try { await navigator.clipboard.writeText(data.url); } catch {}
-    } catch (e: any) {
-      setErr(e?.message || 'Failed');
-    } finally {
-      setBusy(false);
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setSent(true);
+      setEmail('');
+    } catch (err: any) {
+      setError(err.message);
     }
   }
 
   return (
-    <form onSubmit={submit} className="rounded-xl border p-3 space-y-2">
-      <div className="font-medium text-sm">Send invite</div>
-      <div className="flex flex-wrap gap-2">
-        <input
-          className="px-3 py-2 rounded border text-sm"
-          type="email" placeholder="email@company.com" required
-          value={email} onChange={e=>setEmail(e.target.value)}
-        />
-        <input
-          className="px-3 py-2 rounded border text-sm"
-          placeholder="test slug or id" required
-          value={testKey} onChange={e=>setTestKey(e.target.value)}
-        />
-        <button className="px-3 py-2 rounded border text-sm" disabled={busy}>
-          {busy ? 'Sending…' : 'Create invite'}
-        </button>
-      </div>
-      {err && <div className="text-sm text-red-600">{err}</div>}
-      {url && (
-        <div className="text-sm">
-          Invite link: <a className="underline break-all" target="_blank" rel="noreferrer" href={url}>{url}</a>
-          <div className="text-xs text-gray-600">Copied to clipboard (if permitted).</div>
-        </div>
-      )}
+    <form onSubmit={handleSubmit} className="border rounded-xl p-4 max-w-md space-y-3">
+      <div className="font-medium">Send test invite</div>
+      <input
+        type="email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        placeholder="test.taker@example.com"
+        className="w-full border rounded-lg px-3 py-2 text-sm"
+        required
+      />
+      <button
+        type="submit"
+        disabled={!email}
+        className="px-3 py-2 bg-black text-white text-sm rounded-lg disabled:opacity-60"
+      >
+        Send Invite
+      </button>
+      {sent && <p className="text-green-600 text-sm">Invite sent!</p>}
+      {error && <p className="text-red-600 text-sm">{error}</p>}
     </form>
   );
 }
