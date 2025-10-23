@@ -1,4 +1,4 @@
-// apps/web/app/api/public/test/[token]/start/route.ts
+// apps/web/app/api/test/[token]/start/route.ts
 import { NextResponse } from 'next/server';
 import { getAdminClient } from '@/app/_lib/portal';
 
@@ -19,22 +19,30 @@ function tooManyUses(max: number | null, used: number | null | undefined) {
   return (used ?? 0) >= max;
 }
 
-export async function POST(req: Request, ctx: { params: { token: string } }) {
+// IMPORTANT: do NOT strictly type the 2nd arg; Next 15 will reject it.
+// Destructure params from an untyped context to satisfy the validator.
+export async function POST(req: Request, context: any) {
   try {
-    const token = ctx?.params?.token;
-    if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 400 });
+    const { token } = context?.params || {};
+    if (!token) {
+      return NextResponse.json({ error: 'Missing token' }, { status: 400 });
+    }
 
     const sb = await getAdminClient();
 
-    // IMPORTANT: select `uses` (your schema), not `uses_count`
+    // Your table uses "uses" (not "uses_count") and has non-null "mode"
     const { data: link, error: linkErr } = await sb
       .from('test_links')
       .select('id, org_id, test_id, max_uses, uses, expires_at, kind, mode')
       .eq('token', token)
       .maybeSingle();
 
-    if (linkErr || !link) return NextResponse.json({ error: 'invalid or expired link' }, { status: 404 });
-    if (!link.test_id) return NextResponse.json({ error: 'Link has no test_id' }, { status: 400 });
+    if (linkErr || !link) {
+      return NextResponse.json({ error: 'invalid or expired link' }, { status: 404 });
+    }
+    if (!link.test_id) {
+      return NextResponse.json({ error: 'Link has no test_id' }, { status: 400 });
+    }
     if (link.expires_at && new Date(link.expires_at) < new Date()) {
       return NextResponse.json({ error: 'Link expired' }, { status: 410 });
     }
@@ -44,13 +52,13 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
 
     const body = (await req.json().catch(() => ({}))) as StartBody;
 
-    // Insert taker WITH test_id
+    // Insert taker WITH test_id (fixes your NOT NULL violation)
     const ins = await sb
       .from('test_takers')
       .insert([
         {
           org_id: link.org_id,
-          test_id: link.test_id,   // ← critical field
+          test_id: link.test_id,  // ← critical
           link_id: link.id,
           email: body.email ?? null,
           first_name: body.firstName ?? null,
@@ -65,11 +73,15 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       .select('id')
       .maybeSingle();
 
-    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    if (ins.error) {
+      return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    }
     const takerId = ins.data?.id as string | undefined;
-    if (!takerId) return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
+    if (!takerId) {
+      return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
+    }
 
-    // Bump `uses` now (or do it on completion)
+    // Bump uses now (or do it on completion)
     await sb
       .from('test_links')
       .update({ uses: ((link as any).uses ?? 0) + 1 })
