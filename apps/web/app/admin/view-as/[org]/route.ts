@@ -1,4 +1,4 @@
-// apps/web/app/admin/view-as/[orgId]/route.ts
+// apps/web/app/admin/view-as/[org]/route.ts
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getServerSupabase, getAdminClient } from '@/app/_lib/portal';
@@ -7,12 +7,16 @@ import { makeSetActiveOrgCookie } from '@/app/_lib/org-active';
 
 export const runtime = 'nodejs';
 
-export async function GET(
-  req: Request,
-  { params }: { params: { orgId: string } }
-) {
-  const orgId = (params?.orgId || '').trim();
-  const jar = await cookies();
+export async function GET(req: Request) {
+  // URL: /admin/view-as/{orgId}
+  const { pathname } = new URL(req.url);
+  // ["", "admin", "view-as", "{orgId}"]
+  const parts = pathname.split('/');
+  const orgId = (parts[3] || '').trim();
+
+  if (!orgId) {
+    return NextResponse.redirect(new URL('/admin', req.url));
+  }
 
   // Verify current user is a platform admin
   const sbUser = await getServerSupabase();
@@ -23,7 +27,7 @@ export async function GET(
     return NextResponse.redirect(new URL('/admin', req.url));
   }
 
-  // Validate org exists
+  // Validate org exists (service role)
   const admin = await getAdminClient();
   const { data: org } = await admin
     .from('organizations')
@@ -36,6 +40,7 @@ export async function GET(
   }
 
   // Set cookie and redirect to portal
+  const jar = await cookies();
   const [name, value, opts] = makeSetActiveOrgCookie(orgId);
   try { jar.set({ name, value, ...(opts as any) }); } catch {}
 
