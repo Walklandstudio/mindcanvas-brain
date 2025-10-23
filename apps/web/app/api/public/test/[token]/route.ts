@@ -4,15 +4,14 @@ import { getAdminClient } from '@/app/_lib/portal';
 
 export const dynamic = 'force-dynamic';
 
-// IMPORTANT: leave 2nd arg untyped for Next 15 validator
-export async function GET(req: Request, context: any) {
+// GET /api/public/test/:token  -> validate token and return minimal info
+export async function GET(_req: Request, context: any) {
   try {
     const token = context?.params?.token as string | undefined;
     if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 400 });
 
     const sb = await getAdminClient();
 
-    // resolve link -> test & org
     const { data: link, error: linkErr } = await sb
       .from('test_links')
       .select('id, token, org_id, test_id, max_uses, uses, expires_at, kind, mode')
@@ -35,8 +34,8 @@ export async function GET(req: Request, context: any) {
 
     return NextResponse.json({
       ok: true,
-      token: link.token,
       link: {
+        token: link.token,
         maxUses: link.max_uses,
         uses: link.uses ?? 0,
         expiresAt: link.expires_at,
