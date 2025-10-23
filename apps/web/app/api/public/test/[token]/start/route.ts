@@ -1,21 +1,46 @@
-// apps/web/app/api/public/test/[token]/route.ts
 import { NextResponse } from 'next/server';
 import { getAdminClient } from '@/app/_lib/portal';
 
 export const dynamic = 'force-dynamic';
 
-// IMPORTANT: leave 2nd arg untyped for Next 15 validator
-export async function GET(req: Request, context: any) {
+// ✅ Handle CORS preflight / method probing to avoid 405s
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      // same-origin fetch doesn't need CORS, but OPTIONS 204 prevents 405 noise
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'content-type',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
+}
+
+type StartBody = {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+  teamName?: string;
+  teamFunction?: string;
+};
+
+const tooMany = (max: number | null, used?: number | null) =>
+  max != null && (used ?? 0) >= max;
+
+// IMPORTANT: leave the 2nd arg untyped in Next 15
+export async function POST(req: Request, context: any) {
   try {
     const token = context?.params?.token as string | undefined;
     if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 400 });
 
     const sb = await getAdminClient();
 
-    // resolve link -> test & org
     const { data: link, error: linkErr } = await sb
       .from('test_links')
-      .select('id, token, org_id, test_id, max_uses, uses, expires_at, kind, mode')
+      .select('id, org_id, test_id, max_uses, uses, expires_at, kind, mode')
       .eq('token', token)
       .maybeSingle();
 
@@ -24,28 +49,41 @@ export async function GET(req: Request, context: any) {
     if (link.expires_at && new Date(link.expires_at) < new Date()) {
       return NextResponse.json({ error: 'Link expired' }, { status: 410 });
     }
-    if (link.max_uses != null && (link.uses ?? 0) >= link.max_uses) {
+    if (tooMany(link.max_uses as any, (link as any).uses)) {
       return NextResponse.json({ error: 'Link already used' }, { status: 409 });
     }
 
-    const [{ data: test }, { data: org }] = await Promise.all([
-      sb.from('org_tests').select('id, name, slug, status, mode').eq('id', link.test_id).maybeSingle(),
-      sb.from('organizations').select('id, name, slug').eq('id', link.org_id).maybeSingle(),
-    ]);
+    const body = (await req.json().catch(() => ({}))) as StartBody;
 
-    return NextResponse.json({
-      ok: true,
-      token: link.token,
-      link: {
-        maxUses: link.max_uses,
-        uses: link.uses ?? 0,
-        expiresAt: link.expires_at,
-        kind: link.kind,
-        mode: link.mode,
-      },
-      test: test ? { id: test.id, name: test.name, slug: test.slug, status: test.status, mode: test.mode } : null,
-      org: org ? { id: org.id, name: org.name, slug: org.slug } : null,
-    });
+    // ✅ ensure test_id is set (fixes NOT NULL)
+    const ins = await sb
+      .from('test_takers')
+      .insert([
+        {
+          org_id: link.org_id,
+          test_id: link.test_id,
+          link_id: link.id,
+          email: body.email ?? null,
+          first_name: body.firstName ?? null,
+          last_name: body.lastName ?? null,
+          phone: body.phone ?? null,
+          role: body.role ?? null,
+          team_name: body.teamName ?? null,
+          team_function: body.teamFunction ?? null,
+          source: 'link',
+        } as any,
+      ])
+      .select('id')
+      .maybeSingle();
+
+    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    const takerId = ins.data?.id as string | undefined;
+    if (!takerId) return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
+
+    // increment uses (simple counter; you can move to completion if preferred)
+    await sb.from('test_links').update({ uses: ((link as any).uses ?? 0) + 1 }).eq('id', link.id);
+
+    return NextResponse.json({ ok: true, takerId }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
   }
