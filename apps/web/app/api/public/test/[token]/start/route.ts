@@ -3,12 +3,10 @@ import { getAdminClient } from '@/app/_lib/portal';
 
 export const dynamic = 'force-dynamic';
 
-// ✅ Handle CORS preflight / method probing to avoid 405s
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
     headers: {
-      // same-origin fetch doesn't need CORS, but OPTIONS 204 prevents 405 noise
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'content-type',
@@ -30,7 +28,6 @@ type StartBody = {
 const tooMany = (max: number | null, used?: number | null) =>
   max != null && (used ?? 0) >= max;
 
-// IMPORTANT: leave the 2nd arg untyped in Next 15
 export async function POST(req: Request, context: any) {
   try {
     const token = context?.params?.token as string | undefined;
@@ -55,14 +52,13 @@ export async function POST(req: Request, context: any) {
 
     const body = (await req.json().catch(() => ({}))) as StartBody;
 
-    // ✅ ensure test_id is set (fixes NOT NULL)
+    // NOTE: no link_id here (your table doesn't have it yet)
     const ins = await sb
       .from('test_takers')
       .insert([
         {
           org_id: link.org_id,
           test_id: link.test_id,
-          link_id: link.id,
           email: body.email ?? null,
           first_name: body.firstName ?? null,
           last_name: body.lastName ?? null,
@@ -80,7 +76,6 @@ export async function POST(req: Request, context: any) {
     const takerId = ins.data?.id as string | undefined;
     if (!takerId) return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
 
-    // increment uses (simple counter; you can move to completion if preferred)
     await sb.from('test_links').update({ uses: ((link as any).uses ?? 0) + 1 }).eq('id', link.id);
 
     return NextResponse.json({ ok: true, takerId }, { status: 200 });
