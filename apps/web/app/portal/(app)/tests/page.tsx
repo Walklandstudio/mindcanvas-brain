@@ -61,7 +61,6 @@ export default async function TestsPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Create & Copy Link for this test */}
                 <GenerateLinkButton testSlug={t.slug} />
               </div>
             </div>

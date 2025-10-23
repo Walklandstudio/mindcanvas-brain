@@ -1,3 +1,4 @@
+// apps/web/app/api/portal/links/route.ts
 import { NextResponse } from 'next/server';
 import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
 
@@ -9,7 +10,6 @@ type Body = {
 };
 
 function makeToken(prefix = 'tp'): string {
-  // unique-ish: tp + base36(now) + 6 random chars
   const rand = Math.random().toString(36).slice(2, 8);
   return `${prefix}${Date.now().toString(36)}${rand}`;
 }
@@ -18,16 +18,12 @@ export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
   try {
-    // Admin client (server-only; bypasses RLS)
     const sb = await getAdminClient();
-
-    // Resolve active org for this request/session
     const orgId = await getActiveOrgId(sb);
     if (!orgId) {
       return NextResponse.json({ error: 'No active org' }, { status: 400 });
     }
 
-    // Parse and validate body
     const body = (await req.json().catch(() => ({}))) as Body;
     const testKey = (body.testKey || '').trim();
     const kind = (body.kind || 'full') as 'full' | 'free';

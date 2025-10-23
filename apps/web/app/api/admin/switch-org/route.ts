@@ -25,11 +25,7 @@ export async function POST(req: Request) {
   // Clear active org if orgId not provided
   if (!orgId) {
     const [name, value, opts] = makeClearActiveOrgCookie();
-    try {
-      jar.set({ name, value, ...(opts as any) });
-    } catch {
-      // ignore if immutable in this context
-    }
+    try { jar.set({ name, value, ...(opts as any) }); } catch {}
     return NextResponse.json({ ok: true, cleared: true });
   }
 
@@ -47,11 +43,7 @@ export async function POST(req: Request) {
 
   // Set active org cookie
   const [name, value, opts] = makeSetActiveOrgCookie(orgId);
-  try {
-    jar.set({ name, value, ...(opts as any) });
-  } catch {
-    // ignore if immutable in this context
-  }
+  try { jar.set({ name, value, ...(opts as any) }); } catch {}
 
   return NextResponse.json({ ok: true, orgId });
 }

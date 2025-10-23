@@ -1,3 +1,4 @@
+// apps/web/app/portal/(app)/tests/GenerateLinkButton.tsx
 'use client';
 
 import * as React from 'react';
@@ -27,7 +28,6 @@ export default function GenerateLinkButton({
   const [lastUrl, setLastUrl] = React.useState<string | null>(null);
 
   const resolvedTestKey = React.useMemo(() => {
-    // Prefer explicit id/slug; fall back to legacy testKey
     return (testId ?? testSlug ?? testKey ?? '').trim();
   }, [testId, testSlug, testKey]);
 
@@ -51,12 +51,9 @@ export default function GenerateLinkButton({
       const url: string = data.url;
       setLastUrl(url);
 
-      // Best-effort clipboard copy
       try {
         await navigator.clipboard.writeText(url);
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     } catch (e: any) {
       setError(e?.message || 'Failed to create link');
     } finally {

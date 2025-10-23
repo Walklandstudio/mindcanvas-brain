@@ -1,3 +1,4 @@
+// apps/web/app/portal/(app)/layout.tsx
 import 'server-only';
 import { cookies } from 'next/headers';
 import { getAdminClient } from '@/app/_lib/portal';
@@ -9,7 +10,6 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // In Next 15, cookies() may be async-typed
   const jar = await cookies();
   const activeOrgId = jar.get('active_org_id')?.value || null;
 
@@ -28,14 +28,12 @@ export default async function PortalLayout({
         banner = (
           <div className="bg-amber-100 border-b border-amber-300 text-amber-900 px-4 py-2 text-sm">
             Viewing as: <strong>{org.name}</strong> ({org.slug}) —{' '}
-            <a className="underline" href="/admin">
-              change
-            </a>
+            <a className="underline" href="/admin">change</a>
           </div>
         );
       }
     } catch {
-      // If anything fails (e.g., during static builds), just skip the banner.
+      // ignore
     }
   }
 

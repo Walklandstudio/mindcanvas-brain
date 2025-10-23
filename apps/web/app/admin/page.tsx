@@ -1,8 +1,9 @@
+// apps/web/app/admin/page.tsx
 import 'server-only';
+import { cookies } from 'next/headers';
 import { getServerSupabase, getAdminClient } from '@/app/_lib/portal';
 import { isPlatformAdminEmail } from '@/app/_lib/admin';
 import { makeSetActiveOrgCookie, makeClearActiveOrgCookie } from '@/app/_lib/org-active';
-import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,24 +51,29 @@ export default async function AdminPage() {
     );
   }
 
-  const admin = await getAdminClient();
-  const { data: orgs, error } = await admin
-    .from('organizations')
-    .select('id, name, slug, created_at')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold">Platform Admin</h1>
-        <p className="mt-2 text-sm text-red-600">Error loading organizations: {error.message}</p>
-      </div>
-    );
+  let orgs: any[] = [];
+  let errorMsg: string | null = null;
+  try {
+    const admin = await getAdminClient();
+    const { data, error } = await admin
+      .from('organizations')
+      .select('id, name, slug, created_at')
+      .order('created_at', { ascending: false });
+    if (error) errorMsg = error.message;
+    orgs = data ?? [];
+  } catch (e: any) {
+    errorMsg = e?.message || String(e);
   }
 
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-xl font-semibold">Platform Admin — Organizations</h1>
+
+      {errorMsg && (
+        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          Error loading organizations: {errorMsg}
+        </div>
+      )}
 
       <div className="grid gap-3">
         {(orgs ?? []).map(o => (

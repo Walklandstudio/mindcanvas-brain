@@ -1,3 +1,4 @@
+// apps/web/app/t/[token]/submit/route.ts
 import { NextResponse } from 'next/server';
 import { getAdminClient } from '@/app/_lib/portal';
 
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Link expired.' }, { status: 410 });
   }
 
-  // 3) Uses check (⚠️ use `count` from Supabase response)
+  // 3) Uses check
   const usedRes = await sb
     .from('test_submissions')
     .select('id', { count: 'exact', head: true })

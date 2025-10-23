@@ -1,4 +1,6 @@
 // apps/web/app/_lib/portal.ts
+// Central helpers for Supabase clients and org scoping (App Router / server).
+
 import 'server-only';
 import { cookies, headers } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
@@ -9,10 +11,8 @@ import { readActiveOrgIdFromCookie } from './org-active';
 type AnyClient = ReturnType<typeof createClient<any>>;
 
 // ── Env + origin helpers ──────────────────────────────────────────────────────
-function reqEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env: ${name}`);
-  return v;
+function getEnv(name: string) {
+  return process.env[name] ?? '';
 }
 
 export async function getAppOrigin(): Promise<string> {
@@ -32,8 +32,11 @@ export async function getAppOrigin(): Promise<string> {
 
 // ── Server user-scoped Supabase client (RLS applies) ──────────────────────────
 export async function getServerSupabase() {
-  const supabaseUrl = reqEnv('NEXT_PUBLIC_SUPABASE_URL');
-  const supabaseAnonKey = reqEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  const supabaseUrl = getEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const supabaseAnonKey = getEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  }
 
   const jar = await cookies();
 
@@ -53,7 +56,6 @@ export async function getServerSupabase() {
     },
   };
 
-  // Let types be inferred from createServerClient
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: cookieAdapter as any,
   });
@@ -67,8 +69,11 @@ declare global {
 
 export async function getAdminClient(): Promise<AnyClient> {
   if (global.__sb_admin__) return global.__sb_admin__!;
-  const supabaseUrl = reqEnv('NEXT_PUBLIC_SUPABASE_URL');
-  const serviceRole = reqEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const supabaseUrl = getEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const serviceRole = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceRole) {
+    throw new Error('Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
+  }
 
   const client = createClient(supabaseUrl, serviceRole, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -137,6 +142,9 @@ export async function requireActiveOrgId(): Promise<string> {
   if (!orgId) throw new Error('No active organization');
   return orgId;
 }
+
+// Back-compat shim (if any old code imports this name)
+export const supabaseServer = getServerSupabase;
 
 // ── Optional admin lookups ────────────────────────────────────────────────────
 export async function getOrgBySlug(slug: string) {
