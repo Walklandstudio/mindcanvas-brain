@@ -84,7 +84,13 @@ export default async function AdminPage() {
                 <div className="text-xs text-gray-600">{o.slug}</div>
               </div>
               <div className="flex items-center gap-2">
-                <a className="underline text-sm" href="/portal" target="_blank" rel="noreferrer">Open Portal</a>
+                {/* Use the redirect route that sets cookie then opens the portal */}
+                <a
+                  className="underline text-sm"
+                  href={`/admin/view-as/${o.id}`}
+                >
+                  Open Portal
+                </a>
                 <button type="submit" className="px-3 py-2 rounded-lg border text-sm">
                   View as this org
                 </button>
