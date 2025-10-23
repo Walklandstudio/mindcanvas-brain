@@ -1,5 +1,5 @@
 // apps/web/app/portal/tests/page.tsx
-import { getServerSupabase, getActiveOrgId } from '@/app/_lib/portal';
+import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
 import GenerateLinkButton from './GenerateLinkButton';
 import InviteForm from './InviteForm';
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 type TestRow = { id: string; name: string; slug: string; status: string | null };
 
 export default async function PortalTests() {
-  const sb = await getServerSupabase();
+  const sb = await getAdminClient(); // service role
   const orgId = await getActiveOrgId(sb);
   if (!orgId) return <div className="p-6">No active org selected.</div>;
 
@@ -37,7 +37,6 @@ export default async function PortalTests() {
         </div>
       ) : (
         <>
-          {/* Per-test quick link creation */}
           <div className="grid gap-3">
             {rows.map(t => (
               <div
@@ -53,7 +52,6 @@ export default async function PortalTests() {
             ))}
           </div>
 
-          {/* Email invite with test picker; shows the link after creation */}
           <InviteForm tests={rows} />
         </>
       )}

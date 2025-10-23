@@ -11,7 +11,6 @@ function defaultForSlug(slug: string) {
   if (slug === 'competency-coach') {
     return { name: 'Competency Coach Profile', slug: 'competency-coach-profile' };
   }
-  // generic fallback
   return { name: 'Org Test', slug: `${slug}-profile` };
 }
 
@@ -23,7 +22,7 @@ export async function GET(req: Request) {
     if (!orgSlug) {
       return NextResponse.json(
         { error: "Missing ?org=team-puzzle|competency-coach" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -37,13 +36,10 @@ export async function GET(req: Request) {
       .maybeSingle();
 
     if (orgErr || !org) {
-      return NextResponse.json(
-        { error: `Org not found for slug "${orgSlug}"` },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: `Org not found: ${orgSlug}` }, { status: 404 });
     }
 
-    // Count current tests
+    // Existing count
     const { count } = await sb
       .from('org_tests')
       .select('id', { count: 'exact', head: true })
@@ -53,25 +49,17 @@ export async function GET(req: Request) {
       return NextResponse.json({
         ok: true,
         seeded: false,
-        reason: 'Tests already exist for this org',
-        org: { id: org.id, slug: org.slug, name: org.name },
-        count,
+        reason: 'Tests already exist',
+        org,
+        count
       });
     }
 
-    // Create a default test for this org
+    // Insert default
     const def = defaultForSlug(org.slug);
-    const { data: inserted, error: insErr } = await sb
+    const { data: ins, error: insErr } = await sb
       .from('org_tests')
-      .insert([
-        {
-          org_id: org.id,
-          name: def.name,
-          slug: def.slug,
-          mode: 'full',
-          status: 'active',
-        },
-      ])
+      .insert([{ org_id: org.id, name: def.name, slug: def.slug, mode: 'full', status: 'active' }])
       .select('id, name, slug')
       .limit(1);
 
@@ -79,12 +67,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: insErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({
-      ok: true,
-      seeded: true,
-      org: { id: org.id, slug: org.slug, name: org.name },
-      test: inserted?.[0] ?? null,
-    });
+    return NextResponse.json({ ok: true, seeded: true, org, test: ins?.[0] ?? null });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
   }
