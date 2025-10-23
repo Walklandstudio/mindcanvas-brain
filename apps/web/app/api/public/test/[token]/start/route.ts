@@ -3,6 +3,7 @@ import { getAdminClient } from '@/app/_lib/portal';
 
 export const dynamic = 'force-dynamic';
 
+// Handle preflight to avoid 405s
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -19,30 +20,34 @@ type StartBody = {
   firstName?: string;
   lastName?: string;
   email?: string;
-  phone?: string;
-  role?: string;
-  teamName?: string;
-  teamFunction?: string;
 };
 
 const tooMany = (max: number | null, used?: number | null) =>
   max != null && (used ?? 0) >= max;
 
+// NOTE: leave 2nd arg untyped in Next 15
 export async function POST(req: Request, context: any) {
   try {
     const token = context?.params?.token as string | undefined;
-    if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 400 });
+    if (!token) {
+      return NextResponse.json({ error: 'Missing token' }, { status: 400 });
+    }
 
     const sb = await getAdminClient();
 
+    // Load link (scoped by token)
     const { data: link, error: linkErr } = await sb
       .from('test_links')
       .select('id, org_id, test_id, max_uses, uses, expires_at, kind, mode')
       .eq('token', token)
       .maybeSingle();
 
-    if (linkErr || !link) return NextResponse.json({ error: 'invalid or expired link' }, { status: 404 });
-    if (!link.test_id) return NextResponse.json({ error: 'Link has no test_id' }, { status: 400 });
+    if (linkErr || !link) {
+      return NextResponse.json({ error: 'invalid or expired link' }, { status: 404 });
+    }
+    if (!link.test_id) {
+      return NextResponse.json({ error: 'Link has no test_id' }, { status: 400 });
+    }
     if (link.expires_at && new Date(link.expires_at) < new Date()) {
       return NextResponse.json({ error: 'Link expired' }, { status: 410 });
     }
@@ -52,30 +57,31 @@ export async function POST(req: Request, context: any) {
 
     const body = (await req.json().catch(() => ({}))) as StartBody;
 
-    // NOTE: no link_id here (your table doesn't have it yet)
+    // ✅ Minimal insert to match your current schema
+    const insertRow: any = {
+      org_id: link.org_id,
+      test_id: link.test_id,
+      email: body.email ?? null,
+      first_name: body.firstName ?? null,
+      last_name: body.lastName ?? null,
+      // no phone/role/team/source/link_id here (your table doesn’t have them)
+    };
+
     const ins = await sb
       .from('test_takers')
-      .insert([
-        {
-          org_id: link.org_id,
-          test_id: link.test_id,
-          email: body.email ?? null,
-          first_name: body.firstName ?? null,
-          last_name: body.lastName ?? null,
-          phone: body.phone ?? null,
-          role: body.role ?? null,
-          team_name: body.teamName ?? null,
-          team_function: body.teamFunction ?? null,
-          source: 'link',
-        } as any,
-      ])
+      .insert([insertRow])
       .select('id')
       .maybeSingle();
 
-    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    if (ins.error) {
+      return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    }
     const takerId = ins.data?.id as string | undefined;
-    if (!takerId) return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
+    if (!takerId) {
+      return NextResponse.json({ error: 'Failed to create taker' }, { status: 500 });
+    }
 
+    // Increment link usage (column exists in your table)
     await sb.from('test_links').update({ uses: ((link as any).uses ?? 0) + 1 }).eq('id', link.id);
 
     return NextResponse.json({ ok: true, takerId }, { status: 200 });
