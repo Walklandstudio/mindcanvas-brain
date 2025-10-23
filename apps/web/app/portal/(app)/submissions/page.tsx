@@ -1,151 +1,95 @@
-// apps/web/app/portal/(app)/submissions/[id]/page.tsx
-import React from "react";
-import { getAdminClient, getActiveOrgId } from "@/app/_lib/portal";
+// apps/web/app/portal/(app)/submissions/page.tsx
+import 'server-only';
+import { getServerSupabase, getActiveOrgId } from '@/app/_lib/portal';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
-type Params = { id: string };
+type Submission = {
+  id: string;
+  created_at: string | null;
+  taker_email: string | null;
+  taker_name: string | null;
+  profile: string | null;
+  frequency: string | null;
+  total_points: number | null;
+  link_token: string | null;
+};
 
-export default async function SubmissionPage({
-  params,
-}: {
-  params: Promise<Params>;
-}) {
-  const { id: submissionId } = await params;
-
-  // ✅ Resolve Supabase client (await!)
-  const sb = await getAdminClient();
-
-  // ✅ Resolve active org for scoping
+export default async function SubmissionsPage() {
+  const sb = await getServerSupabase();
   const orgId = await getActiveOrgId(sb);
+
   if (!orgId) {
     return (
-      <main className="p-6 space-y-3">
-        <h1 className="text-2xl font-semibold">Submission</h1>
-        <p className="text-gray-500">No active organization.</p>
-      </main>
+      <div className="p-6">
+        <h1 className="text-lg font-semibold">Submissions</h1>
+        <p className="mt-2 text-sm text-gray-600">No active organization.</p>
+      </div>
     );
   }
 
-  // 1) Load the submission (scoped to org)
-  const { data: sub, error: subErr } = await sb
-    .from("test_submissions")
-    .select(
-      "id, org_id, test_id, taker_id, submitted_at, driver, raw, completed_at, total_points, profile, frequency"
-    )
-    .eq("org_id", orgId)
-    .eq("id", submissionId)
-    .maybeSingle();
+  const { data, error } = await sb
+    .from('test_submissions')
+    .select('id, created_at, taker_email, taker_name, profile, frequency, total_points, link_token')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(200);
 
-  if (subErr || !sub) {
+  if (error) {
     return (
-      <main className="p-6 space-y-3">
-        <h1 className="text-2xl font-semibold">Submission</h1>
-        <p className="text-red-600">
-          {subErr ? subErr.message : "Submission not found."}
-        </p>
-      </main>
+      <div className="p-6">
+        <h1 className="text-lg font-semibold">Submissions</h1>
+        <p className="mt-2 text-sm text-red-600">Error: {error.message}</p>
+      </div>
     );
   }
 
-  // 2) Load the taker
-  const { data: taker } = await sb
-    .from("test_takers")
-    .select("id, email, first_name, last_name, team, company, created_at")
-    .eq("org_id", orgId)
-    .eq("id", sub.taker_id)
-    .maybeSingle();
-
-  // 3) Load the test meta
-  const { data: testMeta } = await sb
-    .from("org_tests")
-    .select("id, name, slug, mode, status, created_at")
-    .eq("org_id", orgId)
-    .eq("id", sub.test_id)
-    .maybeSingle();
+  const rows = (data as Submission[] ?? []);
+  const csvUrl = '/api/portal/export/submissions.csv';
 
   return (
-    <main className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Submission</h1>
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold">Submissions</h1>
+        <a
+          className="px-3 py-2 rounded-lg border text-sm"
+          href={csvUrl}
+        >
+          Download CSV
+        </a>
+      </div>
 
-      <section className="rounded-xl border p-4 space-y-2">
-        <h2 className="text-lg font-medium">Summary</h2>
-        <div className="text-sm text-gray-700 space-y-1">
-          <div>
-            <span className="font-medium">Submission ID:</span> {sub.id}
-          </div>
-          <div>
-            <span className="font-medium">Completed:</span>{" "}
-            {sub.completed_at ?? "—"}
-          </div>
-          <div>
-            <span className="font-medium">Total points:</span>{" "}
-            {sub.total_points ?? "—"}
-          </div>
-          <div>
-            <span className="font-medium">Profile:</span> {sub.profile ?? "—"}
-          </div>
-          <div>
-            <span className="font-medium">Frequency:</span>{" "}
-            {sub.frequency ?? "—"}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-xl border p-4 space-y-2">
-        <h2 className="text-lg font-medium">Taker</h2>
-        <div className="text-sm text-gray-700 space-y-1">
-          <div>
-            <span className="font-medium">Email:</span>{" "}
-            {taker?.email ?? "—"}
-          </div>
-          <div>
-            <span className="font-medium">Name:</span>{" "}
-            {[
-              taker?.first_name ?? "",
-              taker?.last_name ?? "",
-            ]
-              .join(" ")
-              .trim() || "—"}
-          </div>
-          <div>
-            <span className="font-medium">Company:</span>{" "}
-            {taker?.company ?? "—"}
-          </div>
-          <div>
-            <span className="font-medium">Team:</span> {taker?.team ?? "—"}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-xl border p-4 space-y-2">
-        <h2 className="text-lg font-medium">Test</h2>
-        <div className="text-sm text-gray-700 space-y-1">
-          <div>
-            <span className="font-medium">Name:</span>{" "}
-            {testMeta?.name ?? "—"}
-          </div>
-          <div>
-            <span className="font-medium">Slug:</span>{" "}
-            {testMeta?.slug ?? "—"}
-          </div>
-          <div>
-            <span className="font-medium">Mode:</span>{" "}
-            {testMeta?.mode ?? "—"}
-          </div>
-          <div>
-            <span className="font-medium">Status:</span>{" "}
-            {testMeta?.status ?? "—"}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-xl border p-4 space-y-2">
-        <h2 className="text-lg font-medium">Raw</h2>
-        <pre className="text-xs overflow-auto bg-gray-50 p-3 rounded-lg">
-          {JSON.stringify(sub.raw ?? {}, null, 2)}
-        </pre>
-      </section>
-    </main>
+      <div className="rounded-xl border overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 text-left">
+            <tr>
+              <th className="p-2">When</th>
+              <th className="p-2">Name</th>
+              <th className="p-2">Email</th>
+              <th className="p-2">Profile</th>
+              <th className="p-2">Frequency</th>
+              <th className="p-2">Points</th>
+              <th className="p-2">Link</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} className="border-t">
+                <td className="p-2">{r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</td>
+                <td className="p-2">{r.taker_name || '—'}</td>
+                <td className="p-2">{r.taker_email || '—'}</td>
+                <td className="p-2">{r.profile || '—'}</td>
+                <td className="p-2">{r.frequency || '—'}</td>
+                <td className="p-2">{r.total_points ?? '—'}</td>
+                <td className="p-2 text-xs break-all">{r.link_token || '—'}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td className="p-3 text-gray-600" colSpan={7}>No submissions yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
