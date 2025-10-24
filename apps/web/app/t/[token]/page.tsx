@@ -1,44 +1,79 @@
-// apps/web/app/t/[token]/page.tsx
-import StartForm from './StartForm';
+'use client';
 
-export const dynamic = 'force-dynamic';
+import * as React from 'react';
 
-async function getMeta(token: string) {
-  const base = process.env.APP_ORIGIN || '';
-  const res = await fetch(`${base}/api/public/test/${token}`, { cache: 'no-store' });
-  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-  const text = await res.text();
-  try {
-    return text ? JSON.parse(text) : { ok: false, error: 'Empty response' };
-  } catch {
-    return { ok: false, error: 'Invalid JSON from API' };
+export default function TakePage({ params }: any) {
+  const token = String(params?.token || '').trim();
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState<string | null>(null);
+
+  async function begin(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+
+    const fd = new FormData(e.currentTarget);
+    const payload = {
+      firstName: String(fd.get('firstName') || ''),
+      lastName:  String(fd.get('lastName')  || ''),
+      email:     String(fd.get('email')     || ''),
+    };
+
+    try {
+      const res = await fetch(`/api/public/test/${token}/start`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(data?.error || `Error ${res.status}`);
+        return;
+      }
+
+      // success — navigate to the first question (TODO: wire actual route)
+      setMsg('✅ Started! Taker created. (Next: navigate to Q1)');
+      // window.location.href = `/t/${token}/start`; // or wherever your Q1 lives
+    } catch (err: any) {
+      setMsg(String(err?.message || err));
+    } finally {
+      setBusy(false);
+    }
   }
-}
-
-// NOTE: In Next 15, params is a Promise
-export default async function TakeTestPage({
-  params,
-}: {
-  params: Promise<{ token: string }>;
-}) {
-  const { token } = await params;
-  const meta = await getMeta(token);
-
-  if (!meta?.ok) {
-    return (
-      <main className="p-8">
-        <h1 className="text-2xl font-semibold mb-2">Invalid or unavailable link</h1>
-        <p className="text-sm text-red-500">{meta?.error || 'Unknown error'}</p>
-      </main>
-    );
-  }
-
-  const name = meta?.test?.name || 'Assessment';
 
   return (
-    <main className="p-8 mx-auto max-w-xl space-y-6">
-      <h1 className="text-2xl font-semibold">{name}</h1>
-      <StartForm token={token} />
-    </main>
+    <div style={{maxWidth: 600, margin: '40px auto', padding: 16}}>
+      <h1 style={{fontSize: 22, fontWeight: 700, marginBottom: 8}}>Team Puzzle — Start</h1>
+
+      <div style={{fontFamily: 'monospace', fontSize: 13, padding: 8, background: '#f6f6f6', borderRadius: 8}}>
+        token: <strong id="token">{token}</strong>
+        <button
+          onClick={() => {
+            const t = document.getElementById('token')?.textContent || '';
+            navigator.clipboard?.writeText(t);
+          }}
+          style={{marginLeft: 8, padding: '4px 8px', border: '1px solid #ccc', borderRadius: 6}}
+        >
+          Copy
+        </button>
+      </div>
+
+      <form onSubmit={begin} style={{display: 'grid', gap: 8, marginTop: 16}}>
+        <input name="firstName" placeholder="First name" />
+        <input name="lastName" placeholder="Last name" />
+        <input name="email" placeholder="Email" />
+        <button
+          type="submit"
+          disabled={busy}
+          style={{padding: '8px 12px', borderRadius: 8, border: '1px solid #ccc', opacity: busy ? 0.6 : 1}}
+        >
+          {busy ? 'Starting…' : 'Begin Test'}
+        </button>
+      </form>
+
+      {msg && <p style={{marginTop: 12}}>{msg}</p>}
+    </div>
   );
 }
