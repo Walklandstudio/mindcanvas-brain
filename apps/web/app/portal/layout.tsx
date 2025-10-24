@@ -1,42 +1,29 @@
-// apps/web/app/portal/layout.tsx
-import 'server-only';
-import { cookies } from 'next/headers';
-import { getAdminClient } from '@/app/_lib/portal';
+import React from "react";
+import Link from "next/link";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-export default async function PortalLayout({ children }: { children: React.ReactNode }) {
-  const jar = await cookies();
-  const activeOrgId = jar.get('active_org_id')?.value || null;
-
-  let banner: React.ReactNode = null;
-
-  if (activeOrgId) {
-    try {
-      const sb = await getAdminClient();
-      const { data: org } = await sb
-        .from('organizations')
-        .select('name, slug')
-        .eq('id', activeOrgId)
-        .maybeSingle();
-
-      if (org) {
-        banner = (
-          <div className="bg-amber-100 border-b border-amber-300 text-amber-900 px-4 py-2 text-sm">
-            Viewing as: <strong>{org.name}</strong> ({org.slug}) —{' '}
-            <a className="underline" href="/admin/clear-view-as">exit</a>
-          </div>
-        );
-      }
-    } catch {
-      // ignore
-    }
-  }
-
+export default function PortalLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen">
-      {banner}
-      {children}
+    <div className="min-h-screen flex bg-gray-50">
+      <aside className="w-64 bg-white border-r">
+        <div className="px-4 py-6">
+          <div className="text-xl font-semibold">MindCanvas</div>
+          <div className="text-xs text-gray-500 mt-1">Client Portal</div>
+        </div>
+        <nav className="px-2 space-y-1">
+          <Link className="block px-3 py-2 rounded hover:bg-gray-100" href="/portal">
+            Dashboard
+          </Link>
+          <Link className="block px-3 py-2 rounded hover:bg-gray-100" href="/portal/database">
+            Database
+          </Link>
+          <Link className="block px-3 py-2 rounded hover:bg-gray-100" href="/portal/tests">
+            Tests
+          </Link>
+        </nav>
+      </aside>
+      <main className="flex-1 p-6">{children}</main>
     </div>
   );
 }
