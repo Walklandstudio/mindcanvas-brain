@@ -1,83 +1,301 @@
-// apps/web/app/api/public/test/[token]/start/route.ts
-import { NextResponse } from 'next/server';
-import { getAdminClient } from '@/app/_lib/portal';
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+export const runtime = "nodejs";
+
+// CORS — tighten before prod
+const ALLOWED_ORIGIN = "*";
+function withCORS(res: NextResponse) {
+  res.headers.set("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.headers.set("Vary", "Origin");
+  return res;
+}
+
+export async function OPTIONS() {
+  return withCORS(new NextResponse(null, { status: 204 }));
+}
 
 type StartBody = {
-  email?: string;
-  firstName?: string;
-  lastName?: string;
+  email?: string | null;
+  meta?: Record<string, unknown> | null;
 };
 
-export async function POST(req: Request, ctx: any) {
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE;
+  if (!url || !key) {
+    throw new Error(
+      "Supabase env missing: set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE"
+    );
+  }
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+function isExpired(expiresAt: string | null | undefined) {
+  if (!expiresAt) return false;
+  const now = new Date();
+  const exp = new Date(expiresAt);
+  return exp.getTime() <= now.getTime();
+}
+
+export async function POST(
+  req: Request,
+  ctx: { params: { token: string } }
+) {
   try {
-    const token = String(ctx?.params?.token || '').trim();
-    if (!token) return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400 });
+    const supabase = getAdminClient();
+    const token = ctx.params?.token;
 
-    const sb = await getAdminClient();
-
-    // 1) Resolve link (org_id, test_id) and basic guards
-    const { data: link, error: linkErr } = await sb
-      .from('test_links')
-      .select('id, org_id, test_id, token, max_uses, uses, expires_at')
-      .eq('token', token)
-      .maybeSingle();
-    if (linkErr) throw linkErr;
-    if (!link) return NextResponse.json({ ok: false, error: `invalid or expired link: ${token}` }, { status: 404 });
-
-    if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json({ ok: false, error: 'link expired' }, { status: 410 });
+    if (!token || typeof token !== "string" || token.length < 6) {
+      return withCORS(NextResponse.json({ error: "Invalid token." }, { status: 400 }));
     }
 
-    // 2) Idempotency: if taker already exists for (org_id, test_id, token) reuse it
-    const existing = await sb
-      .from('test_takers')
-      .select('id')
-      .eq('org_id', link.org_id)
-      .eq('test_id', link.test_id)
-      .eq('token', token)
+    let body: StartBody = {};
+    try {
+      body = (await req.json()) ?? {};
+    } catch {
+      // empty body fine
+    }
+    const email =
+      typeof body.email === "string" && body.email.trim()
+        ? body.email.trim().toLowerCase()
+        : null;
+    const meta = body.meta ?? null;
+
+    // 1) Link lookup
+    const { data: link, error: linkErr } = await supabase
+      .from("test_links")
+      .select(
+        `
+        id,
+        token,
+        org_id,
+        test_id,
+        expires_at,
+        max_uses,
+        use_count,
+        is_disabled
+      `
+      )
+      .eq("token", token)
       .maybeSingle();
 
-    if (existing.data?.id) {
-      // do NOT increment uses on duplicate click
-      return NextResponse.json({ ok: true, takerId: existing.data.id, reused: true }, { status: 200 });
+    if (linkErr) {
+      return withCORS(
+        NextResponse.json(
+          { error: "Link lookup failed.", details: linkErr.message },
+          { status: 500 }
+        )
+      );
     }
-
-    // 3) Enforce max_uses only when creating the first taker for this token
+    if (!link) {
+      return withCORS(NextResponse.json({ error: "Test link not found." }, { status: 404 }));
+    }
+    if (link.is_disabled === true) {
+      return withCORS(NextResponse.json({ error: "This link is disabled." }, { status: 403 }));
+    }
+    if (isExpired(link.expires_at)) {
+      return withCORS(NextResponse.json({ error: "This link has expired." }, { status: 410 }));
+    }
     if (
-      typeof link.max_uses === 'number' &&
-      typeof link.uses === 'number' &&
-      link.uses >= link.max_uses
+      typeof link.max_uses === "number" &&
+      link.max_uses >= 0 &&
+      typeof link.use_count === "number" &&
+      link.use_count >= link.max_uses
     ) {
-      return NextResponse.json({ ok: false, error: 'link max uses reached' }, { status: 409 });
+      return withCORS(
+        NextResponse.json(
+          { error: "This link has reached its maximum number of uses." },
+          { status: 403 }
+        )
+      );
     }
 
-    // 4) Insert new taker (keep fields minimal and real)
-    const body = (await req.json().catch(() => ({}))) as StartBody;
-    const email = body.email?.trim().toLowerCase();
+    // 2) Test exists & belongs to org
+    const { data: test, error: testErr } = await supabase
+      .from("tests")
+      .select("id, org_id, name, slug, is_active")
+      .eq("id", link.test_id)
+      .maybeSingle();
 
-    const insert: Record<string, any> = {
-      org_id: link.org_id,
-      test_id: link.test_id,
-      token, // required in your schema
-    };
-    if (email) insert.email = email;
-    if (body.firstName) insert.first_name = body.firstName;
-    if (body.lastName) insert.last_name = body.lastName;
+    if (testErr) {
+      return withCORS(
+        NextResponse.json(
+          { error: "Test lookup failed.", details: testErr.message },
+          { status: 500 }
+        )
+      );
+    }
+    if (!test) {
+      return withCORS(NextResponse.json({ error: "Test not found." }, { status: 404 }));
+    }
+    if (test.org_id !== link.org_id) {
+      return withCORS(NextResponse.json({ error: "Test not in this org." }, { status: 403 }));
+    }
+    if (test.is_active === false) {
+      return withCORS(NextResponse.json({ error: "This test is not active." }, { status: 403 }));
+    }
 
-    const ins = await sb.from('test_takers').insert([insert]).select('id').maybeSingle();
-    if (ins.error) {
-      // If you still have a legacy unique (org,email), this gives a clear 409 instead of 500
-      if (String(ins.error.message).toLowerCase().includes('duplicate key')) {
-        return NextResponse.json({ ok: false, error: ins.error.message }, { status: 409 });
+    // 3) Create or reuse test_taker
+    const nowIso = new Date().toISOString();
+    let takerId: string | null = null;
+    let newlyCreated = false;
+
+    if (email) {
+      const { data: existing, error: existErr } = await supabase
+        .from("test_takers")
+        .select("id, status")
+        .match({
+          org_id: link.org_id,
+          test_id: link.test_id,
+          email,
+        })
+        .maybeSingle();
+
+      if (existErr) {
+        return withCORS(
+          NextResponse.json(
+            { error: "Lookup test taker failed.", details: existErr.message },
+            { status: 500 }
+          )
+        );
       }
-      throw ins.error;
+
+      if (existing?.id) {
+        takerId = existing.id;
+        if (existing.status !== "started") {
+          await supabase
+            .from("test_takers")
+            .update({ status: "started", started_at: nowIso, link_token: token })
+            .eq("id", takerId);
+        }
+      } else {
+        const { data: inserted, error: insErr } = await supabase
+          .from("test_takers")
+          .insert({
+            org_id: link.org_id,
+            test_id: link.test_id,
+            email,
+            status: "started",
+            started_at: nowIso,
+            link_token: token,
+            meta,
+          })
+          .select("id")
+          .maybeSingle();
+
+        if (insErr) {
+          const isUniqueViolation =
+            typeof insErr.message === "string" &&
+            insErr.message.toLowerCase().includes("duplicate key");
+          if (isUniqueViolation) {
+            const { data: reget } = await supabase
+              .from("test_takers")
+              .select("id")
+              .match({
+                org_id: link.org_id,
+                test_id: link.test_id,
+                email,
+              })
+              .maybeSingle();
+            takerId = reget?.id ?? null;
+          } else {
+            return withCORS(
+              NextResponse.json(
+                { error: "Could not start test.", details: insErr.message },
+                { status: 500 }
+              )
+            );
+          }
+        } else {
+          takerId = inserted?.id ?? null;
+          newlyCreated = true;
+        }
+      }
+    } else {
+      const { data: inserted, error: insErr } = await supabase
+        .from("test_takers")
+        .insert({
+          org_id: link.org_id,
+          test_id: link.test_id,
+          email: null,
+          status: "started",
+          started_at: nowIso,
+          link_token: token,
+          meta,
+        })
+        .select("id")
+        .maybeSingle();
+
+      if (insErr) {
+        return withCORS(
+          NextResponse.json(
+            { error: "Could not start test.", details: insErr.message },
+            { status: 500 }
+          )
+        );
+      }
+      takerId = inserted?.id ?? null;
+      newlyCreated = true;
     }
 
-    // 5) Increment uses ONLY on first successful insert
-    await sb.from('test_links').update({ uses: (link.uses ?? 0) + 1 }).eq('id', link.id);
+    if (!takerId) {
+      return withCORS(
+        NextResponse.json(
+          { error: "Failed to create or retrieve test taker." },
+          { status: 500 }
+        )
+      );
+    }
 
-    return NextResponse.json({ ok: true, takerId: ins.data?.id, reused: false }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+    // 4) Increment link usage WITHOUT rpc(), with proper try/catch
+    if (newlyCreated) {
+      try {
+        await supabase
+          .from("test_links")
+          .update({ use_count: (link.use_count ?? 0) + 1 })
+          .eq("id", link.id);
+      } catch (err: any) {
+        // Non-blocking — log if you have logging
+      }
+    }
+
+    // 5) Respond
+    return withCORS(
+      NextResponse.json(
+        {
+          ok: true as const,
+          startPath: `/t/${token}/start`,
+          test: {
+            id: test.id,
+            name: test.name ?? null,
+            slug: test.slug ?? null,
+          },
+          link: {
+            id: link.id,
+            token: link.token,
+            expires_at: link.expires_at,
+          },
+          taker: {
+            id: takerId,
+            email,
+            status: "started" as const,
+          },
+        },
+        { status: 200 }
+      )
+    );
+  } catch (err: any) {
+    return withCORS(
+      NextResponse.json(
+        {
+          error: "Unexpected server error.",
+          details: typeof err?.message === "string" ? err.message : String(err),
+        },
+        { status: 500 }
+      )
+    );
   }
 }
