@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic"; // avoids static type issues on params
 
 // CORS — tighten before prod
 const ALLOWED_ORIGIN = "*";
@@ -41,12 +42,12 @@ function isExpired(expiresAt: string | null | undefined) {
 }
 
 export async function POST(
-  req: Request,
-  ctx: { params: { token: string } }
+  req: NextRequest,
+  { params }: { params: { token: string } }
 ) {
   try {
     const supabase = getAdminClient();
-    const token = ctx.params?.token;
+    const token = params?.token;
 
     if (!token || typeof token !== "string" || token.length < 6) {
       return withCORS(NextResponse.json({ error: "Invalid token." }, { status: 400 }));
@@ -56,7 +57,7 @@ export async function POST(
     try {
       body = (await req.json()) ?? {};
     } catch {
-      // empty body fine
+      // empty body ok
     }
     const email =
       typeof body.email === "string" && body.email.trim()
@@ -250,15 +251,15 @@ export async function POST(
       );
     }
 
-    // 4) Increment link usage WITHOUT rpc(), with proper try/catch
+    // 4) Increment link usage
     if (newlyCreated) {
       try {
         await supabase
           .from("test_links")
           .update({ use_count: (link.use_count ?? 0) + 1 })
           .eq("id", link.id);
-      } catch (err: any) {
-        // Non-blocking — log if you have logging
+      } catch {
+        // non-blocking
       }
     }
 
