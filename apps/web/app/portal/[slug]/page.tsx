@@ -6,9 +6,13 @@ import { getAdminClient } from '@/app/_lib/portal';
 
 type Params = { slug: string };
 
-export default async function OrgPortalPage({ params }: { params: Params }) {
-  const slug = String(params?.slug || '').trim();
-
+export default async function OrgPortalPage({
+  params,
+}: {
+  // NOTE: Next 15: params is a Promise
+  params: Promise<Params>;
+}) {
+  const { slug } = await params;
   const sb = await getAdminClient();
 
   // Look up org
@@ -98,7 +102,6 @@ export default async function OrgPortalPage({ params }: { params: Params }) {
               </div>
             </div>
 
-            {/* Per-test admin page (if you have one) */}
             <Link
               href={`/portal/tests/${t.id}`}
               style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
@@ -106,7 +109,6 @@ export default async function OrgPortalPage({ params }: { params: Params }) {
               Open
             </Link>
 
-            {/* Minimal link creation (existing API route) */}
             <Link
               href={`/api/tests/by-id/${t.id}/link`}
               style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
