@@ -1,69 +1,100 @@
+// apps/web/app/api/tests/by-id/[id]/link/route.ts
 import { NextResponse } from 'next/server';
+import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
 
-export const runtime = 'nodejs'; // ensure Node (so randomBytes is available)
+type Params = { id: string };
 
-import { createClient } from '@supabase/supabase-js';
-import { randomBytes } from 'crypto';
-
-function admin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!
-  );
-}
-function userClient(bearer: string) {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { Authorization: bearer } } }
-  );
-}
-async function getUserId(bearer: string) {
-  const u = userClient(bearer);
-  const { data } = await u.auth.getUser();
-  return data.user?.id ?? null;
+function makeToken(prefix = 'tp'): string {
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${prefix}${Date.now().toString(36)}${rand}`;
 }
 
-function makeToken(len = 12) {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
-  let bytes: Uint8Array;
-  // Prefer Web Crypto if present, else fallback to Node
-  if (typeof globalThis.crypto !== 'undefined' && 'getRandomValues' in globalThis.crypto) {
-    bytes = new Uint8Array(len);
-    globalThis.crypto.getRandomValues(bytes);
-  } else {
-    bytes = randomBytes(len);
-  }
-  let out = '';
-  for (let i = 0; i < len; i++) out += alphabet[bytes[i] % alphabet.length];
-  return out;
-}
+async function createLinkForTestId(testId: string, opts?: {
+  maxUses?: number;
+  kind?: 'full' | 'free';
+  expiresAt?: string | null;
+}) {
+  const sb = await getAdminClient();
+  const orgId = await getActiveOrgId(sb);
+  if (!orgId) return { status: 400, body: { ok: false, error: 'No active org (set it from /admin).' } };
 
-export async function POST(req: Request, { params }: any) {
-  const auth = req.headers.get('authorization') || req.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return NextResponse.json({ ok: false, error: 'missing bearer' }, { status: 401 });
+  // Ensure test belongs to this org
+  const testRes = await sb
+    .from('org_tests')
+    .select('id, slug')
+    .eq('id', testId)
+    .eq('org_id', orgId)
+    .maybeSingle();
 
-  const url = new URL(req.url);
-  const mode = (url.searchParams.get('mode') || 'full').toLowerCase() as 'free'|'full';
-  if (mode !== 'free' && mode !== 'full') return NextResponse.json({ ok:false, error:'invalid mode' }, { status:400 });
+  if (testRes.error) return { status: 500, body: { ok: false, error: testRes.error.message } };
+  if (!testRes.data?.id) return { status: 404, body: { ok: false, error: `Test not found in this org: ${testId}` } };
 
-  const testId = params?.id as string;
-  if (!testId) return NextResponse.json({ ok:false, error:'missing test id' }, { status:400 });
+  const token = makeToken('tp');
+  const kind = (opts?.kind ?? 'full') as 'full' | 'free';
+  const max_uses = Number.isFinite(opts?.maxUses) ? Number(opts!.maxUses) : 1;
+  const expires_at = opts?.expiresAt ? new Date(opts.expiresAt!).toISOString() : null;
 
-  const a = admin();
-
-  const { data: test, error: terr } = await a.from('tests').select('id').eq('id', testId).single();
-  if (terr || !test) return NextResponse.json({ ok:false, error:'test not found' }, { status:404 });
-
-  const userId = await getUserId(auth);
-  const token = makeToken(12);
-
-  const { data: link, error } = await a
+  const ins = await sb
     .from('test_links')
-    .insert({ test_id: testId, token, mode, created_by: userId ?? undefined })
-    .select('token, mode')
-    .single();
+    .insert([{ org_id: orgId, test_id: testId, token, kind, max_uses, expires_at }])
+    .select('id, token')
+    .maybeSingle();
 
-  if (error) return NextResponse.json({ ok:false, error:error.message }, { status:500 });
-  return NextResponse.json({ ok:true, token: link.token, mode: link.mode });
+  if (ins.error) return { status: 500, body: { ok: false, error: ins.error.message } };
+
+  const appOrigin = process.env.APP_ORIGIN || '';
+  const url =
+    appOrigin && appOrigin.startsWith('http')
+      ? `${appOrigin.replace(/\/+$/, '')}/t/${token}`
+      : `/t/${token}`;
+
+  return { status: 201, body: { ok: true, token, url, testId } };
+}
+
+// NOTE: Next 15: params is a Promise
+export async function POST(req: Request, ctx: { params: Promise<Params> }) {
+  try {
+    const { id } = await ctx.params;
+    const body = await req.json().catch(() => ({}));
+    const res = await createLinkForTestId(id, {
+      maxUses: body?.maxUses,
+      kind: body?.kind,
+      expiresAt: body?.expiresAt ?? null,
+    });
+    return NextResponse.json(res.body, { status: res.status });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  }
+}
+
+export async function GET(req: Request, ctx: { params: Promise<Params> }) {
+  try {
+    const { id } = await ctx.params;
+    const url = new URL(req.url);
+    const maxUses = url.searchParams.get('maxUses');
+    const kind = (url.searchParams.get('kind') as 'full' | 'free') || undefined;
+    const expiresAt = url.searchParams.get('expiresAt');
+    const redirect = url.searchParams.get('redirect');
+
+    const res = await createLinkForTestId(id, {
+      maxUses: maxUses ? Number(maxUses) : undefined,
+      kind,
+      expiresAt: expiresAt || undefined,
+    });
+
+    if (redirect && res.status < 400 && (res.body as any)?.url) {
+      return NextResponse.redirect((res.body as any).url, { status: 303 });
+    }
+    return NextResponse.json(res.body, { status: res.status });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  }
+}
+
+export function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
+}
+
+export function HEAD() {
+  return new NextResponse(null, { status: 204 });
 }
