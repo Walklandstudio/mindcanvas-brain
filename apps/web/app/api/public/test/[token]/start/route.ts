@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { getAdminClient } from '@/app/_lib/portal';
 
-// Body the client sends when pressing "Begin Test"
+// Don't type the 2nd arg strictly — use `any`
 type StartBody = {
   firstName?: string;
   lastName?: string;
@@ -13,16 +13,16 @@ type StartBody = {
   teamFunction?: string;
 };
 
-export async function POST(req: Request, ctx: { params: { token: string } }) {
+export async function POST(req: Request, ctx: any) {
   try {
-    const token = ctx.params.token?.trim();
+    const token = String(ctx?.params?.token || '').trim();
     if (!token) {
       return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400 });
     }
 
     const sb = await getAdminClient();
 
-    // 1) Resolve link → org_id, test_id (and check max_uses / expiry)
+    // 1) Load link -> org_id, test_id, guards
     const linkRes = await sb
       .from('test_links')
       .select('id, org_id, test_id, max_uses, uses, expires_at, kind')
@@ -38,23 +38,24 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     if (link.expires_at && new Date(link.expires_at) < new Date()) {
       return NextResponse.json({ ok: false, error: 'link expired' }, { status: 400 });
     }
-    if (typeof link.max_uses === 'number' && typeof link.uses === 'number' && link.uses >= link.max_uses) {
+    if (
+      typeof link.max_uses === 'number' &&
+      typeof link.uses === 'number' &&
+      link.uses >= link.max_uses
+    ) {
       return NextResponse.json({ ok: false, error: 'link max uses reached' }, { status: 400 });
     }
 
-    // 2) Read the user fields
+    // 2) Body
     const body = (await req.json().catch(() => ({}))) as StartBody;
 
-    // 3) Insert test_taker — only using columns that are known to exist.
-    //    REQUIRED in your schema: org_id, test_id, token
+    // 3) Insert taker — only columns that exist in your table
     const insertPayload: Record<string, any> = {
       org_id: link.org_id,
       test_id: link.test_id,
-      token, // your table requires this (per your earlier error)
+      token, // your schema requires not-null token
     };
 
-    // SAFE optional fields: if these columns exist in your table, they'll be accepted; if not, Supabase ignores extra keys? No — so we add them conditionally via a preflight.
-    // To avoid another round-trip, we'll just include the common ones. If any cause "column does not exist", remove them from this list.
     if (body.email) insertPayload.email = body.email;
     if (body.firstName) insertPayload.first_name = body.firstName;
     if (body.lastName) insertPayload.last_name = body.lastName;
@@ -70,16 +71,11 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       return NextResponse.json({ ok: false, error: 'failed to create taker' }, { status: 500 });
     }
 
-    // 4) Increment link uses (best-effort)
-    await sb
-      .from('test_links')
-      .update({ uses: (link.uses ?? 0) + 1 })
-      .eq('id', link.id);
+    // 4) Increment uses (best-effort)
+    await sb.from('test_links').update({ uses: (link.uses ?? 0) + 1 }).eq('id', link.id);
 
-    // 5) Return OK with the taker id so the UI can proceed
     return NextResponse.json({ ok: true, takerId }, { status: 200 });
   } catch (err: any) {
-    // show the DB message to help you debug quickly in the console
     return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
   }
 }
