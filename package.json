@@ -8,6 +8,7 @@
   "dependencies": {
     "@supabase/auth-ui-react": "^0.4.7",
     "@supabase/auth-ui-shared": "^0.1.8",
+    "recharts": "^3.3.0",
     "resend": "^6.2.2"
   },
   "scripts": {
