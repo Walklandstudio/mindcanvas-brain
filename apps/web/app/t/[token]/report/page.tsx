@@ -1,10 +1,8 @@
 export const dynamic = "force-dynamic";
 
-import dynamicImport from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
-
-const FrequencyPie = dynamicImport(() => import("@/components/charts/FrequencyPie"), { ssr: false });
-const ProfileBar  = dynamicImport(() => import("@/components/charts/ProfileBar"), { ssr: false });
+import FrequencyPie from "@/components/charts/FrequencyPie"; // client component
+import ProfileBar from "@/components/charts/ProfileBar";     // client component
 
 async function loadData(token: string) {
   const supabase = createClient(

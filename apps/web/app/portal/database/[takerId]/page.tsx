@@ -1,11 +1,8 @@
 export const dynamic = "force-dynamic";
 
-import dynamicImport from "next/dynamic";
 import { createClient } from "@supabase/supabase-js";
-
-// Client-only chart components
-const FrequencyPie = dynamicImport(() => import("@/components/charts/FrequencyPie"), { ssr: false });
-const ProfileBar  = dynamicImport(() => import("@/components/charts/ProfileBar"), { ssr: false });
+import FrequencyPie from "@/components/charts/FrequencyPie"; // client component
+import ProfileBar from "@/components/charts/ProfileBar";     // client component
 
 async function getData(takerId: string) {
   const supabase = createClient(
@@ -62,7 +59,7 @@ export default async function TakerDetail({ params }: { params: { takerId: strin
         </div>
         <div className="bg-white border rounded p-4">
           <div className="font-medium mb-2">Challenges</div>
-          <div
+        <div
             className="prose prose-sm max-w-none"
             dangerouslySetInnerHTML={{ __html: d?.sections?.challenges ?? "<p>—</p>" }}
           />
