@@ -1,81 +1,97 @@
-// apps/web/app/api/public/test/[token]/start/route.ts
 import { NextResponse } from 'next/server';
 import { getAdminClient } from '@/app/_lib/portal';
 
-// Don't type the 2nd arg strictly — use `any`
+// Keep body minimal; add fields only if columns exist in your table
 type StartBody = {
+  email?: string;
   firstName?: string;
   lastName?: string;
-  email?: string;
-  phone?: string;
-  company?: string;
-  teamName?: string;
-  teamFunction?: string;
 };
 
 export async function POST(req: Request, ctx: any) {
   try {
     const token = String(ctx?.params?.token || '').trim();
-    if (!token) {
-      return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400 });
-    }
+    if (!token) return NextResponse.json({ ok:false, error:'Missing token' }, { status:400 });
 
     const sb = await getAdminClient();
 
-    // 1) Load link -> org_id, test_id, guards
-    const linkRes = await sb
+    // 1) Resolve link
+    const { data: link, error: linkErr } = await sb
       .from('test_links')
-      .select('id, org_id, test_id, max_uses, uses, expires_at, kind')
+      .select('id, org_id, test_id, token, max_uses, uses, expires_at')
       .eq('token', token)
       .maybeSingle();
+    if (linkErr) throw linkErr;
+    if (!link) return NextResponse.json({ ok:false, error:`invalid or expired link: ${token}` }, { status:404 });
 
-    if (linkRes.error) throw linkRes.error;
-    const link = linkRes.data;
-    if (!link) {
-      return NextResponse.json({ ok: false, error: 'invalid or expired link' }, { status: 400 });
-    }
-
+    // Guards
     if (link.expires_at && new Date(link.expires_at) < new Date()) {
-      return NextResponse.json({ ok: false, error: 'link expired' }, { status: 400 });
+      return NextResponse.json({ ok:false, error:'link expired' }, { status:410 });
     }
-    if (
-      typeof link.max_uses === 'number' &&
-      typeof link.uses === 'number' &&
-      link.uses >= link.max_uses
-    ) {
-      return NextResponse.json({ ok: false, error: 'link max uses reached' }, { status: 400 });
+    if (typeof link.max_uses === 'number' && typeof link.uses === 'number' && link.uses >= link.max_uses) {
+      return NextResponse.json({ ok:false, error:'link max uses reached' }, { status:409 });
     }
 
-    // 2) Body
+    // 2) Parse body
     const body = (await req.json().catch(() => ({}))) as StartBody;
+    const email = body.email?.trim().toLowerCase();
 
-    // 3) Insert taker — only columns that exist in your table
-    const insertPayload: Record<string, any> = {
+    // 3) If email provided, reuse existing taker for SAME test (idempotent)
+    if (email) {
+      const existing = await sb
+        .from('test_takers')
+        .select('id')
+        .eq('org_id', link.org_id)
+        .eq('test_id', link.test_id)    // important: scope to this test
+        .eq('email', email)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing.data?.id) {
+        // Best-effort: bump uses
+        await sb.from('test_links').update({ uses: (link.uses ?? 0) + 1 }).eq('id', link.id);
+        return NextResponse.json({ ok:true, takerId: existing.data.id, reused: true }, { status: 200 });
+      }
+    }
+
+    // 4) Insert new taker
+    const insPayload: Record<string, any> = {
       org_id: link.org_id,
       test_id: link.test_id,
-      token, // your schema requires not-null token
+      token, // your schema requires this (per earlier errors)
     };
+    if (email) insPayload.email = email;
+    if (body.firstName) insPayload.first_name = body.firstName;
+    if (body.lastName) insPayload.last_name = body.lastName;
 
-    if (body.email) insertPayload.email = body.email;
-    if (body.firstName) insertPayload.first_name = body.firstName;
-    if (body.lastName) insertPayload.last_name = body.lastName;
-    if (body.phone) insertPayload.phone = body.phone;
-    if (body.company) insertPayload.company = body.company;
-    if (body.teamName) insertPayload.team_name = body.teamName;
-    if (body.teamFunction) insertPayload.team_function = body.teamFunction;
+    const ins = await sb.from('test_takers').insert([insPayload]).select('id').maybeSingle();
 
-    const takerRes = await sb.from('test_takers').insert([insertPayload]).select('id').maybeSingle();
-    if (takerRes.error) throw takerRes.error;
-    const takerId = takerRes.data?.id as string | undefined;
-    if (!takerId) {
-      return NextResponse.json({ ok: false, error: 'failed to create taker' }, { status: 500 });
+    // If we still have a uniqueness issue (e.g., index wasn’t migrated), try to fetch & reuse
+    if (ins.error && String(ins.error.message).toLowerCase().includes('duplicate key')) {
+      if (email) {
+        const fallback = await sb
+          .from('test_takers')
+          .select('id')
+          .eq('org_id', link.org_id)
+          .eq('test_id', link.test_id)
+          .eq('email', email)
+          .limit(1)
+          .maybeSingle();
+
+        if (fallback.data?.id) {
+          await sb.from('test_links').update({ uses: (link.uses ?? 0) + 1 }).eq('id', link.id);
+          return NextResponse.json({ ok:true, takerId: fallback.data.id, reused: true }, { status: 200 });
+        }
+      }
+      // Otherwise surface the DB message
+      return NextResponse.json({ ok:false, error: ins.error.message }, { status: 409 });
     }
+    if (ins.error) throw ins.error;
 
-    // 4) Increment uses (best-effort)
     await sb.from('test_links').update({ uses: (link.uses ?? 0) + 1 }).eq('id', link.id);
 
-    return NextResponse.json({ ok: true, takerId }, { status: 200 });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
+    return NextResponse.json({ ok:true, takerId: ins.data?.id, reused: false }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ ok:false, error: String(e?.message || e) }, { status: 500 });
   }
 }
