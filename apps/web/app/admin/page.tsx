@@ -1,102 +1,83 @@
 // apps/web/app/admin/page.tsx
-import 'server-only';
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import { getAdminClient } from '@/app/_lib/portal';
-
-export const dynamic = 'force-dynamic';
-
-function ActionLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50"
-    >
-      {children}
-    </a>
-  );
-}
+import Link from 'next/link';
+import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
 
 export default async function AdminPage() {
-  // gate: only platform admins
-  const jar = await cookies();
-  const adminEmail = jar.get('platform_admin_email')?.value || process.env.PLATFORM_ADMINS || '';
-  const allowed = (process.env.PLATFORM_ADMINS || '').split(',').map(s => s.trim().toLowerCase());
-  if (!allowed.some(a => a && adminEmail.toLowerCase().includes(a))) {
-    // If you’re using a different auth scheme, adjust this guard or remove it.
-  }
-
   const sb = await getAdminClient();
 
+  // Load orgs
   const { data: orgs, error } = await sb
     .from('organizations')
-    .select('id, name, slug')
+    .select('id,name,slug')
     .order('name', { ascending: true });
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold mb-4">Platform Admin — Organizations</h1>
-        <div className="p-3 border rounded bg-red-50 text-red-700">
-          Error loading organizations: {error.message}
-        </div>
-      </div>
-    );
-  }
-
-  async function viewAs(slug: string) {
-    'use server';
-    const jar = await cookies();
-    // set active org cookie
-    const { data: org } = await sb
-      .from('organizations')
-      .select('id')
-      .eq('slug', slug)
-      .maybeSingle();
-    if (org?.id) {
-      jar.set('active_org_id', org.id, { path: '/', httpOnly: false, sameSite: 'lax' });
-    }
-    redirect('/portal');
-  }
+  const activeOrgId = await getActiveOrgId(sb);
 
   return (
-    <div className="p-6 space-y-4">
-      <h1 className="text-xl font-semibold">Platform Admin — Organizations</h1>
+    <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
+      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>Admin</h1>
 
-      <div className="grid gap-3">
-        {orgs?.map(org => (
-          <form
-            key={org.id}
-            action={async () => {
-              'use server';
-              const jar = await cookies();
-              jar.set('active_org_id', org.id, { path: '/', httpOnly: false, sameSite: 'lax' });
-              redirect('/portal');
-            }}
-          >
-            <div className="rounded-xl border p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <div className="font-medium">{org.name}</div>
-                <div className="text-xs text-gray-600">{org.slug}</div>
+      {error && (
+        <p style={{ color: 'crimson' }}>
+          Error loading orgs: {error.message}
+        </p>
+      )}
+
+      <section style={{ marginTop: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Organizations</h2>
+        <p style={{ marginTop: 6, color: '#555' }}>
+          Active org: <strong>{activeOrgId ?? 'none'}</strong>
+        </p>
+
+        <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+          {(orgs ?? []).map((o) => (
+            <form
+              key={o.id}
+              action="/api/admin/switch-org"
+              method="post"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: 12,
+                border: '1px solid #e5e5e5',
+                borderRadius: 10,
+              }}
+            >
+              <input type="hidden" name="orgId" value={o.id} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600 }}>{o.name}</div>
+                <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#666' }}>{o.slug}</div>
               </div>
-              <div className="flex gap-2">
-                <ActionLink href={`/api/admin/tests/seed-if-empty?org=${org.slug}`}>
-                  Seed default test
-                </ActionLink>
-                <button type="submit" className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50">
-                  Open Portal
-                </button>
-              </div>
-            </div>
-          </form>
-        ))}
-      </div>
-    </div>
+              <button
+                type="submit"
+                name="mode"
+                value="switch"
+                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
+              >
+                Set Active
+              </button>
+              <Link
+                href={`/portal/${o.slug}`}
+                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
+              >
+                Open portal
+              </Link>
+            </form>
+          ))}
+        </div>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Diagnostics</h2>
+        <ul style={{ marginTop: 8 }}>
+          <li>
+            <a href="/api/debug/diag" target="_blank" rel="noreferrer">
+              /api/debug/diag
+            </a>
+          </li>
+        </ul>
+      </section>
+    </main>
   );
 }

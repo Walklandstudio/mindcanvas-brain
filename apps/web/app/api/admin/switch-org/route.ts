@@ -1,49 +1,75 @@
 // apps/web/app/api/admin/switch-org/route.ts
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { getServerSupabase, getAdminClient } from '@/app/_lib/portal';
-import { isPlatformAdminEmail } from '@/app/_lib/admin';
-import { makeSetActiveOrgCookie, makeClearActiveOrgCookie } from '@/app/_lib/org-active';
 
-export const runtime = 'nodejs';
+const COOKIE_NAME = 'active_org_id';
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const orgId = (body?.orgId || '').trim();
+  try {
+    // Accept either form POST (from <form>) or JSON POST
+    const contentType = req.headers.get('content-type') || '';
+    let orgId = '';
+    let mode = 'switch';
 
-  // Auth (user-scoped)
-  const sb = await getServerSupabase();
-  const { data: { user } } = await sb.auth.getUser();
-  const email = user?.email ?? null;
+    if (contentType.includes('application/json')) {
+      const body = await req.json().catch(() => ({}));
+      orgId = String(body?.orgId || '').trim();
+      mode = String(body?.mode || 'switch').trim();
+    } else {
+      const form = await req.formData();
+      orgId = String(form.get('orgId') || '').trim();
+      mode = String(form.get('mode') || 'switch').trim();
+    }
 
-  if (!isPlatformAdminEmail(email)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const url = new URL(req.url);
+    const backTo = '/admin';
+
+    if (mode === 'clear') {
+      const res = NextResponse.redirect(new URL(backTo, req.url));
+      res.cookies.set(COOKIE_NAME, '', {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: true,
+        maxAge: 0,
+      });
+      return res;
+    }
+
+    if (!orgId) {
+      return NextResponse.json({ ok: false, error: 'Missing orgId' }, { status: 400 });
+    }
+
+    // Set/overwrite the cookie and redirect back to /admin
+    const res = NextResponse.redirect(new URL(backTo, req.url));
+    res.cookies.set(COOKIE_NAME, orgId, {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: true,
+      // Persist it for a while so session survives navigation
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+    });
+
+    return res;
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
+}
 
-  const jar = await cookies();
-
-  // Clear active org if orgId not provided
-  if (!orgId) {
-    const [name, value, opts] = makeClearActiveOrgCookie();
-    try { jar.set({ name, value, ...(opts as any) }); } catch {}
-    return NextResponse.json({ ok: true, cleared: true });
+// Optional convenience:
+// GET /api/admin/switch-org?clear=1  → clears the cookie
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const shouldClear = url.searchParams.get('clear');
+  const res = NextResponse.redirect(new URL('/admin', req.url));
+  if (shouldClear) {
+    res.cookies.set(COOKIE_NAME, '', {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: true,
+      maxAge: 0,
+    });
   }
-
-  // Validate org exists (admin client; bypass RLS)
-  const admin = await getAdminClient();
-  const { data: org, error } = await admin
-    .from('organizations')
-    .select('id')
-    .eq('id', orgId)
-    .maybeSingle();
-
-  if (error || !org) {
-    return NextResponse.json({ error: 'Org not found' }, { status: 404 });
-  }
-
-  // Set active org cookie
-  const [name, value, opts] = makeSetActiveOrgCookie(orgId);
-  try { jar.set({ name, value, ...(opts as any) }); } catch {}
-
-  return NextResponse.json({ ok: true, orgId });
+  return res;
 }
