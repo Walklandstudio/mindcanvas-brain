@@ -5,64 +5,72 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(
-  req: Request,
+  _req: Request,
   { params }: { params: { token: string } }
 ) {
-  const token = params.token;
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE!,
     { auth: { persistSession: false } }
   );
+  const token = params.token;
 
   try {
-    // 1) Resolve link + test by token
+    // 1) Get link → clear, single-row shape (no joined table)
     const { data: link, error: linkErr } = await supabase
       .from("test_links")
-      .select("*, test:tests(id, org_id, name, slug, is_active)")
+      .select("id, token, status, max_uses, use_count, test_id, org_id")
       .eq("token", token)
       .maybeSingle();
 
     if (linkErr || !link) {
       return NextResponse.json({ error: "Invalid or unknown token" }, { status: 404 });
     }
-    if (!link.test?.is_active) {
+
+    // 2) Get test by id (unambiguous object shape)
+    const { data: test, error: testErr } = await supabase
+      .from("tests")
+      .select("id, org_id, name, slug, is_active")
+      .eq("id", link.test_id)
+      .maybeSingle();
+
+    if (testErr || !test) {
+      return NextResponse.json({ error: "Test not found for token" }, { status: 404 });
+    }
+    if (!test.is_active) {
       return NextResponse.json({ error: "This test is not active" }, { status: 410 });
     }
 
-    // 2) Increment link uses (best-effort; don't fail whole request)
+    // 3) Best-effort increment (do not fail the request if it errors)
     const { error: incErr } = await supabase.rpc("increment_test_link_use", {
       link_token: token,
     });
-    if (incErr) {
-      // Log but continue; not fatal for starting a session
-      console.warn("increment_test_link_use error:", incErr.message);
-    }
+    if (incErr) console.warn("increment_test_link_use:", incErr.message);
 
-    // 3) Create taker record
+    // 4) Create taker
     const { data: taker, error: takerErr } = await supabase
       .from("test_takers")
       .insert({
         link_token: token,
-        test_id: link.test.id,
-        org_id: link.test.org_id,
+        test_id: test.id,
+        org_id: test.org_id ?? link.org_id, // prefer test.org_id; fallback to link.org_id
         status: "started",
       })
-      .select()
+      .select("id, link_token, status")
       .maybeSingle();
 
-    if (takerErr) {
+    if (takerErr || !taker) {
       return NextResponse.json(
-        { error: "Could not create test taker", details: takerErr.message },
+        { error: "Could not create test taker", details: takerErr?.message },
         { status: 500 }
       );
     }
 
-    // 4) Success payload
+    // 5) Success
     return NextResponse.json({
       ok: true,
-      next: `/t/${token}`, // questions page
-      test: { id: link.test.id, name: link.test.name, slug: link.test.slug },
+      next: `/t/${token}`,
+      test: { id: test.id, name: test.name, slug: test.slug },
       link: { id: link.id, token: link.token },
       taker,
     });
