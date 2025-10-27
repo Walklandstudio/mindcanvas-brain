@@ -1,10 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-
 export default function Start({ params }: { params: { token: string } }) {
   const { token } = params;
   const [msg, setMsg] = useState("Starting…");
-
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -14,17 +12,9 @@ export default function Start({ params }: { params: { token: string } }) {
         if (!alive) return;
         if (!r.ok) { setMsg(j?.error || `Failed (${r.status})`); return; }
         window.location.href = j.next || `/t/${token}`;
-      } catch (e: any) {
-        if (alive) setMsg(e?.message || "Network error");
-      }
+      } catch (e: any) { if (alive) setMsg(e?.message || "Network error"); }
     })();
     return () => { alive = false; };
   }, [token]);
-
-  return (
-    <div className="p-6">
-      <h1 className="text-xl font-semibold">Start</h1>
-      <p className={`mt-2 text-sm ${msg === "Starting…" ? "text-slate-600" : "text-red-700"}`}>{msg}</p>
-    </div>
-  );
+  return (<div className="p-6"><h1 className="text-xl font-semibold">Start</h1><p className={`mt-2 ${msg==="Starting…"?"text-slate-600":"text-red-700"}`}>{msg}</p></div>);
 }

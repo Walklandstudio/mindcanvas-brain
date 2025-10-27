@@ -1,23 +1,23 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Q = { id: string; kind: string; prompt: string; options?: string[] };
+type Q = { id: string; order_index: number; kind: string; prompt: string; options?: string[] };
 
 export default function Questions({ params }: { params: { token: string } }) {
   const { token } = params;
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [qs, setQs] = useState<Q[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const r = await fetch(`/api/public/test/${token}/questions`, { cache: "no-store" });
         const j = await r.json();
-        if (!r.ok) throw new Error(j.error || "Failed to load questions");
+        if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
         setQs(j.questions ?? []);
       } catch (e: any) {
-        setError(e.message);
+        setErr(e.message);
       } finally {
         setLoading(false);
       }
@@ -25,7 +25,7 @@ export default function Questions({ params }: { params: { token: string } }) {
   }, [token]);
 
   if (loading) return <div className="p-6">Loading questions…</div>;
-  if (error) return <div className="p-6 text-red-600">{error}</div>;
+  if (err) return <div className="p-6 text-red-600">{err}</div>;
   if (!qs.length) return <div className="p-6 text-slate-600">No questions for this test.</div>;
 
   return (
@@ -43,6 +43,7 @@ export default function Questions({ params }: { params: { token: string } }) {
           </li>
         ))}
       </ol>
+      <a href={`/t/${token}/result`} className="inline-block bg-black text-white px-4 py-2 rounded">Finish (demo)</a>
     </div>
   );
 }

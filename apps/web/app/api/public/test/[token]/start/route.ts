@@ -4,57 +4,114 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_req: Request, { params }: { params: { token: string } }) {
+type LinkRow = {
+  id: string;
+  token: string;
+  max_uses: number | null;
+  use_count: number | null;
+  test_id: string;
+};
+
+type TestRow = {
+  id: string;
+  org_id: string;
+  name: string | null;
+  is_active: boolean | null;
+};
+
+export async function POST(
+  _req: Request,
+  { params }: { params: { token: string } }
+) {
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!, { auth: { persistSession: false } }
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE!,
+    { auth: { persistSession: false } }
   );
-  const token = params.token;
 
   try {
-    // link (single row, no join ambiguity)
+    // 1) Find the link by token
     const { data: link, error: linkErr } = await supabase
       .from("test_links")
-      .select("id, token, status, max_uses, use_count, test_id, org_id")
-      .eq("token", token)
-      .maybeSingle();
-    if (linkErr || !link) return NextResponse.json({ error: "Invalid token" }, { status: 404 });
+      .select("id, token, max_uses, use_count, test_id")
+      .eq("token", params.token)
+      .maybeSingle<LinkRow>();
 
-    // test (single row)
-    const { data: test, error: testErr } = await supabase
-      .from("tests")
-      .select("id, org_id, name, slug, is_active")
-      .eq("id", link.test_id)
-      .maybeSingle();
-    if (testErr || !test) return NextResponse.json({ error: "Test not found for token" }, { status: 404 });
-    if (!test.is_active) return NextResponse.json({ error: "This test is not active" }, { status: 410 });
-
-    // best-effort increment
-    const { error: incErr } = await supabase.rpc("increment_test_link_use", { link_token: token });
-    if (incErr) console.warn("increment_test_link_use:", incErr.message);
-
-    // create taker
-    const { data: taker, error: takerErr } = await supabase
-      .from("test_takers")
-      .insert({
-        link_token: token,
-        test_id: test.id,
-        org_id: test.org_id ?? link.org_id,
-        status: "started",
-      })
-      .select("id, link_token, status")
-      .maybeSingle();
-    if (takerErr || !taker) {
-      return NextResponse.json({ error: "Could not create test taker", details: takerErr?.message }, { status: 500 });
+    if (linkErr) {
+      return NextResponse.json(
+        { error: `Link lookup failed: ${linkErr.message}` },
+        { status: 500 }
+      );
+    }
+    if (!link) {
+      return NextResponse.json(
+        { error: "Invalid or unknown token" },
+        { status: 404 }
+      );
     }
 
+    // 2) Load the test (no relation aliasing; keep it simple)
+    const { data: test, error: testErr } = await supabase
+      .from("tests")
+      .select("id, org_id, name, is_active")
+      .eq("id", link.test_id)
+      .maybeSingle<TestRow>();
+
+    if (testErr) {
+      return NextResponse.json(
+        { error: `Test lookup failed: ${testErr.message}` },
+        { status: 500 }
+      );
+    }
+    if (!test) {
+      return NextResponse.json(
+        { error: "Test not found for this link" },
+        { status: 404 }
+      );
+    }
+    if (!test.is_active) {
+      return NextResponse.json(
+        { error: "This test is not active" },
+        { status: 410 }
+      );
+    }
+
+    // 3) Increment uses (best-effort; ignore failure)
+    try {
+      await supabase.rpc("increment_test_link_use", {
+        link_token: params.token,
+      });
+    } catch {
+      // ignore RPC failure
+    }
+
+    // 4) Create a test taker record (best-effort)
+    try {
+      await supabase
+        .from("test_takers")
+        .insert({
+          link_token: params.token,
+          test_id: test.id,
+          org_id: test.org_id,
+          status: "started",
+        })
+        .select("id")
+        .maybeSingle();
+    } catch {
+      // ignore insert failure (idempotency / RLS)
+    }
+
+    // 5) Success payload for the client to continue
     return NextResponse.json({
       ok: true,
-      next: `/t/${token}`,
-      test: { id: test.id, name: test.name, slug: test.slug },
+      next: `/t/${params.token}`,
+      test: { id: test.id, name: test.name },
       link: { id: link.id, token: link.token },
-      taker,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message ?? "Server error" },
+      { status: 500 }
+    );
   }
 }
