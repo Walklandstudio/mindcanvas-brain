@@ -1,5 +1,11 @@
+// apps/web/middleware.ts
+import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
+
+export function middleware(_req: NextRequest) {
+  return NextResponse.next();
+}
+
 export const config = {
-  matcher: [
-    '/((?!api|_next|favicon.ico|assets|.*\\.(png|jpg|svg|css|js)).*)',
-  ],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
 };
