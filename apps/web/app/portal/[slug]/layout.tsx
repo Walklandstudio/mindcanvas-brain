@@ -1,6 +1,7 @@
 // apps/web/app/portal/[slug]/layout.tsx
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 import Link from 'next/link';
 import { resolveOrgBySlug } from '@/lib/resolveOrg';
