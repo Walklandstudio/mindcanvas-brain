@@ -5,31 +5,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const slug = String(req.query.slug || '').trim().toLowerCase();
   if (!slug) return res.status(400).json({ ok:false, error:'missing slug' });
 
-  // First try selecting with is_active (ideal shape)
-  const tryWithIsActive = await sbAdmin
-    .from('v_organizations')
-    .select('id, slug, name, is_active, logo_url, primary_color, secondary_color')
+  // sbAdmin default schema = 'portal' (as we set earlier), so use unqualified table name.
+  // Try with is_active if the column exists; if not, fall back and assume active.
+  const withActive = await sbAdmin
+    .from('orgs')
+    .select('id, slug, name, is_active')
     .eq('slug', slug)
     .maybeSingle();
 
-  // If the column doesn't exist, fall back to a shape without it
-  if (tryWithIsActive.error && /is_active/.test(tryWithIsActive.error.message)) {
+  if (withActive.error && /is_active/.test(withActive.error.message)) {
     const fallback = await sbAdmin
-      .from('v_organizations')
-      .select('id, slug, name, logo_url, primary_color, secondary_color')
+      .from('orgs')
+      .select('id, slug, name')
       .eq('slug', slug)
       .maybeSingle();
 
     if (fallback.error) return res.status(500).json({ ok:false, error: fallback.error.message });
     if (!fallback.data) return res.status(404).json({ ok:false, error:'org_not_found' });
 
-    // assume active if column is absent
-    return res.status(200).json({ ok:true, org: { ...fallback.data, is_active: true } });
+    return res.status(200).json({ ok:true, org: { ...fallback.data, is_active: true, logo_url: null, primary_color: null, secondary_color: null } });
   }
 
-  if (tryWithIsActive.error) return res.status(500).json({ ok:false, error: tryWithIsActive.error.message });
-  if (!tryWithIsActive.data) return res.status(404).json({ ok:false, error:'org_not_found' });
-  if (tryWithIsActive.data.is_active === false) return res.status(404).json({ ok:false, error:'org_inactive' });
+  if (withActive.error) return res.status(500).json({ ok:false, error: withActive.error.message });
+  if (!withActive.data) return res.status(404).json({ ok:false, error:'org_not_found' });
+  if (withActive.data.is_active === false) return res.status(404).json({ ok:false, error:'org_inactive' });
 
-  return res.status(200).json({ ok:true, org: tryWithIsActive.data });
+  // Normalize optional branding fields (not required)
+  return res.status(200).json({
+    ok: true,
+    org: {
+      ...withActive.data,
+      logo_url: null,
+      primary_color: null,
+      secondary_color: null,
+    },
+  });
 }
