@@ -1,14 +1,10 @@
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
 'use client';
 
 import { useEffect, useState } from 'react';
 
 type TestRow = { id: string; name: string; slug: string; status: string };
 
-export default function TestsPage({ params }: { params: { slug: string } }) {
+export default function TestsClient({ slug }: { slug: string }) {
   const [tests, setTests] = useState<TestRow[]>([]);
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -19,9 +15,7 @@ export default function TestsPage({ params }: { params: { slug: string } }) {
       try {
         setLoading(true);
         setError('');
-
-        const r = await fetch(`/api/org/${params.slug}/tests`, { cache: 'no-store' });
-
+        const r = await fetch(`/api/org/${slug}/tests`, { cache: 'no-store' });
         if (!alive) return;
 
         if (!r.ok) {
@@ -45,21 +39,17 @@ export default function TestsPage({ params }: { params: { slug: string } }) {
         if (alive) setLoading(false);
       }
     })();
-
     return () => {
       alive = false;
     };
-  }, [params.slug]);
+  }, [slug]);
 
   return (
     <div className="p-6 space-y-4 text-white">
       <h1 className="text-2xl font-semibold">Tests</h1>
 
       {loading && <div className="text-white/70">Loading…</div>}
-
-      {!loading && error && (
-        <div className="text-red-300 whitespace-pre-wrap">{error}</div>
-      )}
+      {!loading && error && <div className="text-red-300">{error}</div>}
 
       {!loading && !error && (
         tests.length === 0 ? (
@@ -69,18 +59,13 @@ export default function TestsPage({ params }: { params: { slug: string } }) {
             {tests.map((t) => (
               <li
                 key={t.id}
-                className="border border-white/10 rounded p-3 flex items-center justify-between hover:bg-white/5 transition"
+                className="border border-white/10 rounded p-3 flex items-center justify-between"
               >
                 <div>
                   <div className="font-medium">{t.name}</div>
                   <div className="text-xs text-white/60 uppercase">{t.status}</div>
                 </div>
-                <a
-                  className="underline hover:text-sky-400"
-                  href={`/portal/${params.slug}/tests/${t.id}`}
-                >
-                  Open
-                </a>
+                <a className="underline" href={`/portal/${slug}/tests/${t.id}`}>Open</a>
               </li>
             ))}
           </ul>
