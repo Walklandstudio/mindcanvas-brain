@@ -1,11 +1,16 @@
-// apps/web/app/portal/[slug]/layout.tsx
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import Link from 'next/link';
-import { resolveOrgBySlug } from '@/lib/resolveOrg';
-/* ...rest of the file stays the same... */
+
+async function getOrg(slug: string) {
+  // Relative fetch works in server components on Vercel
+  const r = await fetch(`/api/org/${slug}/get`, { cache: 'no-store' });
+  if (!r.ok) return null;
+  const j = await r.json();
+  return j?.org ?? null;
+}
 
 export default async function Layout({
   children,
@@ -14,7 +19,7 @@ export default async function Layout({
   children: React.ReactNode;
   params: { slug: string };
 }) {
-  const org = await resolveOrgBySlug(params.slug);
+  const org = await getOrg(params.slug);
 
   if (!org) {
     return (
@@ -43,21 +48,11 @@ export default async function Layout({
         </div>
 
         <nav className="space-y-2">
-          <Link href={`/portal/${org.slug}`} className="block px-3 py-2 rounded hover:bg-white/10">
-            Dashboard
-          </Link>
-          <Link href={`/portal/${org.slug}/database`} className="block px-3 py-2 rounded hover:bg-white/10">
-            Database
-          </Link>
-          <Link href={`/portal/${org.slug}/tests`} className="block px-3 py-2 rounded hover:bg-white/10">
-            Tests
-          </Link>
-          <Link href={`/portal/${org.slug}/profile`} className="block px-3 py-2 rounded hover:bg-white/10">
-            Profile
-          </Link>
-          <Link href={`/portal/${org.slug}/settings`} className="block px-3 py-2 rounded hover:bg-white/10">
-            Settings
-          </Link>
+          <Link href={`/portal/${org.slug}`} className="block px-3 py-2 rounded hover:bg-white/10">Dashboard</Link>
+          <Link href={`/portal/${org.slug}/database`} className="block px-3 py-2 rounded hover:bg-white/10">Database</Link>
+          <Link href={`/portal/${org.slug}/tests`} className="block px-3 py-2 rounded hover:bg-white/10">Tests</Link>
+          <Link href={`/portal/${org.slug}/profile`} className="block px-3 py-2 rounded hover:bg-white/10">Profile</Link>
+          <Link href={`/portal/${org.slug}/settings`} className="block px-3 py-2 rounded hover:bg-white/10">Settings</Link>
         </nav>
       </aside>
 
