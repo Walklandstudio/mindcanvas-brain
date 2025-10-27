@@ -15,7 +15,7 @@ export async function resolveOrgBySlug(slug: string): Promise<OrgRow | null> {
 
   // Try portal schema (preferred)
   const { data, error } = await sbAdmin
-    .from('portal.v_organizations')
+    .from('v_organizations')
     .select('id, slug, name, is_active, logo_url, primary_color, secondary_color')
     .eq('slug', s)
     .maybeSingle();

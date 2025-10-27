@@ -7,7 +7,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!slug) return res.status(400).json({ ok:false, error:'missing slug' });
 
   const { data, error } = await sbAdmin
-    .from('portal.v_org_tests')
+    .from('v_org_tests')
     .select('id,name,slug,status')
     .eq('org_slug', slug)
     .order('name');

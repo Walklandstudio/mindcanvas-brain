@@ -17,7 +17,7 @@ export default async function TestsPage({ params }: { params: { slug: string } }
   if (!org) return null;
 
   const { data, error } = await sbAdmin
-    .from('portal.v_org_tests')
+    .from('v_org_tests')
     .select('id,name,slug,status')
     .eq('org_slug', org.slug)
     .order('name');

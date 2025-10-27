@@ -6,14 +6,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== 'POST') return res.status(405).end();
   const token = String(req.query.token || '');
   const { data: link, error: e1 } = await sbAdmin
-    .from('portal.test_links').select('id,test_id,token')
+    .from('test_links').select('id,test_id,token')
     .eq('token', token).maybeSingle();
   if (e1 || !link) return res.status(404).json({ ok:false, error:'invalid_token' });
 
-  const { data: test } = await sbAdmin.from('portal.tests').select('org_id').eq('id', link.test_id).maybeSingle();
+  const { data: test } = await sbAdmin.from('tests').select('org_id').eq('id', link.test_id).maybeSingle();
 
   const { data: taker, error: e2 } = await sbAdmin
-    .from('portal.test_takers')
+    .from('test_takers')
     .insert({ org_id: test?.org_id, test_id: link.test_id, link_token: token, status: 'started' })
     .select('id')
     .maybeSingle();

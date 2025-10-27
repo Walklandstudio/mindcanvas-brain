@@ -7,7 +7,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!testId) return res.status(400).json({ ok:false, error:'missing testId' });
 
   const { data, error } = await sbAdmin
-    .from('portal.test_links')
+    .from('test_links')
     .select('id, token, use_count, max_uses')
     .eq('test_id', testId)
     .order('created_at', { ascending: false } as any) /* ignore if no column */;

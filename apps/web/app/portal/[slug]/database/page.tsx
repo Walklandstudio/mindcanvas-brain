@@ -20,7 +20,7 @@ export default async function DatabasePage({ params }: { params: { slug: string 
   if (!org) return null;
 
   const { data, error } = await sbAdmin
-    .from('portal.test_takers')
+    .from('test_takers')
     .select('id, email, first_name, last_name, status, submitted_at, report_ready_at')
     .eq('org_id', org.id)
     .order('submitted_at', { ascending: false });
