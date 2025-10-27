@@ -12,13 +12,16 @@ type LinkRow = {
   test_id: string;
 };
 
-type TestRow = Record<string, any>; // tolerate schema differences
+type OrgTestRow = {
+  id: string;
+  org_id: string | null;
+  name: string | null;
+  status: string | null; // "active" | "archived"
+  slug: string | null;
+};
 
-export async function POST(
-  _req: Request,
-  { params }: { params: { token: string } }
-) {
-  const supabase = createClient(
+export async function POST(_req: Request, { params }: { params: { token: string } }) {
+  const db = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE!,
     { auth: { persistSession: false } }
@@ -26,7 +29,7 @@ export async function POST(
 
   try {
     // 1) Link by token
-    const { data: link, error: linkErr } = await supabase
+    const { data: link, error: linkErr } = await db
       .from("test_links")
       .select("id, token, max_uses, use_count, test_id")
       .eq("token", params.token)
@@ -34,37 +37,33 @@ export async function POST(
     if (linkErr) return NextResponse.json({ error: `Link lookup failed: ${linkErr.message}` }, { status: 500 });
     if (!link)  return NextResponse.json({ error: "Invalid or unknown token" }, { status: 404 });
 
-    // 2) Test row (select * to avoid missing columns)
-    const { data: test, error: testErr } = await supabase
-      .from("tests")
-      .select("*")
+    // 2) Test row from org_tests
+    const { data: test, error: testErr } = await db
+      .from("org_tests")
+      .select("id, org_id, name, status, slug")
       .eq("id", link.test_id)
-      .maybeSingle<TestRow>();
+      .maybeSingle<OrgTestRow>();
     if (testErr) return NextResponse.json({ error: `Test lookup failed: ${testErr.message}` }, { status: 500 });
     if (!test)   return NextResponse.json({ error: "Test not found for this link" }, { status: 404 });
 
-    // Treat various flags as "inactive"
-    const inactive =
-      test?.is_active === false ||
-      test?.active === false ||
-      test?.archived === true;
-    if (inactive) {
+    // inactive if status is not "active"
+    if (test.status && test.status !== "active") {
       return NextResponse.json({ error: "This test is not active" }, { status: 410 });
     }
 
-    // 3) Best-effort use increment
+    // 3) Increment uses (best-effort)
     try {
-      await supabase.rpc("increment_test_link_use", { link_token: params.token });
+      await db.rpc("increment_test_link_use", { link_token: params.token });
     } catch {}
 
-    // 4) Best-effort taker record
+    // 4) Create a test taker record (best-effort)
     try {
-      await supabase
+      await db
         .from("test_takers")
         .insert({
           link_token: params.token,
           test_id: test.id,
-          org_id: test.org_id,
+          org_id: test.org_id ?? null,
           status: "started",
         })
         .select("id")
@@ -75,7 +74,7 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       next: `/t/${params.token}`,
-      test: { id: test.id, name: test.name ?? null },
+      test: { id: test.id, name: test.name ?? null, slug: test.slug ?? null },
       link: { id: link.id, token: link.token },
     });
   } catch (e: any) {

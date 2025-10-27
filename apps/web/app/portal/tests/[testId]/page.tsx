@@ -1,109 +1,56 @@
-// apps/web/app/portal/tests/[testId]/page.tsx
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
-import GenerateLinkPanel from './GenerateLinkPanel';
+import Link from "next/link";
+import { createClient } from "@supabase/supabase-js";
 
-type Params = { testId: string };
-
-export default async function TestDetailPage({
-  params,
-}: {
-  // Next 15: params is a Promise
-  params: Promise<Params>;
-}) {
-  const { testId } = await params;
-  const sb = await getAdminClient();
-  const orgId = await getActiveOrgId(sb);
-
-  if (!orgId) {
-    return (
-      <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Test</h1>
-        <p>No active org. Go to /admin and click “Set Active”.</p>
-      </main>
-    );
-  }
-
-  const testRes = await sb
-    .from('org_tests')
-    .select('id, name, slug, org_id')
-    .eq('id', testId)
-    .eq('org_id', orgId)
-    .maybeSingle();
-
-  if (testRes.error) {
-    return (
-      <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Test</h1>
-        <p style={{ color: 'crimson' }}>{testRes.error.message}</p>
-      </main>
-    );
-  }
-
-  if (!testRes.data?.id) {
-    return (
-      <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Test</h1>
-        <p style={{ color: 'crimson' }}>Test not found or not in this org.</p>
-      </main>
-    );
-  }
-
-  const appOrigin = process.env.APP_ORIGIN || '';
-
-  return (
-    <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700 }}>Test — {testRes.data.name}</h1>
-      <p style={{ color: '#666' }}><code>{testRes.data.slug}</code></p>
-
-      <GenerateLinkPanel
-        testId={testRes.data.id}
-        testSlug={testRes.data.slug}
-        appOrigin={appOrigin}
-      />
-
-      {/* Optional: recent links list */}
-      <RecentLinks testId={testRes.data.id} />
-    </main>
+export default async function Page({ params }: { params: { slug: string; testId: string } }) {
+  const db = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE!,
+    { auth: { persistSession: false } }
   );
-}
 
-async function RecentLinks({ testId }: { testId: string }) {
-  const sb = await getAdminClient();
-  const { data: links } = await sb
-    .from('test_links')
-    .select('id, token, max_uses, uses, created_at')
-    .eq('test_id', testId)
-    .order('created_at', { ascending: false })
-    .limit(8);
+  const { data: org } = await db
+    .from("organizations")
+    .select("id, slug, name")
+    .eq("slug", params.slug)
+    .maybeSingle();
+  if (!org) return <div className="p-6 text-red-600">Org not found</div>;
 
-  if (!links?.length) return null;
+  const { data: test } = await db
+    .from("org_tests")
+    .select("id, org_id, name, mode, slug, status, created_at")
+    .eq("id", params.testId)
+    .eq("org_id", org.id)
+    .maybeSingle();
+  if (!test) return <div className="p-6 text-red-600">Test not found in this org</div>;
 
-  const appOrigin = process.env.APP_ORIGIN || '';
-  const full = (token: string) =>
-    appOrigin && appOrigin.startsWith('http')
-      ? `${appOrigin.replace(/\/+$/, '')}/t/${token}`
-      : `/t/${token}`;
+  const { data: links } = await db
+    .from("test_links")
+    .select("id, token, use_count, max_uses, created_at")
+    .eq("test_id", test.id)
+    .order("created_at", { ascending: false })
+    .limit(25);
 
   return (
-    <section style={{ marginTop: 24 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Recent links</h2>
-      <ul style={{ display: 'grid', gap: 8 }}>
-        {links.map((l) => (
-          <li key={l.id} style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ fontFamily: 'monospace' }}>{l.token}</div>
-              <a href={full(l.token)} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
-                open
-              </a>
-              <div style={{ marginLeft: 'auto', fontSize: 12, color: '#666' }}>
-                uses {l.uses ?? 0} / {l.max_uses ?? '∞'}
-              </div>
+    <div className="space-y-6 p-6">
+      <h1 className="text-xl font-semibold">Test — {test.name ?? test.slug ?? test.id}</h1>
+
+      <div>
+        <h2 className="text-lg font-semibold mb-2">Recent links</h2>
+        <div className="space-y-2">
+          {(links ?? []).map((l) => (
+            <div key={l.id} className="flex items-center justify-between bg-white border rounded px-3 py-2">
+              <code className="text-xs">{l.token}</code>
+              <div className="text-xs text-slate-500">uses {l.use_count ?? 0} / {l.max_uses ?? "∞"}</div>
+              <Link href={`/t/${l.token}/start`} className="px-2 py-1 rounded bg-black text-white text-xs">Open link</Link>
             </div>
-          </li>
-        ))}
-      </ul>
-    </section>
+          ))}
+          {(!links || links.length === 0) && <div className="text-sm text-slate-500">No links yet.</div>}
+        </div>
+      </div>
+
+      <Link href={`/portal/${org.slug}/tests`} className="text-sm underline text-slate-600">← Back to Tests</Link>
+    </div>
   );
 }
