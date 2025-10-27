@@ -15,6 +15,7 @@ export default function TestDetailsClient({
   const [error, setError] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState<string>('');
 
   const base = useMemo(() => {
     const env = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '');
@@ -22,6 +23,16 @@ export default function TestDetailsClient({
     if (typeof window !== 'undefined') return window.location.origin;
     return '';
   }, []);
+
+  const copy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(''), 1200);
+    } catch {
+      setCopied(''); // noop
+    }
+  };
 
   const loadLinks = useCallback(async () => {
     try {
@@ -96,35 +107,81 @@ export default function TestDetailsClient({
 
       {!loading && !error && (
         <>
-          <section>
-            <div className="font-medium mb-2">Links</div>
+          {/* Links list */}
+          <section className="space-y-2">
+            <div className="font-medium mb-1">Links</div>
             {links.length === 0 ? (
               <div className="text-white/70">No links yet. Click “Create Link”.</div>
             ) : (
-              <ul className="space-y-1">
-                {links.map((l) => (
-                  <li key={l.id} className="text-sm">
-                    <code>/t/{l.token}</code>
-                    {typeof l.use_count === 'number' && (
+              <ul className="space-y-2">
+                {links.map((l) => {
+                  const url = base ? `${base}/t/${l.token}` : `/t/${l.token}`;
+                  return (
+                    <li key={l.id} className="text-sm flex items-center gap-3">
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline break-all"
+                        title="Open public test link"
+                      >
+                        {url}
+                      </a>
+                      <button
+                        onClick={() => copy(url, 'url')}
+                        className="px-2 py-1 rounded border border-white/20 hover:bg-white/10 text-xs"
+                        title="Copy URL"
+                      >
+                        Copy URL
+                      </button>
                       <span className="text-white/60">
-                        {' '}· uses {l.use_count}{l.max_uses ? `/${l.max_uses}` : ''}
+                        · uses {l.use_count ?? 0}{l.max_uses ? `/${l.max_uses}` : ''}
                       </span>
-                    )}
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
 
-          <section>
-            <div className="font-medium mb-2">Embed</div>
+          {/* Embed */}
+          <section className="space-y-2">
+            <div className="font-medium">Embed</div>
             <pre className="p-2 bg-white text-black rounded border whitespace-pre-wrap">{embed}</pre>
+            <div className="flex gap-2">
+              <button
+                onClick={() => copy(embed, 'embed')}
+                className="px-3 py-2 rounded border border-white/20 hover:bg-white/10 text-sm"
+              >
+                Copy Embed
+              </button>
+              <button
+                onClick={() => window.open(publicUrl, '_blank')}
+                className="px-3 py-2 rounded border border-white/20 hover:bg-white/10 text-sm"
+              >
+                Open Public Link
+              </button>
+            </div>
           </section>
 
-          <section>
-            <div className="font-medium mb-2">Code Snippet</div>
+          {/* Code Snippet */}
+          <section className="space-y-2">
+            <div className="font-medium">Code Snippet</div>
             <pre className="p-2 bg-white text-black rounded border whitespace-pre-wrap">{codeSnippet}</pre>
+            <button
+              onClick={() => copy(codeSnippet, 'code')}
+              className="px-3 py-2 rounded border border-white/20 hover:bg-white/10 text-sm"
+            >
+              Copy Snippet
+            </button>
           </section>
+
+          {/* Tiny toast */}
+          {!!copied && (
+            <div className="fixed bottom-4 right-4 px-3 py-2 rounded bg-white/10 border border-white/20 text-xs">
+              Copied {copied} to clipboard
+            </div>
+          )}
         </>
       )}
     </div>
