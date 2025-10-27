@@ -5,43 +5,61 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
-type Test = { id: string; name: string | null; is_active: boolean | null; kind: string | null; org_id: string; };
+type AnyRow = Record<string, any>;
 
 async function getTestsForOrg(slug: string) {
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE!,
     { auth: { persistSession: false } }
   );
 
   const { data: org, error: orgErr } = await supabase
-    .from("organizations").select("id, name, slug").eq("slug", slug).maybeSingle();
+    .from("organizations")
+    .select("id, name, slug")
+    .eq("slug", slug)
+    .maybeSingle();
   if (orgErr) throw new Error(`Org lookup failed: ${orgErr.message}`);
   if (!org) throw new Error(`Org not found for slug: ${slug}`);
 
+  // ← key change: select("*") and order by "id" (always exists)
   const { data: tests, error: testsErr } = await supabase
-    .from("tests").select("id, name, is_active, kind, org_id")
-    .eq("org_id", org.id).order("created_at", { ascending: false });
-  if (testsErr) throw new Error(`Tests query failed: ${testsErr.message}`);
+    .from("tests")
+    .select("*")
+    .eq("org_id", org.id)
+    .order("id", { ascending: false });
 
-  return { org, tests: (tests ?? []) as Test[] };
+  if (testsErr) throw new Error(`Tests query failed: ${testsErr.message}`);
+  return { org, tests: (tests ?? []) as AnyRow[] };
 }
 
-// server action – create a link, then jump to the test detail page
 async function createLinkAction(formData: FormData) {
   "use server";
   const testId = String(formData.get("testId") || "");
   const slug = String(formData.get("slug") || "");
+
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE!,
     { auth: { persistSession: false } }
   );
+
   const { error } = await supabase
     .from("test_links")
     .insert({ test_id: testId, max_uses: 1 })
     .select("id")
     .maybeSingle();
   if (error) throw new Error(`Create link failed: ${error.message}`);
+
   redirect(`/portal/${slug}/tests/${testId}`);
+}
+
+function statusLabel(t: AnyRow) {
+  if (t.is_active === false) return "archived";
+  if (t.active === false) return "archived";
+  if (t.archived === true) return "archived";
+  if (t.is_active === true || t.active === true) return "active";
+  return "—";
 }
 
 export default async function TestsPage({ params }: { params: { slug: string } }) {
@@ -65,14 +83,20 @@ export default async function TestsPage({ params }: { params: { slug: string } }
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-base font-semibold">{t.name ?? t.id}</div>
-                  <div className="text-xs text-slate-500">{t.kind ?? "full"} · {t.is_active ? "active" : "archived"}</div>
+                  <div className="text-xs text-slate-500">
+                    {(t.kind ?? "full")} · {statusLabel(t)}
+                  </div>
                 </div>
                 <div className="flex gap-2">
-                  <Link href={`/portal/${slug}/tests/${t.id}`} className="px-3 py-2 rounded bg-gray-900 text-white">Open</Link>
+                  <Link href={`/portal/${slug}/tests/${t.id}`} className="px-3 py-2 rounded bg-gray-900 text-white">
+                    Open
+                  </Link>
                   <form action={createLinkAction}>
                     <input type="hidden" name="testId" value={t.id} />
                     <input type="hidden" name="slug" value={slug} />
-                    <button className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300" type="submit">Create link</button>
+                    <button type="submit" className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">
+                      Create link
+                    </button>
                   </form>
                 </div>
               </div>

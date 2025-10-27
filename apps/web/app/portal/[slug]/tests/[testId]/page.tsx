@@ -3,9 +3,12 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 
+type AnyRow = Record<string, any>;
+
 async function load(slug: string, testId: string) {
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE!,
     { auth: { persistSession: false } }
   );
 
@@ -13,18 +16,19 @@ async function load(slug: string, testId: string) {
     .from("organizations").select("id, name, slug").eq("slug", slug).maybeSingle();
   if (!org) throw new Error("Org not found");
 
+  // Select * to avoid missing-column errors
   const { data: test } = await supabase
-    .from("tests").select("id, name, is_active, kind, org_id").eq("id", testId).eq("org_id", org.id).maybeSingle();
+    .from("tests").select("*").eq("id", testId).eq("org_id", org.id).maybeSingle();
   if (!test) throw new Error("Test not found or not in this org");
 
   const { data: links } = await supabase
     .from("test_links")
     .select("id, token, use_count, max_uses")
     .eq("test_id", test.id)
-    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(25);
 
-  return { org, test, links: links ?? [] };
+  return { org, test: test as AnyRow, links: links ?? [] };
 }
 
 export default async function Page({ params }: { params: { slug: string; testId: string } }) {
@@ -33,7 +37,6 @@ export default async function Page({ params }: { params: { slug: string; testId:
     return (
       <div className="space-y-6 p-6">
         <h1 className="text-xl font-semibold">Test — {test.name ?? test.id}</h1>
-
         <div>
           <h2 className="text-lg font-semibold mb-2">Recent links</h2>
           <div className="space-y-2">
@@ -47,7 +50,6 @@ export default async function Page({ params }: { params: { slug: string; testId:
             {links.length === 0 && <div className="text-sm text-slate-500">No links yet — go back and “Create link”.</div>}
           </div>
         </div>
-
         <Link href={`/portal/${org.slug}/tests`} className="text-sm underline text-slate-600">← Back to Tests</Link>
       </div>
     );
