@@ -3,12 +3,13 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import Link from 'next/link';
+import { getBaseUrl } from '@/lib/baseUrl';
 
 async function getOrg(slug: string) {
-  // Relative fetch works in server components on Vercel
-  const r = await fetch(`/api/org/${slug}/get`, { cache: 'no-store' });
+  const base = getBaseUrl();
+  const r = await fetch(`${base}/api/org/${slug}/get`, { cache: 'no-store' });
   if (!r.ok) return null;
-  const j = await r.json();
+  const j = await r.json().catch(() => ({}));
   return j?.org ?? null;
 }
 
