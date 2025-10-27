@@ -1,3 +1,3 @@
-// TEMP: fully disable middleware so it can't touch /api or anything else
+// apps/web/middleware.ts
 export function middleware() {}
 export const config = { matcher: [] };

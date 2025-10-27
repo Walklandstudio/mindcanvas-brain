@@ -1,3 +1,4 @@
+// apps/web/lib/supabaseAdmin.ts
 import { createClient } from '@supabase/supabase-js';
 
 export const sbAdmin = createClient(
