@@ -4,42 +4,33 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
-  const db = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!,
-    { auth: { persistSession: false } }
-  );
+export async function POST(_req: Request, { params }: { params: { token: string } }) {
+  const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!, { auth: { persistSession: false } });
 
-  try {
-    // resolve test_id from token
-    const { data: link } = await db
-      .from("test_links")
-      .select("test_id")
-      .eq("token", params.token)
-      .maybeSingle();
-    if (!link) return NextResponse.json({ error: "Invalid token", questions: [] }, { status: 404 });
+  // link
+  const { data: link, error: linkErr } = await db
+    .from("portal.test_links")
+    .select("id, token, max_uses, use_count, test_id")
+    .eq("token", params.token)
+    .maybeSingle();
+  if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
+  if (!link)  return NextResponse.json({ error: "Invalid or unknown token" }, { status: 404 });
 
-    // your schema: test_questions has "order", "type", "text", "options"
-    const { data: qs, error } = await db
-      .from("test_questions")
-      .select("id, test_id, \"order\", type, text, options, kind, idx")
-      .eq("test_id", link.test_id)
-      .order("idx", { ascending: true })    // prefer idx if present, else "order"
-      .order("order", { ascending: true });
-    if (error) return NextResponse.json({ error: error.message, questions: [] }, { status: 500 });
-
-    // normalize to a friendly shape the UI can render
-    const questions = (qs ?? []).map((q: any) => ({
-      id: q.id,
-      order_index: q.idx ?? q.order ?? null,
-      kind: q.type ?? q.kind ?? "question",
-      prompt: q.text ?? "",
-      options: q.options ?? null,
-    }));
-
-    return NextResponse.json({ questions });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Server error", questions: [] }, { status: 500 });
+  // test
+  const { data: test, error: testErr } = await db
+    .from("portal.v_org_tests")
+    .select("id, org_id, name, status, slug")
+    .eq("id", link.test_id)
+    .maybeSingle();
+  if (testErr) return NextResponse.json({ error: testErr.message }, { status: 500 });
+  if (!test)   return NextResponse.json({ error: "Test not found for this link" }, { status: 404 });
+  if (test.status && test.status !== "active") {
+    return NextResponse.json({ error: "This test is not active" }, { status: 410 });
   }
+
+  // increment & taker (best-effort)
+  try { await db.rpc("portal.increment_test_link_use", { link_token: params.token }); } catch {}
+  try { await db.from("portal.test_takers").insert({ link_token: params.token, test_id: test.id, org_id: test.org_id, status: "started" }); } catch {}
+
+  return NextResponse.json({ ok: true, next: `/t/${params.token}`, test: { id: test.id, name: test.name ?? null }, link: { token: link.token } });
 }
