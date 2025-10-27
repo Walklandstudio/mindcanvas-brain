@@ -16,6 +16,7 @@ export default function TestsClient({ slug }: { slug: string }) {
         setLoading(true);
         setError('');
         const r = await fetch(`/api/org/${slug}/tests`, { cache: 'no-store' });
+
         if (!alive) return;
 
         if (!r.ok) {
@@ -39,9 +40,7 @@ export default function TestsClient({ slug }: { slug: string }) {
         if (alive) setLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [slug]);
 
   return (
@@ -49,7 +48,7 @@ export default function TestsClient({ slug }: { slug: string }) {
       <h1 className="text-2xl font-semibold">Tests</h1>
 
       {loading && <div className="text-white/70">Loading…</div>}
-      {!loading && error && <div className="text-red-300">{error}</div>}
+      {!loading && error && <div className="text-red-300 whitespace-pre-wrap">{error}</div>}
 
       {!loading && !error && (
         tests.length === 0 ? (
@@ -59,13 +58,15 @@ export default function TestsClient({ slug }: { slug: string }) {
             {tests.map((t) => (
               <li
                 key={t.id}
-                className="border border-white/10 rounded p-3 flex items-center justify-between"
+                className="border border-white/10 rounded p-3 flex items-center justify-between hover:bg-white/5 transition"
               >
                 <div>
                   <div className="font-medium">{t.name}</div>
                   <div className="text-xs text-white/60 uppercase">{t.status}</div>
                 </div>
-                <a className="underline" href={`/portal/${slug}/tests/${t.id}`}>Open</a>
+                <a className="underline hover:text-sky-400" href={`/portal/${slug}/tests/${t.id}`}>
+                  Open
+                </a>
               </li>
             ))}
           </ul>
