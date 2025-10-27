@@ -1,123 +1,151 @@
-// apps/web/app/portal/[slug]/page.tsx
-export const dynamic = 'force-dynamic';
+"use client";
 
-import Link from 'next/link';
-import { getAdminClient } from '@/app/_lib/portal';
+import { useEffect, useState } from "react";
 
-type Params = { slug: string };
+type Test = {
+  id: string;
+  name: string | null;
+  slug: string | null;
+  is_active: boolean | null;
+  kind: string | null;
+};
 
-export default async function OrgPortalPage({
-  params,
-}: {
-  // NOTE: Next 15: params is a Promise
-  params: Promise<Params>;
-}) {
-  const { slug } = await params;
-  const sb = await getAdminClient();
+type LinkRow = { id: string; token: string };
 
-  // Look up org
-  const { data: org, error: orgErr } = await sb
-    .from('organizations')
-    .select('id,name,slug')
-    .eq('slug', slug)
-    .maybeSingle();
+export default function TestsPage({ params }: { params: { slug: string } }) {
+  const { slug } = params;
+  const [tests, setTests] = useState<Test[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState<Record<string, boolean>>({});
+  const [newLinks, setNewLinks] = useState<Record<string, LinkRow | null>>({});
 
-  if (orgErr) {
-    return (
-      <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Portal — {slug}</h1>
-        <p style={{ color: 'crimson' }}>Error loading org: {orgErr.message}</p>
-        <p style={{ marginTop: 6 }}>
-          Go back to <Link href="/admin">/admin</Link>.
-        </p>
-      </main>
-    );
-  }
+  // Load tests for the organization
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/portal/list-tests?org=${encodeURIComponent(slug)}`, {
+          cache: "no-store",
+        });
+        const txt = await r.text();
+        let j: any;
+        try {
+          j = txt ? JSON.parse(txt) : {};
+        } catch {
+          j = { error: `Invalid JSON from API: ${txt.slice(0, 120)}` };
+        }
 
-  if (!org?.id) {
-    return (
-      <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Portal</h1>
-        <p style={{ color: 'crimson' }}>Organization not found for slug: {slug}</p>
-        <p style={{ marginTop: 6 }}>
-          Go back to <Link href="/admin">/admin</Link>.
-        </p>
-      </main>
-    );
-  }
+        if (!r.ok) throw new Error(j.error || `Failed to load tests (${r.status})`);
+        if (alive) setTests(j.tests ?? []);
+      } catch (e: any) {
+        if (alive) setError(e.message || String(e));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [slug]);
 
-  // Load tests for this org
-  const { data: tests, error: testsErr } = await sb
-    .from('org_tests')
-    .select('id,name,slug,status,mode,created_at')
-    .eq('org_id', org.id)
-    .order('created_at', { ascending: false });
+  // Create a test link
+  const createLink = async (testId: string) => {
+    setCreating((m) => ({ ...m, [testId]: true }));
+    try {
+      const r = await fetch(`/api/tests/${testId}/links`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_uses: 1, expires_at: null }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Create link failed");
+      if (!j.link?.token) throw new Error("API did not return link token");
+      setNewLinks((m) => ({ ...m, [testId]: { id: j.link.id, token: j.link.token } }));
+    } catch (e: any) {
+      alert(e.message || String(e));
+    } finally {
+      setCreating((m) => ({ ...m, [testId]: false }));
+    }
+  };
+
+  // Handle states
+  if (loading) return <div className="p-6 text-slate-500">Loading tests…</div>;
+  if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
+  if (!tests.length)
+    return <div className="p-6 text-slate-500">No tests found for this org.</div>;
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   return (
-    <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700 }}>Client Portal — {org.name}</h1>
-      <p style={{ marginTop: 4, color: '#666' }}><code>{org.slug}</code></p>
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold">Tests</h1>
 
-      {testsErr && (
-        <p style={{ color: 'crimson', marginTop: 12 }}>
-          Error loading tests: {testsErr.message}
-        </p>
-      )}
+      <div className="space-y-4">
+        {tests.map((t) => {
+          const link = newLinks[t.id];
+          return (
+            <div key={t.id} className="bg-white border rounded p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-base font-semibold">
+                    {t.name ?? t.slug ?? t.id}
+                  </div>
+                  <div className="text-xs font-mono text-slate-600">
+                    {t.slug ?? t.id}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {t.kind ?? "full"} · {t.is_active ? "active" : "archived"}
+                  </div>
+                </div>
 
-      {!testsErr && (!tests || tests.length === 0) && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: 16,
-            border: '1px dashed #ddd',
-            borderRadius: 10,
-            background: '#fafafa',
-          }}
-        >
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>
-            No tests found for this organization.
-          </div>
-          <div>Seed a test (e.g., <code>team-puzzle-profile</code>) and refresh.</div>
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-        {(tests ?? []).map((t) => (
-          <div
-            key={t.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: 12,
-              border: '1px solid #e5e5e5',
-              borderRadius: 10,
-            }}
-          >
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600 }}>{t.name}</div>
-              <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#666' }}>{t.slug}</div>
-              <div style={{ fontSize: 12, color: '#777', marginTop: 2 }}>
-                {t.mode || '—'} · {t.status || '—'}
+                <div className="flex gap-2">
+                  <a
+                    href={`/portal/${slug}/tests/${t.id}`}
+                    className="px-3 py-2 rounded bg-gray-900 text-white hover:opacity-90"
+                  >
+                    Open
+                  </a>
+                  <button
+                    className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
+                    disabled={!!creating[t.id]}
+                    onClick={() => createLink(t.id)}
+                  >
+                    {creating[t.id] ? "Creating…" : "Create link (API)"}
+                  </button>
+                </div>
               </div>
+
+              {link && (
+                <div className="grid md:grid-cols-3 gap-3 mt-3">
+                  <div className="bg-gray-50 rounded p-3">
+                    <div className="font-medium mb-1 text-sm">Direct Link</div>
+                    <code className="text-xs break-all">
+                      {origin
+                        ? `${origin}/t/${link.token}/start`
+                        : `/t/${link.token}/start`}
+                    </code>
+                  </div>
+
+                  <div className="bg-gray-50 rounded p-3">
+                    <div className="font-medium mb-1 text-sm">Embed (iframe)</div>
+                    <code className="text-xs whitespace-pre-wrap break-all">
+                      {`<iframe src="${origin}/t/${link.token}" width="100%" height="800" frameborder="0"></iframe>`}
+                    </code>
+                  </div>
+
+                  <div className="bg-gray-50 rounded p-3">
+                    <div className="font-medium mb-1 text-sm">Code Snippet (script)</div>
+                    <code className="text-xs whitespace-pre-wrap break-all">
+                      {`<div id="mindcanvas-test" data-token="${link.token}"></div>\n<script src="${origin}/embed.js" async></script>`}
+                    </code>
+                  </div>
+                </div>
+              )}
             </div>
-
-            <Link
-              href={`/portal/tests/${t.id}`}
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
-            >
-              Open
-            </Link>
-
-            <Link
-              href={`/api/tests/by-id/${t.id}/link`}
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
-            >
-              Create link (API)
-            </Link>
-          </div>
-        ))}
+          );
+        })}
       </div>
-    </main>
+    </div>
   );
 }
