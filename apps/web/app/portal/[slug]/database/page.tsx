@@ -1,65 +1,63 @@
-export const dynamic = "force-dynamic";
+// apps/web/app/portal/[slug]/database/page.tsx
+import { sbAdmin } from '@/lib/supabaseAdmin';
+import { resolveOrgBySlug } from '@/lib/resolveOrg';
 
-import { createClient } from "@supabase/supabase-js";
+type Taker = {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  status: string;
+  submitted_at: string | null;
+  report_ready_at: string | null;
+};
 
 export default async function DatabasePage({ params }: { params: { slug: string } }) {
-  const db = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!,
-    { auth: { persistSession: false } }
-  );
+  const org = await resolveOrgBySlug(params.slug);
+  if (!org) return null;
 
-  const { data: org } = await db
-    .from("portal.v_organizations")
-    .select("id, name, slug")
-    .eq("slug", params.slug)
-    .maybeSingle();
+  const { data, error } = await sbAdmin
+    .from('portal.test_takers')
+    .select('id, email, first_name, last_name, status, submitted_at, report_ready_at')
+    .eq('org_id', org.id)
+    .order('submitted_at', { ascending: false });
 
-  if (!org) return <div className="p-6 text-red-600">Org not found</div>;
+  if (error) {
+    return <div className="p-6 text-red-300">Error loading database: {error.message}</div>;
+  }
 
-  const { data: rows, error } = await db
-    .from("portal.test_takers")
-    .select("*")
-    .eq("org_id", org.id)
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  if (error) return <div className="p-6 text-red-600">{error.message}</div>;
+  const rows = (data ?? []) as Taker[];
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Database — {org.name ?? org.slug}</h1>
-      {!rows?.length ? (
-        <div className="text-slate-600">No test takers yet.</div>
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold mb-4">Test Takers</h1>
+      {rows.length === 0 ? (
+        <div className="text-white/70">No test takers yet.</div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-[720px] w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-500">
-                <th className="py-2 pr-4">Name</th>
-                <th className="py-2 pr-4">Email</th>
-                <th className="py-2 pr-4">Status</th>
-                <th className="py-2 pr-4">Created</th>
-                <th className="py-2 pr-4">Test</th>
+        <table className="w-full border border-white/10 text-sm">
+          <thead className="bg-white/5">
+            <tr>
+              <th className="p-2 text-left">Name</th>
+              <th className="p-2 text-left">Email</th>
+              <th className="p-2">Status</th>
+              <th className="p-2">Submitted</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} className="border-t border-white/10">
+                <td className="p-2">
+                  <a className="underline" href={`/portal/${org.slug}/database/${r.id}`}>
+                    {(r.first_name ?? '') + ' ' + (r.last_name ?? '')}
+                  </a>
+                </td>
+                <td className="p-2">{r.email ?? '—'}</td>
+                <td className="p-2 text-center">{r.status}</td>
+                <td className="p-2 text-center">{r.submitted_at ?? '—'}</td>
               </tr>
-            </thead>
-            <tbody>
-              {rows.map((r: any) => (
-                <tr key={r.id} className="border-t">
-                  <td className="py-2 pr-4">
-                    {[r.first_name, r.last_name].filter(Boolean).join(" ") || "—"}
-                  </td>
-                  <td className="py-2 pr-4">{r.email ?? "—"}</td>
-                  <td className="py-2 pr-4">{r.status ?? "—"}</td>
-                  <td className="py-2 pr-4">
-                    {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
-                  </td>
-                  <td className="py-2 pr-4">{r.test_id ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

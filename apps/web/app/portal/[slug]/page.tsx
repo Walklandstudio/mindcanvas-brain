@@ -1,19 +1,14 @@
-export const dynamic = "force-dynamic";
+// apps/web/app/portal/[slug]/page.tsx
+import { resolveOrgBySlug } from '@/lib/resolveOrg';
 
-export default function OrgHome({ params }: { params: { slug: string } }) {
-  const { slug } = params;
-  const pretty = slug.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+export default async function Page({ params }: { params: { slug: string } }) {
+  const org = await resolveOrgBySlug(params.slug);
+  if (!org) return null;
+
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Client Portal — {pretty}</h1>
-      <div className="space-y-4">
-        <a className="block rounded border bg-white px-4 py-3 hover:bg-gray-50" href={`/portal/${slug}/database`}>
-          View Test Taker Database →
-        </a>
-        <a className="block rounded border bg-white px-4 py-3 hover:bg-gray-50" href={`/portal/${slug}/tests`}>
-          Manage Tests →
-        </a>
-      </div>
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <p className="text-white/70">Welcome <b>{org.name}</b>. Use the sidebar to navigate.</p>
     </div>
   );
 }
