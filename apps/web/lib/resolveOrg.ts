@@ -1,4 +1,3 @@
-// apps/web/lib/resolveOrg.ts
 import { sbAdmin } from '@/lib/supabaseAdmin';
 
 export type OrgRow = {
@@ -12,18 +11,31 @@ export type OrgRow = {
 };
 
 export async function resolveOrgBySlug(slug: string): Promise<OrgRow | null> {
-  // Fully-qualify schema to avoid any default-schema surprises
+  const s = (slug ?? '').trim().toLowerCase();
+
+  // Try portal schema (preferred)
   const { data, error } = await sbAdmin
     .from('portal.v_organizations')
     .select('id, slug, name, is_active, logo_url, primary_color, secondary_color')
-    .eq('slug', slug)
+    .eq('slug', s)
     .maybeSingle();
 
   if (error) {
-    // Return null instead of throwing; caller can render a friendly message
-    console.error('resolveOrgBySlug error:', error.message);
-    return null;
+    // Fallback to public proxy view if portal has issues
+    const f = await sbAdmin
+      .from('v_organizations')
+      .select('id, slug, name, is_active, logo_url, primary_color, secondary_color')
+      .eq('slug', s)
+      .maybeSingle();
+
+    if (f.error) {
+      console.error('resolveOrgBySlug error:', error.message, 'fallback:', f.error.message, 'slug:', s);
+      return null;
+    }
+    if (!f.data || !f.data.is_active) return null;
+    return f.data as OrgRow;
   }
+
   if (!data || !data.is_active) return null;
   return data as OrgRow;
 }

@@ -1,6 +1,10 @@
 // apps/web/app/portal/[slug]/layout.tsx
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import Link from 'next/link';
 import { resolveOrgBySlug } from '@/lib/resolveOrg';
+/* ...rest of the file stays the same... */
 
 export default async function Layout({
   children,

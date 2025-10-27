@@ -1,4 +1,7 @@
 // apps/web/app/portal/[slug]/page.tsx
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { resolveOrgBySlug } from '@/lib/resolveOrg';
 
 export default async function Page({ params }: { params: { slug: string } }) {

@@ -1,4 +1,7 @@
 // apps/web/app/portal/[slug]/tests/page.tsx
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { sbAdmin } from '@/lib/supabaseAdmin';
 import { resolveOrgBySlug } from '@/lib/resolveOrg';
 
