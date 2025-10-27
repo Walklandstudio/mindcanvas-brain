@@ -1,6 +1,3 @@
-// apps/web/middleware.ts
-export function middleware() { /* no-op */ }
-
-export const config = {
-  matcher: [], // ← disables middleware entirely for this deploy
-};
+// TEMP: fully disable middleware so it can't touch /api or anything else
+export function middleware() {}
+export const config = { matcher: [] };
