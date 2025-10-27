@@ -1,3 +1,4 @@
+// apps/web/lib/supabaseAdmin.ts
 import { createClient } from '@supabase/supabase-js';
 
 export const sbAdmin = createClient(
@@ -5,6 +6,8 @@ export const sbAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE!,
   {
     auth: { persistSession: false },
-    db: { schema: 'portal' }, // 👈 tell Supabase to use the 'portal' schema by default
+    // IMPORTANT: do NOT set db.schema here.
+    // We'll fully-qualify in queries when needed (e.g., 'portal.tests').
+    // db: { schema: 'public' } // optional, but leaving it unset is simplest.
   }
 );
