@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const supabase = createClient(
@@ -12,32 +12,33 @@ export async function GET(req: NextRequest) {
   );
 
   const { searchParams } = new URL(req.url);
-  const org = searchParams.get("org"); // org slug is required
+  // slug is OPTIONAL now (back-compat)
+  const slug = searchParams.get("org") || req.cookies.get("active_org_slug")?.value || null;
 
-  if (!org) {
-    return NextResponse.json({ error: "Missing org slug" }, { status: 400 });
+  try {
+    let orgId: string | null = null;
+
+    if (slug) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
+      orgId = org?.id ?? null;
+    }
+
+    const q = supabase
+      .from("tests")
+      .select("id, name, slug, is_active, kind")
+      .order("created_at", { ascending: false });
+
+    if (orgId) q.eq("org_id", orgId);
+
+    const { data: tests, error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json({ tests: tests ?? [], orgSlug: slug ?? null });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
   }
-
-  // resolve org slug -> id
-  const { data: orgRow, error: orgErr } = await supabase
-    .from("organizations")
-    .select("id, slug, name")
-    .eq("slug", org)
-    .maybeSingle();
-
-  if (orgErr || !orgRow) {
-    return NextResponse.json({ error: "Org not found" }, { status: 404 });
-  }
-
-  const { data: tests, error } = await supabase
-    .from("tests")
-    .select("id, name, slug, is_active, kind")
-    .eq("org_id", orgRow.id)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ org: orgRow, tests: tests ?? [] });
 }
