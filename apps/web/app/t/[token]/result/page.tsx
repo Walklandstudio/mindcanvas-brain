@@ -1,9 +1,22 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+function apiBase() {
+  // Prefer your explicit base, then Vercel URL, else localhost for dev.
+  const explicit = process.env.NEXT_PUBLIC_BASE_URL?.trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+
+  const vercel = process.env.VERCEL_URL?.trim();
+  if (vercel) return `https://${vercel}`;
+
+  return 'http://localhost:3000';
+}
+
 async function getResult(token: string) {
-  // Server-side relative fetch (Next resolves to same origin)
-  const r = await fetch(`/api/public/test/${token}/result`, { cache: 'no-store' });
+  const base = apiBase();
+  const url = `${base}/api/public/test/${token}/result`;
+
+  const r = await fetch(url, { cache: 'no-store' });
   const j = await r.json().catch(() => ({} as any));
   if (!r.ok || j?.ok === false) {
     throw new Error(j?.error || `HTTP ${r.status}`);
@@ -22,6 +35,7 @@ export default async function ResultPage({ params }: { params: { token: string }
   }
 
   if (!data) {
+    const base = apiBase();
     return (
       <div className="mc-bg min-h-screen text-white p-6 space-y-4">
         <h1 className="text-3xl font-bold">Your Report</h1>
@@ -33,8 +47,11 @@ export default async function ResultPage({ params }: { params: { token: string }
           Debug:
           <ul className="list-disc ml-5 mt-2">
             <li>
-              <a className="underline" href={`/api/public/test/${params.token}/result`} target="_blank">
-                /api/public/test/{params.token}/result
+              Using: <code>{base}</code>
+            </li>
+            <li>
+              <a className="underline" href={`${base}/api/public/test/${params.token}/result`} target="_blank" rel="noreferrer">
+                {base}/api/public/test/{params.token}/result
               </a>
             </li>
           </ul>
