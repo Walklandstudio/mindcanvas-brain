@@ -6,16 +6,18 @@ type Question = {
   id: string;
   idx?: number | null;
   order?: number | null;
-  type?: string | null;
+  type?: string | null;          // e.g. 'radio'
   text: string;
-  options?: any;
+  options?: string[] | null;     // array of option labels
+  category?: 'scored' | 'qual' | string | null;
 };
 
-type Answers = Record<string, number>; // questionId -> 1..5
+type Answers = Record<string, number>; // questionId -> 1..N (index into options array)
 
 export default function PublicTestClient({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState<string>('');
+  const [error, setError] = useState<string>('');
+  const [testName, setTestName] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [started, setStarted] = useState(false);
   const [i, setI] = useState(0);
@@ -27,7 +29,7 @@ export default function PublicTestClient({ token }: { token: string }) {
     const r = await fetch(url, init);
     const ct = r.headers.get('content-type') || '';
     if (!ct.includes('application/json')) {
-      const text = (await r.text()).slice(0, 400);
+      const text = (await r.text()).slice(0, 600);
       throw new Error(`HTTP ${r.status} – non-JSON response:\n${text}`);
     }
     const j = await r.json();
@@ -37,6 +39,7 @@ export default function PublicTestClient({ token }: { token: string }) {
     return j;
   }
 
+  // kick off session and load questions
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -44,21 +47,26 @@ export default function PublicTestClient({ token }: { token: string }) {
         setLoading(true);
         setError('');
 
-        // Start session
+        // Start (idempotent)
         await fetchJson(`/api/public/test/${token}/start`, { method: 'POST' });
         if (!alive) return;
         setStarted(true);
 
-        // Load questions
-        const q = await fetchJson(`/api/public/test/${token}/questions`);
+        // Load questions (optionally supports { test_name })
+        const qRes: any = await fetchJson(`/api/public/test/${token}/questions`);
         if (!alive) return;
 
-        const list: Question[] = Array.isArray(q?.questions) ? q.questions : [];
+        setTestName(typeof qRes?.test_name === 'string' ? qRes.test_name : null);
+        const list: Question[] = Array.isArray(qRes?.questions) ? qRes.questions : [];
         setQuestions(list);
-        // restore any saved answers (nice for refresh)
+
+        // restore local answers (nice for refresh/back)
         const saved = typeof window !== 'undefined'
-          ? window.localStorage.getItem(`mc_answers_${token}`) : null;
-        if (saved) setAnswers(JSON.parse(saved));
+          ? window.localStorage.getItem(`mc_answers_${token}`)
+          : null;
+        if (saved) {
+          try { setAnswers(JSON.parse(saved)); } catch {}
+        }
       } catch (e: any) {
         if (alive) setError(String(e?.message || e));
       } finally {
@@ -68,7 +76,7 @@ export default function PublicTestClient({ token }: { token: string }) {
     return () => { alive = false; };
   }, [token]);
 
-  // persist answers locally (for demo; server submit below marks taker submitted)
+  // persist answers locally
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(`mc_answers_${token}`, JSON.stringify(answers));
@@ -77,7 +85,7 @@ export default function PublicTestClient({ token }: { token: string }) {
 
   const q = questions[i];
   const allAnswered = useMemo(
-    () => questions.length > 0 && questions.every(qq => answers[qq.id] >= 1),
+    () => questions.length > 0 && questions.every(qq => Number(answers[qq.id]) >= 1),
     [questions, answers]
   );
 
@@ -89,8 +97,6 @@ export default function PublicTestClient({ token }: { token: string }) {
     try {
       setSubmitting(true);
       setError('');
-      // Minimal server record: mark taker as submitted.
-      // (We can store full answers later; this enables the end-to-end flow now.)
       const res = await fetch(`/api/public/test/${token}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -99,7 +105,6 @@ export default function PublicTestClient({ token }: { token: string }) {
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
       setDone(true);
-      // clear local cache
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(`mc_answers_${token}`);
       }
@@ -109,6 +114,8 @@ export default function PublicTestClient({ token }: { token: string }) {
       setSubmitting(false);
     }
   };
+
+  /* ------------ UI ------------- */
 
   if (loading) {
     return (
@@ -147,7 +154,7 @@ export default function PublicTestClient({ token }: { token: string }) {
 
   return (
     <div className="min-h-screen mc-bg text-white p-6 space-y-6">
-      <h1 className="text-3xl font-bold">Public Test</h1>
+      <h1 className="text-3xl font-bold">{testName || 'Public Test'}</h1>
       <div className="text-white/70">
         Token: <code className="text-white">{token}</code> • {started ? 'started' : 'not started'}
       </div>
@@ -158,26 +165,52 @@ export default function PublicTestClient({ token }: { token: string }) {
         <>
           {/* Question card */}
           <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
-            <div className="text-sm text-white/60 mb-2">Question {i + 1} / {questions.length}</div>
+            <div className="text-sm text-white/60 mb-2">
+              Question {i + 1} / {questions.length}
+              {q?.category && <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">{q.category}</span>}
+            </div>
             <div className="text-lg font-medium mb-4">{q.text}</div>
 
-            {/* Likert 1..5 */}
-            <div className="grid grid-cols-5 gap-2">
-              {[1,2,3,4,5].map(val => (
-                <button
-                  key={val}
-                  className={[
-                    'px-3 py-3 rounded-xl border transition',
-                    answers[q.id] === val
-                      ? 'bg-white text-black border-white'
-                      : 'bg-white/5 border-white/20 hover:bg-white/10'
-                  ].join(' ')}
-                  onClick={() => setChoice(q.id, val)}
-                >
-                  {val}
-                </button>
-              ))}
-            </div>
+            {/* Prefer text options (radio list). Fallback to 1..5 if none. */}
+            {Array.isArray(q.options) && q.options.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {q.options.map((label, idx) => {
+                  const val = idx + 1; // store 1..N
+                  const selected = answers[q.id] === val;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => setChoice(q.id, val)}
+                      className={[
+                        'text-left px-3 py-3 rounded-xl border transition',
+                        selected
+                          ? 'bg-white text-black border-white'
+                          : 'bg-white/5 border-white/20 hover:bg-white/10'
+                      ].join(' ')}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((val) => (
+                  <button
+                    key={val}
+                    onClick={() => setChoice(q.id, val)}
+                    className={[
+                      'px-3 py-3 rounded-xl border transition',
+                      answers[q.id] === val
+                        ? 'bg-white text-black border-white'
+                        : 'bg-white/5 border-white/20 hover:bg-white/10'
+                    ].join(' ')}
+                  >
+                    {val}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Nav + Submit */}
