@@ -1,11 +1,9 @@
 // apps/web/lib/supabaseAdmin.ts
 import { createClient } from '@supabase/supabase-js';
 
-export const sbAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE!,
-  {
-    auth: { persistSession: false },
-    db: { schema: 'portal' }, // ← single source of truth
-  }
-);
+const url  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const key  = process.env.SUPABASE_SERVICE_ROLE!; // service role
+
+export const sbAdmin = createClient(url, key, {
+  auth: { persistSession: false },
+});

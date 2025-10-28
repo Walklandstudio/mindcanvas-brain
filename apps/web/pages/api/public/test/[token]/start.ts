@@ -1,21 +1,20 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sbAdmin } from '@/lib/supabaseAdmin';
 
-// Start a public test session for a link token.
-// - validates token
-// - finds the test + org_id
-// - increments link use (best effort)
-// - inserts a "started" test_takers row with the correct org_id
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = String(req.query.token || '').trim();
   if (!token) return res.status(400).json({ ok: false, error: 'missing token' });
 
-  if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).end();
+  // Ensure JSON (not HTML) for wrong methods
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ ok: false, error: 'method_not_allowed' });
+  }
 
-  // 1) link -> test_id
+  // 1) Resolve token -> test_id
   const linkRes = await sbAdmin
-    .from('test_links') // schema is 'portal' via sbAdmin config
-    .select('id, test_id, token, use_count, max_uses')
+    .from('portal.test_links')
+    .select('id, test_id, use_count')
     .eq('token', token)
     .maybeSingle();
 
@@ -23,9 +22,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const link = linkRes.data;
   if (!link) return res.status(404).json({ ok: false, error: 'invalid_token' });
 
-  // 2) test -> org_id
+  // 2) Fetch test -> org_id
   const testRes = await sbAdmin
-    .from('tests')
+    .from('portal.tests')
     .select('id, org_id')
     .eq('id', link.test_id as string)
     .maybeSingle();
@@ -35,33 +34,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!test) return res.status(404).json({ ok: false, error: 'test_not_found' });
   if (!test.org_id) return res.status(500).json({ ok: false, error: 'test_missing_org_id' });
 
-  // 3) increment use_count (best effort; ignore error)
+  // 3) Best-effort increment of link use_count (ignore errors)
   try {
     await sbAdmin
-      .from('test_links')
+      .from('portal.test_links')
       .update({ use_count: (link.use_count ?? 0) + 1 })
       .eq('id', link.id);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
-  // 4) insert test_taker (status started) — anonymous
+  // 4) Insert taker (status: started)
   const takerRes = await sbAdmin
-    .from('test_takers')
+    .from('portal.test_takers')
     .insert({
-      org_id: test.org_id,      // ✅ required
+      org_id: test.org_id,
       test_id: link.test_id as string,
       link_token: token,
+      status: 'started',
       email: null,
       first_name: null,
       last_name: null,
-      status: 'started',
     })
     .select('id')
     .maybeSingle();
 
-  // swallow unique/duplicate errors if you add a constraint later
-  if (takerRes.error && !/duplicate|unique/i.test(takerRes.error.message)) {
-    return res.status(500).json({ ok: false, error: takerRes.error.message });
-  }
+  if (takerRes.error) return res.status(500).json({ ok: false, error: takerRes.error.message });
 
-  return res.status(200).json({ ok: true, started: true, test_id: link.test_id, org_id: test.org_id });
+  return res.status(200).json({
+    ok: true,
+    taker_id: takerRes.data?.id ?? null,
+    test_id: link.test_id,
+    org_id: test.org_id,
+  });
 }
