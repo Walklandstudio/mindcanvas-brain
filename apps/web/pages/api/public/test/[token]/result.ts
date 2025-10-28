@@ -6,58 +6,103 @@ type Totals = Record<string, number>;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.query.token as string | undefined;
-  if (!token) return res.status(400).json({ ok: false, error: 'missing_token' });
+
+  // ✅ Always return 200 with a payload (no 401s from this route)
+  if (!token) {
+    return res.status(200).json({
+      ok: false,
+      stage: 'init',
+      error: 'missing_token',
+    });
+  }
+
+  // Quick env canary (helps catch wrong project / missing key)
+  const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const hasRole = !!process.env.SUPABASE_SERVICE_ROLE;
 
   try {
-    const db = sbAdmin.schema('portal');
-
-    // 1) token -> test_id
-    const link = await db
-      .from('test_links')
+    // Use fully-qualified table names to bypass schema-switch quirks
+    // This avoids `.schema('portal')` restrictions seen earlier.
+    const link = await sbAdmin
+      .from('portal.test_links')
       .select('test_id, token')
       .eq('token', token)
       .maybeSingle();
 
-    if (link.error) return res.status(500).json({ ok: false, error: link.error.message });
-    if (!link.data) return res.status(404).json({ ok: false, error: 'link_not_found' });
+    if (link.error) {
+      return res.status(200).json({
+        ok: false,
+        stage: 'link_lookup',
+        env: { hasUrl, hasRole },
+        error: link.error.message,
+        hint: 'Ensure portal.test_links exists and service-role key is valid for this Supabase project.',
+      });
+    }
+    if (!link.data) {
+      return res.status(200).json({
+        ok: false,
+        stage: 'link_lookup',
+        env: { hasUrl, hasRole },
+        error: 'link_not_found',
+      });
+    }
 
-    // 2) taker (latest by token)
-    const taker = await db
-      .from('test_takers')
+    const taker = await sbAdmin
+      .from('portal.test_takers')
       .select('id, first_name, last_name, email, status')
       .eq('link_token', token)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (taker.error) return res.status(500).json({ ok: false, error: taker.error.message });
-    if (!taker.data) return res.status(404).json({ ok: false, error: 'taker_not_found' });
-
-    // 3) totals from submissions if table exists (fail-soft)
-    let totals: Totals = {};
-    try {
-      const sub = await db
-        .from('test_submissions')
-        .select('totals')
-        .eq('taker_id', taker.data.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (sub.error && sub.error.message?.includes('relation') && sub.error.message?.includes('does not exist')) {
-        // table missing → ignore
-      } else if (sub.error) {
-        return res.status(500).json({ ok: false, error: sub.error.message });
-      } else if (sub.data?.totals) {
-        totals = sub.data.totals as Totals;
-      }
-    } catch (e: any) {
-      // absolutely fail-soft: never throw here
-      // keep totals as {}
+    if (taker.error) {
+      return res.status(200).json({
+        ok: false,
+        stage: 'taker_lookup',
+        env: { hasUrl, hasRole },
+        error: taker.error.message,
+        hint: 'Check portal.test_takers permissions / existence.',
+      });
+    }
+    if (!taker.data) {
+      return res.status(200).json({
+        ok: false,
+        stage: 'taker_lookup',
+        env: { hasUrl, hasRole },
+        error: 'taker_not_found',
+        hint: 'Submit flow may not have created a taker yet for this token.',
+      });
     }
 
-    return res.status(200).json({ ok: true, taker: taker.data, totals });
+    // Try to fetch precomputed totals (fail-soft if table missing)
+    let totals: Totals = {};
+    const sub = await sbAdmin
+      .from('portal.test_submissions')
+      .select('totals')
+      .eq('taker_id', taker.data.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (sub.error) {
+      // If the table doesn’t exist yet or RLS blocks, don’t fail the endpoint
+      totals = {};
+    } else if (sub.data?.totals) {
+      totals = sub.data.totals as Totals;
+    }
+
+    return res.status(200).json({
+      ok: true,
+      taker: taker.data,
+      totals,
+      meta: { env: { hasUrl, hasRole } },
+    });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || 'internal_error' });
+    return res.status(200).json({
+      ok: false,
+      stage: 'catch',
+      env: { hasUrl, hasRole },
+      error: e?.message || 'internal_error',
+    });
   }
 }
