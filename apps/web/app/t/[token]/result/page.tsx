@@ -1,60 +1,218 @@
-// apps/web/pages/api/public/test/[token]/result.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { sbAdmin } from '@/lib/supabaseAdmin';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const runtime = 'nodejs';
 
-type Totals = Record<string, number>;
+import { headers as nextHeaders } from 'next/headers';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const token = req.query.token as string | undefined;
-  if (!token) return res.status(400).json({ ok: false, error: 'missing_token' });
+type TotalsResponse = {
+  ok: boolean;
+  taker?: { id: string; first_name: string; last_name: string; email: string; status: string };
+  totals?: Record<string, number>;
+  error?: string;
+};
+
+type MetaResponse = {
+  ok: boolean;
+  test?: { id: string; name: string; slug: string; mode: string };
+  meta?: {
+    frequencies: { code: 'A'|'B'|'C'|'D'; label: string }[];
+    profiles: { code: string; name: string; frequency: 'A'|'B'|'C'|'D' }[];
+    thresholds: {
+      frequencies?: Record<'A'|'B'|'C'|'D', { greater_than: number; less_than: number }>;
+      profiles_full_test?: {
+        frequencies: Record<'A'|'B'|'C'|'D', { greater_than: number; less_than: number }>;
+        profiles: Record<string, { greater_than: number; less_than: number }>;
+      };
+    } | null;
+  };
+  error?: string;
+};
+
+async function getBaseUrl() {
+  const h = await nextHeaders(); // handles Promise typing in your project
+  const host = h.get('x-forwarded-host') ?? h.get('host');
+  const proto = h.get('x-forwarded-proto') ?? 'https';
+  const envUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith('http')
+      ? process.env.NEXT_PUBLIC_VERCEL_URL
+      : process.env.NEXT_PUBLIC_VERCEL_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+      : null);
+  if (envUrl) return envUrl;
+  if (!host) throw new Error('missing_host_header');
+  return `${proto}://${host}`;
+}
+
+async function safeJSON(url: string): Promise<{ ok: boolean; json?: any; status: number; error?: string }> {
   try {
-    const db = sbAdmin.schema('portal');
-
-    // 1) token -> link -> test_id
-    const link = await db.from('test_links')
-      .select('test_id, token')
-      .eq('token', token)
-      .maybeSingle();
-    if (link.error) return res.status(500).json({ ok: false, error: link.error.message });
-    if (!link.data) return res.status(404).json({ ok: false, error: 'link_not_found' });
-
-    // 2) taker: most recent completed for this token (or the latest one)
-    const taker = await db.from('test_takers')
-      .select('id, first_name, last_name, email, status')
-      .eq('link_token', token)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (taker.error) return res.status(500).json({ ok: false, error: taker.error.message });
-    if (!taker.data) return res.status(404).json({ ok: false, error: 'taker_not_found' });
-
-    // 3) totals: either from submissions table, or compute fallback from answers
-    // Prefer a precomputed JSON column on submissions if you have it:
-    //   portal.test_submissions(taker_id, totals jsonb)
-    const sub = await db.from('test_submissions')
-      .select('totals')
-      .eq('taker_id', taker.data.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    let totals: Totals | null = null;
-
-    if (sub.data?.totals) {
-      totals = sub.data.totals as Totals;
-    } else {
-      // Fallback: derive from answers if you store them (optional)
-      // If you don’t have answers stored, leave totals as empty object
-      totals = {};
+    const res = await fetch(url, { cache: 'no-store' });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json || json.ok === false) {
+      return { ok: false, status: res.status, error: json?.error || `HTTP ${res.status}`, json };
     }
-
-    return res.status(200).json({
-      ok: true,
-      taker: taker.data,
-      totals: totals ?? {},
-    });
+    return { ok: true, status: res.status, json };
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || 'internal_error' });
+    return { ok: false, status: 0, error: e?.message || 'fetch_failed' };
   }
+}
+
+function deriveFrequencyTotals(
+  totals: Record<string, number> = {},
+  profiles: { code: string; name: string; frequency: 'A'|'B'|'C'|'D' }[] = []
+) {
+  const freqTotals: Record<'A'|'B'|'C'|'D', number> = { A:0, B:0, C:0, D:0 };
+  const byCode = new Map<string, { frequency: 'A'|'B'|'C'|'D'; name: string }>();
+  const byName = new Map<string, { frequency: 'A'|'B'|'C'|'D'; code: string }>();
+  for (const p of profiles) { byCode.set(p.code, { frequency: p.frequency, name: p.name }); byName.set(p.name, { frequency: p.frequency, code: p.code }); }
+  for (const [k,v] of Object.entries(totals)) {
+    if (!v) continue;
+    let freq: 'A'|'B'|'C'|'D' | null = null;
+    if (byCode.has(k)) freq = byCode.get(k)!.frequency;
+    else if (byName.has(k)) freq = byName.get(k)!.frequency;
+    else {
+      const lower = k.toLowerCase();
+      for (const p of profiles) {
+        if (p.code.toLowerCase() === lower || p.name.toLowerCase() === lower) { freq = p.frequency; break; }
+      }
+    }
+    if (freq) freqTotals[freq] += v;
+  }
+  return freqTotals;
+}
+
+function bandFor(value: number, band?: { greater_than: number; less_than: number }) {
+  if (!band) return null;
+  if (value > band.greater_than && value < band.less_than) return 'within';
+  if (value <= band.greater_than) return 'below';
+  if (value >= band.less_than) return 'above';
+  return null;
+}
+
+function findTopProfile(
+  totals: Record<string, number> = {},
+  profiles: { code: string; name: string; frequency: 'A'|'B'|'C'|'D' }[] = []
+) {
+  let topKey = ''; let topVal = -Infinity;
+  const codes = new Set(profiles.map(p => p.code));
+  const names = new Set(profiles.map(p => p.name));
+  const filtered = Object.entries(totals).filter(([k]) => codes.has(k) || names.has(k));
+  for (const [k,v] of filtered) { if (v > topVal) { topKey = k; topVal = v; } }
+  const match = profiles.find(p => p.code === topKey) || profiles.find(p => p.name === topKey);
+  return match ? { code: match.code, name: match.name, points: topVal, frequency: match.frequency } : null;
+}
+
+export default async function Page({ params }: { params: { token: string } }) {
+  const base = await getBaseUrl();
+  const token = params.token;
+
+  // Hit API endpoints *without throwing*, and show exact errors if any.
+  const [rTotals, rMeta] = await Promise.all([
+    safeJSON(`${base}/api/public/test/${token}/result`),
+    safeJSON(`${base}/api/public/test/${token}/meta`),
+  ]);
+
+  if (!rTotals.ok) {
+    return (
+      <main className="mc-bg min-h-screen text-white p-6">
+        <h1 className="text-2xl font-bold">Could not load result</h1>
+        <p className="mt-2 text-white/70">Totals endpoint error: {rTotals.error} (HTTP {rTotals.status})</p>
+      </main>
+    );
+  }
+
+  const totalsResp = rTotals.json as TotalsResponse;
+  const metaResp = rMeta.ok ? (rMeta.json as MetaResponse) : null;
+
+  const taker = totalsResp.taker;
+  const totals = totalsResp.totals || {};
+  const profiles = metaResp?.meta?.profiles || [];
+  const freqsArr = metaResp?.meta?.frequencies || [];
+  const thresholds = metaResp?.meta?.thresholds || null;
+
+  const freqTotals = deriveFrequencyTotals(totals, profiles);
+  const top = findTopProfile(totals, profiles);
+
+  const freqBands: Record<'A'|'B'|'C'|'D', string | null> = { A:null, B:null, C:null, D:null };
+  if (thresholds?.frequencies) {
+    (['A','B','C','D'] as const).forEach((code) => {
+      const band = thresholds.frequencies![code];
+      freqBands[code] = bandFor(freqTotals[code], band);
+    });
+  }
+
+  let topProfileBand: string | null = null;
+  if (top && thresholds?.profiles_full_test?.profiles) {
+    const pBand = thresholds.profiles_full_test.profiles[top.code] || thresholds.profiles_full_test.profiles[top.name];
+    if (pBand) topProfileBand = bandFor(top.points, pBand);
+  }
+
+  return (
+    <main className="mc-bg min-h-screen text-white p-6">
+      <h1 className="text-3xl font-bold">Your Report</h1>
+      {taker && (
+        <div className="mt-2 text-white/80">
+          {taker.first_name} {taker.last_name} • {taker.email}
+        </div>
+      )}
+
+      {!rMeta.ok && (
+        <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-400/40 text-yellow-100">
+          Meta endpoint error: {rMeta.error} (HTTP {rMeta.status})
+        </div>
+      )}
+
+      <section className="mt-8 grid md:grid-cols-2 gap-6">
+        <div className="rounded-2xl border border-white/10 p-5 bg-white/5">
+          <div className="text-white/70 text-sm">Top Profile</div>
+          {top ? (
+            <div className="mt-1">
+              <div className="text-2xl font-semibold">{top.name}</div>
+              <div className="text-white/70">({top.code}) • {top.points} pts</div>
+              {topProfileBand && (
+                <div className="mt-2 text-sm">
+                  Threshold band: <span className="font-medium capitalize">{topProfileBand}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-white/70">Not enough data.</div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-white/10 p-5 bg-white/5">
+          <div className="text-white/70 text-sm">Frequency Totals</div>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            {(['A','B','C','D'] as const).map((code) => {
+              const label = freqsArr.find(f => f.code === code)?.label ?? code;
+              const pts = freqTotals[code] || 0;
+              const bandLabel = freqBands[code] ? ` (${freqBands[code]})` : '';
+              return (
+                <div key={code} className="rounded-xl bg-white/5 border border-white/10 p-3">
+                  <div className="text-sm text-white/70">{label} ({code})</div>
+                  <div className="text-xl font-semibold">{pts}{bandLabel}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-8 rounded-2xl border border-white/10 p-5 bg-white/5">
+        <div className="text-white/70 text-sm">Profile Totals</div>
+        <div className="mt-3 grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {profiles.map((p) => {
+            const val = totals[p.code] ?? totals[p.name] ?? 0;
+            return (
+              <div key={p.code} className="rounded-xl bg-white/5 border border-white/10 p-3">
+                <div className="text-sm text-white/70">{p.name} ({p.code}) — Freq {p.frequency}</div>
+                <div className="text-lg font-semibold">{val}</div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </main>
+  );
 }
 
