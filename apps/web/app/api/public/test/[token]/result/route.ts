@@ -10,7 +10,7 @@ export async function GET(_: Request, { params }: { params: { token: string } })
     const db = sbAdmin.schema('portal');
 
     const link = await db.from('test_links')
-      .select('test_id, token')
+      .select('test_id')
       .eq('token', token)
       .maybeSingle();
     if (link.error) return json(200, { ok: false, stage: 'link_lookup', error: link.error.message });
