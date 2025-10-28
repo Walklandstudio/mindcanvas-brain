@@ -1,13 +1,9 @@
-// apps/web/app/layout.tsx
-import "./globals.css";
-import React from "react";
+// apps/web/app/t/layout.tsx
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body className="bg-slate-50 text-slate-900 antialiased">
-        {children}
-      </body>
-    </html>
-  );
+export default function TestLayout({ children }: { children: React.ReactNode }) {
+  // No headers(), no cookies(), no env, no SB calls here.
+  return <>{children}</>;
 }
+
