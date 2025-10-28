@@ -1,12 +1,13 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const runtime = 'nodejs';
 
-import { notFound } from 'next/navigation';
+import { headers as nextHeaders } from 'next/headers';
 
 type TotalsResponse = {
   ok: boolean;
   taker?: { id: string; first_name: string; last_name: string; email: string; status: string };
-  totals?: Record<string, number>; // profileName OR profileCode -> points
+  totals?: Record<string, number>;
   error?: string;
 };
 
@@ -27,8 +28,29 @@ type MetaResponse = {
   error?: string;
 };
 
-async function fetchJSON(path: string) {
-  const res = await fetch(path, { cache: 'no-store' });
+async function getBaseUrl() {
+  // Some Next typings mark `headers()` as Promise-like in your project.
+  const h = await nextHeaders();
+  // Prefer forwarded headers on Vercel/proxies
+  const host = h.get('x-forwarded-host') ?? h.get('host');
+  const proto = h.get('x-forwarded-proto') ?? 'https';
+
+  // Fallbacks for local/dev if ever needed
+  const envUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith('http')
+      ? process.env.NEXT_PUBLIC_VERCEL_URL
+      : process.env.NEXT_PUBLIC_VERCEL_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+      : null;
+
+  if (envUrl) return envUrl;
+  if (!host) throw new Error('missing_host_header');
+  return `${proto}://${host}`;
+}
+
+async function fetchJSONAbs(absUrl: string) {
+  const res = await fetch(absUrl, { cache: 'no-store' });
   const j = await res.json().catch(() => null);
   if (!res.ok || !j || j.ok === false) {
     throw new Error(j?.error || `HTTP ${res.status}`);
@@ -40,32 +62,22 @@ function deriveFrequencyTotals(
   totals: Record<string, number>,
   profiles: { code: string; name: string; frequency: 'A'|'B'|'C'|'D' }[]
 ) {
-  // Map profile -> frequency, accept both code and name keys from totals
   const freqTotals: Record<'A'|'B'|'C'|'D', number> = { A:0, B:0, C:0, D:0 };
-
-  // Build lookup for quick matches
   const byCode = new Map<string, { frequency: 'A'|'B'|'C'|'D'; name: string }>();
   const byName = new Map<string, { frequency: 'A'|'B'|'C'|'D'; code: string }>();
   for (const p of profiles) {
     byCode.set(p.code, { frequency: p.frequency, name: p.name });
     byName.set(p.name, { frequency: p.frequency, code: p.code });
   }
-
-  for (const [k, v] of Object.entries(totals || {})) {
+  for (const [k,v] of Object.entries(totals || {})) {
     if (!v) continue;
     let freq: 'A'|'B'|'C'|'D' | null = null;
-
-    if (byCode.has(k)) {
-      freq = byCode.get(k)!.frequency;
-    } else if (byName.has(k)) {
-      freq = byName.get(k)!.frequency;
-    } else {
-      // try to match "Profile 1" or any loose names by lowercase equality
+    if (byCode.has(k)) freq = byCode.get(k)!.frequency;
+    else if (byName.has(k)) freq = byName.get(k)!.frequency;
+    else {
       const lower = k.toLowerCase();
       for (const p of profiles) {
-        if (p.code.toLowerCase() === lower || p.name.toLowerCase() === lower) {
-          freq = p.frequency; break;
-        }
+        if (p.code.toLowerCase() === lower || p.name.toLowerCase() === lower) { freq = p.frequency; break; }
       }
     }
     if (freq) freqTotals[freq] += v;
@@ -85,34 +97,25 @@ function findTopProfile(
   totals: Record<string, number>,
   profiles: { code: string; name: string; frequency: 'A'|'B'|'C'|'D' }[]
 ) {
-  let topKey = '';
-  let topVal = -Infinity;
-
-  // Prefer matching by code first, then by name
+  let topKey = ''; let topVal = -Infinity;
   const codes = new Set(profiles.map(p => p.code));
   const names = new Set(profiles.map(p => p.name));
-
-  // consider only totals that correspond to known profiles (by code OR name)
   const filtered = Object.entries(totals).filter(([k]) => codes.has(k) || names.has(k));
   if (filtered.length === 0) return null;
-
-  for (const [k, v] of filtered) {
-    if (v > topVal) { topKey = k; topVal = v; }
-  }
-
-  // normalize to code + name
+  for (const [k,v] of filtered) { if (v > topVal) { topKey = k; topVal = v; } }
   const match = profiles.find(p => p.code === topKey) || profiles.find(p => p.name === topKey);
   if (!match) return null;
   return { code: match.code, name: match.name, points: topVal, frequency: match.frequency };
 }
 
 export default async function Page({ params }: { params: { token: string } }) {
+  const base = await getBaseUrl(); // ✅ await the async base-url builder
   const token = params.token;
 
-  // 1) fetch totals (existing endpoint you already have)
+  // 1) totals
   let totalsResp: TotalsResponse;
   try {
-    totalsResp = await fetchJSON(`/api/public/test/${token}/result`) as TotalsResponse;
+    totalsResp = await fetchJSONAbs(`${base}/api/public/test/${token}/result`) as TotalsResponse;
   } catch (e: any) {
     return (
       <main className="mc-bg min-h-screen text-white p-6">
@@ -122,13 +125,12 @@ export default async function Page({ params }: { params: { token: string } }) {
     );
   }
 
-  // 2) fetch meta (frequencies/profiles/thresholds) for this token
-  let metaResp: MetaResponse;
+  // 2) meta (freqs/profiles/thresholds)
+  let metaResp: MetaResponse | null = null;
   try {
-    metaResp = await fetchJSON(`/api/public/test/${token}/meta`) as MetaResponse;
-  } catch (e: any) {
-    // If meta missing, still show raw totals
-    metaResp = { ok: false } as any;
+    metaResp = await fetchJSONAbs(`${base}/api/public/test/${token}/meta`) as MetaResponse;
+  } catch {
+    metaResp = null; // still show raw totals
   }
 
   const taker = totalsResp.taker;
@@ -137,19 +139,15 @@ export default async function Page({ params }: { params: { token: string } }) {
   const freqsArr = metaResp?.meta?.frequencies || [];
   const thresholds = metaResp?.meta?.thresholds || null;
 
-  // Compute frequency totals from profile totals + profile->frequency mapping
   const freqTotals = deriveFrequencyTotals(totals, profiles);
-
-  // Determine top profile
   const top = findTopProfile(totals, profiles);
 
-  // Determine bands (frequency + profile) if thresholds exist
   const freqBands: Record<'A'|'B'|'C'|'D', string | null> = { A:null, B:null, C:null, D:null };
   if (thresholds?.frequencies) {
-    for (const code of ['A','B','C','D'] as const) {
-      const band = thresholds.frequencies[code];
+    (['A','B','C','D'] as const).forEach((code) => {
+      const band = thresholds.frequencies![code];
       freqBands[code] = bandFor(freqTotals[code], band);
-    }
+    });
   }
 
   let topProfileBand: string | null = null;
