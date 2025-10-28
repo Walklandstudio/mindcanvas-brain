@@ -16,14 +16,13 @@ export async function POST(req: Request, { params }: { params: { token: string }
   try {
     const body = (await req.json().catch(() => ({}))) as Body;
 
-    // 1) lookup link->test
+    // 1) link -> test
     const link = await db.from('test_links').select('test_id').eq('token', token).maybeSingle();
     if (link.error) return json(200, { ok: false, stage: 'link_lookup', error: link.error.message });
     if (!link.data)  return json(200, { ok: false, stage: 'link_lookup', error: 'link_not_found' });
 
     // 2) latest taker for this token
-    const latest = await db
-      .from('test_takers')
+    const latest = await db.from('test_takers')
       .select('id')
       .eq('link_token', token)
       .order('created_at', { ascending: false })
@@ -45,7 +44,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return json(200, { ok: false, stage: 'payload', error: 'invalid_payload' });
     }
 
-    // 4) optional taker detail upsert (if you sent name/email)
+    // 4) optional taker detail upsert
     if ((body as any).taker) {
       await db.from('test_takers').update({
         first_name: (body as any).taker?.first_name ?? null,

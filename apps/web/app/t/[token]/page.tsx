@@ -25,10 +25,8 @@ export default function TestPage({ params }: { params: { token: string } }) {
     (async () => {
       setLoading(true); setErr('');
       try {
-        // Start (creates taker, bumps use_count)
         await fetch(`/api/public/test/${token}/start`, { cache: 'no-store' });
 
-        // Load questions
         const r = await fetch(`/api/public/test/${token}/questions`, { cache: 'no-store' });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || j.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
@@ -48,7 +46,7 @@ export default function TestPage({ params }: { params: { token: string } }) {
 
   const submit = async () => {
     try {
-      // Compute simple per-profile totals using the weight map
+      // Build per-profile totals from selected options
       const totals: Record<string, number> = {};
       for (const q of questions) {
         const idx = answers[q.id];
@@ -58,6 +56,7 @@ export default function TestPage({ params }: { params: { token: string } }) {
           totals[pm.profile] = (totals[pm.profile] || 0) + pm.points;
         }
       }
+
       const r = await fetch(`/api/public/test/${token}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -65,6 +64,7 @@ export default function TestPage({ params }: { params: { token: string } }) {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
+
       router.push(`/t/${token}/result`);
     } catch (e: any) {
       alert(`Submit failed: ${e?.message || 'unknown'}`);
