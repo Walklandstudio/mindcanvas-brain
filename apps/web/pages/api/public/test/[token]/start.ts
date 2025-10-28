@@ -1,54 +1,55 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sbAdmin } from '@/lib/supabaseAdmin';
 
-function makeToken() {
-  // short, URL-safe token
-  const s = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-  return s.replace(/[^a-z0-9]/gi, '').slice(0, 16);
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'method_not_allowed' });
-  const testId = req.query.id as string | undefined;
-  if (!testId) return res.status(400).json({ ok: false, error: 'missing_test_id' });
+  const token = req.query.token as string | undefined;
+  if (!token) return res.status(200).json({ ok: false, stage: 'init', error: 'missing_token' });
 
   try {
     const db = sbAdmin.schema('portal');
 
-    // 1) Look up org_id from the test
-    const test = await db
-      .from('tests')
-      .select('id, org_id')
-      .eq('id', testId)
+    // 1) Find link quickly
+    const link = await db
+      .from('test_links')
+      .select('test_id, org_id, token')
+      .eq('token', token)
       .maybeSingle();
 
-    if (test.error) return res.status(500).json({ ok: false, error: test.error.message });
-    if (!test.data) return res.status(404).json({ ok: false, error: 'test_not_found' });
+    if (link.error) return res.status(200).json({ ok: false, stage: 'link_lookup', error: link.error.message });
+    if (!link.data)  return res.status(200).json({ ok: false, stage: 'link_lookup', error: 'link_not_found' });
 
-    // 2) Create unique token
-    let token = makeToken();
-    for (let i = 0; i < 5; i++) {
-      const exists = await db.from('test_links').select('id').eq('token', token).maybeSingle();
-      if (!exists.data) break;
-      token = makeToken();
+    // 2) Ensure a taker row exists (create if not)
+    const latest = await db
+      .from('test_takers')
+      .select('id')
+      .eq('link_token', token)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let takerId = latest.data?.id as string | undefined;
+    if (!takerId) {
+      const ins = await db
+        .from('test_takers')
+        .insert({
+          org_id: link.data.org_id,
+          test_id: link.data.test_id,
+          link_token: token,
+          status: 'started',
+          first_name: null,
+          last_name: null,
+          email: null,
+        })
+        .select('id')
+        .single();
+
+      if (ins.error) return res.status(200).json({ ok: false, stage: 'taker_insert', error: ins.error.message });
+      takerId = ins.data.id;
     }
 
-    // 3) Insert link with org_id + use_count default 0
-    const ins = await db
-      .from('test_links')
-      .insert({
-        test_id: test.data.id,
-        org_id: test.data.org_id,
-        token,
-        max_uses: null, // or set from req.body.max_uses
-      })
-      .select('id, token, max_uses, use_count')
-      .single();
-
-    if (ins.error) return res.status(500).json({ ok: false, error: ins.error.message });
-
-    return res.status(200).json({ ok: true, link: ins.data });
+    // ✅ Immediate success (no RPC, no heavy work)
+    return res.status(200).json({ ok: true, taker_id: takerId, test_id: link.data.test_id });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || 'internal_error' });
+    return res.status(200).json({ ok: false, stage: 'catch', error: e?.message || 'internal_error' });
   }
 }
