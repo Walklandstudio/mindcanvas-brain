@@ -9,10 +9,7 @@ export async function GET(_: Request, { params }: { params: { token: string } })
   try {
     const db = sbAdmin.schema('portal');
 
-    const link = await db.from('test_links')
-      .select('test_id')
-      .eq('token', token)
-      .maybeSingle();
+    const link = await db.from('test_links').select('test_id').eq('token', token).maybeSingle();
     if (link.error) return json(200, { ok: false, stage: 'link_lookup', error: link.error.message });
     if (!link.data)  return json(200, { ok: false, stage: 'link_lookup', error: 'link_not_found' });
 
@@ -32,6 +29,7 @@ export async function GET(_: Request, { params }: { params: { token: string } })
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
     if (!sub.error && sub.data?.totals) totals = sub.data.totals as Record<string, number>;
 
     return json(200, { ok: true, taker: taker.data, totals });

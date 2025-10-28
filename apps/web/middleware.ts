@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 
-// ✅ Only guard app pages that need auth. Do NOT match /api.
+// ✅ Only protect portal/admin UI, never /api
 export const config = {
   matcher: ['/portal/:path*', '/admin/:path*'],
 };
