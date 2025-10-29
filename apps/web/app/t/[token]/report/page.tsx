@@ -1,84 +1,87 @@
-export const dynamic = "force-dynamic";
+// apps/web/app/t/[token]/report/page.tsx
+import { loadFramework, buildLookups } from "@/lib/frameworks";
+import { getBaseUrl } from "@/lib/server-url";
 
-import { createClient } from "@supabase/supabase-js";
-import FrequencyPie from "@/components/charts/FrequencyPie"; // client component
-import ProfileBar from "@/components/charts/ProfileBar";     // client component
+type ReportAPI = {
+  ok: boolean;
+  data: {
+    orgSlug: string;
+    taker?: { first_name?: string | null; last_name?: string | null };
+    totals: Record<string, number>;
+    sections?: Record<string, unknown>;
+    top_profile_code?: string | null;
+  };
+};
 
-async function loadData(token: string) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!,
-    { auth: { persistSession: false } }
+export default async function ReportPage({
+  params,
+  searchParams,
+}: {
+  params: { token: string };
+  searchParams: { tid?: string };
+}) {
+  const token = params.token;
+  const tid = searchParams?.tid || "";
+  const base = await getBaseUrl();
+
+  const res = await fetch(
+    `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`,
+    { cache: "no-store" },
   );
 
-  const { data: taker } = await supabase
-    .from("test_takers")
-    .select("id, email, full_name")
-    .eq("link_token", token)
-    .maybeSingle();
+  if (!res.ok) {
+    return (
+      <div className="mx-auto max-w-3xl p-6">
+        <h1 className="text-2xl font-semibold">Personalised Report</h1>
+        <p className="text-destructive mt-4">Could not load your report. Please refresh.</p>
+      </div>
+    );
+  }
 
-  if (!taker) return null;
+  const { data } = (await res.json()) as ReportAPI;
+  const fw = await loadFramework(data.orgSlug);
+  const { profileByCode, profileNameToCode } = buildLookups(fw);
 
-  const { data: rep } = await supabase
-    .from("test_taker_reports_view")
-    .select("*")
-    .eq("taker_id", taker.id)
-    .maybeSingle();
+  // Determine top profile
+  let topProfileCode = data.top_profile_code || null;
+  if (!topProfileCode) {
+    topProfileCode =
+      Object.entries(data.totals || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] ||
+      null;
 
-  return rep;
-}
-
-export default async function ReportPage({ params }: { params: { token: string } }) {
-  const d = await loadData(params.token);
-  if (!d) return <div className="p-6">Report not found.</div>;
+    if (topProfileCode && !profileByCode.has(topProfileCode)) {
+      const maybe = profileNameToCode.get(topProfileCode);
+      if (maybe) topProfileCode = maybe;
+    }
+  }
+  const topProfile = topProfileCode ? profileByCode.get(topProfileCode) : undefined;
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Your MindCanvas Report</h1>
-        <div className="text-gray-600 text-sm">{d.email}</div>
-      </div>
+    <div className="mx-auto max-w-4xl p-6 space-y-8">
+      <header className="space-y-1">
+        <h1 className="text-3xl font-semibold">Your Personalised Report</h1>
+        <p className="text-muted-foreground">
+          {data.taker?.first_name ?? ""} {data.taker?.last_name ?? ""} — {fw.framework.name}
+        </p>
+      </header>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-white border rounded p-4">
-          <div className="font-medium mb-2">Frequency</div>
-          <div className="text-sm mb-3">
-            Top: <span className="font-semibold">{d.frequency ?? "—"}</span>
-          </div>
-          <FrequencyPie data={d.freq_scores ?? { A: 0, B: 0, C: 0, D: 0 }} />
-        </div>
-        <div className="bg-white border rounded p-4">
-          <div className="font-medium mb-2">Profile</div>
-          <div className="text-sm mb-3">
-            Top: <span className="font-semibold">{d.profile ?? "—"}</span>
-          </div>
-          <ProfileBar data={d.profile_scores ?? {}} />
-        </div>
-      </div>
+      <section className="rounded-2xl border p-6">
+        <h2 className="text-xl font-medium">Top profile</h2>
+        <p className="mt-2 text-2xl font-semibold">{topProfile?.name ?? "—"}</p>
+      </section>
 
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="bg-white border rounded p-4">
-          <div className="font-medium mb-2">Strengths</div>
-          <div
-            className="prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: d.sections?.strengths ?? "<p>—</p>" }}
-          />
-        </div>
-        <div className="bg-white border rounded p-4">
-          <div className="font-medium mb-2">Challenges</div>
-          <div
-            className="prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: d.sections?.challenges ?? "<p>—</p>" }}
-          />
-        </div>
-        <div className="bg-white border rounded p-4">
-          <div className="font-medium mb-2">Recommendations</div>
-          <div
-            className="prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: d.sections?.recommendations ?? "<p>—</p>" }}
-          />
-        </div>
-      </div>
+      {data.sections ? (
+        <pre className="rounded-2xl border p-6 text-sm whitespace-pre-wrap">
+          {JSON.stringify(data.sections, null, 2)}
+        </pre>
+      ) : (
+        <section className="rounded-2xl border p-6">
+          <p className="text-sm text-muted-foreground">
+            Your detailed report content will appear here. (Attach sections in the report API when
+            ready.)
+          </p>
+        </section>
+      )}
     </div>
   );
 }

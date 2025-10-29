@@ -1,78 +1,59 @@
 // apps/web/app/t/[token]/result/page.tsx
-import { headers } from "next/headers";
 import Link from "next/link";
+import { loadFramework, buildLookups, type FrequencyCode } from "@/lib/frameworks";
+import { getBaseUrl } from "@/lib/server-url";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs"; // use Node for stable headers + fetch
-
-type AB = "A" | "B" | "C" | "D";
-
-type Taker = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
+// Types expected from your existing /report API
+type ReportAPI = {
+  ok: boolean;
+  data: {
+    orgSlug: string;
+    taker?: {
+      id: string;
+      first_name?: string | null;
+      last_name?: string | null;
+      email?: string | null;
+      top_profile_code?: string | null;
+    };
+    // Profile totals, keyed by profile code (recommended) or name (supported via fallback)
+    totals: Record<string, number>;
+    // Optional: server-provided frequency percentages, 0..1 or 0..100
+    percentages?: Record<FrequencyCode, number>;
+  };
 };
 
-type LabelFreq = { code: AB; name: string };
-type LabelProfile = { code: string; name: string; frequency: AB };
+function sumProfileTotalsToFrequency(
+  profileTotals: Record<string, number>,
+  nameToCode: Map<string, string>,
+  profilePrimaryFreq: Map<string, FrequencyCode>,
+) {
+  const freqTotals: Record<FrequencyCode, number> = { A: 0, B: 0, C: 0, D: 0 };
 
-type ReportData = {
-  org_name?: string | null;
-  test_name: string;
-  taker: Taker;
-  totals: Record<AB, number>;
-  percentages: Record<AB, number>;
-  top_freq: AB;
-  top_profile_code: string;
-  top_profile_name: string;
-  frequency_labels: LabelFreq[];
-  profile_labels: LabelProfile[];
-};
+  for (const [key, raw] of Object.entries(profileTotals || {})) {
+    const points = Number(raw || 0);
+    if (!points) continue;
 
-type ApiResponseOk<T> = { ok: true; data: T };
-type ApiResponseErr = { ok: false; error: string };
-type ApiResponse<T> = ApiResponseOk<T> | ApiResponseErr;
+    // Try profile code; if not present, try resolve by name
+    let code = key;
+    if (!profilePrimaryFreq.has(code)) {
+      const maybe = nameToCode.get(key);
+      if (maybe) code = maybe;
+    }
 
-function fullName(t: Taker) {
-  const p1 = (t.first_name || "").trim();
-  const p2 = (t.last_name || "").trim();
-  const s = [p1, p2].filter(Boolean).join(" ");
-  return s || (t.email || "—");
+    const freq = profilePrimaryFreq.get(code);
+    if (freq) freqTotals[freq] += points;
+  }
+  return freqTotals;
 }
 
-/**
- * Build an absolute origin from headers/env. In your build,
- * `headers()` is typed async, so we `await` it.
- */
-async function getAbsoluteOrigin(): Promise<string> {
-  try {
-    const h = await headers(); // <-- fix: await
-    const proto = (h.get("x-forwarded-proto") || "https").trim();
-    const hostHeader =
-      h.get("x-forwarded-host")?.trim() ||
-      h.get("host")?.trim() ||
-      process.env.VERCEL_URL?.trim() ||
-      process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-      "";
+function toPercents(freqTotals: Record<FrequencyCode, number>) {
+  const sum = (freqTotals.A + freqTotals.B + freqTotals.C + freqTotals.D) || 0;
+  const pct = (n: number) => (sum === 0 ? 0 : Math.round((n / sum) * 100));
+  return { A: pct(freqTotals.A), B: pct(freqTotals.B), C: pct(freqTotals.C), D: pct(freqTotals.D) };
+}
 
-    const hostClean = hostHeader.replace(/^https?:\/\//, "");
-    if (hostClean) return `${proto}://${hostClean}`;
-  } catch {
-    // ignore and fall back to envs
-  }
-
-  const envUrl =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.VERCEL_URL?.trim() ||
-    "";
-
-  if (envUrl) {
-    const clean = envUrl.replace(/^https?:\/\//, "");
-    return `https://${clean}`;
-  }
-
-  return "http://localhost:3000";
+function dominant<K extends string>(map: Record<K, number>) {
+  return (Object.entries(map) as [K, number][]).sort((a, b) => b[1] - a[1])[0]?.[0];
 }
 
 export default async function ResultPage({
@@ -83,115 +64,119 @@ export default async function ResultPage({
   searchParams: { tid?: string };
 }) {
   const token = params.token;
-  const tid = (searchParams?.tid || "").trim();
+  const tid = searchParams?.tid || "";
 
-  if (!tid) {
+  const base = await getBaseUrl();
+  const res = await fetch(
+    `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`,
+    { cache: "no-store" },
+  );
+
+  if (!res.ok) {
     return (
-      <div className="min-h-screen p-6">
-        <h1 className="text-2xl font-semibold">Missing taker id</h1>
-        <p className="text-gray-600 mt-2">
-          The URL must include <code>?tid=…</code>.
-        </p>
+      <div className="mx-auto max-w-3xl p-6">
+        <h1 className="text-2xl font-semibold">Result</h1>
+        <p className="text-destructive mt-4">Could not load your result. Please refresh.</p>
       </div>
     );
   }
 
-  const origin = await getAbsoluteOrigin(); // <-- fix: await
-  const reportUrl = `${origin}/api/public/test/${encodeURIComponent(
-    token
-  )}/report?tid=${encodeURIComponent(tid)}`;
+  const payload = (await res.json()) as ReportAPI;
+  const data = payload.data;
 
-  const res = await fetch(reportUrl, { cache: "no-store" });
+  // Load the org framework and lookups
+  const fw = await loadFramework(data.orgSlug);
+  const { freqByCode, profileByCode, profilePrimaryFreq, profileNameToCode } = buildLookups(fw);
 
-  let payload: ApiResponse<ReportData> | null = null;
-  try {
-    payload = (await res.json()) as ApiResponse<ReportData>;
-  } catch {
-    // keep null; handled below
-  }
-
-  if (!res.ok || !payload || payload.ok !== true) {
-    const errText =
-      (payload && (payload as ApiResponseErr).error) ||
-      `HTTP ${res.status}${res.statusText ? ` – ${res.statusText}` : ""} when calling ${reportUrl}`;
-    return (
-      <div className="min-h-screen p-6 space-y-4">
-        <h1 className="text-2xl font-semibold">Couldn’t load result</h1>
-        <pre className="p-3 rounded bg-gray-100 text-gray-800 whitespace-pre-wrap border">
-{errText}
-        </pre>
-        <div className="text-sm text-gray-600">
-          Debug links:
-          <ul className="list-disc ml-5 mt-2">
-            <li>
-              <Link
-                className="underline"
-                href={`/api/public/test/${token}/result?tid=${tid}`}
-                target="_blank"
-              >
-                /api/public/test/{token}/result?tid={tid}
-              </Link>
-            </li>
-            <li>
-              <Link
-                className="underline"
-                href={`/api/public/test/${token}/report?tid=${tid}`}
-                target="_blank"
-              >
-                /api/public/test/{token}/report?tid={tid}
-              </Link>
-            </li>
-          </ul>
-        </div>
-      </div>
+  // Use server percentages if present; else derive from profile totals
+  let perc: Record<FrequencyCode, number>;
+  if (data.percentages) {
+    const norm = (v: number) => (v <= 1 ? Math.round(v * 100) : Math.round(v));
+    perc = {
+      A: norm(data.percentages.A || 0),
+      B: norm(data.percentages.B || 0),
+      C: norm(data.percentages.C || 0),
+      D: norm(data.percentages.D || 0),
+    };
+  } else {
+    const freqTotals = sumProfileTotalsToFrequency(
+      data.totals || {},
+      profileNameToCode,
+      profilePrimaryFreq,
     );
+    perc = toPercents(freqTotals);
   }
 
-  const data = (payload as ApiResponseOk<ReportData>).data;
+  // Determine top profile (prefer server code; else compute; also handle name→code)
+  let topProfileCode = data.taker?.top_profile_code || null;
+  if (!topProfileCode) {
+    topProfileCode =
+      Object.entries(data.totals || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || null;
 
-  const order: AB[] = ["A", "B", "C", "D"];
-  const freqName = (code: AB) =>
-    data.frequency_labels.find((f: LabelFreq) => f.code === code)?.name ||
-    `Frequency ${code}`;
+    if (topProfileCode && !profileByCode.has(topProfileCode)) {
+      const maybe = profileNameToCode.get(topProfileCode);
+      if (maybe) topProfileCode = maybe;
+    }
+  }
+  const topProfile = topProfileCode ? profileByCode.get(topProfileCode) : undefined;
+
+  // Dominant frequency from percentages
+  const topFreqCode = dominant({ A: perc.A, B: perc.B, C: perc.C, D: perc.D }) as
+    | FrequencyCode
+    | undefined;
+  const topFreq = topFreqCode ? freqByCode.get(topFreqCode) : undefined;
 
   return (
-    <div className="min-h-screen p-6 space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold">{data.test_name}</h1>
-        <div className="text-gray-600">
-          <span className="font-medium">{fullName(data.taker)}</span>
-          {data.org_name ? <> • {data.org_name}</> : null}
-        </div>
+    <div className="mx-auto max-w-4xl p-6 space-y-8">
+      <header>
+        <h1 className="text-3xl font-semibold">{fw.framework.name}</h1>
+        <p className="text-muted-foreground">
+          {data.taker?.first_name ?? ""} {data.taker?.last_name ?? ""}
+        </p>
       </header>
 
-      <section className="rounded-2xl border p-5 space-y-2">
-        <div className="text-sm text-gray-600">Top profile</div>
-        <div className="text-xl font-semibold">{data.top_profile_name}</div>
-        <div className="text-gray-600">
-          Dominant frequency:{" "}
-          <span className="font-medium">{freqName(data.top_freq)}</span>
-        </div>
+      <section className="rounded-2xl border p-6">
+        <h2 className="text-xl font-medium mb-2">Top profile</h2>
+        <p className="text-2xl font-semibold">{topProfile?.name ?? "—"}</p>
+        <p className="text-muted-foreground mt-1">
+          Dominant frequency: {topFreq ? topFreq.name : "—"}
+        </p>
       </section>
 
-      <section className="rounded-2xl border p-5 space-y-4">
-        <div className="text-lg font-semibold">Your frequency mix</div>
-        <div className="grid gap-3">
-          {order.map((code: AB) => {
-            const pct = Math.round((data.percentages[code] ?? 0) * 100);
-            return (
-              <div key={code}>
-                <div className="flex justify-between text-sm">
-                  <div className="font-medium">{freqName(code)}</div>
-                  <div>{pct}%</div>
-                </div>
-                <div className="h-2 rounded bg-gray-200 overflow-hidden">
-                  <div className="h-full" style={{ width: `${pct}%` }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      <section className="rounded-2xl border p-6">
+        <h3 className="text-xl font-medium mb-4">Your frequency mix</h3>
+        <Bar label="Frequency A" value={perc.A} />
+        <Bar label="Frequency B" value={perc.B} />
+        <Bar label="Frequency C" value={perc.C} />
+        <Bar label="Frequency D" value={perc.D} />
+        <p className="mt-3 text-sm text-muted-foreground">
+          Percentages are computed from your scores using this organisation’s framework.
+        </p>
       </section>
+
+      <div className="flex justify-end">
+        <Link
+          href={`/t/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`}
+          className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium hover:bg-accent"
+        >
+          View your personalised report
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function Bar({ label, value }: { label: string; value: number }) {
+  const v = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+  return (
+    <div className="mb-3">
+      <div className="mb-1 flex items-center justify-between text-sm">
+        <span>{label}</span>
+        <span>{v}%</span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-muted">
+        <div className="h-2 rounded-full bg-foreground/80" style={{ width: `${v}%` }} />
+      </div>
     </div>
   );
 }
