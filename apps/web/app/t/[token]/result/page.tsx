@@ -7,49 +7,24 @@ import {
   type FrequencyCode,
 } from "@/lib/frameworks";
 import { getBaseUrl } from "@/lib/server-url";
+import { computeBreakdowns } from "@/lib/result-math";
 
 type ReportAPI = {
   ok: boolean;
-  data: {
-    orgSlug?: string;
-    org_slug?: string;
-    org?: { slug?: string } | string;
-    taker?: {
-      id: string;
-      first_name?: string | null;
-      last_name?: string | null;
-      email?: string | null;
-      top_profile_code?: string | null;
-    };
-    totals: Record<string, number>;
-    percentages?: Record<FrequencyCode, number>;
-  };
+  data: any; // shape varies per org; the math helper normalizes it
 };
 
-function sumProfileTotalsToFrequency(
-  profileTotals: Record<string, number>,
-  nameToCode: Map<string, string>,
-  profilePrimaryFreq: Map<string, FrequencyCode>,
-) {
-  const freqTotals: Record<FrequencyCode, number> = { A: 0, B: 0, C: 0, D: 0 };
-  for (const [key, raw] of Object.entries(profileTotals || {})) {
-    const points = Number(raw || 0);
-    if (!points) continue;
-    let code = key;
-    if (!profilePrimaryFreq.has(code)) {
-      const maybe = nameToCode.get(key);
-      if (maybe) code = maybe;
-    }
-    const f = profilePrimaryFreq.get(code);
-    if (f) freqTotals[f] += points;
+async function resolveOrgSlug(base: string, token: string, data: any) {
+  let slug = coerceOrgSlug(data);
+  if (slug && slug !== "competency-coach") return slug;
+  const m = await fetch(`${base}/api/public/test/${encodeURIComponent(token)}`, { cache: "no-store" }).catch(() => null);
+  if (m && m.ok) {
+    const meta = await m.json().catch(() => null);
+    const dd = meta?.data ?? meta;
+    const inferred = coerceOrgSlug(dd);
+    if (inferred) return inferred;
   }
-  return freqTotals;
-}
-
-function toPercents(freqTotals: Record<FrequencyCode, number>) {
-  const sum = (freqTotals.A + freqTotals.B + freqTotals.C + freqTotals.D) || 0;
-  const pct = (n: number) => (sum === 0 ? 0 : Math.round((n / sum) * 100));
-  return { A: pct(freqTotals.A), B: pct(freqTotals.B), C: pct(freqTotals.C), D: pct(freqTotals.D) };
+  return slug || "competency-coach";
 }
 
 function dominant<K extends string>(map: Record<K, number>) {
@@ -65,8 +40,8 @@ export default async function ResultPage({
 }) {
   const token = params.token;
   const tid = searchParams?.tid || "";
-
   const base = await getBaseUrl();
+
   const res = await fetch(
     `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`,
     { cache: "no-store" },
@@ -84,49 +59,35 @@ export default async function ResultPage({
   const payload = (await res.json()) as ReportAPI;
   const data = payload.data ?? {};
 
-  const orgSlug = coerceOrgSlug(data);
+  const orgSlug = await resolveOrgSlug(base, token, data);
   const fw = await loadFrameworkBySlug(orgSlug);
   const { freqByCode, profileByCode, profilePrimaryFreq, profileNameToCode } = buildLookups(fw);
 
-  // Prefer API percentages if present; else derive from profile totals
-  let perc: Record<FrequencyCode, number>;
-  if (data.percentages) {
-    const norm = (v: number) => (v <= 1 ? Math.round(v * 100) : Math.round(v));
-    perc = {
-      A: norm(data.percentages.A || 0),
-      B: norm(data.percentages.B || 0),
-      C: norm(data.percentages.C || 0),
-      D: norm(data.percentages.D || 0),
-    };
-  } else {
-    const freqTotals = sumProfileTotalsToFrequency(
-      data.totals || {},
-      profileNameToCode,
-      profilePrimaryFreq,
-    );
-    perc = toPercents(freqTotals);
-  }
+  // Compute both breakdowns from whatever the API returned
+  const { freqPercents, profilePercents, profileTotals } = computeBreakdowns(data, {
+    freqByCode,
+    profileByCode,
+    profilePrimaryFreq,
+    profileNameToCode,
+  });
 
-  // Determine top profile
-  let topProfileCode = data.taker?.top_profile_code || null;
+  // Top profile by totals (fallback to API-provided)
+  let topProfileCode: string | null = data?.taker?.top_profile_code || null;
   if (!topProfileCode) {
     topProfileCode =
-      Object.entries(data.totals || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] ||
+      (Object.entries(profileTotals || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] as string) ||
       null;
-    if (topProfileCode && !profileByCode.has(topProfileCode)) {
-      const maybe = profileNameToCode.get(topProfileCode);
-      if (maybe) topProfileCode = maybe;
-    }
   }
   const topProfile = topProfileCode ? profileByCode.get(topProfileCode) : undefined;
 
-  const topFreqCode = dominant(perc as Record<FrequencyCode, number>) as FrequencyCode | undefined;
+  // Dominant frequency
+  const topFreqCode = dominant(freqPercents as Record<FrequencyCode, number>) as FrequencyCode | undefined;
   const topFreq = topFreqCode ? freqByCode.get(topFreqCode) : undefined;
 
   return (
     <div className="mx-auto max-w-4xl p-6 space-y-8">
       <header>
-        <h1 className="text-3xl font-semibold">{fw.framework.name || "Profile Test"}</h1>
+        <h1 className="text-3xl font-semibold">{fw.framework.name}</h1>
         <p className="text-muted-foreground">
           {data.taker?.first_name ?? ""} {data.taker?.last_name ?? ""}
         </p>
@@ -140,15 +101,26 @@ export default async function ResultPage({
         </p>
       </section>
 
+      {/* Frequency mix */}
       <section className="rounded-2xl border p-6">
         <h3 className="text-xl font-medium mb-4">Your frequency mix</h3>
-        <Bar label="Frequency A" value={perc.A} />
-        <Bar label="Frequency B" value={perc.B} />
-        <Bar label="Frequency C" value={perc.C} />
-        <Bar label="Frequency D" value={perc.D} />
+        {(["A","B","C","D"] as FrequencyCode[]).map(code => {
+          const f = freqByCode.get(code);
+          const v = (freqPercents as any)[code] ?? 0;
+          return <Bar key={code} label={f?.name ?? `Frequency ${code}`} value={v} />;
+        })}
         <p className="mt-3 text-sm text-muted-foreground">
           Percentages are computed from your scores using this organisation’s framework.
         </p>
+      </section>
+
+      {/* Profile mix */}
+      <section className="rounded-2xl border p-6">
+        <h3 className="text-xl font-medium mb-4">Your profile mix</h3>
+        {[...profileByCode.values()].map((p) => {
+          const v = Math.max(0, Math.min(100, Number((profilePercents as any)[p.code] || 0)));
+          return <Bar key={p.code} label={p.name} value={v} />;
+        })}
       </section>
 
       <div className="flex justify-end">
