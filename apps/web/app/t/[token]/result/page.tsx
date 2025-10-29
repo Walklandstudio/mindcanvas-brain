@@ -1,187 +1,167 @@
-// Minimal, API-only result page.
-// Uses ONLY /api/public/test/[token]/report?tid=… response.
-// No filesystem reads. No org “guessing”.
+// apps/web/app/api/public/test/[token]/report/route.ts
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabaseAdmin";
 
-import Link from "next/link";
-import { getBaseUrl } from "@/lib/server-url";
+export const dynamic = "force-dynamic";
 
-type AB = "A" | "B" | "C" | "D";
+type Totals = Record<string, unknown>;
+type Labeled = Record<string, string>;
+type Percentages = Record<string, number>;
 
-type ReportData = {
-  taker?: {
-    id: string;
-    first_name?: string | null;
-    last_name?: string | null;
-    top_profile_code?: string | null;
-    top_profile_name?: string | null;
-  };
-  // Preferred fields (as your API provided before this thread):
-  percentages?: Record<AB, number>; // can be 0..1 or 0..100
-  frequency_labels?: Record<string, string> | { code: AB; name: string }[];
-  profile_labels?: { code: string; name: string }[];
-  totals?: Record<string, number>; // often profile totals
-  orgName?: string; // optional
-  title?: string;  // optional page title from API
-};
+function toNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 
-type ReportAPI = { ok: boolean; data: ReportData };
-
-function normalizeFreqLabels(
-  labels: ReportData["frequency_labels"]
-): Record<AB, string> | null {
-  if (!labels) return null;
-  if (Array.isArray(labels)) {
-    const m = Object.fromEntries(
-      labels.map((x) => [String(x.code).toUpperCase(), String(x.name)])
-    );
-    return { A: m["A"], B: m["B"], C: m["C"], D: m["D"] } as Record<AB, string>;
+function computePercents(values: Record<string, number>): Percentages {
+  const sum = Object.values(values).reduce((a, b) => a + Math.max(0, b), 0);
+  if (sum <= 0) {
+    // keep the keys but show zeros to avoid dividing by 0
+    const allZero: Percentages = {};
+    for (const k of Object.keys(values)) allZero[k] = 0;
+    return allZero;
   }
-  const obj = labels as Record<string, string>;
-  const A = obj["A"] || obj["a"];
-  const B = obj["B"] || obj["b"];
-  const C = obj["C"] || obj["c"];
-  const D = obj["D"] || obj["d"];
-  return A && B && C && D ? { A, B, C, D } : null;
-}
-
-function normalizePerc(p?: Record<AB, number>): Record<AB, number> | null {
-  if (!p) return null;
-  const norm = (v: number) => (v <= 1 ? Math.round(v * 100) : Math.round(v));
-  return { A: norm(p.A || 0), B: norm(p.B || 0), C: norm(p.C || 0), D: norm(p.D || 0) };
-}
-
-function topProfileFromTotals(
-  totals?: Record<string, number>,
-  labels?: { code: string; name: string }[]
-): { code: string; name: string } | null {
-  if (!totals || !labels?.length) return null;
-  const top = Object.entries(totals).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
-  if (!top) return null;
-  const [key] = top;
-  // key could already be a code or a name; try to resolve
-  const byCode = labels.find((p) => p.code === key);
-  if (byCode) return byCode;
-  const byName = labels.find((p) => p.name === key);
-  if (byName) return byName;
-  // numeric "1" → "P1"
-  if (/^\d+$/.test(key)) {
-    const pcode = `P${key}`;
-    const hit = labels.find((p) => p.code === pcode);
-    if (hit) return hit;
+  const out: Percentages = {};
+  for (const [k, v] of Object.entries(values)) {
+    const p = (Math.max(0, v) / sum) * 100;
+    out[k] = Math.round(p * 10) / 10; // 1 decimal place
   }
-  return { code: key, name: key };
+  return out;
 }
 
-function Bar({ label, value }: { label: string; value: number }) {
-  const v = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
-  return (
-    <div className="mb-3">
-      <div className="mb-1 flex items-center justify-between text-sm">
-        <span>{label}</span>
-        <span>{v}%</span>
-      </div>
-      <div className="h-2 w-full rounded-full bg-muted">
-        <div className="h-2 rounded-full bg-foreground/80" style={{ width: `${v}%` }} />
-      </div>
-    </div>
-  );
-}
-
-export default async function ResultPage({
-  params,
-  searchParams,
-}: {
-  params: { token: string };
-  searchParams: { tid?: string };
-}) {
+export async function GET(req: Request, { params }: { params: { token: string } }) {
+  const url = new URL(req.url);
+  const tid = url.searchParams.get("tid") || "";
   const token = params.token;
-  const tid = searchParams?.tid || "";
-  const base = await getBaseUrl();
 
-  const res = await fetch(
-    `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`,
-    { cache: "no-store" }
-  );
-  if (!res.ok) {
-    return (
-      <div className="mx-auto max-w-3xl p-6">
-        <h1 className="text-2xl font-semibold">Result</h1>
-        <p className="text-destructive mt-4">Could not load your result. Please refresh.</p>
-      </div>
-    );
+  if (!token) {
+    return NextResponse.json({ ok: false, error: "Missing token" }, { status: 400 });
   }
 
-  const { data } = (await res.json()) as ReportAPI;
+  const sb = createClient().schema("portal");
 
-  const freqLabels = normalizeFreqLabels(data.frequency_labels);
-  const perc = normalizePerc(data.percentages) || { A: 0, B: 0, C: 0, D: 0 };
+  // 1) Resolve the link (get test_id + org context)
+  const { data: link, error: linkErr } = await sb
+    .from("test_links")
+    .select("id, org_id, test_id, token")
+    .eq("token", token)
+    .maybeSingle();
 
-  const profiles = Array.isArray(data.profile_labels) ? data.profile_labels : [];
-  const apiTop =
-    (data.taker?.top_profile_code && profiles.find(p => p.code === data.taker!.top_profile_code)) ||
-    (data.taker?.top_profile_name && profiles.find(p => p.name === data.taker!.top_profile_name)) ||
-    topProfileFromTotals(data.totals, profiles);
+  if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
+  if (!link)  return NextResponse.json({ ok: false, error: "Invalid test link" }, { status: 404 });
 
-  // dominant frequency from percentages
-  const domFreq =
-    (Object.entries(perc) as [AB, number][])
-      .sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  // 2) Resolve the taker (prefer tid if present, else latest by this token)
+  let takerId = tid;
+  if (takerId) {
+    const { data: takerRow, error: takerErr } = await sb
+      .from("test_takers")
+      .select("id, test_id, link_token, first_name, last_name, email")
+      .eq("id", takerId)
+      .eq("link_token", link.token)
+      .maybeSingle();
+    if (takerErr) return NextResponse.json({ ok: false, error: takerErr.message }, { status: 500 });
+    if (!takerRow) return NextResponse.json({ ok: false, error: "No taker found for this link" }, { status: 404 });
+  } else {
+    const { data: takerRow, error: takerErr } = await sb
+      .from("test_takers")
+      .select("id")
+      .eq("link_token", link.token)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (takerErr) return NextResponse.json({ ok: false, error: takerErr.message }, { status: 500 });
+    if (!takerRow) return NextResponse.json({ ok: false, error: "No taker found for this link" }, { status: 404 });
+    takerId = takerRow.id;
+  }
 
-  const title =
-    data.title ||
-    data.orgName ||
-    "Result";
+  // 3) Load submission (works with your schema: totals_json and/or totals)
+  const { data: sub, error: subErr } = await sb
+    .from("test_submissions")
+    .select("id, first_name, last_name, email, company, role_title, totals_json, totals")
+    .eq("taker_id", takerId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  return (
-    <div className="mx-auto max-w-4xl p-6 space-y-8">
-      <header>
-        <h1 className="text-3xl font-semibold">{title}</h1>
-        <p className="text-muted-foreground">
-          {data.taker?.first_name ?? ""} {data.taker?.last_name ?? ""}
-        </p>
-      </header>
+  if (subErr) return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
+  if (!sub)   return NextResponse.json({ ok: false, error: "No submission found for this taker" }, { status: 404 });
 
-      <section className="rounded-2xl border p-6">
-        <h2 className="text-xl font-medium mb-2">Top profile</h2>
-        <p className="text-2xl font-semibold">{apiTop?.name ?? "—"}</p>
-        <p className="text-muted-foreground mt-1">
-          Dominant frequency:{" "}
-          {domFreq ? (freqLabels?.[domFreq] ?? `Frequency ${domFreq}`) : "—"}
-        </p>
-      </section>
+  // Prefer totals_json if it has content; otherwise fall back to totals
+  const totalsRaw: Totals =
+    (sub.totals_json && Object.keys(sub.totals_json as object).length > 0
+      ? (sub.totals_json as Totals)
+      : (sub.totals as Totals)) || {};
 
-      <section className="rounded-2xl border p-6">
-        <h3 className="text-xl font-medium mb-4">Your frequency mix</h3>
-        <Bar label={freqLabels?.A ?? "Frequency A"} value={perc.A} />
-        <Bar label={freqLabels?.B ?? "Frequency B"} value={perc.B} />
-        <Bar label={freqLabels?.C ?? "Frequency C"} value={perc.C} />
-        <Bar label={freqLabels?.D ?? "Frequency D"} value={perc.D} />
-        <p className="mt-3 text-sm text-muted-foreground">
-          Percentages are supplied by the report service.
-        </p>
-      </section>
+  // 4) Split raw totals into frequency (A..D) and profiles (PROFILE_1..8)
+  const freqCodes = ["A", "B", "C", "D"] as const;
+  const profCodes = Array.from({ length: 8 }, (_, i) => `PROFILE_${i + 1}`);
 
-      {profiles.length > 0 && (
-        <section className="rounded-2xl border p-6">
-          <h3 className="text-xl font-medium mb-4">Your profile mix</h3>
-          {profiles.map((p) => {
-            // If your API also sends profile percentages, render them here.
-            // Otherwise we skip bars to avoid guessing.
-            const v = 0;
-            return <Bar key={p.code} label={p.name} value={v} />;
-          })}
-        </section>
-      )}
+  const frequencyRaw: Record<string, number> = {};
+  for (const f of freqCodes) frequencyRaw[f] = toNum(totalsRaw[f]);
 
-      <div className="flex justify-end">
-        <Link
-          href={`/t/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`}
-          className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium hover:bg-accent"
-        >
-          View your personalised report
-        </Link>
-      </div>
-    </div>
-  );
+  const profileRaw: Record<string, number> = {};
+  for (const p of profCodes) profileRaw[p] = toNum(totalsRaw[p]);
+
+  const frequencyPerc = computePercents(frequencyRaw);
+  const profilePerc   = computePercents(profileRaw);
+
+  // 5) Labels (friendly names)
+  const [{ data: freqLabels, error: flErr }, { data: profLabels, error: plErr }] =
+    await Promise.all([
+      sb
+        .from("test_frequency_labels")
+        .select("frequency_code, frequency_name")
+        .eq("test_id", link.test_id),
+      sb
+        .from("test_profile_labels")
+        .select("profile_code, profile_name, frequency_code")
+        .eq("test_id", link.test_id),
+    ]);
+
+  if (flErr) return NextResponse.json({ ok: false, error: flErr.message }, { status: 500 });
+  if (plErr) return NextResponse.json({ ok: false, error: plErr.message }, { status: 500 });
+
+  const frequencyNames: Labeled = {};
+  for (const f of freqCodes) {
+    const hit = (freqLabels || []).find((r: any) => r.frequency_code === f);
+    frequencyNames[f] = hit?.frequency_name ?? f;
+  }
+
+  const profileNames: Labeled = {};
+  for (const p of profCodes) {
+    const hit = (profLabels || []).find((r: any) => r.profile_code === p);
+    profileNames[p] = hit?.profile_name ?? p;
+  }
+
+  // 6) Identity snapshot (from submission row)
+  const identity = {
+    first_name: sub.first_name ?? null,
+    last_name:  sub.last_name ?? null,
+    email:      sub.email ?? null,
+    company:    sub.company ?? null,
+    role_title: sub.role_title ?? null,
+  };
+
+  // 7) Response payload
+  return NextResponse.json({
+    ok: true,
+    data: {
+      meta: {
+        test_id: link.test_id,
+        taker_id: takerId,
+        token,
+      },
+      identity,
+      frequencies: {
+        raw: frequencyRaw,
+        percents: frequencyPerc,
+        labels: frequencyNames,     // e.g., { A: "Catalyst", ... }
+      },
+      profiles: {
+        raw: profileRaw,
+        percents: profilePerc,
+        labels: profileNames,       // e.g., { PROFILE_1: "The Innovator", ... }
+      },
+    },
+  });
 }
-
