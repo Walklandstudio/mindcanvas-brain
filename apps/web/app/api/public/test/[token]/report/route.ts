@@ -1,4 +1,3 @@
-// apps/web/app/api/public/test/[token]/report/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { loadFrameworkBySlug } from "@/lib/frameworks";
@@ -21,8 +20,12 @@ function toPercentages(totals: Partial<Record<AB, number>> | null | undefined): 
   return { A: A / sum, B: B / sum, C: C / sum, D: D / sum };
 }
 
-async function resolveOrgSlugByTokenAndTaker(sb: ReturnType<typeof supa>, token: string, takerId?: string | null) {
-  // First, try from the link by token → org_id → v_organizations.slug
+async function resolveOrgSlugByTokenAndTaker(
+  sb: ReturnType<typeof supa>,
+  token: string,
+  takerId?: string | null,
+) {
+  // 1) From link → org_id → v_organizations.slug
   const { data: link } = await sb
     .from("test_links")
     .select("org_id")
@@ -38,7 +41,7 @@ async function resolveOrgSlugByTokenAndTaker(sb: ReturnType<typeof supa>, token:
     if (org?.slug) return org.slug as string;
   }
 
-  // Fallback: via taker → test_id → a mapping view if available
+  // 2) Fallback: via taker → test_id → optional view (v_org_tests) if present
   if (takerId) {
     const { data: taker } = await sb
       .from("test_takers")
@@ -49,20 +52,23 @@ async function resolveOrgSlugByTokenAndTaker(sb: ReturnType<typeof supa>, token:
 
     const testId = taker?.test_id;
     if (testId) {
-      // If you have a view that exposes org_slug by test_id (like you pasted),
-      // use it here. Otherwise, we remain on the safe default below.
-      const { data: vt } = await sb
-        .from("v_org_tests" as any) // optional view; ignore if not present
-        .select("org_slug")
-        .eq("test_id", testId)
-        .limit(1)
-        .maybeSingle()
-        .catch(() => ({ data: null }));
-      if (vt?.org_slug) return vt.org_slug as string;
+      try {
+        // If v_org_tests exists (test_id → org_slug), prefer it.
+        const { data: vt, error: vtErr } = await sb
+          .from("v_org_tests" as any)
+          .select("org_slug")
+          .eq("test_id", testId)
+          .limit(1)
+          .maybeSingle();
+
+        if (!vtErr && vt?.org_slug) return vt.org_slug as string;
+      } catch {
+        // view may not exist; safely ignore
+      }
     }
   }
 
-  // Final safe default (prevents 500s)
+  // 3) Final safe default
   return process.env.DEFAULT_ORG_SLUG || "competency-coach";
 }
 
@@ -74,7 +80,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const sb = supa();
 
-    // Resolve taker (optional but helps fetch results/submissions reliably)
+    // Resolve taker (optional, but helps fetch results/submissions)
     const { data: taker } = await sb
       .from("test_takers")
       .select("id, test_id, first_name, last_name, email")
@@ -109,7 +115,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     totals = totals ?? { A: 0, B: 0, C: 0, D: 0 };
     const percentages = toPercentages(totals);
 
-    // Resolve correct org slug from DB and load framework JSON for labels
+    // Load correct framework labels by org_slug
     const org_slug = await resolveOrgSlugByTokenAndTaker(sb, token, taker?.id);
     const framework = await loadFrameworkBySlug(org_slug);
 
