@@ -1,17 +1,12 @@
-import * as React from 'react'
-import clsx from 'clsx'
+/**
+ * Card — neutral, brand-aligned container
+ */
+import type { ReactNode, HTMLAttributes } from 'react';
+import clsx from 'clsx';
 
-
-export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-return <div className={clsx('mc-card', className)} {...props} />
-}
-
-
-export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-return <div className={clsx('px-6 pt-6', className)} {...props} />
-}
-
-
-export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-return <div className={clsx('px-6 pb-6', className)} {...props} />
+export function Card({
+  className,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
+  return <div className={clsx('mc-card', className)} {...props} />;
 }

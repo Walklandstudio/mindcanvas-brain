@@ -1,39 +1,24 @@
 /**
- * UI Button Component
- * --------------------------------------------------------
- * Branded button variants: primary and ghost.
+ * Button — primary / ghost variants, brand-aligned
  */
-
 import type { ButtonHTMLAttributes } from 'react';
 import clsx from 'clsx';
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'ghost';
   size?: 'sm' | 'md';
 };
 
-export function Button({
-  children,
-  variant = 'primary',
-  size = 'md',
-  className,
-  ...props
-}: ButtonProps) {
+export function Button({ variant = 'primary', size = 'md', className, ...props }: Props) {
   return (
     <button
       {...props}
       className={clsx(
-        'mc-btn font-medium transition-transform duration-100 active:scale-[0.99]',
-        {
-          'mc-btn-primary text-white': variant === 'primary',
-          'mc-btn-ghost text-white/90': variant === 'ghost',
-          'text-sm px-3 py-2': size === 'sm',
-          'text-base px-4 py-2.5': size === 'md',
-        },
+        'mc-btn',
+        variant === 'primary' ? 'mc-btn--primary' : 'mc-btn--ghost',
+        size === 'sm' ? 'text-sm px-3 py-2' : 'text-base px-4 py-2.5',
         className
       )}
-    >
-      {children}
-    </button>
+    />
   );
 }
