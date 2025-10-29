@@ -1,49 +1,86 @@
-import { sbAdmin } from '@/lib/supabaseAdmin';
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+// apps/web/app/api/public/test/[token]/start/route.ts
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabaseAdmin";
 
-export async function GET(_: Request, { params }: { params: { token: string } }) {
-  const token = params.token;
-  if (!token) return json(200, { ok: false, stage: 'init', error: 'missing_token' });
+export const dynamic = "force-dynamic";
 
-  try {
-    const db = sbAdmin.schema('portal');
+type StartBody = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  company?: string | null;
+  role_title?: string | null;
+};
 
-    const link = await db.from('test_links')
-      .select('test_id, org_id, token')
-      .eq('token', token)
-      .maybeSingle();
-    if (link.error) return json(200, { ok: false, stage: 'link_lookup', error: link.error.message });
-    if (!link.data)  return json(200, { ok: false, stage: 'link_lookup', error: 'link_not_found' });
-
-    const latest = await db.from('test_takers')
-      .select('id')
-      .eq('link_token', token)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    let takerId = latest.data?.id as string | undefined;
-    if (!takerId) {
-      const ins = await db.from('test_takers').insert({
-        org_id: link.data.org_id,
-        test_id: link.data.test_id,
-        link_token: token,
-        status: 'started',
-        first_name: null,
-        last_name: null,
-        email: null,
-      }).select('id').single();
-      if (ins.error) return json(200, { ok: false, stage: 'taker_insert', error: ins.error.message });
-      takerId = ins.data.id;
-    }
-
-    return json(200, { ok: true, taker_id: takerId, test_id: link.data.test_id });
-  } catch (e: any) {
-    return json(200, { ok: false, stage: 'catch', error: e?.message || 'internal_error' });
-  }
+function sanitize(s: unknown): string | null {
+  if (typeof s !== "string") return null;
+  const trimmed = s.trim();
+  return trimmed.length ? trimmed : null;
 }
 
-function json(status: number, body: any) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+export async function POST(req: Request, { params }: { params: { token: string } }) {
+  try {
+    const body = (await req.json().catch(() => ({}))) as Partial<StartBody>;
+    const first_name = sanitize(body.first_name);
+    const last_name  = sanitize(body.last_name);
+    const email      = sanitize(body.email);
+    const company    = sanitize(body.company ?? null);
+    const role_title = sanitize(body.role_title ?? null);
+
+    if (!first_name || !last_name || !email) {
+      return NextResponse.json(
+        { ok: false, error: "Missing required fields (first_name, last_name, email)" },
+        { status: 400 }
+      );
+    }
+
+    const sb = createClient().schema("portal");
+
+    // Resolve token → link (test_id, org_id)
+    const { data: link, error: linkErr } = await sb
+      .from("test_links")
+      .select("id, test_id, org_id, max_uses, use_count")
+      .eq("token", params.token)
+      .maybeSingle();
+
+    if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
+    if (!link)   return NextResponse.json({ ok: false, error: "Invalid or expired link" }, { status: 404 });
+
+    if (typeof link.max_uses === "number" && typeof link.use_count === "number") {
+      if (link.max_uses > 0 && link.use_count >= link.max_uses) {
+        return NextResponse.json({ ok: false, error: "Link usage limit reached" }, { status: 403 });
+      }
+    }
+
+    // Insert taker
+    const { data: taker, error: takerErr } = await sb
+      .from("test_takers")
+      .insert([{
+        org_id: link.org_id,
+        test_id: link.test_id,
+        first_name, last_name, email, company, role_title,
+        status: "in_progress",
+      }])
+      .select("id")
+      .maybeSingle();
+
+    if (takerErr) {
+      return NextResponse.json({ ok: false, error: takerErr.message }, { status: 500 });
+    }
+    if (!taker) {
+      return NextResponse.json({ ok: false, error: "Failed to create test taker" }, { status: 500 });
+    }
+
+    // Increment link use_count (best-effort, non-blocking)
+    if (typeof link.use_count === "number") {
+      await sb
+        .from("test_links")
+        .update({ use_count: link.use_count + 1 })
+        .eq("id", link.id);
+    }
+
+    return NextResponse.json({ ok: true, taker_id: taker.id, test_id: link.test_id });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
+  }
 }

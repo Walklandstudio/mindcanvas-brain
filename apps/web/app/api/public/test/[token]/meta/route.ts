@@ -1,3 +1,4 @@
+// apps/web/app/api/public/test/[token]/meta/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabaseAdmin";
 
@@ -10,7 +11,7 @@ export async function GET(
   const sb = createClient().schema("portal");
 
   try {
-    // 1️⃣ Get test_id + org_id from the token
+    // 1) Resolve token → test/org
     const { data: link, error: linkErr } = await sb
       .from("test_links")
       .select("test_id, org_id")
@@ -19,10 +20,9 @@ export async function GET(
 
     if (linkErr) throw new Error(linkErr.message);
     if (!link) throw new Error("Invalid test token");
-
     const testId = link.test_id;
 
-    // 2️⃣ FIRST: Try your label tables
+    // 2) Preferred: label tables
     let profiles: { code: string; name: string; frequency: string }[] = [];
     let frequencies: { code: string; name: string }[] = [];
 
@@ -39,9 +39,7 @@ export async function GET(
           frequency: p.frequency_code,
         }));
       }
-    } catch (err) {
-      console.warn("test_profile_labels missing:", err);
-    }
+    } catch {}
 
     try {
       const { data: freq } = await sb
@@ -55,11 +53,9 @@ export async function GET(
           name: f.frequency_name,
         }));
       }
-    } catch (err) {
-      console.warn("test_frequency_labels missing:", err);
-    }
+    } catch {}
 
-    // 3️⃣ If labels weren’t found, fall back to JSON (meta) for older tests
+    // 3) Fallback: tests.meta JSON (if present)
     if (profiles.length === 0 || frequencies.length === 0) {
       const { data: trow } = await sb
         .from("tests")
@@ -67,25 +63,25 @@ export async function GET(
         .eq("id", testId)
         .maybeSingle();
 
-      if (trow?.meta) {
-        const meta = trow.meta;
-        if (Array.isArray(meta.profiles)) {
-          profiles = meta.profiles.map((p: any) => ({
-            code: p.code,
-            name: p.name,
-            frequency: p.frequency,
-          }));
-        }
-        if (Array.isArray(meta.frequencies)) {
-          frequencies = meta.frequencies.map((f: any) => ({
-            code: f.code,
-            name: f.label || f.name,
-          }));
-        }
+      const meta = trow?.meta as any | undefined;
+
+      if (profiles.length === 0 && Array.isArray(meta?.profiles)) {
+        profiles = meta.profiles.map((p: any) => ({
+          code: String(p.code ?? ""),
+          name: String(p.name ?? ""),
+          frequency: String(p.frequency ?? "").toUpperCase(),
+        })).filter((p: any) => p.code && p.name && p.frequency);
+      }
+
+      if (frequencies.length === 0 && Array.isArray(meta?.frequencies)) {
+        frequencies = meta.frequencies.map((f: any) => ({
+          code: String(f.code ?? "").toUpperCase(),
+          name: String(f.label ?? f.name ?? ""),
+        })).filter((f: any) => f.code && f.name);
       }
     }
 
-    // 4️⃣ Final fallback (only if nothing found)
+    // 4) Final safe defaults (should rarely be used now)
     if (profiles.length === 0) {
       profiles = [
         { code: "PROFILE_1", name: "Profile 1", frequency: "A" },
@@ -108,21 +104,13 @@ export async function GET(
       ];
     }
 
-    // 5️⃣ Return everything
     return NextResponse.json(
-      {
-        ok: true,
-        test_id: testId,
-        org_id: link.org_id,
-        profiles,
-        frequencies,
-        thresholds: [],
-      },
+      { ok: true, test_id: testId, org_id: link.org_id, profiles, frequencies, thresholds: [] },
       { status: 200 }
     );
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err.message || "Unknown error" },
+      { ok: false, error: err?.message || "Unknown error" },
       { status: 500 }
     );
   }

@@ -1,77 +1,81 @@
-import { sbAdmin } from '@/lib/supabaseAdmin';
+// apps/web/app/api/public/test/[token]/submit/route.ts
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabaseAdmin";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
 
-type Body =
-  | { mode: 'totals'; totals: Record<string, number>; taker?: { first_name?: string; last_name?: string; email?: string } }
-  | { mode: 'answers'; answers: Array<{ question_id: string; option_index: number; profile: string; points: number }>; taker?: { first_name?: string; last_name?: string; email?: string } };
+type SubmitBody = {
+  taker_id: string;
+  answers?: unknown;           // whatever your UI posts
+  totals?: Record<string, any>;// your computed totals payload
+};
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
-  const token = params.token;
-  if (!token) return json(400, { ok: false, error: 'missing_token' });
-
-  const db = sbAdmin.schema('portal');
+  const sb = createClient().schema("portal");
 
   try {
-    const body = (await req.json().catch(() => ({}))) as Body;
+    const body = (await req.json().catch(() => ({}))) as Partial<SubmitBody>;
+    const taker_id = body.taker_id;
 
-    // 1) link -> test
-    const link = await db.from('test_links').select('test_id').eq('token', token).maybeSingle();
-    if (link.error) return json(200, { ok: false, stage: 'link_lookup', error: link.error.message });
-    if (!link.data)  return json(200, { ok: false, stage: 'link_lookup', error: 'link_not_found' });
+    if (!taker_id) {
+      return NextResponse.json({ ok: false, error: "Missing taker_id" }, { status: 400 });
+    }
 
-    // 2) latest taker for this token
-    const latest = await db.from('test_takers')
-      .select('id')
-      .eq('link_token', token)
-      .order('created_at', { ascending: false })
-      .limit(1)
+    // Resolve link
+    const { data: link, error: linkErr } = await sb
+      .from("test_links")
+      .select("test_id, org_id")
+      .eq("token", params.token)
       .maybeSingle();
-    if (latest.error) return json(200, { ok: false, stage: 'taker_lookup', error: latest.error.message });
-    if (!latest.data)  return json(200, { ok: false, stage: 'taker_lookup', error: 'taker_not_found' });
 
-    // 3) derive totals
-    let totals: Record<string, number> = {};
-    if ((body as any).mode === 'totals' && 'totals' in (body as any)) {
-      totals = (body as any).totals || {};
-    } else if ((body as any).mode === 'answers' && 'answers' in (body as any)) {
-      for (const a of (body as any).answers || []) {
-        if (!a?.profile || typeof a.points !== 'number') continue;
-        totals[a.profile] = (totals[a.profile] || 0) + a.points;
+    if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
+    if (!link)   return NextResponse.json({ ok: false, error: "Invalid test link" }, { status: 404 });
+
+    // Load taker identity (copy to submission)
+    const { data: taker, error: takerErr } = await sb
+      .from("test_takers")
+      .select("id, first_name, last_name, email, company, role_title")
+      .eq("id", taker_id)
+      .maybeSingle();
+
+    if (takerErr) {
+      return NextResponse.json({ ok: false, error: takerErr.message }, { status: 500 });
+    }
+    if (!taker) {
+      return NextResponse.json({ ok: false, error: "Taker not found" }, { status: 404 });
+    }
+
+    // Insert submission (answers/totals shape matches your current pipeline)
+    const { error: subErr } = await sb
+      .from("test_submissions")
+      .insert([{
+        org_id: link.org_id,
+        test_id: link.test_id,
+        taker_id: taker.id,
+        answers_json: body.answers ?? null,  // if your table uses a different column, adjust here
+        totals_json:  body.totals  ?? null,  // if your table uses a different column, adjust here
+        status: "completed",
+        // denormalized identity:
+        first_name: taker.first_name ?? null,
+        last_name:  taker.last_name  ?? null,
+        email:      taker.email      ?? null,
+        company:    taker.company    ?? null,
+        role_title: taker.role_title ?? null,
+      }]);
+
+    if (subErr) {
+      // If duplicate (unique constraint), just mark taker completed and return ok=true
+      const already = /duplicate key|unique constraint/i.test(subErr.message);
+      if (!already) {
+        return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
       }
-    } else {
-      return json(200, { ok: false, stage: 'payload', error: 'invalid_payload' });
     }
 
-    // 4) optional taker detail upsert
-    if ((body as any).taker) {
-      await db.from('test_takers').update({
-        first_name: (body as any).taker?.first_name ?? null,
-        last_name:  (body as any).taker?.last_name  ?? null,
-        email:      (body as any).taker?.email      ?? null,
-      }).eq('id', latest.data.id);
-    }
+    // Mark taker status
+    await sb.from("test_takers").update({ status: "completed" }).eq("id", taker.id);
 
-    // 5) insert submission
-    const ins = await db.from('test_submissions').insert({
-      taker_id: latest.data.id,
-      test_id: link.data.test_id,
-      link_token: token,
-      totals,
-      raw_answers: (body as any).answers ? (body as any).answers : null,
-    }).select('id').single();
-    if (ins.error) return json(200, { ok: false, stage: 'submission_insert', error: ins.error.message });
-
-    // 6) mark completed
-    await db.from('test_takers').update({ status: 'completed' }).eq('id', latest.data.id);
-
-    return json(200, { ok: true, submission_id: ins.data.id });
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return json(200, { ok: false, stage: 'catch', error: e?.message || 'internal_error' });
+    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
   }
-}
-
-function json(status: number, body: any) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
