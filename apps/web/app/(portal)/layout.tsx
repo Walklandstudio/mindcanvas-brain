@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Card } from '@/components/ui/Card'
+import { Card } from '@/@/components/ui/Card'
 
 
 export default function PortalLayout({ children }: { children: ReactNode }) {
