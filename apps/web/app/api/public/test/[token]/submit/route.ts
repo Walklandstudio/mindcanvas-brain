@@ -10,110 +10,88 @@ function supa() {
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
-/** ---- ORG MAPPINGS (server-safe, no schema changes) ---- */
-// Team Puzzle: PROFILE_1..8 -> A..D (from your JSON)
-const TP_PROFILE_TO_FREQ: Record<string, AB> = {
-  PROFILE_1: "A", PROFILE_2: "A",
-  PROFILE_3: "B", PROFILE_4: "B",
-  PROFILE_5: "C", PROFILE_6: "C",
-  PROFILE_7: "D", PROFILE_8: "D",
-};
+/* ---------------------------- helpers ---------------------------- */
 
-// Competency Coach: P1..P8 -> A..D (your signature mapping)
-const CC_PROFILE_TO_FREQ: Record<string, AB> = {
-  P1: "A", P2: "A",
-  P3: "B", P4: "B",
-  P5: "C", P6: "C",
-  P7: "D", P8: "D",
-};
+type PMEntry = { points?: number; profile?: string };
+type QuestionRow = { id: string; idx?: string | number | null; profile_map?: PMEntry[] | null };
 
-/** Normalize common profile code shapes to a canonical code */
-function normProfileCode(raw: string | undefined | null): string | null {
-  if (!raw) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-  if (/^P\d+$/i.test(s)) return s.toUpperCase();                // "P1"
-  if (/^PROFILE[_\s-]?(\d+)$/i.test(s)) return `PROFILE_${RegExp.$1}`.toUpperCase(); // "PROFILE_1"
-  const m = s.match(/^(\d+)$/);
-  if (m) return `P${m[1]}`;                                      // "1" -> "P1"
-  return s;                                                       // fallback (name)
+function sumABCD(t?: Partial<Record<AB, number>> | null) {
+  if (!t) return 0;
+  return (Number(t.A || 0) + Number(t.B || 0) + Number(t.C || 0) + Number(t.D || 0));
 }
 
-/** Safely add to A/B/C/D */
-function addFreq(freqTotals: Record<AB, number>, f: AB | null, pts: number) {
-  if (!f) return;
-  freqTotals[f] = (freqTotals[f] || 0) + (Number(pts) || 0);
+function orderQuestions(questions: QuestionRow[]): QuestionRow[] {
+  const withNum = questions.map((q) => ({ ...q, _n: q.idx == null ? null : Number(q.idx) }));
+  const haveNum = withNum.every((q) => Number.isFinite(q._n as any));
+  return haveNum ? withNum.sort((a, b) => Number(a._n) - Number(b._n)) : questions;
 }
 
-/** Try to map profile code to A/B/C/D using org mappings */
-function profileToFreq(orgSlug: string, codeOrName: string): AB | null {
-  const code = normProfileCode(codeOrName);
-  if (!code) return null;
-  if (orgSlug === "team-puzzle" && TP_PROFILE_TO_FREQ[code as keyof typeof TP_PROFILE_TO_FREQ]) {
-    return TP_PROFILE_TO_FREQ[code as keyof typeof TP_PROFILE_TO_FREQ];
+/** Accept P1..P8 or PROFILE_1..PROFILE_8 (case-insensitive), map 1–2→A, 3–4→B, 5–6→C, 7–8→D */
+function profileToFreq(_orgSlug: string, profileValue: string): AB | null {
+  const s = String(profileValue || "").trim().toUpperCase();
+
+  // Normalize to a number 1..8
+  let n: number | null = null;
+  const m1 = s.match(/^P(\d+)$/); // P1
+  const m2 = s.match(/^PROFILE[_\s-]?(\d+)$/); // PROFILE_1
+  if (m1) n = Number(m1[1]);
+  else if (m2) n = Number(m2[1]);
+
+  if (n && n >= 1 && n <= 8) {
+    if (n <= 2) return "A";
+    if (n <= 4) return "B";
+    if (n <= 6) return "C";
+    return "D"; // 7–8
   }
-  if (orgSlug === "competency-coach") {
-    // accept both "P1" and names that normalize to P#
-    const asP = /^PROFILE_(\d+)$/i.test(code) ? (`P${RegExp.$1}`) : code;
-    if (CC_PROFILE_TO_FREQ[asP as keyof typeof CC_PROFILE_TO_FREQ]) {
-      return CC_PROFILE_TO_FREQ[asP as keyof typeof CC_PROFILE_TO_FREQ];
-    }
-  }
+
+  // Fallback: allow direct flow codes if ever used
+  const first = s[0];
+  if (first === "A" || first === "B" || first === "C" || first === "D") return first as AB;
+
   return null;
 }
 
-/** Derive frequency totals from answers when client didn't send totals */
-function deriveTotalsFromAnswers(
-  answers: any,
-  orgSlug: string
-): Record<AB, number> {
+/** Try to read selected index from common answer shapes */
+function readSelectedIndex(row: any): number | null {
+  if (typeof row?.selected === "number") return row.selected;
+  if (typeof row?.selected_index === "number") return row.selected_index;
+  if (typeof row?.index === "number") return row.index;
+  if (typeof row?.value?.index === "number") return row.value.index;
+  return null;
+}
+
+/** Compute A/B/C/D from answers + DB-backed profile_map */
+function computeTotalsFrom(answers: any, questions: QuestionRow[], orgSlug: string): Record<AB, number> {
   const freq: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
   const rows: any[] = Array.isArray(answers) ? answers : answers?.rows || answers?.items || [];
-  for (const row of rows) {
-    // Case 1: options[] with selected index
-    if (Array.isArray(row?.options) && (row?.selected != null || row?.selected_index != null)) {
-      const idx = Number(row.selected ?? row.selected_index);
-      const opt = row.options[idx];
-      if (opt) {
-        const pts = Number(opt.points ?? opt.score ?? 0) || 0;
-        const prof = normProfileCode(opt.profile ?? opt.code ?? opt.id ?? null);
-        // prefer explicit option.frequency if present
-        const f: AB | null = (opt.frequency as AB) || profileToFreq(orgSlug, prof || "");
-        addFreq(freq, f, pts);
-      }
-      continue;
-    }
-    // Case 2: selected object
-    if (row?.selected && typeof row.selected === "object") {
-      const pts = Number(row.selected.points ?? row.selected.score ?? 0) || 0;
-      const prof = normProfileCode(row.selected.profile ?? row.selected.code ?? row.selected.id ?? null);
-      const f: AB | null = (row.selected.frequency as AB) || profileToFreq(orgSlug, prof || "");
-      addFreq(freq, f, pts);
-      continue;
-    }
-    // Case 3: value object
-    if (row?.value && typeof row.value === "object") {
-      const pts = Number(row.value.points ?? row.value.score ?? 0) || 0;
-      const prof = normProfileCode(row.value.profile ?? row.value.code ?? row.value.id ?? null);
-      const f: AB | null = (row.value.frequency as AB) || profileToFreq(orgSlug, prof || "");
-      addFreq(freq, f, pts);
-      continue;
-    }
-    // Case 4: direct profile & points
-    if (row?.profile || row?.code || row?.id) {
-      const pts = Number(row.points ?? row.score ?? 0) || 0;
-      const prof = normProfileCode(row.profile ?? row.code ?? row.id ?? null);
-      const f: AB | null = profileToFreq(orgSlug, prof || "");
-      addFreq(freq, f, pts);
+
+  const qsOrdered = orderQuestions(questions);
+  const byId: Record<string, QuestionRow> = {};
+  for (const q of questions) byId[q.id] = q;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+
+    // Match by explicit question_id if present; else fall back to order
+    const qid = row?.question_id || row?.qid || row?.id;
+    const q = (qid && byId[qid]) ? byId[qid] : qsOrdered[i];
+    if (!q || !Array.isArray(q.profile_map) || q.profile_map.length === 0) continue;
+
+    const sel = readSelectedIndex(row);
+    if (sel == null || sel < 0 || sel >= q.profile_map.length) continue;
+
+    const entry = q.profile_map[sel] || {};
+    const points = Number(entry.points ?? 0) || 0;
+    const prof = entry.profile || "";
+    const f = profileToFreq(orgSlug, prof);
+    if (f && points > 0) {
+      freq[f] = (freq[f] || 0) + points;
     }
   }
   return freq;
 }
 
-function sumABCD(t: Partial<Record<AB, number>> | undefined | null) {
-  if (!t) return 0;
-  return (Number(t.A||0)+Number(t.B||0)+Number(t.C||0)+Number(t.D||0));
-}
+/* ------------------------------ route ------------------------------ */
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   try {
@@ -124,83 +102,103 @@ export async function POST(req: Request, { params }: { params: { token: string }
     const takerId: string | undefined = body.taker_id || body.takerId || body.tid;
     if (!takerId) return NextResponse.json({ ok: false, error: "Missing taker_id" }, { status: 400 });
 
+    // answers_json is required if client didn't compute totals
     const answers_json = body.answers ?? null;
+
+    // Accept either frequency_totals or totals from client; may be empty
     let totals: Partial<Record<AB, number>> = body.frequency_totals ?? body.totals ?? {};
 
     const sb = supa();
 
-    // Resolve taker + org via the link
-    const { data: taker } = await sb
+    // 1) Resolve taker (and test_id) under this token
+    const { data: taker, error: takerErr } = await sb
       .from("test_takers")
       .select("id, test_id, link_token, first_name, last_name, email, company, role_title")
-      .eq("id", takerId).eq("link_token", token).maybeSingle();
-
-    if (!taker) {
+      .eq("id", takerId)
+      .eq("link_token", token)
+      .maybeSingle();
+    if (takerErr || !taker) {
       return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
     }
 
-    // Find org slug for mapping (from link + view)
-    const { data: link } = await sb
+    // 2) Resolve org slug (from link; fallback via v_organizations)
+    const { data: linkRow } = await sb
       .from("test_links")
       .select("org_id, org_slug")
       .eq("token", token)
       .maybeSingle();
 
-    let orgSlug = (link as any)?.org_slug || "competency-coach";
-    if (!link?.org_slug && link?.org_id) {
+    let orgSlug: string | null = (linkRow as any)?.org_slug || null;
+    if (!orgSlug && linkRow?.org_id) {
       const { data: orgView } = await sb
         .from("v_organizations" as any)
         .select("slug")
-        .eq("id", link.org_id)
+        .eq("id", linkRow.org_id)
         .maybeSingle();
-      if (orgView?.slug) orgSlug = orgView.slug;
+      orgSlug = orgView?.slug || null;
+    }
+    if (!orgSlug) {
+      return NextResponse.json({ ok: false, error: "Cannot resolve org for mapping" }, { status: 400 });
     }
 
-    // If totals missing/empty, derive from answers_json using org mapping
+    // 3) If totals missing/zero, compute from DB questions + answers_json using profile_map
     if (sumABCD(totals) <= 0) {
-      totals = deriveTotalsFromAnswers(answers_json, orgSlug);
+      if (!answers_json) {
+        return NextResponse.json({ ok: false, error: "Missing answers; cannot compute totals" }, { status: 400 });
+      }
+
+      // Load minimal question fields for this test
+      const { data: questions, error: qErr } = await sb
+        .from("test_questions")
+        .select("id, idx, profile_map")
+        .eq("test_id", taker.test_id)
+        .order("created_at", { ascending: true });
+      if (qErr) {
+        return NextResponse.json({ ok: false, error: `Questions load failed: ${qErr.message}` }, { status: 500 });
+      }
+
+      totals = computeTotalsFrom(answers_json, (questions || []) as QuestionRow[], orgSlug);
     }
 
-    // Snapshot submission (write the correct column: totals)
-    const submissionPayload = {
+    // 4) Snapshot submission (correct column: totals)
+    const submissionTotals = {
+      A: Number(totals.A || 0),
+      B: Number(totals.B || 0),
+      C: Number(totals.C || 0),
+      D: Number(totals.D || 0),
+    };
+
+    const { error: subErr } = await sb.from("test_submissions").insert({
       taker_id: taker.id,
       test_id: taker.test_id,
       link_token: token,
-      totals: {
-        A: Number(totals.A||0),
-        B: Number(totals.B||0),
-        C: Number(totals.C||0),
-        D: Number(totals.D||0),
-      },
+      totals: submissionTotals,
       answers_json,
       first_name: taker.first_name ?? null,
       last_name: taker.last_name ?? null,
       email: taker.email ?? null,
       company: taker.company ?? null,
       role_title: taker.role_title ?? null,
-    };
-
-    const { error: subErr } = await sb.from("test_submissions").insert(submissionPayload);
+    });
     if (subErr) {
       return NextResponse.json({ ok: false, error: `Submission insert failed: ${subErr.message}` }, { status: 500 });
     }
 
-    // Upsert results (preferred source for report)
+    // 5) Upsert results (preferred source for report)
     const { error: resErr } = await sb
       .from("test_results")
-      .upsert({
-        taker_id: taker.id,
-        totals: submissionPayload.totals,
-      }, { onConflict: "taker_id" });
-
+      .upsert({ taker_id: taker.id, totals: submissionTotals }, { onConflict: "taker_id" });
     if (resErr) {
       // Non-fatal; report will fall back to submissions
       console.warn("test_results upsert failed", resErr.message);
     }
 
-    // Mark taker completed
-    await sb.from("test_takers").update({ status: "completed" })
-      .eq("id", taker.id).eq("link_token", token);
+    // 6) Mark taker completed
+    await sb
+      .from("test_takers")
+      .update({ status: "completed" })
+      .eq("id", taker.id)
+      .eq("link_token", token);
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
