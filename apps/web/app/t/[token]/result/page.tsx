@@ -1,170 +1,166 @@
-// apps/web/app/api/public/test/[token]/report/route.ts
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabaseAdmin";
+import { headers } from "next/headers";
+import Link from "next/link";
 
-export const dynamic = "force-dynamic";
+type AB = "A" | "B" | "C" | "D";
 
-type Totals = Record<string, number | string | null | undefined>;
-type LabelRow = { frequency_code?: string; frequency_name?: string; profile_code?: string; profile_name?: string };
+type FrequencyLabel = { code: AB; name: string };
+type ProfileLabel = { code: string; name: string };
 
-function toNumber(x: unknown): number {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : 0;
+type ReportData = {
+  org_slug: string;
+  test_name: string;
+  taker: { id: string };
+  frequency_labels: FrequencyLabel[];
+  frequency_totals: Record<AB, number>;
+  frequency_percentages: Record<AB, number>;
+  profile_labels: ProfileLabel[];
+  profile_totals: Record<string, number>;
+  profile_percentages: Record<string, number>;
+  top_freq: AB;
+  top_profile_code: string;
+  top_profile_name: string;
+  version: string;
+};
+
+// Minimal interface to avoid depending on ReadonlyHeaders type
+type HeaderLike = { get(name: string): string | null };
+
+function originFromHeaders(h: HeaderLike): string {
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
 }
 
-function clamp01(n: number) {
-  if (!Number.isFinite(n)) return 0;
-  return n < 0 ? 0 : n > 1 ? 1 : n;
-}
-
-function toPercents(map: Record<string, number>): Record<string, number> {
-  const sum = Object.values(map).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
-  if (!sum || sum <= 0) {
-    // Avoid NaNs – return zeros maintaining keys
-    const out: Record<string, number> = {};
-    for (const k of Object.keys(map)) out[k] = 0;
-    return out;
+async function fetchResult(origin: string, token: string, tid: string): Promise<ReportData> {
+  const url = `${origin}/api/public/test/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(tid)}`;
+  const res = await fetch(url, { cache: "no-store" });
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 400)}`);
   }
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(map)) out[k] = clamp01(v / sum) * 100;
-  return out;
+  const j = await res.json();
+  if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
+  return j.data as ReportData;
 }
 
-export async function GET(req: Request, { params }: { params: { token: string } }) {
-  const sb = createClient().schema("portal");
-  const token = params.token;
-  const url = new URL(req.url);
-  const takerId = (url.searchParams.get("tid") || "").trim();
+function Bar({ pct }: { pct: number }) {
+  const clamped = Math.max(0, Math.min(1, Number(pct) || 0));
+  const width = `${(clamped * 100).toFixed(0)}%`;
+  return (
+    <div className="w-full h-2 rounded bg-black/10">
+      <div className="h-2 rounded bg-sky-600" style={{ width }} />
+    </div>
+  );
+}
 
-  if (!token || !takerId) {
-    return NextResponse.json(
-      { ok: false, error: "missing token/tid" },
-      { status: 400 }
+export default async function ResultPage({
+  params,
+  searchParams,
+}: {
+  params: { token: string };
+  searchParams?: { [key: string]: string | string[] | undefined };
+}) {
+  const token = params.token;
+  const tid = typeof searchParams?.tid === "string" ? searchParams!.tid : "";
+  if (!tid) {
+    return (
+      <div className="min-h-screen p-6">
+        <h1 className="text-2xl font-semibold">Missing taker ID</h1>
+        <p className="text-gray-600 mt-2">This page expects a <code>?tid=</code> query parameter.</p>
+      </div>
     );
   }
 
-  // 1) Resolve the link → test
-  const { data: link, error: linkErr } = await sb
-    .from("test_links")
-    .select("id, test_id, token")
-    .eq("token", token)
-    .maybeSingle();
+  // headers() can be async-thenable in your environment
+  const h = (await headers()) as unknown as HeaderLike;
+  const origin = originFromHeaders(h);
 
-  if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
-  if (!link)  return NextResponse.json({ ok: false, error: "invalid link" }, { status: 404 });
+  let data: ReportData;
+  try {
+    data = await fetchResult(origin, token, tid);
+  } catch (e: any) {
+    return (
+      <div className="min-h-screen p-6">
+        <h1 className="text-2xl font-semibold">Couldn’t load result</h1>
+        <pre className="mt-4 p-3 rounded bg-gray-900 text-gray-100 whitespace-pre-wrap">
+{String(e?.message || e)}
+        </pre>
+        <div className="text-sm text-gray-500 mt-3">
+          Debug links:
+          <ul className="list-disc ml-5">
+            <li><a className="underline" href={`/api/public/test/${token}/result?tid=${encodeURIComponent(tid)}`} target="_blank">/api/public/test/{token}/result?tid=…</a></li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
 
-  // 2) Confirm taker exists for this test
-  const { data: taker, error: takerErr } = await sb
-    .from("test_takers")
-    .select("id, first_name, last_name, email, company, role_title")
-    .eq("id", takerId)
-    .eq("test_id", link.test_id)
-    .maybeSingle();
+  const freq = data.frequency_percentages;
+  const prof = data.profile_percentages;
 
-  if (takerErr) return NextResponse.json({ ok: false, error: takerErr.message }, { status: 500 });
-  if (!taker)  return NextResponse.json({ ok: false, error: "invalid taker" }, { status: 404 });
+  return (
+    <div className="min-h-screen p-6 md:p-10 bg-gradient-to-b from-white to-slate-50">
+      <header className="max-w-5xl mx-auto">
+        <p className="text-sm text-gray-500">{data.org_slug} • Result</p>
+        <h1 className="text-3xl md:text-4xl font-bold mt-1">{data.test_name || "Profile Test"}</h1>
+        <p className="text-gray-700 mt-2">
+          Top Profile: <span className="font-semibold">{data.top_profile_name}</span>
+        </p>
 
-  // 3) Grab the latest submission for this taker/test
-  //    Your schema: totals (jsonb), answers_json (jsonb), link_token (text)
-  const { data: sub, error: subErr } = await sb
-    .from("test_submissions")
-    .select("totals, totals_json, answers_json, link_token, first_name, last_name, email, company, role_title, created_at")
-    .eq("taker_id", takerId)
-    .eq("test_id", link.test_id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+        <div className="mt-4">
+          <Link
+            href={`/t/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`}
+            className="inline-flex items-center px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 text-gray-900"
+          >
+            View your personalised report →
+          </Link>
+        </div>
+      </header>
 
-  if (subErr) return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
-  if (!sub)    return NextResponse.json({ ok: false, error: "no submission" }, { status: 404 });
+      <main className="max-w-5xl mx-auto mt-8 space-y-10">
+        {/* Frequency mix */}
+        <section>
+          <h2 className="text-xl font-semibold mb-4">Coaching Flow mix</h2>
+          <div className="grid gap-3">
+            {data.frequency_labels.map((f) => (
+              <div key={f.code} className="grid grid-cols-12 items-center gap-3">
+                <div className="col-span-3 md:col-span-2 text-sm text-gray-700">
+                  <span className="font-medium">{f.name}</span>
+                  <span className="text-gray-500 ml-2">({f.code})</span>
+                </div>
+                <div className="col-span-9 md:col-span-10">
+                  <Bar pct={freq[f.code]} />
+                  <div className="text-xs text-gray-500 mt-1">{Math.round((freq[f.code] || 0) * 100)}%</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
 
-  // Normalize totals:
-  // Prefer `totals` (your table), fall back to `totals_json` if present.
-  const totalsObj: Totals =
-    (sub as any).totals ??
-    (sub as any).totals_json ??
-    {};
+        {/* Profile mix */}
+        <section>
+          <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
+          <div className="grid gap-3">
+            {data.profile_labels.map((p) => (
+              <div key={p.code} className="grid grid-cols-12 items-center gap-3">
+                <div className="col-span-3 md:col-span-2 text-sm text-gray-700">
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-gray-500 ml-2">({p.code.replace("PROFILE_", "P")})</span>
+                </div>
+                <div className="col-span-9 md:col-span-10">
+                  <Bar pct={prof[p.code] || 0} />
+                  <div className="text-xs text-gray-500 mt-1">{Math.round((prof[p.code] || 0) * 100)}%</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
 
-  // Extract raw frequency/profile maps
-  // Expecting keys: A,B,C,D and PROFILE_1..PROFILE_8 (but we’ll be forgiving)
-  const freqRaw: Record<string, number> = {
-    A: toNumber((totalsObj as any).A),
-    B: toNumber((totalsObj as any).B),
-    C: toNumber((totalsObj as any).C),
-    D: toNumber((totalsObj as any).D),
-  };
-
-  // Profiles: accept PROFILE_1..PROFILE_8 if present, otherwise zeros
-  const profileKeys = Array.from({ length: 8 }, (_, i) => `PROFILE_${i + 1}`);
-  const profRaw: Record<string, number> = {};
-  for (const k of profileKeys) profRaw[k] = toNumber((totalsObj as any)[k]);
-
-  // Convert to percentages
-  const freqPerc = toPercents(freqRaw);
-  const profPerc = toPercents(profRaw);
-
-  // 4) Labels for this test
-  const [freqLabelsRes, profLabelsRes] = await Promise.all([
-    sb
-      .from("test_frequency_labels")
-      .select("frequency_code, frequency_name")
-      .eq("test_id", link.test_id),
-    sb
-      .from("test_profile_labels")
-      .select("profile_code, profile_name")
-      .eq("test_id", link.test_id),
-  ]);
-
-  if (freqLabelsRes.error)
-    return NextResponse.json({ ok: false, error: freqLabelsRes.error.message }, { status: 500 });
-  if (profLabelsRes.error)
-    return NextResponse.json({ ok: false, error: profLabelsRes.error.message }, { status: 500 });
-
-  const freqLabelMap: Record<string, string> = {};
-  (freqLabelsRes.data || []).forEach((r: LabelRow) => {
-    if (r.frequency_code) freqLabelMap[r.frequency_code] = r.frequency_name || r.frequency_code;
-  });
-
-  const profLabelMap: Record<string, string> = {};
-  (profLabelsRes.data || []).forEach((r: LabelRow) => {
-    if (r.profile_code) profLabelMap[r.profile_code] = r.profile_name || r.profile_code!;
-  });
-
-  // 5) Build the response payload (plain JSON only)
-  const payload = {
-    meta: {
-      test_id: link.test_id,
-      taker_id: taker.id,
-      token: link.token,
-      submitted_at: sub.created_at,
-      link_token: sub.link_token,
-    },
-    identity: {
-      first_name: sub.first_name ?? taker.first_name ?? null,
-      last_name:  sub.last_name  ?? taker.last_name  ?? null,
-      email:      sub.email      ?? taker.email      ?? null,
-      company:    sub.company    ?? taker.company    ?? null,
-      role_title: sub.role_title ?? taker.role_title ?? null,
-    },
-    frequencies: {
-      raw: freqRaw,
-      percents: freqPerc,
-      labels: {
-        A: freqLabelMap.A ?? "A",
-        B: freqLabelMap.B ?? "B",
-        C: freqLabelMap.C ?? "C",
-        D: freqLabelMap.D ?? "D",
-      },
-    },
-    profiles: {
-      raw: profRaw,
-      percents: profPerc,
-      labels: profileKeys.reduce<Record<string, string>>((acc, k) => {
-        acc[k] = profLabelMap[k] ?? k;
-        return acc;
-      }, {}),
-    },
-  };
-
-  return NextResponse.json({ ok: true, data: payload }, { status: 200 });
+      <footer className="max-w-5xl mx-auto py-10 text-sm text-gray-500">
+        <div>© {new Date().getFullYear()} MindCanvas — Profiletest.ai</div>
+      </footer>
+    </div>
+  );
 }
