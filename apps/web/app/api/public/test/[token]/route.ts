@@ -4,13 +4,10 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Service client for the `portal` schema (types relaxed to avoid TS schema clash). */
 function getPortalClient(): any {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceRole = process.env.SUPABASE_SERVICE_ROLE!;
-  if (!url || !serviceRole) {
-    throw new Error("Missing Supabase env vars");
-  }
+  if (!url || !serviceRole) throw new Error("Missing Supabase env vars");
   return createClient(url, serviceRole, {
     auth: { persistSession: false },
     db: { schema: "portal" },
@@ -21,28 +18,25 @@ function getPortalClient(): any {
 export async function GET(_req: NextRequest, ctx: { params: { token?: string } }) {
   try {
     const token = ctx.params?.token?.trim();
-    if (!token) {
-      return NextResponse.json({ ok: false, error: "missing token" }, { status: 400 });
-    }
+    if (!token) return NextResponse.json({ ok: false, error: "missing token" }, { status: 400 });
+
     const sb = getPortalClient();
 
-    // Resolve token -> test_id
+    // 1) resolve link -> test_id
     const { data: linkRow, error: linkErr } = await sb
       .from("test_links")
       .select("token, test_id")
       .eq("token", token)
-      .limit(1)
       .maybeSingle();
     if (linkErr || !linkRow) {
       return NextResponse.json({ ok: false, error: "invalid link" }, { status: 404 });
     }
 
-    // Fetch test name separately to avoid join typing ambiguity
+    // 2) test name (optional nicety)
     const { data: testRow, error: testErr } = await sb
       .from("tests")
       .select("name")
       .eq("id", linkRow.test_id)
-      .limit(1)
       .maybeSingle();
     if (testErr) {
       return NextResponse.json({ ok: false, error: testErr.message }, { status: 500 });
@@ -50,11 +44,7 @@ export async function GET(_req: NextRequest, ctx: { params: { token?: string } }
 
     return NextResponse.json({
       ok: true,
-      data: {
-        token: linkRow.token,
-        test_id: linkRow.test_id,
-        name: testRow?.name ?? "Test",
-      },
+      data: { token: linkRow.token, test_id: linkRow.test_id, name: testRow?.name ?? "Test" },
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
@@ -66,9 +56,7 @@ export async function GET(_req: NextRequest, ctx: { params: { token?: string } }
 export async function POST(req: NextRequest, ctx: { params: { token?: string } }) {
   try {
     const token = ctx.params?.token?.trim();
-    if (!token) {
-      return NextResponse.json({ ok: false, error: "missing token" }, { status: 400 });
-    }
+    if (!token) return NextResponse.json({ ok: false, error: "missing token" }, { status: 400 });
 
     const body = (await req.json().catch(() => ({}))) ?? {};
     const {
@@ -76,14 +64,13 @@ export async function POST(req: NextRequest, ctx: { params: { token?: string } }
       last_name = null,
       email = null,
       phone = null,
-      company = null,     // confirmed in your table
-      role_title = null,  // confirmed in your table
-      // team / team_function intentionally omitted (not in schema)
+      company = null,
+      role_title = null,
     } = body;
 
     const sb = getPortalClient();
 
-    // Resolve link -> test_id
+    // 1) resolve link -> test_id
     const { data: link, error: linkErr } = await sb
       .from("test_links")
       .select("test_id, token")
@@ -93,16 +80,27 @@ export async function POST(req: NextRequest, ctx: { params: { token?: string } }
       return NextResponse.json({ ok: false, error: "invalid link" }, { status: 404 });
     }
 
-    // Insert ONLY existing columns
+    // 2) fetch org_id for that test (this is the missing piece)
+    const { data: testRow, error: testErr } = await sb
+      .from("tests")
+      .select("org_id")
+      .eq("id", link.test_id)
+      .maybeSingle();
+    if (testErr || !testRow?.org_id) {
+      return NextResponse.json({ ok: false, error: "missing org for test" }, { status: 500 });
+    }
+
+    // 3) insert taker — include org_id and link_token to satisfy NOT NULL constraints
     const insertRow = {
+      org_id: testRow.org_id,     // ← critical
       test_id: link.test_id,
-      link_token: link.token,
+      link_token: link.token,     // ← critical
       first_name,
       last_name,
       email,
       phone,
-      company,
-      role_title,
+      company,                    // exists in your table
+      role_title,                 // exists in your table
       status: "started" as const,
     };
 
@@ -111,6 +109,7 @@ export async function POST(req: NextRequest, ctx: { params: { token?: string } }
       .insert(insertRow)
       .select("id")
       .single();
+
     if (insErr) {
       return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
     }
