@@ -1,0 +1,100 @@
+/* MindCanvas branding — PURE CSS (no @apply / @layer) */
+
+:root {
+  /* Brand neutrals */
+  --mc-bg: 210 20% 99%;
+  --mc-card: 0 0% 100%;
+  --mc-border: 220 14% 90%;
+  --mc-text: 222 47% 11%;
+  --mc-subtle: 215 16% 47%;
+  --mc-primary: 196 100% 40%;
+  --mc-primary-fg: 0 0% 100%;
+
+  /* Frequencies */
+  --freq-a: 42 74% 66%;   /* #E9C46A */
+  --freq-b: 24 89% 66%;   /* #F4A261 */
+  --freq-c: 173 57% 37%;  /* #2A9D8F */
+  --freq-d: 205 44% 25%;  /* #264653 */
+}
+
+/* Base */
+html, body {
+  background-color: hsl(var(--mc-bg));
+  color: hsl(var(--mc-text));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv02','cv03','cv04','cv11';
+  margin: 0;
+  padding: 0;
+}
+
+/* Layout helpers */
+.mc-container {
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  max-width: 72rem; /* 1152px */
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+@media (min-width: 640px) {
+  .mc-container { padding-left: 1.5rem; padding-right: 1.5rem; }
+}
+@media (min-width: 1024px) {
+  .mc-container { padding-left: 2rem; padding-right: 2rem; }
+}
+
+/* Card */
+.mc-card {
+  background-color: hsl(var(--mc-card));
+  border-radius: 1rem;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.06);
+  border: 1px solid hsl(var(--mc-border));
+}
+
+/* Hero */
+.mc-hero {
+  color: #fff;
+  border-radius: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  background-image:
+    radial-gradient(65% 65% at 70% 30%, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 60%),
+    linear-gradient(135deg, hsl(var(--freq-a)) 0%, hsl(var(--freq-d)) 100%);
+}
+
+/* Buttons */
+.mc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: transform .05s ease;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+}
+.mc-btn:active { transform: scale(0.99); }
+.mc-btn:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.05); }
+
+.mc-btn-primary {
+  color: hsl(var(--mc-primary-fg));
+  background-color: hsl(var(--mc-primary));
+}
+.mc-btn-primary:hover { opacity: 0.95; }
+
+.mc-btn-ghost {
+  color: #fff;
+  background-color: rgba(255,255,255,0.10);
+}
+.mc-btn-ghost:hover { background-color: rgba(255,255,255,0.20); }
+
+/* Gradient text utility */
+.mc-gradient-text {
+  background: linear-gradient(135deg, hsl(var(--freq-a)) 0%, hsl(var(--freq-c)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

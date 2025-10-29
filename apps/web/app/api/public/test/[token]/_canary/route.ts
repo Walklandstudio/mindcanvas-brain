@@ -1,9 +1,10 @@
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
-
+import { NextResponse } from "next/server";
+export const dynamic = "force-dynamic";
 export async function GET(_: Request, { params }: { params: { token: string } }) {
-  return new Response(JSON.stringify({ ok: true, method: 'GET', token: params.token }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
+  return NextResponse.json({
+    ok: true,
+    route: "apps/web/app/api/public/test/[token]/_canary/route.ts",
+    commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
+    token: params.token,
   });
 }

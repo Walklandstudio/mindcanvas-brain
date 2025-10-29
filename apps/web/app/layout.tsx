@@ -1,9 +1,19 @@
-// apps/web/app/t/layout.tsx
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+import './globals.css'
+import '../styles/branding.css'
+import type { ReactNode } from 'react'
+import { Inter, Manrope } from 'next/font/google'
 
-export default function TestLayout({ children }: { children: React.ReactNode }) {
-  // No headers(), no cookies(), no env, no SB calls here.
-  return <>{children}</>;
+
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope' })
+
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+return (
+<html lang="en" className={`${inter.variable} ${manrope.variable}`}>
+<body className="min-h-dvh antialiased">
+{children}
+</body>
+</html>
+)
 }
-
