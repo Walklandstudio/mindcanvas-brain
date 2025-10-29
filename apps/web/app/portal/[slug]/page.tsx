@@ -1,34 +1,43 @@
-// apps/web/app/portal/[slug]/tests/page.tsx
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+import { createClient } from "@/lib/supabaseAdmin";
+export const dynamic = "force-dynamic";
 
-type TestRow = { id: string; name: string; slug: string; status: string };
+export default async function Dashboard({ params }: any) {
+  const { slug } = params;
+  const sb = createClient().schema("portal");
 
-export default async function Page({ params }: { params: { slug: string } }) {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/org/${params.slug}/tests`, { cache: 'no-store' });
-  const j = await res.json();
-  if (!j.ok) return <div className="p-6 text-red-300">Error: {j.error}</div>;
-  const tests: TestRow[] = j.tests ?? [];
+  const { data: org, error } = await sb
+    .from("v_organizations")
+    .select("id, slug, name")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (error) return <div className="p-6 text-red-600">{error.message}</div>;
+  if (!org) return <div className="p-6 text-red-600">Org not found</div>;
+
+  const { count: takerCount } = await sb
+    .from("v_test_takers")
+    .select("*", { count: "exact", head: true })
+    .eq("org_slug", slug);
+
+  const { count: testCount } = await sb
+    .from("v_org_tests")
+    .select("*", { count: "exact", head: true })
+    .eq("org_slug", slug);
 
   return (
-    <div className="p-6 space-y-4 text-white">
-      <h1 className="text-2xl font-semibold">Tests</h1>
-      {tests.length === 0 ? (
-        <div className="text-white/70">No tests yet.</div>
-      ) : (
-        <ul className="space-y-2">
-          {tests.map(t => (
-            <li key={t.id} className="border border-white/10 rounded p-3 flex items-center justify-between">
-              <div>
-                <div className="font-medium">{t.name}</div>
-                <div className="text-xs text-white/60 uppercase">{t.status}</div>
-              </div>
-              <a className="underline" href={`/portal/${params.slug}/tests/${t.id}`}>Open</a>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="grid gap-4 md:grid-cols-3">
+      <div className="border rounded-xl p-4">
+        <div className="text-sm text-gray-500">Tests</div>
+        <div className="text-2xl font-semibold">{testCount ?? 0}</div>
+      </div>
+      <div className="border rounded-xl p-4">
+        <div className="text-sm text-gray-500">Test takers</div>
+        <div className="text-2xl font-semibold">{takerCount ?? 0}</div>
+      </div>
+      <div className="border rounded-xl p-4">
+        <div className="text-sm text-gray-500">Avg score (recent)</div>
+        <div className="text-2xl font-semibold">—</div>
+      </div>
     </div>
   );
 }
