@@ -6,8 +6,10 @@ export const dynamic = "force-dynamic";
 
 type SubmitBody = {
   taker_id?: string | null;
-  answers?: Record<string, any> | null;  // raw client answers
-  totals?: Record<string, any> | null;   // computed totals (freq/profiles)
+  answers?: Record<string, any> | null;   // raw answers map (qid -> val)
+  totals?: { A?: number; B?: number; C?: number; D?: number } | null;
+
+  // snapshot/update fields
   first_name?: string | null;
   last_name?: string | null;
   email?: string | null;
@@ -26,42 +28,42 @@ export async function POST(req: Request, { params }: { params: { token: string }
 
   try {
     const token = (params?.token || "").trim();
-    const body = (await req.json().catch(() => ({}))) as SubmitBody;
-
     if (!token) {
       return NextResponse.json({ ok: false, error: "missing token" }, { status: 400 });
     }
 
-    // 1) Resolve link → test_id
+    const body = (await req.json().catch(() => ({}))) as SubmitBody;
+
+    // 1) Resolve link (need org_id + test_id + token for taker/submission linkage)
     const { data: link, error: linkErr } = await sb
       .from("test_links")
-      .select("test_id, token")
+      .select("id, org_id, test_id, token")
       .eq("token", token)
       .maybeSingle();
+
     if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
-    if (!link)   return NextResponse.json({ ok: false, error: "invalid link" }, { status: 404 });
+    if (!link)   return NextResponse.json({ ok: false, error: "Invalid test link" }, { status: 404 });
 
-    // 2) Grab org_id from tests (NOT from submissions)
-    const { data: test, error: testErr } = await sb
-      .from("tests")
-      .select("id, org_id")
-      .eq("id", link.test_id)
-      .maybeSingle();
-    if (testErr) return NextResponse.json({ ok: false, error: testErr.message }, { status: 500 });
-    if (!test)   return NextResponse.json({ ok: false, error: "invalid test" }, { status: 404 });
+    // 2) Find or create the taker (test_takers requires org_id, test_id, link_token)
+    let takerId = (body.taker_id || "").toString().trim();
 
-    // 3) Find/create taker (test_takers requires org_id, test_id, link_token)
-    let takerId = (body.taker_id ?? "").toString().trim();
-    let taker:
-      | { id: string; first_name: string | null; last_name: string | null; email: string | null; company: string | null; role_title: string | null }
-      | null = null;
+    type TakerRow = {
+      id: string;
+      first_name: string | null;
+      last_name: string | null;
+      email: string | null;
+      company: string | null;
+      role_title: string | null;
+    };
+
+    let taker: TakerRow | null = null;
 
     if (takerId) {
       const { data, error } = await sb
         .from("test_takers")
         .select("id, first_name, last_name, email, company, role_title")
         .eq("id", takerId)
-        .eq("test_id", test.id)
+        .eq("test_id", link.test_id) // safety: ensure belongs to this test
         .maybeSingle();
       if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
       taker = data ?? null;
@@ -77,9 +79,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       const { data: created, error: createErr } = await sb
         .from("test_takers")
         .insert([{
-          org_id: test.org_id,     // ← required by your test_takers
-          test_id: test.id,
-          link_token: link.token,  // ← required by your test_takers
+          org_id: link.org_id,     // required by your takers table
+          test_id: link.test_id,   // required by your takers table
+          link_token: link.token,  // required (NOT NULL) by your takers table
+          link_id: link.id,        // if column exists, harmless otherwise (remove if not present)
           first_name, last_name, email, company, role_title,
           status: "in_progress",
         }])
@@ -93,7 +96,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       takerId = created.id;
     }
 
-    // 4) Snapshot identity for submission rows
+    // 3) Snapshot identity to store on submission row
     const snap = {
       first_name: taker.first_name ?? norm(body.first_name) ?? null,
       last_name:  taker.last_name  ?? norm(body.last_name)  ?? null,
@@ -102,43 +105,44 @@ export async function POST(req: Request, { params }: { params: { token: string }
       role_title: taker.role_title ?? norm(body.role_title) ?? null,
     };
 
-    // 5) Insert into portal.test_submissions (YOUR exact columns)
+    // 4) Insert submission into portal.test_submissions (schema below must match yours)
+    //    Columns (per your DDL): id, taker_id, test_id, link_token, totals (jsonb NOT NULL),
+    //    raw_answers (jsonb), created_at, company, role_title, first_name, last_name, email,
+    //    answers_json (jsonb).
+    const totals = body.totals ?? { A: 0, B: 0, C: 0, D: 0 };
+    const rawAnswers = body.answers ?? {};
+
     const submissionRow = {
       taker_id: takerId,
-      test_id: test.id,
+      test_id: link.test_id,
       link_token: link.token,
-      totals: body.totals ?? {},          // ← jsonb NOT NULL (defaults to {})
-      raw_answers: body.answers ?? null,  // ← optional raw payload
-      answers_json: body.answers ?? {},   // ← keep for convenience (you already have this column)
+      totals,                      // -> portal.test_submissions.totals (jsonb, NOT NULL)
+      raw_answers: rawAnswers,     // -> optional, keep raw
+      answers_json: rawAnswers,    // -> keep parity with old naming used in UI
       ...snap,
     };
 
-    const { data: sub, error: subErr } = await sb
-      .from("test_submissions")
-      .insert([submissionRow])
-      .select("id")
-      .maybeSingle();
-
+    const { error: subErr } = await sb.from("test_submissions").insert([submissionRow]);
     if (subErr) {
+      // if a unique exists and it’s a double-submit, allow it to proceed to results
       const isDup = /duplicate key|unique constraint/i.test(subErr.message || "");
       if (!isDup) return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
     }
 
-    // 6) Upsert into portal.test_results (taker_id UNIQUE)
-    if (body.totals && typeof body.totals === "object") {
-      const { error: upErr } = await sb
-        .from("test_results")
-        .upsert([{ taker_id: takerId, totals: body.totals }], { onConflict: "taker_id" });
-      if (upErr) {
-        // Non-fatal; continue
-        console.warn("test_results upsert warning:", upErr.message);
-      }
-    }
+    // 5) Upsert into portal.test_results (unique taker_id) with the same totals
+    const { error: resErr } = await sb
+      .from("test_results")
+      .upsert(
+        { taker_id: takerId, totals },
+        { onConflict: "taker_id" }
+      );
+    if (resErr) return NextResponse.json({ ok: false, error: resErr.message }, { status: 500 });
 
-    // 7) Mark taker completed
+    // 6) Mark taker completed
     await sb.from("test_takers").update({ status: "completed" }).eq("id", takerId);
 
-    return NextResponse.json({ ok: true, taker_id: takerId, submission_id: sub?.id ?? null }, { status: 200 });
+    // 7) Done
+    return NextResponse.json({ ok: true, taker_id: takerId }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
   }
