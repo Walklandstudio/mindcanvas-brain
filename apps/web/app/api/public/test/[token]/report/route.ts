@@ -6,7 +6,7 @@ type AB = "A" | "B" | "C" | "D";
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
@@ -36,7 +36,7 @@ function topKey(rec: Record<string, number>): string | null {
   return best;
 }
 
-/** Try to resolve org slug → correct framework; safe fallbacks */
+/** Resolve org slug (link → org, or taker → v_org_tests), fallback to env/default */
 async function resolveOrgSlug(
   sb: ReturnType<typeof supa>,
   token: string,
@@ -48,7 +48,7 @@ async function resolveOrgSlug(
     const { data: org } = await sb.from("v_organizations").select("slug").eq("id", link.org_id).maybeSingle();
     if (org?.slug) return org.slug as string;
   }
-  // 2) via taker → v_org_tests (optional)
+  // 2) via taker → v_org_tests (optional view)
   if (takerId) {
     const { data: taker } = await sb
       .from("test_takers")
@@ -59,19 +59,18 @@ async function resolveOrgSlug(
     if (taker?.test_id) {
       try {
         const { data: vt } = await sb
-          // some projects use v_org_tests; others don't — swallow if missing
           .from("v_org_tests" as any)
           .select("org_slug")
           .eq("test_id", taker.test_id)
           .maybeSingle();
         if (vt?.org_slug) return vt.org_slug as string;
-      } catch {}
+      } catch {/* view may not exist; ignore */}
     }
   }
   return process.env.DEFAULT_ORG_SLUG || "competency-coach";
 }
 
-/** Load labels from DB (preferred). Falls back to framework JSON if tables/views absent. */
+/** Load labels from DB (preferred; plural table names), else fallback to framework JSON */
 async function loadDbLabels(
   sb: ReturnType<typeof supa>,
   test_id?: string | null,
@@ -86,60 +85,53 @@ async function loadDbLabels(
   const nameToCode = new Map<string, string>();
 
   if (test_id) {
-    // frequency labels (try both singular/plural table names to match your DB)
+    // FREQUENCY LABELS (plural table)
     try {
-      const { data } =
-        (await sb
-          .from("test_frequency_labels")
-          .select("frequency_code, frequency_name")
-          .eq("test_id", test_id)) ||
-        (await sb
-          .from("tests_frequency_labels" as any)
-          .select("frequency_code, frequency_name")
-          .eq("test_id", test_id));
+      const { data } = await sb
+        .from("tests_frequency_labels" as any)
+        .select("frequency_code, frequency_name")
+        .eq("test_id", test_id);
       if (Array.isArray(data)) {
         for (const r of data) {
-          const c = String(r.frequency_code || "").toUpperCase() as AB;
+          const c = String(r.frequency_code || "").toUpperCase();
           const nm = String(r.frequency_name || "").trim();
-          if (["A", "B", "C", "D"].includes(c) && nm) freq.push({ code: c as AB, name: nm });
+          if ((["A","B","C","D"] as AB[]).includes(c as AB) && nm) {
+            freq.push({ code: c as AB, name: nm });
+          }
         }
       }
-    } catch {}
+    } catch {/* absent table is fine */}
 
-    // profile labels
+    // PROFILE LABELS (plural table)
     try {
-      const { data } =
-        (await sb
-          .from("test_profile_names")
-          .select("profile_code, profile_name, frequency_code")
-          .eq("test_id", test_id)) ||
-        (await sb
-          .from("tests_profile_names" as any)
-          .select("profile_code, profile_name, frequency_code")
-          .eq("test_id", test_id));
+      const { data } = await sb
+        .from("tests_profile_names" as any)
+        .select("profile_code, profile_name, frequency_code")
+        .eq("test_id", test_id);
       if (Array.isArray(data)) {
         for (const r of data) {
-          const code = String(r.profile_code || "").trim() || "";
+          const code = String(r.profile_code || "").trim();
           const name = String(r.profile_name || "").trim() || code;
           const f = String(r.frequency_code || "").toUpperCase();
-          const ab: AB = (["A", "B", "C", "D"].includes(f) ? f : null || null) as AB;
-          // if frequency_code missing, derive from PROFILE_#
-          let freqAB: AB = ab || ((): AB => {
+          // allow missing frequency_code and derive from PROFILE_#
+          let freqAB: AB | null = (["A","B","C","D"] as AB[]).includes(f as AB) ? (f as AB) : null;
+          if (!freqAB) {
             const m = code.toUpperCase().match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
             if (m) {
               const idx = Number(m[1]);
-              return (idx <= 2 ? "A" : idx <= 4 ? "B" : idx <= 6 ? "C" : "D") as AB;
+              freqAB = (idx <= 2 ? "A" : idx <= 4 ? "B" : idx <= 6 ? "C" : "D") as AB;
+            } else {
+              freqAB = "A";
             }
-            return "A";
-          })();
+          }
           prof.push({ code, name, frequency: freqAB });
           nameToCode.set(name, code);
         }
       }
-    } catch {}
+    } catch {/* absent table is fine */}
   }
 
-  // If DB didn’t return anything, use the framework JSON as a safe fallback.
+  // Fallback to framework JSON if DB lacked anything
   if (freq.length === 0 || prof.length === 0) {
     const fw = await loadFrameworkBySlug(org_slug_fallback || "competency-coach");
     const f = (fw.framework.frequencies || []).map((x) => ({ code: x.code as AB, name: x.name || x.code }));
@@ -148,7 +140,6 @@ async function loadDbLabels(
       name: x.name,
       frequency: ((x.frequencies?.[0] ?? "A") as AB),
     }));
-    // Only fill the ones we don’t already have from DB
     if (freq.length === 0) freq.push(...f);
     if (prof.length === 0) {
       prof.push(...p);
@@ -156,9 +147,9 @@ async function loadDbLabels(
     }
   }
 
-  // Ensure frequency set has all A-D (fallback names if missing)
+  // Ensure A-D exist
   const seen = new Set(freq.map((x) => x.code));
-  (["A", "B", "C", "D"] as AB[]).forEach((c) => {
+  (["A","B","C","D"] as AB[]).forEach((c) => {
     if (!seen.has(c)) freq.push({ code: c, name: `Frequency ${c}` });
   });
 
@@ -173,7 +164,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const sb = supa();
 
-    // taker
+    // taker row (for test_id + identity)
     const { data: taker } = await sb
       .from("test_takers")
       .select("id, test_id, first_name, last_name, email")
@@ -181,14 +172,20 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       .eq("link_token", token)
       .maybeSingle();
 
-    // ----- FREQUENCY TOTALS - results → submissions → last-ditch recompute -----
+    // ---------- FREQUENCY TOTALS ----------
     let freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
 
     if (taker?.id) {
-      const { data: r } = await sb.from("test_results").select("totals").eq("taker_id", taker.id).maybeSingle();
+      // Prefer test_results
+      const { data: r } = await sb
+        .from("test_results")
+        .select("totals")
+        .eq("taker_id", taker.id)
+        .maybeSingle();
       if (r?.totals) freqTotals = normalizeAB(r.totals as any);
 
       if (sumRec(freqTotals) === 0) {
+        // Fallback to latest submission totals
         const { data: s } = await sb
           .from("test_submissions")
           .select("totals, answers_json")
@@ -201,7 +198,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         if (s?.totals && sumRec(normalizeAB(s.totals as any)) > 0) {
           freqTotals = normalizeAB(s.totals as any);
         } else if (Array.isArray(s?.answers_json)) {
-          // derive from profile_map if results/submissions totals empty
+          // Last-ditch: derive from profile_map → PROFILE_# → A/B/C/D
           const { data: questions } = await sb
             .from("test_questions")
             .select("id, profile_map")
@@ -226,9 +223,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
             const entry = q.profile_map[sel] || {};
             const pts = n(entry?.points, 0);
-            let code = String(entry?.profile || "").toUpperCase().trim();
-            if (!pts || !code) continue;
+            let codeRaw = String(entry?.profile || "").trim();
+            if (!pts || !codeRaw) continue;
 
+            // Normalize names → PROFILE_#
+            let code = codeRaw.toUpperCase();
             const m = code.match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
             if (m) {
               const idx = Number(m[1]);
@@ -243,23 +242,22 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const freqPercentages = toPercentages(freqTotals) as Record<AB, number>;
 
-    // ----- LABELS (DB preferred; fall back to framework JSON) -----
+    // ---------- LABELS (DB preferred; fallback JSON) ----------
     const org_slug = await resolveOrgSlug(sb, token, taker?.id);
     const { frequency_labels, profile_labels, nameToCode } = await loadDbLabels(sb, taker?.test_id, org_slug);
 
-    // Build helpers
+    // Helper: map PROFILE_# → A/B/C/D
     const profileCodeToFreq = (code: string): AB => {
       const m = code.toUpperCase().match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
       if (m) {
         const idx = Number(m[1]);
         return (idx <= 2 ? "A" : idx <= 4 ? "B" : idx <= 6 ? "C" : "D") as AB;
       }
-      // fallback by looking up label entry if possible
       const found = profile_labels.find((p) => p.code === code);
       return (found?.frequency ?? "A") as AB;
     };
 
-    // ----- PROFILE PERCENTAGES (derived from answers_json + profile_map) -----
+    // ---------- PROFILE PERCENTAGES (from latest answers) ----------
     const profileTotals: Record<string, number> = {};
     if (taker?.id) {
       const { data: sub } = await sb
@@ -298,24 +296,22 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           let raw = String(entry?.profile || "").trim();
           if (!pts || !raw) continue;
 
-          // Accept either PROFILE_# or a profile NAME; normalize to code
+          // Normalize to PROFILE_#
           let code = raw.toUpperCase();
           const m = code.match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
           if (m) {
             code = `PROFILE_${m[1]}`;
           } else {
-            // try map by name (DB labels preferred)
-            const byDb = nameToCode.get(raw) || nameToCode.get(raw.replace(/Coach$/i, "Coach")); // tiny tolerance
+            // try DB label map (names → codes)
+            const byDb = nameToCode.get(raw) || nameToCode.get(raw.replace(/Coach$/i, "Coach"));
             if (byDb) code = byDb;
+            else {
+              // last-chance: case-insensitive match on label set
+              const byLabel = profile_labels.find((p) => p.name.toLowerCase() === raw.toLowerCase());
+              if (byLabel) code = byLabel.code;
+            }
           }
 
-          // still not normalized? fall back by label list
-          if (!/^PROFILE_[1-8]$/.test(code)) {
-            const byLabel = profile_labels.find((p) => p.name.toLowerCase() === raw.toLowerCase());
-            if (byLabel) code = byLabel.code;
-          }
-
-          // final guard
           if (!/^PROFILE_[1-8]$/.test(code)) continue;
 
           profileTotals[code] = (profileTotals[code] || 0) + pts;
@@ -324,8 +320,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     }
     const profilePercentages = toPercentages(profileTotals);
 
-    // ----- legacy fields to keep your current Result page happy -----
-    const percentages = freqPercentages; // legacy key your UI expects
+    // ---------- legacy fields for your current UI ----------
+    const percentages = freqPercentages; // legacy key
     const totals = freqTotals;
     const top_freq = (topKey(freqTotals) as AB | null) || "A";
     const top_profile_code = topKey(profileTotals);
@@ -339,14 +335,16 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         taker: taker
           ? { id: taker.id, first_name: taker.first_name, last_name: taker.last_name, email: taker.email }
           : null,
+
+        // new fields
         frequency_totals: freqTotals,
         frequency_percentages: freqPercentages,
         profile_percentages: profilePercentages,
         frequency_labels,
         profile_labels,
-        version: "report-v5-db-labels",
+        version: "report-v6-plural-db",
 
-        // legacy keys
+        // legacy fields (keep existing result page working)
         totals,
         percentages,
         top_freq,
