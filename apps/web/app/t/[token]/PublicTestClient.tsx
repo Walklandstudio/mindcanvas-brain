@@ -7,13 +7,13 @@ type Question = {
   id: string;
   idx?: number | null;
   order?: number | null;
-  type?: string | null;          // 'radio' | 'scale5' etc.
+  type?: string | null;
   text: string;
-  options?: string[] | null;     // labels
+  options?: string[] | null;
   category?: 'scored' | 'qual' | string | null;
 };
 
-type AnswersMap = Record<string, number>; // qid -> 1..N
+type AnswersMap = Record<string, number>;
 type Step = 'details' | 'questions';
 
 async function fetchJson(url: string, init?: RequestInit) {
@@ -43,16 +43,14 @@ export default function PublicTestClient({ token }: { token: string }) {
   const [answers, setAnswers] = useState<AnswersMap>({});
 
   // details
-  const [firstName, setFirstName]   = useState('');
-  const [lastName,  setLastName]    = useState('');
-  const [email,     setEmail]       = useState('');
-  const [phone,     setPhone]       = useState('');
-  const [company,   setCompany]     = useState('');
-  const [roleTitle, setRoleTitle]   = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [company, setCompany] = useState('');
+  const [roleTitle, setRoleTitle] = useState('');
 
-  // taker_id we receive from server after saving details
   const [takerId, setTakerId] = useState<string | null>(null);
-
   const [submitting, setSubmitting] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
 
@@ -64,20 +62,16 @@ export default function PublicTestClient({ token }: { token: string }) {
         setLoading(true);
         setError('');
 
-        // Get meta + confirm link
         const metaRes: any = await fetchJson(`/api/public/test/${token}`);
         if (!alive) return;
-
         setTestName(metaRes?.data?.name ?? null);
 
-        // Load questions
         const qRes: any = await fetchJson(`/api/public/test/${token}/questions`);
         if (!alive) return;
 
         const list: Question[] = Array.isArray(qRes?.questions) ? qRes.questions : [];
         setQuestions(list);
 
-        // restore local state
         const key = (k: string) => `mc_${k}_${token}`;
         if (typeof window !== 'undefined') {
           const savedAns = window.localStorage.getItem(key('answers'));
@@ -139,16 +133,15 @@ export default function PublicTestClient({ token }: { token: string }) {
       setSavingDetails(true);
       setError('');
 
-      // Create/Upsert taker in portal.test_takers and get taker_id back
       const res: any = await fetchJson(`/api/public/test/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           first_name: firstName || null,
-          last_name:  lastName  || null,
-          email:      email     || null,
-          phone:      phone     || null,
-          company:    company   || null,
+          last_name: lastName || null,
+          email: email || null,
+          phone: phone || null,
+          company: company || null,
           role_title: roleTitle || null,
         }),
       });
@@ -176,9 +169,10 @@ export default function PublicTestClient({ token }: { token: string }) {
 
       if (!takerId) throw new Error('missing taker_id');
 
-      // Convert map -> array of {question_id, value} to satisfy submit route
+      // ✅ FIXED: send { question_id, selected } (0-based index)
       const payloadAnswers = Object.entries(answers).map(([question_id, value]) => ({
-        question_id, value
+        question_id,
+        selected: Number(value) - 1, // backend expects 0..3
       }));
 
       const res = await fetch(`/api/public/test/${token}/submit`, {
@@ -190,13 +184,10 @@ export default function PublicTestClient({ token }: { token: string }) {
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
 
-      // clear local cache
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(`mc_answers_${token}`);
       }
 
-      // go to result
-      // pass tid in query so result/report API can verify it
       router.replace(`/t/${token}/result?tid=${encodeURIComponent(takerId)}`);
     } catch (e: any) {
       setError(String(e?.message || e));
@@ -272,7 +263,6 @@ export default function PublicTestClient({ token }: { token: string }) {
         </div>
       ) : (
         <>
-          {/* Question card */}
           <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
             <div className="text-sm text-white/60 mb-2">
               Question {i + 1} / {questions.length}
@@ -280,7 +270,6 @@ export default function PublicTestClient({ token }: { token: string }) {
             </div>
             <div className="text-lg font-medium mb-4">{q.text}</div>
 
-            {/* Prefer text options; fallback to 1..5 */}
             {Array.isArray(q?.options) && q.options.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {q.options.map((label: string, idx: number) => {
@@ -321,7 +310,6 @@ export default function PublicTestClient({ token }: { token: string }) {
             )}
           </div>
 
-          {/* Nav + Submit */}
           <div className="flex items-center justify-between">
             <button
               onClick={() => setI(Math.max(0, i - 1))}
