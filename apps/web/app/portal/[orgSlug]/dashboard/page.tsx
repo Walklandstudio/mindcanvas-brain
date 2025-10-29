@@ -1,81 +1,163 @@
-// Server component – no client hooks here.
-import { createClient } from "@/utils/supabase/server";
-import DashboardClient from "./DashboardClient";
-import Link from "next/link";
+"use client";
 
-type Props = { params: { orgSlug: string }; searchParams: { testId?: string } };
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Cell,
+} from "recharts";
 
-export default async function OrgDashboardPage({ params, searchParams }: Props) {
-  const supabase = createClient();
-  const orgSlug = params.orgSlug;
+/** Canonical shared types — export so the server page can import them */
+export type FreqRow = {
+  frequency_code: string; // relaxed to string to allow DB values A/B/C/D (or future)
+  frequency_name: string;
+  avg_points: number | string;
+};
 
-  // 1) Resolve testId (use query ?testId=... or pick the most recent from v_org_tests)
-  const testId = searchParams.testId
-    ?? (await supabase.schema("portal")
-          .from("v_org_tests")
-          .select("test_id")
-          .eq("org_slug", orgSlug)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle())
-        .data?.test_id;
+export type ProfRow = {
+  profile_code: string;
+  profile_name: string;
+  avg_points: number | string;
+};
 
-  if (!testId) {
-    return (
-      <div className="p-6">
-        <div className="mb-4 text-sm text-muted-foreground">
-          No test found for <b>{orgSlug}</b>.
-        </div>
-        <Link href={`/portal/${orgSlug}`} className="underline">Back to org</Link>
-      </div>
-    );
-  }
+export default function DashboardClient(props: {
+  orgSlug: string;
+  testId: string;
+  frequencies: FreqRow[];
+  profiles: ProfRow[];
+  top3: ProfRow[];
+  low3: ProfRow[];
+  overall: number | string;
+}) {
+  const freqData = (props.frequencies ?? []).map((r) => ({
+    name: r.frequency_name,
+    points: Number(r.avg_points),
+    code: r.frequency_code,
+  }));
 
-  // 2) Fetch all dashboard datasets (read-only views)
-  const [{ data: freq }, { data: prof }, { data: top3 }, { data: low3 }, { data: overall }] =
-    await Promise.all([
-      supabase.schema("portal")
-        .from("v_dashboard_avg_frequency")
-        .select("frequency_code,frequency_name,avg_points")
-        .eq("org_slug", orgSlug)
-        .eq("test_id", testId),
+  const profData = (props.profiles ?? [])
+    .map((r) => ({
+      name: r.profile_name,
+      points: Number(r.avg_points),
+      code: r.profile_code,
+    }))
+    .sort((a, b) => b.points - a.points);
 
-      supabase.schema("portal")
-        .from("v_dashboard_avg_profile")
-        .select("profile_code,profile_name,avg_points")
-        .eq("org_slug", orgSlug)
-        .eq("test_id", testId),
+  const overallPct = Math.max(0, Math.min(100, Math.round(Number(props.overall) || 0)));
 
-      supabase.schema("portal")
-        .from("v_dashboard_top3_profiles")
-        .select("profile_code,profile_name,avg_points")
-        .eq("org_slug", orgSlug)
-        .eq("test_id", testId),
-
-      supabase.schema("portal")
-        .from("v_dashboard_bottom3_profiles")
-        .select("profile_code,profile_name,avg_points")
-        .eq("org_slug", orgSlug)
-        .eq("test_id", testId),
-
-      supabase.schema("portal")
-        .from("v_dashboard_overall_avg")
-        .select("overall_avg")
-        .eq("org_slug", orgSlug)
-        .eq("test_id", testId)
-        .maybeSingle(),
-    ]);
-
-  // 3) Render client chart shell
   return (
-    <DashboardClient
-      orgSlug={orgSlug}
-      testId={testId}
-      frequencies={freq ?? []}
-      profiles={prof ?? []}
-      top3={top3 ?? []}
-      low3={low3 ?? []}
-      overall={overall?.overall_avg ?? 0}
-    />
+    <div className="p-6 grid grid-cols-12 gap-6">
+      <Card className="col-span-12">
+        <CardHeader>
+          <CardTitle>MindCanvas Dashboard</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          org: <b>{props.orgSlug}</b> • test: <b>{props.testId}</b>
+        </CardContent>
+      </Card>
+
+      {/* Gauge (simple) */}
+      <Card className="col-span-12 lg:col-span-4">
+        <CardHeader>
+          <CardTitle>Average Rating</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="relative mx-auto h-40 w-40">
+            <div className="absolute inset-0 rounded-full border-8 border-gray-200" />
+            <div
+              className="absolute inset-0 rounded-full border-8"
+              style={{
+                borderColor: "#10B981",
+                clipPath: "polygon(50% 50%, 0% 50%, 0% 0%, 100% 0%, 100% 50%)",
+                transform: `rotate(${(overallPct / 100) * 180 - 90}deg)`,
+                transformOrigin: "50% 50%",
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-xl font-semibold">{overallPct}%</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Frequencies */}
+      <Card className="col-span-12 lg:col-span-8">
+        <CardHeader>
+          <CardTitle>Frequency Mix</CardTitle>
+        </CardHeader>
+        <CardContent className="h-80">
+          <ResponsiveContainer>
+            <BarChart data={freqData}>
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="points" name="Avg points" radius={[6, 6, 0, 0]}>
+                {freqData.map((row, i) => (
+                  <Cell key={i} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* Profiles */}
+      <Card className="col-span-12">
+        <CardHeader>
+          <CardTitle>Profile Mix</CardTitle>
+        </CardHeader>
+        <CardContent className="h-96">
+          <ResponsiveContainer>
+            <BarChart data={profData} layout="vertical" margin={{ left: 80 }}>
+              <XAxis type="number" />
+              <YAxis type="category" dataKey="name" width={200} />
+              <Tooltip />
+              <Bar dataKey="points" name="Avg points" radius={[6, 6, 0, 0]}>
+                {profData.map((row, i) => (
+                  <Cell key={i} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* Highlights / Lowlights */}
+      <Card className="col-span-12 lg:col-span-6">
+        <CardHeader>
+          <CardTitle>Highlights (Top 3)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2">
+            {(props.top3 ?? []).map((t, i) => (
+              <li key={`${t.profile_code}-${i}`} className="flex items-center justify-between">
+                <span className="font-medium">{t.profile_name}</span>
+                <span className="text-emerald-600">{Number(t.avg_points)}</span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+
+      <Card className="col-span-12 lg:col-span-6">
+        <CardHeader>
+          <CardTitle>Lowlights (Bottom 3)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2">
+            {(props.low3 ?? []).map((t, i) => (
+              <li key={`${t.profile_code}-${i}`} className="flex items-center justify-between">
+                <span className="font-medium">{t.profile_name}</span>
+                <span className="text-rose-600">{Number(t.avg_points)}</span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
