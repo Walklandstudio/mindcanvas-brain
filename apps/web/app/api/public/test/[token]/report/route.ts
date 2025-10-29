@@ -1,107 +1,131 @@
-// apps/web/app/api/public/test/[token]/report/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabaseAdmin";
+import { createClient } from "@/lib/supabaseAdmin"; // your server/service client
 
 export const dynamic = "force-dynamic";
 
-type Totals = { A?: number; B?: number; C?: number; D?: number };
+type Totals = Partial<Record<"A"|"B"|"C"|"D", number>>;
 
-function topAndExact(t: Totals) {
-  const entries: Array<["A" | "B" | "C" | "D", number]> = (["A", "B", "C", "D"] as const).map(
-    (k) => [k, Number(t[k] ?? 0)]
-  );
-  entries.sort(
-    (a: ["A" | "B" | "C" | "D", number], b: ["A" | "B" | "C" | "D", number]) => b[1] - a[1]
-  );
-
-  const top = entries[0][0];
-  const A = Number(t.A ?? 0);
-  const B = Number(t.B ?? 0);
-  const C = Number(t.C ?? 0);
-  const D = Number(t.D ?? 0);
-
-  let exact: "A1" | "A2" | "B1" | "B2" | "C1" | "C2" | "D1" | "D2";
-  switch (top) {
-    case "A": exact = B >= C ? "A1" : "A2"; break;
-    case "B": exact = A >= D ? "B1" : "B2"; break;
-    case "C": exact = D >= A ? "C1" : "C2"; break;
-    case "D": exact = C >= B ? "D1" : "D2"; break;
-  }
-  return { top, exact, scores: { A, B, C, D } };
+function toNumber(x: any): number {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export async function GET(req: Request, { params }: { params: { token: string } }) {
+  const token = params.token || "";
+  const url = new URL(req.url);
+  const tid = (url.searchParams.get("tid") || "").trim();
+
+  if (!token || !tid) {
+    return NextResponse.json({ ok: false, error: "missing token/tid" }, { status: 400 });
+  }
+
   const sb = createClient().schema("portal");
 
-  try {
-    const token = (params?.token || "").trim();
-    const url = new URL(req.url);
-    const takerId = (url.searchParams.get("tid") || "").trim();
+  // Resolve link → test (org_id not needed for submissions)
+  const { data: link, error: linkErr } = await sb
+    .from("test_links")
+    .select("id, test_id, token")
+    .eq("token", token)
+    .maybeSingle();
 
-    if (!token || !takerId) {
-      return NextResponse.json({ ok: false, error: "missing token/tid" }, { status: 400 });
-    }
+  if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
+  if (!link)   return NextResponse.json({ ok: false, error: "invalid link" }, { status: 404 });
 
-    // Link → test + name (array-safe)
-    const { data: link, error: linkErr } = await sb
-      .from("test_links")
-      .select("test_id, tests(name)")
-      .eq("token", token)
-      .maybeSingle();
-    if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
-    if (!link) return NextResponse.json({ ok: false, error: "invalid link" }, { status: 404 });
+  // Taker basic identity
+  const { data: taker, error: takerErr } = await sb
+    .from("test_takers")
+    .select("id, first_name, last_name, email")
+    .eq("id", tid)
+    .eq("test_id", link.test_id)
+    .maybeSingle();
 
-    // Supabase can return nested rows as object or array depending on FK config — handle both:
-    const testName =
-      Array.isArray((link as any).tests)
-        ? (link as any).tests?.[0]?.name ?? "Test"
-        : (link as any).tests?.name ?? "Test";
+  if (takerErr) return NextResponse.json({ ok: false, error: takerErr.message }, { status: 500 });
+  if (!taker)   return NextResponse.json({ ok: false, error: "invalid taker" }, { status: 404 });
 
-    // Taker (confirm attachment to test)
-    const { data: taker, error: takerErr } = await sb
-      .from("test_takers")
-      .select("id, first_name, last_name, email")
-      .eq("id", takerId)
-      .eq("test_id", link.test_id)
-      .maybeSingle();
-    if (takerErr) return NextResponse.json({ ok: false, error: takerErr.message }, { status: 500 });
-    if (!taker) return NextResponse.json({ ok: false, error: "invalid taker" }, { status: 404 });
+  // Latest submission for this taker (contains totals JSON)
+  const { data: sub, error: subErr } = await sb
+    .from("test_submissions")
+    .select("id, totals, answers_json, created_at, first_name, last_name, email, company, role_title")
+    .eq("taker_id", tid)
+    .eq("test_id", link.test_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-    // Scores from results
-    const { data: resRow, error: resErr } = await sb
-      .from("test_results")
-      .select("totals")
-      .eq("taker_id", takerId)
-      .maybeSingle();
-    if (resErr) return NextResponse.json({ ok: false, error: resErr.message }, { status: 500 });
-    if (!resRow) return NextResponse.json({ ok: false, error: "no result" }, { status: 404 });
+  if (subErr) return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
+  if (!sub)   return NextResponse.json({ ok: false, error: "no submission" }, { status: 404 });
 
-    const { top, exact, scores } = topAndExact((resRow.totals || {}) as Totals);
+  // Test name (for header)
+  const { data: testRow } = await sb
+    .from("tests")
+    .select("name")
+    .eq("id", link.test_id)
+    .maybeSingle();
 
-    // Return percentages too (ready for UI)
-    const sum = Math.max(1, scores.A + scores.B + scores.C + scores.D);
-    const perc = {
-      A: Math.round((scores.A / sum) * 100),
-      B: Math.round((scores.B / sum) * 100),
-      C: Math.round((scores.C / sum) * 100),
-      D: Math.round((scores.D / sum) * 100),
-    };
+  const testName = testRow?.name || "Test";
 
-    return NextResponse.json(
-      {
-        ok: true,
-        data: {
-          test_name: testName,
-          taker,
-          scores,                 // raw totals
-          percentages: perc,      // 0–100 integers
-          top_freq: top,          // "A" | "B" | "C" | "D"
-          profile_exact_key: exact, // "A1".."D2"
-        },
-      },
-      { status: 200 }
-    );
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
-  }
+  // Labels
+  const [{ data: freqLabels }, { data: profLabels }] = await Promise.all([
+    sb.from("test_frequency_labels")
+      .select("frequency_code, frequency_name")
+      .eq("test_id", link.test_id),
+    sb.from("test_profile_labels")
+      .select("profile_code, profile_name, frequency_code")
+      .eq("test_id", link.test_id),
+  ]);
+
+  const frequency_labels =
+    (freqLabels || []).map((f) => ({
+      code: (f.frequency_code as "A"|"B"|"C"|"D") || "A",
+      name: (f as any).frequency_name ?? `Frequency ${(f.frequency_code || "").toString()}`,
+    })) as { code: "A"|"B"|"C"|"D"; name: string }[];
+
+  const profile_labels =
+    (profLabels || []).map((p) => ({
+      code: String(p.profile_code),
+      name: (p as any).profile_name ?? String(p.profile_code),
+      frequency: (p.frequency_code as "A"|"B"|"C"|"D") || "A",
+    })) as { code: string; name: string; frequency: "A"|"B"|"C"|"D" }[];
+
+  // Totals & percentages
+  const totalsObj = (sub.totals || {}) as Totals;
+  const totals: Record<"A"|"B"|"C"|"D", number> = {
+    A: toNumber(totalsObj.A),
+    B: toNumber(totalsObj.B),
+    C: toNumber(totalsObj.C),
+    D: toNumber(totalsObj.D),
+  };
+  const sum = Math.max(1, totals.A + totals.B + totals.C + totals.D);
+  const percentages = {
+    A: totals.A / sum,
+    B: totals.B / sum,
+    C: totals.C / sum,
+    D: totals.D / sum,
+  };
+
+  const sorted = (Object.entries(totals) as Array<["A"|"B"|"C"|"D", number]>)
+    .sort((a, b) => b[1] - a[1]);
+  const top_freq = sorted[0][0];
+
+  // If you have exact-profile logic, apply it here; otherwise pick the first profile label for that frequency.
+  const topProfileRow = profile_labels.find((p) => p.frequency === top_freq) || profile_labels[0];
+  const top_profile_code = topProfileRow?.code || `${top_freq}1`;
+  const top_profile_name = topProfileRow?.name || `${top_freq} Profile`;
+
+  return NextResponse.json({
+    ok: true,
+    data: {
+      org_name: null, // (optional) join organizations if you need it
+      test_name: testName,
+      taker,
+      totals,
+      percentages,
+      top_freq,
+      top_profile_code,
+      top_profile_name,
+      frequency_labels,
+      profile_labels,
+      version: "portal-v1",
+    },
+  });
 }
