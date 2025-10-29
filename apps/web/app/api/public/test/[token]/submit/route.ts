@@ -1,57 +1,26 @@
 // apps/web/app/api/public/test/[token]/submit/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { loadFrameworkBySlug, buildLookups, type FrequencyCode } from "@/lib/frameworks";
 
 type AB = "A" | "B" | "C" | "D";
+type PMEntry = { points?: number; profile?: string };
+type QuestionRow = { id: string; idx?: string | number | null; profile_map?: PMEntry[] | null };
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
-
-/* ---------------------------- helpers ---------------------------- */
-
-type PMEntry = { points?: number; profile?: string };
-type QuestionRow = { id: string; idx?: string | number | null; profile_map?: PMEntry[] | null };
-
 function sumABCD(t?: Partial<Record<AB, number>> | null) {
   if (!t) return 0;
   return (Number(t.A || 0) + Number(t.B || 0) + Number(t.C || 0) + Number(t.D || 0));
 }
-
 function orderQuestions(questions: QuestionRow[]): QuestionRow[] {
   const withNum = questions.map((q) => ({ ...q, _n: q.idx == null ? null : Number(q.idx) }));
   const haveNum = withNum.every((q) => Number.isFinite(q._n as any));
   return haveNum ? withNum.sort((a, b) => Number(a._n) - Number(b._n)) : questions;
 }
-
-/** Accept P1..P8 or PROFILE_1..PROFILE_8 (case-insensitive), map 1–2→A, 3–4→B, 5–6→C, 7–8→D */
-function profileToFreq(profileValue: string): AB | null {
-  const s = String(profileValue || "").trim().toUpperCase();
-
-  // Normalize to a number 1..8
-  let n: number | null = null;
-  const m1 = s.match(/^P(\d+)$/);             // P1
-  const m2 = s.match(/^PROFILE[_\s-]?(\d+)$/); // PROFILE_1
-  if (m1) n = Number(m1[1]);
-  else if (m2) n = Number(m2[1]);
-
-  if (n && n >= 1 && n <= 8) {
-    if (n <= 2) return "A";
-    if (n <= 4) return "B";
-    if (n <= 6) return "C";
-    return "D"; // 7–8
-  }
-
-  // Fallback: allow direct flow codes if ever used
-  const first = s[0];
-  if (first === "A" || first === "B" || first === "C" || first === "D") return first as AB;
-
-  return null;
-}
-
-/** Try to read selected index from common answer shapes */
 function readSelectedIndex(row: any): number | null {
   if (typeof row?.selected === "number") return row.selected;
   if (typeof row?.selected_index === "number") return row.selected_index;
@@ -60,38 +29,18 @@ function readSelectedIndex(row: any): number | null {
   return null;
 }
 
-/** Compute A/B/C/D from answers + DB-backed profile_map */
-function computeTotalsFrom(answers: any, questions: QuestionRow[]): Record<AB, number> {
-  const freq: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
-  const rows: any[] = Array.isArray(answers) ? answers : (answers?.rows || answers?.items || []);
-
-  const qsOrdered = orderQuestions(questions);
-  const byId: Record<string, QuestionRow> = {};
-  for (const q of questions) byId[q.id] = q;
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-
-    // Match by explicit question_id if present; else fall back to order
-    const qid = row?.question_id || row?.qid || row?.id;
-    const q = (qid && byId[qid]) ? byId[qid] : qsOrdered[i];
-    if (!q || !Array.isArray(q.profile_map) || q.profile_map.length === 0) continue;
-
-    const sel = readSelectedIndex(row);
-    if (sel == null || sel < 0 || sel >= q.profile_map.length) continue;
-
-    const entry = q.profile_map[sel] || {};
-    const points = Number(entry.points ?? 0) || 0;
-    const prof = entry.profile || "";
-    const f = profileToFreq(prof);
-    if (f && points > 0) {
-      freq[f] = (freq[f] || 0) + points;
-    }
-  }
-  return freq;
+// Map PROFILE_1..PROFILE_8 or P1..P8 → A/B/C/D
+function profileCodeToFreq(code: string): AB | null {
+  const s = String(code || "").trim().toUpperCase();
+  let n: number | null = null;
+  const m1 = s.match(/^P(\d+)$/);
+  const m2 = s.match(/^PROFILE[_\s-]?(\d+)$/);
+  if (m1) n = Number(m1[1]);
+  else if (m2) n = Number(m2[1]);
+  if (n && n >= 1 && n <= 8) return n <= 2 ? "A" : n <= 4 ? "B" : n <= 6 ? "C" : "D";
+  const ch = s[0];
+  return ch === "A" || ch === "B" || ch === "C" || ch === "D" ? (ch as AB) : null;
 }
-
-/* ------------------------------ route ------------------------------ */
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   try {
@@ -102,15 +51,12 @@ export async function POST(req: Request, { params }: { params: { token: string }
     const takerId: string | undefined = body.taker_id || body.takerId || body.tid;
     if (!takerId) return NextResponse.json({ ok: false, error: "Missing taker_id" }, { status: 400 });
 
-    // answers_json is required if client didn't compute totals
     const answers_json = body.answers ?? null;
-
-    // Accept either frequency_totals or totals from client; may be empty
     let totals: Partial<Record<AB, number>> = body.frequency_totals ?? body.totals ?? {};
 
     const sb = supa();
 
-    // 1) Resolve taker (and test_id) under this token
+    // Resolve taker & test
     const { data: taker, error: takerErr } = await sb
       .from("test_takers")
       .select("id, test_id, link_token, first_name, last_name, email, company, role_title")
@@ -121,13 +67,33 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
     }
 
-    // 2) If totals missing/zero, compute from DB questions + answers_json using profile_map
+    // Resolve org_slug from link → org_id → v_organizations
+    let org_slug: string | null = null;
+    const { data: link } = await sb
+      .from("test_links")
+      .select("org_id")
+      .eq("token", token)
+      .maybeSingle();
+    if (link?.org_id) {
+      const { data: org } = await sb
+        .from("v_organizations")
+        .select("slug")
+        .eq("id", link.org_id)
+        .maybeSingle();
+      org_slug = org?.slug ?? null;
+    }
+    if (!org_slug) org_slug = process.env.DEFAULT_ORG_SLUG || "competency-coach";
+
+    // Load framework & lookups to resolve profile names → codes → frequencies
+    const framework = await loadFrameworkBySlug(org_slug);
+    const lookups = buildLookups(framework); // { freqByCode, profileByCode, profilePrimaryFreq, profileNameToCode }
+
+    // If totals are empty, compute from DB questions + answers_json
     if (sumABCD(totals) <= 0) {
       if (!answers_json) {
         return NextResponse.json({ ok: false, error: "Missing answers; cannot compute totals" }, { status: 400 });
       }
 
-      // Load minimal question fields for this test
       const { data: questions, error: qErr } = await sb
         .from("test_questions")
         .select("id, idx, profile_map")
@@ -137,10 +103,47 @@ export async function POST(req: Request, { params }: { params: { token: string }
         return NextResponse.json({ ok: false, error: `Questions load failed: ${qErr.message}` }, { status: 500 });
       }
 
-      totals = computeTotalsFrom(answers_json, (questions || []) as QuestionRow[]);
+      const freq: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
+      const rows: any[] = Array.isArray(answers_json) ? answers_json : (answers_json?.rows || answers_json?.items || []);
+      const qsOrdered = orderQuestions((questions || []) as QuestionRow[]);
+      const byId: Record<string, QuestionRow> = {};
+      for (const q of (questions || []) as QuestionRow[]) byId[q.id] = q;
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const qid = row?.question_id || row?.qid || row?.id;
+        const q = (qid && byId[qid]) ? byId[qid] : qsOrdered[i];
+        if (!q || !Array.isArray(q.profile_map) || q.profile_map.length === 0) continue;
+
+        const sel = readSelectedIndex(row);
+        if (sel == null || sel < 0 || sel >= q.profile_map.length) continue;
+
+        const entry = q.profile_map[sel] || {};
+        const points = Number(entry.points ?? 0) || 0;
+        let prof = String(entry.profile || "").trim();
+
+        // Resolve profile → frequency using framework lookups
+        // 1) If it's a known code, map directly
+        let f: FrequencyCode | null = profileCodeToFreq(prof);
+        // 2) If it's a name, map name → code → primary frequency
+        if (!f && prof) {
+          const codeFromName = lookups.profileNameToCode.get(prof) || null;
+          if (codeFromName) {
+            f = lookups.profilePrimaryFreq.get(codeFromName) || null;
+          }
+        }
+        if (f && points > 0) freq[f] += points;
+      }
+
+      totals = freq;
+      if (sumABCD(totals) <= 0) {
+        return NextResponse.json(
+          { ok: false, error: "Computed totals are zero. Check selected indices and that profile names/codes exist in the framework." },
+          { status: 400 }
+        );
+      }
     }
 
-    // 3) Snapshot submission (correct column: totals)
     const submissionTotals = {
       A: Number(totals.A || 0),
       B: Number(totals.B || 0),
@@ -148,6 +151,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       D: Number(totals.D || 0),
     };
 
+    // Insert submission snapshot
     const { error: subErr } = await sb.from("test_submissions").insert({
       taker_id: taker.id,
       test_id: taker.test_id,
@@ -164,16 +168,12 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: `Submission insert failed: ${subErr.message}` }, { status: 500 });
     }
 
-    // 4) Upsert results (preferred source for report)
-    const { error: resErr } = await sb
+    // Upsert denormalized results
+    await sb
       .from("test_results")
       .upsert({ taker_id: taker.id, totals: submissionTotals }, { onConflict: "taker_id" });
-    if (resErr) {
-      // Non-fatal; report will fall back to submissions
-      console.warn("test_results upsert failed", resErr.message);
-    }
 
-    // 5) Mark taker completed
+    // Mark taker completed
     await sb
       .from("test_takers")
       .update({ status: "completed" })
