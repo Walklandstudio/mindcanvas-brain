@@ -10,19 +10,34 @@ function supa() {
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
-function toPercentages<T extends string>(totals: Partial<Record<T, number>>): Record<T, number> {
-  const sum = Object.values(totals || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+function coerceNumber(x: unknown, d = 0): number {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : d;
+}
+
+function toPercentagesFixed(rec: Record<string, number>): Record<string, number> {
+  const vals = Object.values(rec);
+  const sum = vals.reduce((a, b) => a + coerceNumber(b, 0), 0);
   const out: Record<string, number> = {};
-  for (const k of Object.keys(totals || {})) {
-    const v = Number(totals?.[k as T] || 0);
+  for (const k of Object.keys(rec)) {
+    const v = coerceNumber(rec[k], 0);
     out[k] = sum > 0 ? v / sum : 0;
   }
-  return out as Record<T, number>;
+  return out;
+}
+
+function normalizeABTotals(input: Partial<Record<AB, unknown>>): Record<AB, number> {
+  return {
+    A: coerceNumber(input.A, 0),
+    B: coerceNumber(input.B, 0),
+    C: coerceNumber(input.C, 0),
+    D: coerceNumber(input.D, 0),
+  };
 }
 
 function profileCodeToFreq(code: string): AB | null {
   const s = String(code || "").trim().toUpperCase();
-  const m = s.match(/^P(?:ROFILE)?[_\s-]?(\d)$/);
+  const m = s.match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
   if (m) {
     const n = Number(m[1]);
     return (n <= 2 ? "A" : n <= 4 ? "B" : n <= 6 ? "C" : "D") as AB;
@@ -31,12 +46,19 @@ function profileCodeToFreq(code: string): AB | null {
   return ch === "A" || ch === "B" || ch === "C" || ch === "D" ? (ch as AB) : null;
 }
 
-async function resolveOrgSlug(sb: ReturnType<typeof supa>, token: string, takerId?: string | null) {
+async function resolveOrgSlug(
+  sb: ReturnType<typeof supa>,
+  token: string,
+  takerId?: string | null
+): Promise<string> {
+  // 1) via link → org_id → v_organizations.slug
   const { data: link } = await sb.from("test_links").select("org_id").eq("token", token).maybeSingle();
   if (link?.org_id) {
     const { data: org } = await sb.from("v_organizations").select("slug").eq("id", link.org_id).maybeSingle();
     if (org?.slug) return org.slug as string;
   }
+
+  // 2) fallback via taker → test → v_org_tests (if present)
   if (takerId) {
     const { data: taker } = await sb
       .from("test_takers")
@@ -44,13 +66,23 @@ async function resolveOrgSlug(sb: ReturnType<typeof supa>, token: string, takerI
       .eq("id", takerId)
       .eq("link_token", token)
       .maybeSingle();
-    if (taker?.test_id) {
+
+    const testId = taker?.test_id;
+    if (testId) {
       try {
-        const { data: vt } = await sb.from("v_org_tests" as any).select("org_slug").eq("test_id", taker.test_id).maybeSingle();
+        const { data: vt } = await sb
+          .from("v_org_tests" as any)
+          .select("org_slug")
+          .eq("test_id", testId)
+          .maybeSingle();
         if (vt?.org_slug) return vt.org_slug as string;
-      } catch {}
+      } catch {
+        // optional view may not exist: ignore
+      }
     }
   }
+
+  // 3) last resort default
   return process.env.DEFAULT_ORG_SLUG || "competency-coach";
 }
 
@@ -62,7 +94,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const sb = supa();
 
-    // taker core
+    // Taker (optional)
     const { data: taker } = await sb
       .from("test_takers")
       .select("id, test_id, first_name, last_name, email")
@@ -70,10 +102,15 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       .eq("link_token", token)
       .maybeSingle();
 
-    // frequency totals (results → submissions)
-    let freqTotals: Partial<Record<AB, number>> | null = null;
+    // ----------------- Frequency totals (results → submissions) -----------------
+    let freqTotals: Partial<Record<AB, unknown>> | null = null;
+
     if (taker?.id) {
-      const { data: r } = await sb.from("test_results").select("totals").eq("taker_id", taker.id).maybeSingle();
+      const { data: r } = await sb
+        .from("test_results")
+        .select("totals")
+        .eq("taker_id", taker.id)
+        .maybeSingle();
       if (r?.totals) freqTotals = r.totals as any;
 
       if (!freqTotals) {
@@ -88,11 +125,12 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         if (s?.totals) freqTotals = s.totals as any;
       }
     }
-    const frequency_totals = (freqTotals ?? { A: 0, B: 0, C: 0, D: 0 }) as Record<AB, number>;
-    const frequency_percentages = toPercentages<AB>(frequency_totals);
 
-    // ---------- compute profile totals from latest submission answers ----------
-    let profileTotals: Record<string, number> = {};
+    const frequency_totals = normalizeABTotals(freqTotals || {});
+    const frequency_percentages = toPercentagesFixed(frequency_totals) as Record<AB, number>;
+
+    // ----------------- Profile totals (derive from latest answers_json) -----------------
+    const profileTotals: Record<string, number> = {};
     if (taker?.id) {
       const { data: sub } = await sb
         .from("test_submissions")
@@ -109,64 +147,76 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           .select("id, profile_map")
           .eq("test_id", taker.test_id);
 
-        const qById = Object.fromEntries((questions || []).map((q: any) => [q.id, q]));
+        const qById: Record<string, any> = Object.fromEntries((questions || []).map((q: any) => [q.id, q]));
 
         for (const row of sub.answers_json as any[]) {
           const qid = row?.question_id || row?.qid || row?.id;
           const q = qById[qid];
           if (!q || !Array.isArray(q.profile_map)) continue;
 
-          // client value is 1..N → zero-based
-          const sel = typeof row?.value === "number" ? row.value - 1
-                    : typeof row?.index === "number" ? row.index
-                    : typeof row?.selected === "number" ? row.selected
-                    : typeof row?.selected_index === "number" ? row.selected_index
-                    : null;
+          // client sends 1..N; convert to 0-based
+          const sel =
+            typeof row?.value === "number"
+              ? row.value - 1
+              : typeof row?.index === "number"
+              ? row.index
+              : typeof row?.selected === "number"
+              ? row.selected
+              : typeof row?.selected_index === "number"
+              ? row.selected_index
+              : null;
+
           if (sel == null || sel < 0 || sel >= q.profile_map.length) continue;
 
           const entry = q.profile_map[sel] || {};
-          const pts = Number(entry?.points || 0);
-          const raw = String(entry?.profile || "").trim();
-          if (!pts || !raw) continue;
+          const pts = coerceNumber(entry?.points, 0);
+          let code = String(entry?.profile || "").trim();
+
+          if (!pts || !code) continue;
 
           // normalize to PROFILE_#
-          let code = raw.toUpperCase();
-          const m = code.match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
-          if (m) code = `PROFILE_${m[1]}`;
+          const mm = code.toUpperCase().match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
+          if (mm) code = `PROFILE_${mm[1]}`;
 
           profileTotals[code] = (profileTotals[code] || 0) + pts;
         }
       }
     }
-    const profile_percentages = toPercentages<string>(profileTotals);
+    const profile_percentages = toPercentagesFixed(profileTotals);
 
-    // ---------- labels from framework by org ----------
+    // ----------------- Labels via framework for the correct org -----------------
     const org_slug = await resolveOrgSlug(sb, token, taker?.id);
     const framework = await loadFrameworkBySlug(org_slug);
 
-    const frequency_labels =
-      (framework.framework.frequencies || []).map((f) => ({ code: f.code, name: f.name }));
+    const frequency_labels = (framework.framework.frequencies || []).map((f) => ({
+      code: f.code,
+      name: f.name,
+    }));
 
-    const profile_labels =
-      (framework.framework.profiles || []).map((p) => ({
-        code: p.code,
-        name: p.name,
-        frequency: (p.frequencies?.[0] ?? "A") as AB,
-      }));
+    const profile_labels = (framework.framework.profiles || []).map((p) => ({
+      code: p.code,
+      name: p.name,
+      frequency: (p.frequencies?.[0] ?? "A") as AB,
+    }));
 
     return NextResponse.json({
       ok: true,
       data: {
         org_slug,
         taker: taker
-          ? { id: taker.id, first_name: taker.first_name, last_name: taker.last_name, email: taker.email }
+          ? {
+              id: taker.id,
+              first_name: taker.first_name,
+              last_name: taker.last_name,
+              email: taker.email,
+            }
           : null,
         frequency_totals,
         frequency_percentages,
         profile_percentages,
         frequency_labels,
         profile_labels,
-        version: "report-v3",
+        version: "report-v3-fixed",
       },
     });
   } catch (err: any) {
