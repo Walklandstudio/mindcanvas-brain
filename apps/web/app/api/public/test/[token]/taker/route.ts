@@ -1,4 +1,4 @@
-// apps/web/app/api/public/test/[token]/start/route.ts
+// apps/web/app/api/public/test/[token]/taker/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabaseAdmin";
 
@@ -29,6 +29,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
     const company    = norm(body.company);
     const role_title = norm(body.role_title);
 
+    // Resolve token -> link
     const { data: link, error: linkErr } = await sb
       .from("test_links")
       .select("id, test_id, org_id, max_uses, use_count")
@@ -37,12 +38,14 @@ export async function POST(req: Request, { params }: { params: { token: string }
     if (linkErr) throw new Error(linkErr.message);
     if (!link)   return NextResponse.json({ ok: false, error: "Invalid or expired link" }, { status: 404 });
 
+    // Optional usage cap
     if (typeof link.max_uses === "number" && typeof link.use_count === "number") {
       if (link.max_uses > 0 && link.use_count >= link.max_uses) {
         return NextResponse.json({ ok: false, error: "Link usage limit reached" }, { status: 403 });
       }
     }
 
+    // Create taker
     const { data: taker, error: takerErr } = await sb
       .from("test_takers")
       .insert([{
@@ -56,6 +59,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
     if (takerErr) throw new Error(takerErr.message);
     if (!taker)   throw new Error("Failed to create test taker");
 
+    // Best-effort increment
     if (typeof link.use_count === "number") {
       await sb.from("test_links").update({ use_count: link.use_count + 1 }).eq("id", link.id);
     }
