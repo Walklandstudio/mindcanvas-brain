@@ -1,4 +1,3 @@
-// apps/web/app/api/public/test/[token]/submit/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabaseAdmin";
 
@@ -27,16 +26,16 @@ export async function POST(req: Request, { params }: { params: { token: string }
   try {
     const body = (await req.json().catch(() => ({}))) as SubmitBody;
 
-    // 1) Resolve token → org/test
+    // Resolve token → link (need org/test + link token)
     const { data: link, error: linkErr } = await sb
       .from("test_links")
-      .select("id, org_id, test_id")
+      .select("id, org_id, test_id, token")
       .eq("token", params.token)
       .maybeSingle();
     if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
     if (!link)   return NextResponse.json({ ok: false, error: "Invalid test link" }, { status: 404 });
 
-    // 2) Find or create taker (failsafe)
+    // Find or create taker (must include link_token on create)
     let takerId = body.taker_id?.toString().trim() || "";
 
     let taker:
@@ -54,7 +53,6 @@ export async function POST(req: Request, { params }: { params: { token: string }
     }
 
     if (!taker) {
-      // Auto-create taker using whatever identity we got in the submission body
       const first_name = norm(body.first_name);
       const last_name  = norm(body.last_name);
       const email      = norm(body.email);
@@ -66,11 +64,9 @@ export async function POST(req: Request, { params }: { params: { token: string }
         .insert([{
           org_id: link.org_id,
           test_id: link.test_id,
-          first_name,
-          last_name,
-          email,
-          company,
-          role_title,
+          link_token: link.token, // ← critical
+          link_id: link.id,       // ← if column exists
+          first_name, last_name, email, company, role_title,
           status: "in_progress",
         }])
         .select("id, first_name, last_name, email, company, role_title")
@@ -81,7 +77,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       takerId = created.id;
     }
 
-    // 3) Snapshot identity for the submission (prefer taker values; fallback to body)
+    // Snapshot identity for the submission
     const snap = {
       first_name: taker.first_name ?? norm(body.first_name) ?? null,
       last_name:  taker.last_name  ?? norm(body.last_name)  ?? null,
@@ -90,13 +86,13 @@ export async function POST(req: Request, { params }: { params: { token: string }
       role_title: taker.role_title ?? norm(body.role_title) ?? null,
     };
 
-    // 4) Insert submission (adjust column names for answers/totals if your table differs)
+    // Insert submission (adjust JSON columns if your table differs)
     const submission = {
       org_id: link.org_id,
       test_id: link.test_id,
       taker_id: takerId,
-      answers_json: body.answers ?? null, // <-- change if your column is named differently
-      totals_json:  body.totals  ?? null, // <-- change if your column is named differently
+      answers_json: body.answers ?? null,
+      totals_json:  body.totals  ?? null,
       status: "completed",
       ...snap,
     };
@@ -107,7 +103,6 @@ export async function POST(req: Request, { params }: { params: { token: string }
       if (!isDup) return NextResponse.json({ ok: false, error: subErr.message }, { status: 500 });
     }
 
-    // 5) Mark taker completed
     await sb.from("test_takers").update({ status: "completed" }).eq("id", takerId);
 
     return NextResponse.json({ ok: true, taker_id: takerId }, { status: 200 });

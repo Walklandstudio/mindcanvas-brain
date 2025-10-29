@@ -1,4 +1,3 @@
-// apps/web/app/api/public/test/[token]/start/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabaseAdmin";
 
@@ -20,9 +19,9 @@ function norm(s?: string | null) {
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   const sb = createClient().schema("portal");
+
   try {
     const body = (await req.json().catch(() => ({}))) as Body;
-
     const first_name = norm(body.first_name);
     const last_name  = norm(body.last_name);
     const email      = norm(body.email);
@@ -31,9 +30,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
 
     const { data: link, error: linkErr } = await sb
       .from("test_links")
-      .select("id, test_id, org_id, max_uses, use_count")
+      .select("id, test_id, org_id, max_uses, use_count, token")
       .eq("token", params.token)
       .maybeSingle();
+
     if (linkErr) throw new Error(linkErr.message);
     if (!link)   return NextResponse.json({ ok: false, error: "Invalid or expired link" }, { status: 404 });
 
@@ -48,11 +48,14 @@ export async function POST(req: Request, { params }: { params: { token: string }
       .insert([{
         org_id: link.org_id,
         test_id: link.test_id,
+        link_token: link.token, // ← critical
+        link_id: link.id,       // ← if column exists
         first_name, last_name, email, company, role_title,
         status: "in_progress",
       }])
       .select("id")
       .maybeSingle();
+
     if (takerErr) throw new Error(takerErr.message);
     if (!taker)   throw new Error("Failed to create test taker");
 

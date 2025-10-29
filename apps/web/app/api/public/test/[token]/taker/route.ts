@@ -31,7 +31,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
     // Resolve token -> link
     const { data: link, error: linkErr } = await sb
       .from("test_links")
-      .select("id, test_id, org_id, max_uses, use_count")
+      .select("id, test_id, org_id, max_uses, use_count, token")
       .eq("token", params.token)
       .maybeSingle();
     if (linkErr) throw new Error(linkErr.message);
@@ -44,12 +44,14 @@ export async function POST(req: Request, { params }: { params: { token: string }
       }
     }
 
-    // Create taker
+    // Create taker — include link_token (and link_id if the column exists)
     const { data: taker, error: takerErr } = await sb
       .from("test_takers")
       .insert([{
         org_id: link.org_id,
         test_id: link.test_id,
+        link_token: link.token,   // ← critical: satisfies NOT NULL constraint
+        link_id: link.id,         // ← if your table has this column it will populate; otherwise DB ignores
         first_name, last_name, email, company, role_title,
         status: "in_progress",
       }])
