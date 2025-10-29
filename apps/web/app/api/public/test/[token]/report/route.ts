@@ -1,5 +1,7 @@
+// apps/web/app/api/public/test/[token]/report/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { loadFrameworkBySlug } from "@/lib/frameworks";
 
 type AB = "A" | "B" | "C" | "D";
 
@@ -9,235 +11,134 @@ function supa() {
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
-const ORG_FREQ_LABELS: Record<string, Record<AB, string>> = {
-  "team-puzzle": { A: "Innovation", B: "Influence", C: "Implementation", D: "Insight" },
-  "competency-coach": { A: "Catalyst", B: "Communicator", C: "Rhythmic", D: "Observer" },
-};
-
-function sumABCD(t: any) {
-  const A = Number(t?.A ?? t?.a ?? 0);
-  const B = Number(t?.B ?? t?.b ?? 0);
-  const C = Number(t?.C ?? t?.c ?? 0);
-  const D = Number(t?.D ?? t?.d ?? 0);
-  return { A, B, C, D, total: A + B + C + D };
+function toPercentages(totals: Partial<Record<AB, number>> | null | undefined): Record<AB, number> {
+  const A = Number(totals?.A || 0);
+  const B = Number(totals?.B || 0);
+  const C = Number(totals?.C || 0);
+  const D = Number(totals?.D || 0);
+  const sum = A + B + C + D;
+  if (sum <= 0) return { A: 0, B: 0, C: 0, D: 0 };
+  return { A: A / sum, B: B / sum, C: C / sum, D: D / sum };
 }
 
-function toPercentagesFromABCD(t: { A: number; B: number; C: number; D: number }) {
-  const s = t.A + t.B + t.C + t.D;
-  if (s <= 0) return null;
-  return { A: t.A / s, B: t.B / s, C: t.C / s, D: t.D / s } as const;
-}
+async function resolveOrgSlugByTokenAndTaker(sb: ReturnType<typeof supa>, token: string, takerId?: string | null) {
+  // First, try from the link by token → org_id → v_organizations.slug
+  const { data: link } = await sb
+    .from("test_links")
+    .select("org_id")
+    .eq("token", token)
+    .maybeSingle();
 
-// If CC profiles don't include frequency on the record, you can hard-map P1–P8 here once:
-const PROFILE_TO_FREQ_CC: Record<string, AB> = {
-  // Fill if your CC profile_labels lack "frequency" fields
-  // "P1": "A", "P2": "A", "P3": "B", "P4": "B", "P5": "C", "P6": "C", "P7": "D", "P8": "D"
-};
-
-function buildProfileToFreqMap(profileLabels: any[], orgSlug: string): Map<string, AB> {
-  const map = new Map<string, AB>();
-  for (const p of profileLabels || []) {
-    const code = String(p.code || p.id || p.key || p.slug || p.name || "").toUpperCase();
-    const freq = (p.frequency || p.freq || p.flow || "").toString().toUpperCase();
-    if (["A","B","C","D"].includes(freq)) map.set(code, freq as AB);
-  }
-  // Competency Coach fallback mapping (only if labels lacked frequencies)
-  if (orgSlug === "competency-coach" && map.size === 0) {
-    for (const [k, v] of Object.entries(PROFILE_TO_FREQ_CC)) map.set(k.toUpperCase(), v);
-  }
-  return map;
-}
-
-/**
- * Attempt to reconstruct profile totals from answers_json.
- * We accept a few common shapes:
- *  - answers_json: [{ options:[{profile, points}...], selected: 0|1|... }, ...]
- *  - answers_json: [{ selected: { profile, points } }, ...]
- *  - answers_json: [{ value: { profile, points } }, ...]
- */
-function deriveProfileTotalsFromAnswers(answersJson: any): Record<string, number> {
-  const totals: Record<string, number> = {};
-  if (!answersJson) return totals;
-
-  const rows: any[] = Array.isArray(answersJson) ? answersJson : answersJson.rows || answersJson.items || [];
-  for (const row of rows) {
-    // Case 1: options[] + selected index
-    if (Array.isArray(row?.options) && (typeof row?.selected === "number" || typeof row?.selected_index === "number")) {
-      const idx = Number(row.selected ?? row.selected_index);
-      const opt = row.options[idx];
-      const profile = opt?.profile ?? opt?.code ?? opt?.id ?? null;
-      const points = Number(opt?.points ?? opt?.score ?? 0);
-      if (profile && points) {
-        const key = String(profile).toUpperCase();
-        totals[key] = (totals[key] || 0) + points;
-      }
-      continue;
-    }
-    // Case 2: selected object with profile/points
-    if (row?.selected && typeof row.selected === "object") {
-      const profile = row.selected.profile ?? row.selected.code ?? row.selected.id ?? null;
-      const points = Number(row.selected.points ?? row.selected.score ?? 0);
-      if (profile && points) {
-        const key = String(profile).toUpperCase();
-        totals[key] = (totals[key] || 0) + points;
-      }
-      continue;
-    }
-    // Case 3: value object with profile/points
-    if (row?.value && typeof row.value === "object") {
-      const profile = row.value.profile ?? row.value.code ?? row.value.id ?? null;
-      const points = Number(row.value.points ?? row.value.score ?? 0);
-      if (profile && points) {
-        const key = String(profile).toUpperCase();
-        totals[key] = (totals[key] || 0) + points;
-      }
-      continue;
-    }
-    // Case 4: direct profile & points on row
-    if (row?.profile || row?.code || row?.id) {
-      const profile = row.profile ?? row.code ?? row.id;
-      const points = Number(row.points ?? row.score ?? 0);
-      if (profile && points) {
-        const key = String(profile).toUpperCase();
-        totals[key] = (totals[key] || 0) + points;
-      }
-    }
-  }
-  return totals;
-}
-
-export async function GET(req: Request, { params }: { params: { token: string } }) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const token = params.token;
-    const takerId = searchParams.get("tid");
-
-    if (!token) return NextResponse.json({ ok: false, error: "Missing token" }, { status: 400 });
-    if (!takerId) return NextResponse.json({ ok: false, error: "Missing taker id (tid)" }, { status: 400 });
-
-    const sb = supa();
-
-    // Resolve link → org slug (via view if available)
-    const { data: linkRow } = await sb
-      .from("test_links")
-      .select("id, org_id, test_id, token, org_slug")
-      .eq("token", token)
+  if (link?.org_id) {
+    const { data: org } = await sb
+      .from("v_organizations")
+      .select("slug")
+      .eq("id", link.org_id)
       .maybeSingle();
+    if (org?.slug) return org.slug as string;
+  }
 
-    let orgSlug: string =
-      (linkRow as any)?.org_slug ||
-      (await (async () => {
-        const { data: orgView } = await sb
-          .from("v_organizations" as any)
-          .select("slug")
-          .eq("id", linkRow?.org_id)
-          .maybeSingle();
-        return orgView?.slug || "competency-coach";
-      })());
-
-    // Taker snapshot (for name)
+  // Fallback: via taker → test_id → a mapping view if available
+  if (takerId) {
     const { data: taker } = await sb
       .from("test_takers")
-      .select("id, first_name, last_name, email")
+      .select("test_id")
       .eq("id", takerId)
       .eq("link_token", token)
       .maybeSingle();
 
-    // Preferred source: results
-    const { data: result } = await sb
-      .from("test_results")
-      .select("totals, created_at")
-      .eq("taker_id", takerId)
-      .maybeSingle();
+    const testId = taker?.test_id;
+    if (testId) {
+      // If you have a view that exposes org_slug by test_id (like you pasted),
+      // use it here. Otherwise, we remain on the safe default below.
+      const { data: vt } = await sb
+        .from("v_org_tests" as any) // optional view; ignore if not present
+        .select("org_slug")
+        .eq("test_id", testId)
+        .limit(1)
+        .maybeSingle()
+        .catch(() => ({ data: null }));
+      if (vt?.org_slug) return vt.org_slug as string;
+    }
+  }
 
-    let totals: any = result?.totals || null;
+  // Final safe default (prevents 500s)
+  return process.env.DEFAULT_ORG_SLUG || "competency-coach";
+}
 
-    // Fallback: submissions.totals and answers_json
-    const { data: submission } = await sb
-      .from("test_submissions")
-      .select("totals, answers_json, created_at")
-      .eq("taker_id", takerId)
+export async function GET(req: Request, { params }: { params: { token: string } }) {
+  try {
+    const token = params.token;
+    const { searchParams } = new URL(req.url);
+    const tid = searchParams.get("tid");
+
+    const sb = supa();
+
+    // Resolve taker (optional but helps fetch results/submissions reliably)
+    const { data: taker } = await sb
+      .from("test_takers")
+      .select("id, test_id, first_name, last_name, email")
+      .eq("id", tid)
       .eq("link_token", token)
-      .order("created_at", { ascending: false })
-      .limit(1)
       .maybeSingle();
 
-    if (!totals) totals = submission?.totals || null;
+    // Prefer test_results.totals, fallback to last test_submissions.totals
+    let totals: Partial<Record<AB, number>> | null = null;
 
-    // Labels (Team Puzzle & CC)
-    const frequency_labels = ORG_FREQ_LABELS[orgSlug] || ORG_FREQ_LABELS["competency-coach"];
+    if (taker?.id) {
+      const { data: resultRow } = await sb
+        .from("test_results")
+        .select("totals")
+        .eq("taker_id", taker.id)
+        .maybeSingle();
+      if (resultRow?.totals) totals = resultRow.totals as any;
 
-    // Profile labels (from your seeding or JSON source – if your existing API attaches them, keep it)
-    // For safety, try to echo profile_labels from the latest test definition if your system stores them.
-    // Here we return empty and let the client show only frequency mix unless you already attach them elsewhere.
-    let profile_labels: Array<{ code: string; name: string; frequency?: AB }> = [];
-
-    // If your public meta endpoint already attaches profile_labels, you can load it here instead:
-    // (Leaving minimal to avoid new dependencies)
-
-    // Compute percentages:
-    let percentages: Record<AB, number> | null = null;
-
-    // 1) Directly from A/B/C/D totals
-    const abcd = sumABCD(totals);
-    if (abcd.total > 0) {
-      const p = toPercentagesFromABCD(abcd);
-      if (p) percentages = p as any;
+      if (!totals) {
+        const { data: sub } = await sb
+          .from("test_submissions")
+          .select("totals")
+          .eq("taker_id", taker.id)
+          .eq("link_token", token)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (sub?.totals) totals = sub.totals as any;
+      }
     }
 
-    // 2) If still zero, try reconstructing from answers_json using profile→frequency mapping
-    if (!percentages && submission?.answers_json) {
-      // If your API (or prior steps) already knows profile_labels with frequency, prefer that.
-      // Otherwise we can't reconstruct reliably for orgs that don't ship this mapping.
-      // For Team Puzzle your payload already includes profile_labels with frequency (per your sample).
-      // We'll try to fetch the same structure via public meta; if not, we fall back to simple derivation:
-      const profileTotals = deriveProfileTotalsFromAnswers(submission.answers_json);
+    totals = totals ?? { A: 0, B: 0, C: 0, D: 0 };
+    const percentages = toPercentages(totals);
 
-      // If we have no mapping yet, try to infer from known naming patterns in profileTotals keys:
-      // Better: when your API knows the profile_labels for this org, include them here.
-      // For now, percentages will remain null if we can't map.
-      // (Safer than guessing wrong.)
-      // You can optionally enrich this endpoint by joining your org's profile catalog.
+    // Resolve correct org slug from DB and load framework JSON for labels
+    const org_slug = await resolveOrgSlugByTokenAndTaker(sb, token, taker?.id);
+    const framework = await loadFrameworkBySlug(org_slug);
 
-      // Try to build a profile->freq map from profile_labels if present in submission or elsewhere.
-      // As a minimal step, if profileTotals keys already look like PROFILE_1..PROFILE_8 and you know orgSlug,
-      // try uniform 2-profiles-per-frequency mapping (commented out).
-      // Keeping neutral here to avoid mis-mapping.
+    const frequency_labels =
+      (framework.framework.frequencies || []).map((f) => ({ code: f.code, name: f.name }));
 
-      // If later you attach profile_labels with .frequency, you can compute here:
-      // const pfMap = buildProfileToFreqMap(profile_labels, orgSlug);
+    const profile_labels =
+      (framework.framework.profiles || []).map((p) => ({
+        code: p.code,
+        name: p.name,
+        frequency: (p.frequencies?.[0] ?? "A") as AB,
+      }));
 
-      // Example (pseudo):
-      // const freq = { A:0, B:0, C:0, D:0 } as Record<AB, number>;
-      // for (const [pcode, val] of Object.entries(profileTotals)) {
-      //   const f = pfMap.get(pcode.toUpperCase());
-      //   if (f) freq[f] += Number(val) || 0;
-      // }
-      // const s = freq.A+freq.B+freq.C+freq.D;
-      // if (s > 0) percentages = { A: freq.A / s, B: freq.B / s, C: freq.C / s, D: freq.D / s };
-    }
-
-    const payload = {
+    return NextResponse.json({
       ok: true,
       data: {
-        orgSlug,
-        orgName: orgSlug === "team-puzzle" ? "Team Puzzle Profile" : "Competency Coach DNA Blueprint",
-        taker: {
-          id: taker?.id,
-          first_name: taker?.first_name,
-          last_name: taker?.last_name,
-          email: taker?.email,
-        },
-        totals: totals || {},
-        percentages, // may be null if we couldn't reconstruct
-        frequency_labels, // {A:"...",B:"...",...}
-        profile_labels,   // empty unless you attach them elsewhere
-        // keep your other fields if you rely on them:
-        // top_profile_code, top_profile_name, etc. (not included here to avoid guessing)
+        org_slug,
+        org_name: framework.framework.name || null,
+        test_name: taker ? undefined : "Profile Test",
+        taker: taker
+          ? { id: taker.id, first_name: taker.first_name, last_name: taker.last_name, email: taker.email }
+          : null,
+        totals,
+        percentages,
+        frequency_labels,
+        profile_labels,
+        version: "report-v2",
       },
-    };
-
-    return NextResponse.json(payload);
+    });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
   }
