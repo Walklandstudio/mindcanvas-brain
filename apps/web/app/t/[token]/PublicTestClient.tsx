@@ -9,7 +9,7 @@ type Question = {
   order?: number | null;
   type?: string | null;
   text: string;
-  options?: string[] | null;
+  options?: string[] | null;     // labels
   category?: 'scored' | 'qual' | string | null;
 };
 
@@ -150,12 +150,23 @@ export default function PublicTestClient({ token }: { token: string }) {
     try {
       setSubmitting(true);
       setError('');
-      const id = await ensureStarted(); // <-- guarantees taker_id exists
+      const id = await ensureStarted(); // guarantees taker_id exists
+
+      const payload = {
+        taker_id: id,
+        answers,
+        // send identity again so server can patch if missing:
+        first_name: firstName?.trim() || null,
+        last_name:  lastName?.trim()  || null,
+        email:      email?.trim()     || null,
+        company:    company?.trim()   || null,
+        role_title: roleTitle?.trim() || null,
+      };
 
       const res = await fetch(`/api/public/test/${token}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taker_id: id, answers }),
+        body: JSON.stringify(payload),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
@@ -207,26 +218,51 @@ export default function PublicTestClient({ token }: { token: string }) {
       {step === 'details' ? (
         <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
           <div className="text-lg font-semibold mb-3">Before we start, tell us about you</div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="block">
               <span className="text-sm text-white/80">First name</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={firstName} onChange={e=>setFirstName(e.target.value)} required />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={firstName}
+                onChange={e=>setFirstName(e.target.value)}
+                required
+              />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Last name</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={lastName} onChange={e=>setLastName(e.target.value)} required />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={lastName}
+                onChange={e=>setLastName(e.target.value)}
+                required
+              />
             </label>
             <label className="block md:col-span-2">
               <span className="text-sm text-white/80">Email</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={email} type="email" onChange={e=>setEmail(e.target.value)} required />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={email}
+                onChange={e=>setEmail(e.target.value)}
+                type="email"
+                required
+              />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Company (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={company} onChange={e=>setCompany(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={company}
+                onChange={e=>setCompany(e.target.value)}
+              />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Role / Department (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={roleTitle} onChange={e=>setRoleTitle(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={roleTitle}
+                onChange={e=>setRoleTitle(e.target.value)}
+              />
             </label>
           </div>
 
@@ -242,16 +278,22 @@ export default function PublicTestClient({ token }: { token: string }) {
         </div>
       ) : (
         <>
+          {/* Question card */}
           <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
             <div className="text-sm text-white/60 mb-2">
               Question {i + 1} / {questions.length}
-              {q?.category && <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">{q.category}</span>}
+              {q?.category && (
+                <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">
+                  {q.category}
+                </span>
+              )}
             </div>
             <div className="text-lg font-medium mb-4">{q?.text}</div>
 
+            {/* Prefer text options; fallback to 1..5 */}
             {Array.isArray(q?.options) && q.options.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {q.options.map((label, idx) => {
+                {q.options.map((label: string, idx: number) => {
                   const val = idx + 1;
                   const selected = answers[q.id] === val;
                   return (
@@ -260,7 +302,8 @@ export default function PublicTestClient({ token }: { token: string }) {
                       onClick={() => setChoice(q.id, val)}
                       className={[
                         'text-left px-3 py-3 rounded-xl border transition',
-                        selected ? 'bg-white text-black border-white' : 'bg-white/5 border-white/20 hover:bg-white/10'
+                        selected ? 'bg-white text-black border-white'
+                                 : 'bg-white/5 border-white/20 hover:bg-white/10'
                       ].join(' ')}
                     >
                       {label}
@@ -270,7 +313,7 @@ export default function PublicTestClient({ token }: { token: string }) {
               </div>
             ) : (
               <div className="grid grid-cols-5 gap-2">
-                {[1,2,3,4,5].map((val) => {
+                {[1,2,3,4,5].map((val: number) => {
                   const selected = answers[q!.id] === val;
                   return (
                     <button
@@ -278,7 +321,8 @@ export default function PublicTestClient({ token }: { token: string }) {
                       onClick={() => setChoice(q!.id, val)}
                       className={[
                         'px-3 py-3 rounded-xl border transition',
-                        selected ? 'bg-white text-black border-white' : 'bg-white/5 border-white/20 hover:bg-white/10'
+                        selected ? 'bg-white text-black border-white'
+                                 : 'bg-white/5 border-white/20 hover:bg-white/10'
                       ].join(' ')}
                     >
                       {val}
@@ -289,6 +333,7 @@ export default function PublicTestClient({ token }: { token: string }) {
             )}
           </div>
 
+          {/* Nav + Submit */}
           <div className="flex items-center justify-between">
             <button
               onClick={() => setI(Math.max(0, i - 1))}
