@@ -3,12 +3,13 @@ import { createClient } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Returns frequency + profile metadata for the test behind a link token.
- * This version does NOT read portal.profiles (which you don't have).
- * It builds a safe default map and, when possible, infers existing profile/frequency
- * codes from portal.test_results for the same test.
- */
+// Helper: extract "1" from "PROFILE_1" / "P1" / "1"
+function codeToProfileKey(code?: string | null) {
+  if (!code) return null;
+  const m = String(code).match(/(\d+)/);
+  return m ? m[1] : null;
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: { token: string } }
@@ -17,49 +18,27 @@ export async function GET(
     const { token } = params;
     const sb = createClient().schema("portal");
 
-    // 1) Find the test for this token
+    // 1) Resolve token -> test/org
     const { data: link, error: linkErr } = await sb
       .from("test_links")
       .select("id, test_id, org_id, token")
       .eq("token", token)
       .maybeSingle();
+    if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
+    if (!link)   return NextResponse.json({ ok: false, error: "Link not found" }, { status: 404 });
 
-    if (linkErr) {
-      return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
-    }
-    if (!link) {
-      return NextResponse.json({ ok: false, error: "Link not found" }, { status: 404 });
-    }
+    const testId = link.test_id;
 
-    // 2) Try infer profile/frequency codes seen for this test from results (if any)
-    //    This keeps us flexible with your existing schema and avoids portal.profiles.
-    const { data: inferred, error: infErr } = await sb
-      .from("test_results")
-      .select("profile_code, frequency_code")
-      .eq("test_id", link.test_id)
-      .not("profile_code", "is", null)
-      .not("frequency_code", "is", null)
-      .limit(1000);
+    // 2) Load optional label overrides (non-breaking)
+    const [{ data: profLabels, error: plErr }, { data: freqLabels, error: flErr }] = await Promise.all([
+      sb.from("test_profile_labels").select("*").eq("test_id", testId),
+      sb.from("test_frequency_labels").select("*").eq("test_id", testId),
+    ]);
+    if (plErr) console.warn("[META] test_profile_labels read error:", plErr.message);
+    if (flErr) console.warn("[META] test_frequency_labels read error:", flErr.message);
 
-    if (infErr) {
-      // don't fail the endpoint, just fall back to defaults
-      console.warn("[meta] test_results inference failed:", infErr.message);
-    }
-
-    // Build a unique set from any existing results
-    const seen = new Map<string, string>(); // profile_code -> frequency_code
-    for (const r of inferred ?? []) {
-      if (r.profile_code) {
-        const key = String(r.profile_code);
-        if (r.frequency_code && !seen.has(key)) {
-          seen.set(key, String(r.frequency_code));
-        }
-      }
-    }
-
-    // 3) Safe defaults if nothing inferred:
-    // Profiles 1..8 mapped A,A,B,B,C,C,D,D
-    const defaultProfiles = [
+    // 3) Build default profiles (1..8 -> A,A,B,B,C,C,D,D)
+    const defaults = [
       { code: "1", name: "Profile 1", frequency: "A" },
       { code: "2", name: "Profile 2", frequency: "A" },
       { code: "3", name: "Profile 3", frequency: "B" },
@@ -70,39 +49,65 @@ export async function GET(
       { code: "8", name: "Profile 8", frequency: "D" },
     ];
 
-    // If we inferred anything from results, overlay it on defaults
-    const profiles = defaultProfiles.map((p) => {
-      const inferredFreq = seen.get(p.code);
-      return inferredFreq ? { ...p, frequency: inferredFreq } : p;
-    });
+    // 4) Apply profile label overrides if present
+    let profiles = defaults;
+    if (Array.isArray(profLabels) && profLabels.length > 0) {
+      // normalize label rows by numeric profile code
+      const profMap = new Map<string, { name?: string; frequency?: string }>();
+      for (const row of profLabels) {
+        const key = codeToProfileKey(row.profile_code) ?? String(row.profile_code);
+        profMap.set(String(key), {
+          name: row.profile_name || undefined,
+          frequency: row.frequency_code || undefined,
+        });
+      }
+      profiles = defaults.map((p) => {
+        const over = profMap.get(String(p.code));
+        return over
+          ? { code: p.code, name: over.name ?? p.name, frequency: over.frequency ?? p.frequency }
+          : p;
+      });
+    }
 
-    // Frequencies (static labels; you can rename later per-org if you store branding)
-    const frequencies = [
+    // 5) Build default frequency names, then apply overrides if present
+    const freqDefaults = [
       { code: "A", name: "Frequency A" },
       { code: "B", name: "Frequency B" },
       { code: "C", name: "Frequency C" },
       { code: "D", name: "Frequency D" },
     ];
+    let frequencies = freqDefaults;
+    if (Array.isArray(freqLabels) && freqLabels.length > 0) {
+      const fmap = new Map<string, string>();
+      for (const row of freqLabels) fmap.set(String(row.frequency_code), row.frequency_name);
+      frequencies = freqDefaults.map((f) => ({
+        code: f.code,
+        name: fmap.get(f.code) || f.name,
+      }));
+    }
 
-    // 4) Thresholds: if you already store them, try read; otherwise give an empty array
-    //    (Keeps the UI happy; your result page can still render with totals from test_results)
-    const { data: thresholds, error: thrErr } = await sb
-      .from("test_thresholds") // if you don't have this table, we'll catch the error below
-      .select("*")
-      .eq("test_id", link.test_id);
+    // 6) Thresholds (optional). If you don't have this table, return []
+    let thresholds: any[] = [];
+    try {
+      const { data: thr, error: thrErr } = await sb
+        .from("test_thresholds")
+        .select("*")
+        .eq("test_id", testId);
+      if (!thrErr && Array.isArray(thr)) thresholds = thr;
+    } catch {
+      thresholds = [];
+    }
 
-    const payload = {
+    return NextResponse.json({
       ok: true,
-      test_id: link.test_id,
+      test_id: testId,
       org_id: link.org_id,
       frequencies,
       profiles,
-      thresholds: thrErr ? [] : (thresholds ?? []),
-    };
-
-    return NextResponse.json(payload, { status: 200 });
+      thresholds,
+    });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
   }
 }
 
