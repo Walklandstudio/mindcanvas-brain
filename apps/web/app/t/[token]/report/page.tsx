@@ -1,4 +1,5 @@
-// Minimal, API-only report page. No filesystem reads.
+// Minimal, API-only report page. No Supabase calls, no .catch chains.
+// Fixes: (1) PostgrestBuilder `.catch` type error, (2) "null used as index" guards.
 
 import { getBaseUrl } from "@/lib/server-url";
 
@@ -19,6 +20,7 @@ export default async function ReportPage({
     `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`,
     { cache: "no-store" }
   );
+
   if (!res.ok) {
     return (
       <div className="mx-auto max-w-3xl p-6">
@@ -33,12 +35,17 @@ export default async function ReportPage({
   const title =
     data?.title ||
     data?.orgName ||
+    (typeof data?.org === "string" ? data.org : data?.org?.name) ||
     "Your Personalised Report";
 
-  const topName =
+  // Prefer explicit top_profile_name from API; fall back to taker snapshot; else placeholder
+  const topName: string =
     data?.top_profile_name ||
     data?.taker?.top_profile_name ||
+    data?.taker?.top_profile ||
     "—";
+
+  const sections = data?.sections ?? null;
 
   return (
     <div className="mx-auto max-w-4xl p-6 space-y-8">
@@ -54,14 +61,14 @@ export default async function ReportPage({
         <p className="mt-2 text-2xl font-semibold">{topName}</p>
       </section>
 
-      {data?.sections ? (
+      {sections ? (
         <pre className="rounded-2xl border p-6 text-sm whitespace-pre-wrap">
-          {JSON.stringify(data.sections, null, 2)}
+          {JSON.stringify(sections, null, 2)}
         </pre>
       ) : (
         <section className="rounded-2xl border p-6">
           <p className="text-sm text-muted-foreground">
-            Your detailed report content will appear here when attached by the report service.
+            Your detailed report content will appear here once attached by the report API.
           </p>
         </section>
       )}
