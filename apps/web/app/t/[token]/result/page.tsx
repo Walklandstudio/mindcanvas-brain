@@ -1,201 +1,209 @@
-'use client';
+/* apps/web/app/t/[token]/result/page.tsx */
+import type { Metadata } from "next";
 
-import { useEffect, useMemo, useState } from 'react';
+export const dynamic = "force-dynamic";
 
-// Types returned by our endpoints
-type ResultPayload = {
+export const metadata: Metadata = {
+  title: "Your Report",
+};
+
+type MetaRes = {
   ok: boolean;
-  taker?: { id: string; first_name: string | null; last_name: string | null; email: string | null; status: string };
-  totals?: Record<string, number>;
+  test_id: string;
+  org_id: string;
+  frequencies: { code: string; name: string }[];
+  profiles: { code: string; name: string; frequency: string }[];
+  thresholds: any[];
+};
+
+type ResultRes = {
+  ok: boolean;
+  taker?: {
+    id: string;
+    test_id: string;
+    org_id: string;
+    email: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    created_at: string;
+  };
+  totals?: {
+    total_points?: number | null;
+    frequency_code?: string | null;
+    profile_code?: string | null;
+    // Optional fields other builds sometimes include:
+    frequency_totals?: Record<string, number> | null;
+    profile_totals?: Record<string, number> | null;
+  };
+  raw?: any;
   error?: string;
 };
 
-type MetaPayload = {
-  ok: boolean;
-  test_id?: string;
-  profiles?: Array<{ id: string; name: string; code: string | null; frequency: 'A' | 'B' | 'C' | 'D' | null }>;
-  thresholds?: Array<{ type: 'frequency' | 'profile'; label: string; greater_than: number | null; less_than: number | null }>;
-  error?: string;
-};
+function codeToProfileKey(code?: string | null) {
+  if (!code) return null;
+  // Accept "PROFILE_1" | "P1" | "1"
+  const m = String(code).match(/(\d+)/);
+  return m ? m[1] : null;
+}
 
-export default function ResultPage({ params }: { params: { token: string } }) {
-  const { token } = params;
-  const [res, setRes] = useState<ResultPayload | null>(null);
-  const [meta, setMeta] = useState<MetaPayload | null>(null);
-  const [err, setErr] = useState<string>('');
+function mapProfileName(code: string | null | undefined, meta?: MetaRes) {
+  const key = codeToProfileKey(code);
+  if (!key) return code || "—";
+  const found = meta?.profiles?.find((p) => String(p.code) === String(key));
+  if (found?.name) return found.name;
+  // Fallback
+  return `Profile ${key}`;
+}
 
-  useEffect(() => {
-    (async () => {
-      setErr('');
-      try {
-        const [r1, r2] = await Promise.all([
-          fetch(`/api/public/test/${token}/result`, { cache: 'no-store' }),
-          fetch(`/api/public/test/${token}/meta`, { cache: 'no-store' }),
-        ]);
-        const j1 = (await r1.json().catch(() => ({}))) as ResultPayload;
-        const j2 = (await r2.json().catch(() => ({}))) as MetaPayload;
+function mapFrequencyName(code: string | null | undefined, meta?: MetaRes) {
+  if (!code) return "—";
+  const found = meta?.frequencies?.find((f) => f.code === code);
+  return found?.name || `Frequency ${code}`;
+}
 
-        if (!j1?.ok) throw new Error(j1?.error || `Result HTTP ${r1.status}`);
-        if (!j2?.ok) throw new Error(j2?.error || `Meta HTTP ${r2.status}`);
+function displayName(taker?: ResultRes["taker"]) {
+  const first = taker?.first_name?.trim() || "";
+  const last = taker?.last_name?.trim() || "";
+  const full = [first, last].filter(Boolean).join(" ");
+  return full || taker?.email || "there";
+}
 
-        setRes(j1);
-        setMeta(j2);
-      } catch (e: any) {
-        setErr(e?.message || 'Failed to load result');
-      }
-    })();
-  }, [token]);
-
-  const profiles = meta?.profiles ?? [];
-  const totals = res?.totals ?? {};
-  const taker = res?.taker;
-
-  // Build profile->frequency map
-  const profileFreqMap = useMemo<Record<string, 'A'|'B'|'C'|'D'>>(() => {
-    const m: Record<string, 'A'|'B'|'C'|'D'> = {};
-    for (const p of profiles) {
-      const key = (p?.name || p?.code || '').trim();
-      if (key && p.frequency) m[key] = p.frequency;
-    }
-    return m;
-  }, [profiles]);
-
-  // Sum totals into frequency buckets using profile->frequency mapping
-  const frequencyTotals = useMemo(() => {
-    const f: Record<'A'|'B'|'C'|'D', number> = { A: 0, B: 0, C: 0, D: 0 };
-    for (const [profileName, score] of Object.entries(totals)) {
-      const freq = profileFreqMap[profileName];
-      if (freq && typeof score === 'number') f[freq] += score;
-    }
-    return f;
-  }, [totals, profileFreqMap]);
-
-  // Determine top profile
-  const topProfile = useMemo(() => {
-    let best: { name: string; score: number } | null = null;
-    for (const [name, score] of Object.entries(totals)) {
-      if (typeof score !== 'number') continue;
-      if (!best || score > best.score) best = { name, score };
-    }
-    return best;
-  }, [totals]);
-
-  // Apply thresholds (if present)
-  const thresholds = meta?.thresholds ?? [];
-  const freqThresholds = thresholds.filter(t => t.type === 'frequency');
-  const profThresholds = thresholds.filter(t => t.type === 'profile');
-
-  // Return label for a numeric score using a threshold table
-  function labelFromThreshold(score: number, table: typeof thresholds) {
-    // The table is expected to be defined in descending "greater_than" order (we ordered that in SQL).
-    for (const t of table) {
-      const gt = t.greater_than ?? Number.NEGATIVE_INFINITY;
-      const lt = t.less_than ?? Number.POSITIVE_INFINITY;
-      if (score > gt && score < lt) return t.label;
-    }
-    return null;
+async function fetchJSON<T = any>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} while fetching ${url}`);
   }
+  return (await res.json()) as T;
+}
 
-  // Compute interpreted frequency label by picking the highest frequency bucket and applying thresholds for that bucket score
-  const interpretedFrequency = useMemo(() => {
-    const entries: Array<{ key: 'A'|'B'|'C'|'D'; value: number }> = [
-      { key: 'A', value: frequencyTotals.A },
-      { key: 'B', value: frequencyTotals.B },
-      { key: 'C', value: frequencyTotals.C },
-      { key: 'D', value: frequencyTotals.D },
-    ];
-    entries.sort((a, b) => b.value - a.value);
-    const top = entries[0];
-    const label = freqThresholds.length ? labelFromThreshold(top.value, freqThresholds) : top.key;
-    return { key: top.key, value: top.value, label: label ?? top.key };
-  }, [frequencyTotals, freqThresholds]);
+export default async function ResultPage({
+  params,
+}: {
+  params: { token: string };
+}) {
+  const token = params.token;
 
-  // Compute interpreted profile label for the top profile score
-  const interpretedProfile = useMemo(() => {
-    if (!topProfile) return null;
-    const label = profThresholds.length ? labelFromThreshold(topProfile.score, profThresholds) : topProfile.name;
-    return { name: topProfile.name, score: topProfile.score, label: label ?? topProfile.name };
-  }, [topProfile, profThresholds]);
+  // Load result and meta in parallel
+  const [result, meta] = await Promise.all([
+    fetchJSON<ResultRes>(`${process.env.NEXT_PUBLIC_APP_URL || ""}/api/public/test/${token}/result`).catch(
+      async () => await fetchJSON<ResultRes>(`/api/public/test/${token}/result`)
+    ),
+    fetchJSON<MetaRes>(`${process.env.NEXT_PUBLIC_APP_URL || ""}/api/public/test/${token}/meta`).catch(
+      async () => await fetchJSON<MetaRes>(`/api/public/test/${token}/meta`)
+    ),
+  ]);
 
-  if (err) {
+  if (!result?.ok) {
     return (
-      <main className="mc-bg min-h-screen text-white p-6">
-        <h1 className="text-2xl font-bold mb-3">Result</h1>
-        <div className="rounded-xl bg-red-500/15 border border-red-400/40 p-4">{String(err)}</div>
+      <main className="max-w-3xl mx-auto p-6 space-y-4">
+        <h1 className="text-2xl font-semibold">Your Report</h1>
+        <div className="text-red-600">Unable to load result{result?.error ? `: ${result.error}` : ""}</div>
       </main>
     );
   }
-  if (!res || !meta) {
-    return <main className="mc-bg min-h-screen text-white p-6">Loading…</main>;
-  }
+
+  const takerName = displayName(result.taker);
+  const topProfileCode = result.totals?.profile_code ?? null;
+  const topFrequencyCode = result.totals?.frequency_code ?? null;
+  const totalScore = result.totals?.total_points ?? null;
+
+  const topProfileName = mapProfileName(topProfileCode, meta);
+  const topFrequencyName = mapFrequencyName(topFrequencyCode, meta);
+
+  // Optional breakdowns if your DB provides them:
+  const freqTotals = result.totals?.frequency_totals || null;
+  const profTotals = result.totals?.profile_totals || null;
+
+  // Normalize profile_totals keys like "PROFILE_1" | "P1" | "1"
+  const normalizedProfileTotals =
+    profTotals &&
+    Object.fromEntries(
+      Object.entries(profTotals).map(([k, v]) => {
+        const key = codeToProfileKey(k) ?? k;
+        return [key, v as number];
+      })
+    );
 
   return (
-    <main className="mc-bg min-h-screen text-white p-6 space-y-8">
+    <main className="max-w-3xl mx-auto p-6 space-y-6">
       <header className="space-y-1">
-        <h1 className="text-3xl font-bold tracking-tight">Your Report</h1>
-        <p className="text-white/70">
-          {taker?.first_name ? `Hi ${taker.first_name}! ` : ''}
-          Status: <span className="font-medium">{taker?.status ?? 'unknown'}</span>
+        <h1 className="text-2xl font-semibold">Your Report</h1>
+        <p className="text-gray-600">
+          Hi {takerName}!{" "}
+          <span className="text-gray-400">
+            Status: {result.taker ? "completed" : "pending"}
+          </span>
         </p>
       </header>
 
-      {/* Summary cards */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
-          <div className="text-sm text-white/70 mb-1">Top Profile</div>
-          <div className="text-2xl font-semibold">
-            {interpretedProfile ? interpretedProfile.label : '—'}
-          </div>
-          {interpretedProfile && interpretedProfile.label !== interpretedProfile.name && (
-            <div className="text-white/70 text-sm">({interpretedProfile.name})</div>
+      <section className="grid md:grid-cols-2 gap-4">
+        <div className="border rounded-xl p-4 space-y-2">
+          <div className="text-sm text-gray-500">Top Profile</div>
+          <div className="text-xl font-semibold">{topProfileName}</div>
+          {totalScore !== null && (
+            <div className="text-sm text-gray-500">Score: {totalScore}</div>
           )}
-          <div className="text-white/60 text-sm mt-2">Score: {interpretedProfile?.score ?? 0}</div>
         </div>
 
-        <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
-          <div className="text-sm text-white/70 mb-1">Dominant Frequency</div>
-          <div className="text-2xl font-semibold">
-            {interpretedFrequency?.label ?? '—'}
-          </div>
-          <div className="text-white/60 text-sm mt-2">
-            A:{frequencyTotals.A} · B:{frequencyTotals.B} · C:{frequencyTotals.C} · D:{frequencyTotals.D}
-          </div>
-        </div>
-      </section>
+        <div className="border rounded-xl p-4 space-y-2">
+          <div className="text-sm text-gray-500">Dominant Frequency</div>
+          <div className="text-xl font-semibold">{topFrequencyName}</div>
 
-      {/* Profile totals */}
-      <section>
-        <h2 className="text-xl font-semibold mb-3">Profile Scores</h2>
-        <div className="space-y-2">
-          {Object.entries(totals)
-            .sort((a, b) => b[1] - a[1])
-            .map(([name, score]) => (
-              <div key={name} className="flex items-center gap-3">
-                <div className="w-48 shrink-0">{name}</div>
-                <div className="grow h-2 bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-white/70"
-                    style={{ width: `${Math.min(100, (score / Math.max(1, topScore(totals))) * 100)}%` }}
-                  />
-                </div>
-                <div className="w-12 text-right">{score}</div>
-              </div>
-            ))}
+          {/* Only show A/B/C/D row if non-zero totals exist */}
+          {freqTotals && Object.values(freqTotals).some((n) => Number(n) > 0) && (
+            <div className="text-xs text-gray-500">
+              {["A", "B", "C", "D"].map((c, i) => {
+                const n = (freqTotals as any)[c] ?? 0;
+                return (
+                  <span key={c}>
+                    {c}:{n}
+                    {i < 3 ? " · " : ""}
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
-      {/* Raw debug toggle if needed */}
-      <details className="rounded-2xl bg-white/5 border border-white/10 p-5">
-        <summary className="cursor-pointer">Debug JSON</summary>
-        <pre className="mt-3 text-xs whitespace-pre-wrap">{JSON.stringify({ res, meta, frequencyTotals, profileFreqMap }, null, 2)}</pre>
+      {/* Optional: Profile scores table if provided */}
+      {normalizedProfileTotals &&
+        Object.keys(normalizedProfileTotals).length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-lg font-semibold">Profile Scores</h2>
+            <div className="border rounded-xl overflow-hidden">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr className="text-left">
+                    <th className="p-3">Profile</th>
+                    <th className="p-3">Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(normalizedProfileTotals)
+                    .sort((a, b) => Number(b[1]) - Number(a[1]))
+                    .map(([k, v]) => (
+                      <tr key={k} className="border-t">
+                        <td className="p-3">
+                          {mapProfileName(k, meta)}
+                        </td>
+                        <td className="p-3">{v as number}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+      {/* Debug block can be toggled off when you’re happy */}
+      <details className="border rounded-xl p-4">
+        <summary className="cursor-pointer select-none">Debug JSON</summary>
+        <pre className="text-xs overflow-auto p-2 bg-gray-50 rounded">
+{JSON.stringify({ result, meta }, null, 2)}
+        </pre>
       </details>
     </main>
   );
-}
-
-function topScore(totals: Record<string, number>) {
-  let m = 1;
-  for (const v of Object.values(totals)) if (typeof v === 'number' && v > m) m = v;
-  return m;
 }
 
