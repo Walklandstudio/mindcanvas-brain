@@ -25,10 +25,7 @@ type ResultRes = {
     created_at?: string;
     status?: string;
   };
-  // Your API currently returns a flat object like:
-  // { "PROFILE_1": 40, "PROFILE_3": 150, ... }
   totals?: Record<string, number> & {
-    // optional shapes in other builds:
     total_points?: number | null;
     frequency_code?: string | null;
     profile_code?: string | null;
@@ -40,7 +37,6 @@ type ResultRes = {
 };
 
 async function getBaseUrl() {
-  // Some Next typings have headers() as Promise-like; await for safety
   const h = await (headers() as unknown as Promise<Readonly<Headers>>);
   const proto = h.get("x-forwarded-proto") || "https";
   const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
@@ -57,23 +53,38 @@ async function fetchJSON<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-function codeToProfileKey(code?: string | null) {
-  if (!code) return null;
-  const m = String(code).match(/(\d+)/);
+function extractDigits(s?: string | null) {
+  if (!s) return null;
+  const m = String(s).match(/(\d+)/);
   return m ? m[1] : null;
 }
 
-function mapProfileName(profileCodeLike: string | null | undefined, meta?: MetaRes) {
-  const key = codeToProfileKey(profileCodeLike);
-  if (!key) return profileCodeLike || "—";
-  const found = meta?.profiles?.find((p) => String(p.code) === String(key));
-  return found?.name || `Profile ${key}`;
+function findProfileByCode(codeLike: string | null | undefined, meta?: MetaRes) {
+  if (!codeLike || !meta?.profiles) return null;
+  // 1) exact match (PROFILE_3 etc.)
+  const exact = meta.profiles.find((p) => p.code === codeLike);
+  if (exact) return exact;
+  // 2) numeric match (e.g., "3" vs "PROFILE_3")
+  const num = extractDigits(codeLike);
+  if (num) {
+    const byNum = meta.profiles.find((p) => extractDigits(p.code) === num);
+    if (byNum) return byNum;
+  }
+  return null;
 }
 
-function mapFrequencyName(freqCodeLike: string | null | undefined, meta?: MetaRes) {
-  if (!freqCodeLike) return "—";
-  const found = meta?.frequencies?.find((f) => f.code === freqCodeLike);
-  return found?.name || `Frequency ${freqCodeLike}`;
+function mapProfileName(codeLike: string | null | undefined, meta?: MetaRes) {
+  const p = findProfileByCode(codeLike, meta);
+  if (p) return p.name;
+  // fallback: "Profile N" if digits exist; else raw
+  const n = extractDigits(codeLike);
+  return n ? `Profile ${n}` : (codeLike || "—");
+}
+
+function mapFrequencyName(freqCode: string | null | undefined, meta?: MetaRes) {
+  if (!freqCode) return "—";
+  const found = meta?.frequencies?.find((f) => f.code === freqCode);
+  return found?.name || `Frequency ${freqCode}`;
 }
 
 function takerDisplayName(t?: ResultRes["taker"]) {
@@ -83,30 +94,23 @@ function takerDisplayName(t?: ResultRes["taker"]) {
   return full || t?.email || "there";
 }
 
-/** Extracts a normalized profile_totals map from whatever the API returned. */
 function getProfileTotals(totals?: ResultRes["totals"]) {
   if (!totals) return null;
 
-  // Prefer an explicit nested map if present
+  // Prefer nested map if present
   const nested = (totals as any).profile_totals as Record<string, number> | undefined;
   if (nested && typeof nested === "object") return nested;
 
-  // Otherwise, detect flat keys like "PROFILE_1", "P1", or "1"
-  const entries = Object.entries(totals).filter(([k, v]) => typeof v === "number");
-  const profileEntries = entries.filter(([k]) => /^(profile[_\s-]?|p)?\d+$/i.test(k) || /^PROFILE_\d+$/i.test(k));
+  // Otherwise detect flat profile keys (PROFILE_1, P1, 1)
+  const entries = Object.entries(totals).filter(([_, v]) => typeof v === "number");
+  const profileEntries = entries.filter(([k]) => /^(PROFILE_\d+|P\d+|\d+)$/.test(k));
   if (profileEntries.length === 0) return null;
 
-  // Build a normalized map with numeric profile keys as strings ("1".."8")
-  const normalized: Record<string, number> = {};
-  for (const [k, v] of profileEntries) {
-    const key = codeToProfileKey(k) ?? k;
-    normalized[String(key)] = v as number;
-  }
-  return normalized;
+  // Keep the original keys (e.g., PROFILE_3) so we can exact-match names later
+  return Object.fromEntries(profileEntries) as Record<string, number>;
 }
 
-/** Pick top profile code (numeric string) from totals */
-function getTopProfileCodeFromTotals(profileTotals: Record<string, number> | null) {
+function getTopProfileCode(profileTotals: Record<string, number> | null) {
   if (!profileTotals) return null;
   let top: { code: string; val: number } | null = null;
   for (const [code, val] of Object.entries(profileTotals)) {
@@ -159,31 +163,23 @@ export default async function ResultPage({ params }: { params: { token: string }
 
   const takerName = takerDisplayName(result.taker);
 
-  // 1) Normalize totals
+  // Normalize totals and compute top profile
   const profileTotals = getProfileTotals(result.totals);
-
-  // 2) Determine top profile
-  // If API ever provides profile_code, prefer that:
   const apiProfileCode =
-    (result.totals?.profile_code && codeToProfileKey(result.totals?.profile_code)) || null;
-  const computedTopProfileCode = getTopProfileCodeFromTotals(profileTotals);
-  const topProfileCode = apiProfileCode || computedTopProfileCode || null;
+    (result.totals?.profile_code as string | null | undefined) ?? null;
+  const topProfileCode = apiProfileCode || getTopProfileCode(profileTotals);
 
-  // 3) Map names
-  const topProfileName = topProfileCode ? mapProfileName(topProfileCode, meta || undefined) : "—";
+  // Map names
+  const topProfile = topProfileCode ? findProfileByCode(topProfileCode, meta || undefined) : null;
+  const topProfileName = topProfile ? topProfile.name : mapProfileName(topProfileCode, meta || undefined);
 
-  // 4) Dominant frequency:
-  // Prefer explicit frequency_code if ever present; else infer from top profile mapping in meta.profiles
+  // Dominant frequency:
   const apiFreqCode = (result.totals?.frequency_code as string | null) || null;
-  let inferredFreqCode: string | null = null;
-  if (!apiFreqCode && topProfileCode && meta?.profiles) {
-    const p = meta.profiles.find((x) => String(x.code) === String(topProfileCode));
-    inferredFreqCode = p?.frequency ?? null;
-  }
+  const inferredFreqCode =
+    (!apiFreqCode && topProfile) ? topProfile.frequency : null;
   const freqCode = apiFreqCode || inferredFreqCode || null;
   const topFrequencyName = mapFrequencyName(freqCode, meta || undefined);
 
-  // 5) Optional frequency_totals if ever present
   const freqTotals = (result.totals as any)?.frequency_totals as Record<string, number> | null;
 
   return (
@@ -204,7 +200,7 @@ export default async function ResultPage({ params }: { params: { token: string }
           <div className="text-xl font-semibold">{topProfileName}</div>
           {topProfileCode && profileTotals && (
             <div className="text-sm text-gray-500">
-              Score: {profileTotals[String(topProfileCode)] ?? "—"}
+              Score: {profileTotals[topProfileCode] ?? "—"}
             </div>
           )}
         </div>
