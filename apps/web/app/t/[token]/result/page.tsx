@@ -1,13 +1,19 @@
 // apps/web/app/t/[token]/result/page.tsx
 import Link from "next/link";
-import { loadFramework, buildLookups, type FrequencyCode } from "@/lib/frameworks";
-import { getBaseUrl } from "@/lib/server-url";
+import {
+  buildLookups,
+  coerceOrgSlug,
+  loadFrameworkBySlug,
+  type FrequencyCode,
+} from "@/lib/frameworks";
+import getBaseUrl from "@/lib/server-url";
 
-// Types expected from your existing /report API
 type ReportAPI = {
   ok: boolean;
   data: {
-    orgSlug: string;
+    orgSlug?: string;
+    org_slug?: string;
+    org?: { slug?: string } | string;
     taker?: {
       id: string;
       first_name?: string | null;
@@ -15,9 +21,7 @@ type ReportAPI = {
       email?: string | null;
       top_profile_code?: string | null;
     };
-    // Profile totals, keyed by profile code (recommended) or name (supported via fallback)
     totals: Record<string, number>;
-    // Optional: server-provided frequency percentages, 0..1 or 0..100
     percentages?: Record<FrequencyCode, number>;
   };
 };
@@ -28,20 +32,16 @@ function sumProfileTotalsToFrequency(
   profilePrimaryFreq: Map<string, FrequencyCode>,
 ) {
   const freqTotals: Record<FrequencyCode, number> = { A: 0, B: 0, C: 0, D: 0 };
-
   for (const [key, raw] of Object.entries(profileTotals || {})) {
     const points = Number(raw || 0);
     if (!points) continue;
-
-    // Try profile code; if not present, try resolve by name
     let code = key;
     if (!profilePrimaryFreq.has(code)) {
       const maybe = nameToCode.get(key);
       if (maybe) code = maybe;
     }
-
-    const freq = profilePrimaryFreq.get(code);
-    if (freq) freqTotals[freq] += points;
+    const f = profilePrimaryFreq.get(code);
+    if (f) freqTotals[f] += points;
   }
   return freqTotals;
 }
@@ -84,11 +84,10 @@ export default async function ResultPage({
   const payload = (await res.json()) as ReportAPI;
   const data = payload.data;
 
-  // Load the org framework and lookups
-  const fw = await loadFramework(data.orgSlug);
+  const orgSlug = coerceOrgSlug(data);
+  const fw = await loadFrameworkBySlug(orgSlug);
   const { freqByCode, profileByCode, profilePrimaryFreq, profileNameToCode } = buildLookups(fw);
 
-  // Use server percentages if present; else derive from profile totals
   let perc: Record<FrequencyCode, number>;
   if (data.percentages) {
     const norm = (v: number) => (v <= 1 ? Math.round(v * 100) : Math.round(v));
@@ -107,12 +106,11 @@ export default async function ResultPage({
     perc = toPercents(freqTotals);
   }
 
-  // Determine top profile (prefer server code; else compute; also handle name→code)
   let topProfileCode = data.taker?.top_profile_code || null;
   if (!topProfileCode) {
     topProfileCode =
-      Object.entries(data.totals || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || null;
-
+      Object.entries(data.totals || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] ||
+      null;
     if (topProfileCode && !profileByCode.has(topProfileCode)) {
       const maybe = profileNameToCode.get(topProfileCode);
       if (maybe) topProfileCode = maybe;
@@ -120,10 +118,7 @@ export default async function ResultPage({
   }
   const topProfile = topProfileCode ? profileByCode.get(topProfileCode) : undefined;
 
-  // Dominant frequency from percentages
-  const topFreqCode = dominant({ A: perc.A, B: perc.B, C: perc.C, D: perc.D }) as
-    | FrequencyCode
-    | undefined;
+  const topFreqCode = dominant(perc as Record<FrequencyCode, number>) as FrequencyCode | undefined;
   const topFreq = topFreqCode ? freqByCode.get(topFreqCode) : undefined;
 
   return (

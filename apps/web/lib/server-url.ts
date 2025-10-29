@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 
 /**
  * Always produce an absolute base URL for server-side fetches.
- * Fixes "Invalid URL" on Vercel and TS error by awaiting headers().
+ * Async because next/headers() is awaited in strict TS mode.
  */
 export async function getBaseUrl(): Promise<string> {
   const envUrl =
@@ -12,7 +12,6 @@ export async function getBaseUrl(): Promise<string> {
     process.env.VERCEL_URL;
 
   if (envUrl) {
-    // If VERCEL_URL has no protocol, add https
     if (/^https?:\/\//i.test(envUrl)) return envUrl;
     return `https://${envUrl}`;
   }
@@ -22,3 +21,6 @@ export async function getBaseUrl(): Promise<string> {
   const proto = h.get("x-forwarded-proto") || "http";
   return `${proto}://${host}`;
 }
+
+// Also export default to support `import getBaseUrl from "@/lib/server-url"`
+export default getBaseUrl;

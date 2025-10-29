@@ -1,11 +1,13 @@
 // apps/web/app/t/[token]/report/page.tsx
-import { loadFramework, buildLookups } from "@/lib/frameworks";
-import { getBaseUrl } from "@/lib/server-url";
+import { buildLookups, coerceOrgSlug, loadFrameworkBySlug } from "@/lib/frameworks";
+import getBaseUrl from "@/lib/server-url";
 
 type ReportAPI = {
   ok: boolean;
   data: {
-    orgSlug: string;
+    orgSlug?: string;
+    org_slug?: string;
+    org?: { slug?: string } | string;
     taker?: { first_name?: string | null; last_name?: string | null };
     totals: Record<string, number>;
     sections?: Record<string, unknown>;
@@ -39,16 +41,16 @@ export default async function ReportPage({
   }
 
   const { data } = (await res.json()) as ReportAPI;
-  const fw = await loadFramework(data.orgSlug);
+
+  const orgSlug = coerceOrgSlug(data);
+  const fw = await loadFrameworkBySlug(orgSlug);
   const { profileByCode, profileNameToCode } = buildLookups(fw);
 
-  // Determine top profile
   let topProfileCode = data.top_profile_code || null;
   if (!topProfileCode) {
     topProfileCode =
       Object.entries(data.totals || {}).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] ||
       null;
-
     if (topProfileCode && !profileByCode.has(topProfileCode)) {
       const maybe = profileNameToCode.get(topProfileCode);
       if (maybe) topProfileCode = maybe;
