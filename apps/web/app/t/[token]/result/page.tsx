@@ -6,7 +6,7 @@ import {
   loadFrameworkBySlug,
   type FrequencyCode,
 } from "@/lib/frameworks";
-import getBaseUrl from "@/lib/server-url";
+import { getBaseUrl } from "@/lib/server-url";
 
 type ReportAPI = {
   ok: boolean;
@@ -82,12 +82,13 @@ export default async function ResultPage({
   }
 
   const payload = (await res.json()) as ReportAPI;
-  const data = payload.data;
+  const data = payload.data ?? {};
 
   const orgSlug = coerceOrgSlug(data);
   const fw = await loadFrameworkBySlug(orgSlug);
   const { freqByCode, profileByCode, profilePrimaryFreq, profileNameToCode } = buildLookups(fw);
 
+  // Prefer API percentages if present; else derive from profile totals
   let perc: Record<FrequencyCode, number>;
   if (data.percentages) {
     const norm = (v: number) => (v <= 1 ? Math.round(v * 100) : Math.round(v));
@@ -106,6 +107,7 @@ export default async function ResultPage({
     perc = toPercents(freqTotals);
   }
 
+  // Determine top profile
   let topProfileCode = data.taker?.top_profile_code || null;
   if (!topProfileCode) {
     topProfileCode =
@@ -124,7 +126,7 @@ export default async function ResultPage({
   return (
     <div className="mx-auto max-w-4xl p-6 space-y-8">
       <header>
-        <h1 className="text-3xl font-semibold">{fw.framework.name}</h1>
+        <h1 className="text-3xl font-semibold">{fw.framework.name || "Profile Test"}</h1>
         <p className="text-muted-foreground">
           {data.taker?.first_name ?? ""} {data.taker?.last_name ?? ""}
         </p>

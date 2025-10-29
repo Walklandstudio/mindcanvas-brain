@@ -1,6 +1,6 @@
 // apps/web/app/t/[token]/report/page.tsx
 import { buildLookups, coerceOrgSlug, loadFrameworkBySlug } from "@/lib/frameworks";
-import getBaseUrl from "@/lib/server-url";
+import { getBaseUrl } from "@/lib/server-url";
 
 type ReportAPI = {
   ok: boolean;
@@ -63,7 +63,7 @@ export default async function ReportPage({
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold">Your Personalised Report</h1>
         <p className="text-muted-foreground">
-          {data.taker?.first_name ?? ""} {data.taker?.last_name ?? ""} — {fw.framework.name}
+          {data.taker?.first_name ?? ""} {data.taker?.last_name ?? ""} — {fw.framework.name || "Profile Test"}
         </p>
       </header>
 
@@ -79,8 +79,7 @@ export default async function ReportPage({
       ) : (
         <section className="rounded-2xl border p-6">
           <p className="text-sm text-muted-foreground">
-            Your detailed report content will appear here. (Attach sections in the report API when
-            ready.)
+            Your detailed report content will appear here. (Attach sections in the report API when ready.)
           </p>
         </section>
       )}

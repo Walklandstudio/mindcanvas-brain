@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 
 /**
  * Always produce an absolute base URL for server-side fetches.
- * Async because next/headers() is awaited in strict TS mode.
+ * Async because next/headers() must be awaited in strict TS mode.
  */
 export async function getBaseUrl(): Promise<string> {
   const envUrl =
@@ -21,6 +21,3 @@ export async function getBaseUrl(): Promise<string> {
   const proto = h.get("x-forwarded-proto") || "http";
   return `${proto}://${host}`;
 }
-
-// Also export default to support `import getBaseUrl from "@/lib/server-url"`
-export default getBaseUrl;
