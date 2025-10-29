@@ -14,11 +14,16 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+
+    /**
+     * 👇 This section enables the `@/...` import alias
+     * e.g. import { Card } from "@/components/ui/card"
+     */
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
-      /* remove the "recharts": ["./types/recharts"] line */
     },
+
     "allowSyntheticDefaultImports": true,
     "strictNullChecks": true,
     "types": ["node"],
