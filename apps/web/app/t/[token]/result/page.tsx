@@ -1,5 +1,8 @@
-import { headers } from "next/headers";
+'use client';
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type AB = "A" | "B" | "C" | "D";
 
@@ -22,28 +25,6 @@ type ReportData = {
   version: string;
 };
 
-// Minimal interface to avoid depending on ReadonlyHeaders type
-type HeaderLike = { get(name: string): string | null };
-
-function originFromHeaders(h: HeaderLike): string {
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
-}
-
-async function fetchResult(origin: string, token: string, tid: string): Promise<ReportData> {
-  const url = `${origin}/api/public/test/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(tid)}`;
-  const res = await fetch(url, { cache: "no-store" });
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("application/json")) {
-    const text = await res.text();
-    throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 400)}`);
-  }
-  const j = await res.json();
-  if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
-  return j.data as ReportData;
-}
-
 function Bar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(1, Number(pct) || 0));
   const width = `${(clamped * 100).toFixed(0)}%`;
@@ -54,15 +35,46 @@ function Bar({ pct }: { pct: number }) {
   );
 }
 
-export default async function ResultPage({
-  params,
-  searchParams,
-}: {
-  params: { token: string };
-  searchParams?: { [key: string]: string | string[] | undefined };
-}) {
+export default function ResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
-  const tid = typeof searchParams?.tid === "string" ? searchParams!.tid : "";
+  const sp = useSearchParams();
+  const tid = sp.get("tid") || "";
+
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string>("");
+  const [data, setData] = useState<ReportData | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        if (!tid) throw new Error("Missing taker ID (?tid=)");
+        setLoading(true);
+        setErr("");
+
+        const url = `/api/public/test/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(tid)}`;
+        const res = await fetch(url, { cache: "no-store" });
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) {
+          const text = await res.text();
+          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 300)}`);
+        }
+        const j = await res.json();
+        if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
+
+        if (alive) setData(j.data as ReportData);
+      } catch (e: any) {
+        if (alive) setErr(String(e?.message || e));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [token, tid]);
+
+  const freq = useMemo(() => data?.frequency_percentages ?? { A: 0, B: 0, C: 0, D: 0 }, [data]);
+  const prof = useMemo(() => data?.profile_percentages ?? {}, [data]);
+
   if (!tid) {
     return (
       <div className="min-h-screen p-6">
@@ -72,32 +84,30 @@ export default async function ResultPage({
     );
   }
 
-  // headers() can be async-thenable in your environment
-  const h = (await headers()) as unknown as HeaderLike;
-  const origin = originFromHeaders(h);
-
-  let data: ReportData;
-  try {
-    data = await fetchResult(origin, token, tid);
-  } catch (e: any) {
+  if (loading) {
     return (
       <div className="min-h-screen p-6">
-        <h1 className="text-2xl font-semibold">Couldn’t load result</h1>
-        <pre className="mt-4 p-3 rounded bg-gray-900 text-gray-100 whitespace-pre-wrap">
-{String(e?.message || e)}
-        </pre>
-        <div className="text-sm text-gray-500 mt-3">
-          Debug links:
-          <ul className="list-disc ml-5">
-            <li><a className="underline" href={`/api/public/test/${token}/result?tid=${encodeURIComponent(tid)}`} target="_blank">/api/public/test/{token}/result?tid=…</a></li>
-          </ul>
-        </div>
+        <h1 className="text-2xl font-semibold">Loading result…</h1>
       </div>
     );
   }
 
-  const freq = data.frequency_percentages;
-  const prof = data.profile_percentages;
+  if (err || !data) {
+    return (
+      <div className="min-h-screen p-6">
+        <h1 className="text-2xl font-semibold">Couldn’t load result</h1>
+        <pre className="mt-4 p-3 rounded bg-gray-900 text-gray-100 whitespace-pre-wrap">
+{err || "No data"}
+        </pre>
+        <div className="text-sm text-gray-500 mt-3">
+          Debug link:{" "}
+          <a className="underline" href={`/api/public/test/${token}/result?tid=${encodeURIComponent(tid)}`} target="_blank" rel="noreferrer">
+            /api/public/test/{token}/result?tid=…
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-6 md:p-10 bg-gradient-to-b from-white to-slate-50">
