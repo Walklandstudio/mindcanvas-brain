@@ -27,12 +27,12 @@ function orderQuestions(questions: QuestionRow[]): QuestionRow[] {
 }
 
 /** Accept P1..P8 or PROFILE_1..PROFILE_8 (case-insensitive), map 1–2→A, 3–4→B, 5–6→C, 7–8→D */
-function profileToFreq(_orgSlug: string, profileValue: string): AB | null {
+function profileToFreq(profileValue: string): AB | null {
   const s = String(profileValue || "").trim().toUpperCase();
 
   // Normalize to a number 1..8
   let n: number | null = null;
-  const m1 = s.match(/^P(\d+)$/); // P1
+  const m1 = s.match(/^P(\d+)$/);             // P1
   const m2 = s.match(/^PROFILE[_\s-]?(\d+)$/); // PROFILE_1
   if (m1) n = Number(m1[1]);
   else if (m2) n = Number(m2[1]);
@@ -61,9 +61,9 @@ function readSelectedIndex(row: any): number | null {
 }
 
 /** Compute A/B/C/D from answers + DB-backed profile_map */
-function computeTotalsFrom(answers: any, questions: QuestionRow[], orgSlug: string): Record<AB, number> {
+function computeTotalsFrom(answers: any, questions: QuestionRow[]): Record<AB, number> {
   const freq: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
-  const rows: any[] = Array.isArray(answers) ? answers : answers?.rows || answers?.items || [];
+  const rows: any[] = Array.isArray(answers) ? answers : (answers?.rows || answers?.items || []);
 
   const qsOrdered = orderQuestions(questions);
   const byId: Record<string, QuestionRow> = {};
@@ -83,7 +83,7 @@ function computeTotalsFrom(answers: any, questions: QuestionRow[], orgSlug: stri
     const entry = q.profile_map[sel] || {};
     const points = Number(entry.points ?? 0) || 0;
     const prof = entry.profile || "";
-    const f = profileToFreq(orgSlug, prof);
+    const f = profileToFreq(prof);
     if (f && points > 0) {
       freq[f] = (freq[f] || 0) + points;
     }
@@ -121,27 +121,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
     }
 
-    // 2) Resolve org slug (from link; fallback via v_organizations)
-    const { data: linkRow } = await sb
-      .from("test_links")
-      .select("org_id, org_slug")
-      .eq("token", token)
-      .maybeSingle();
-
-    let orgSlug: string | null = (linkRow as any)?.org_slug || null;
-    if (!orgSlug && linkRow?.org_id) {
-      const { data: orgView } = await sb
-        .from("v_organizations" as any)
-        .select("slug")
-        .eq("id", linkRow.org_id)
-        .maybeSingle();
-      orgSlug = orgView?.slug || null;
-    }
-    if (!orgSlug) {
-      return NextResponse.json({ ok: false, error: "Cannot resolve org for mapping" }, { status: 400 });
-    }
-
-    // 3) If totals missing/zero, compute from DB questions + answers_json using profile_map
+    // 2) If totals missing/zero, compute from DB questions + answers_json using profile_map
     if (sumABCD(totals) <= 0) {
       if (!answers_json) {
         return NextResponse.json({ ok: false, error: "Missing answers; cannot compute totals" }, { status: 400 });
@@ -157,10 +137,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
         return NextResponse.json({ ok: false, error: `Questions load failed: ${qErr.message}` }, { status: 500 });
       }
 
-      totals = computeTotalsFrom(answers_json, (questions || []) as QuestionRow[], orgSlug);
+      totals = computeTotalsFrom(answers_json, (questions || []) as QuestionRow[]);
     }
 
-    // 4) Snapshot submission (correct column: totals)
+    // 3) Snapshot submission (correct column: totals)
     const submissionTotals = {
       A: Number(totals.A || 0),
       B: Number(totals.B || 0),
@@ -184,7 +164,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: `Submission insert failed: ${subErr.message}` }, { status: 500 });
     }
 
-    // 5) Upsert results (preferred source for report)
+    // 4) Upsert results (preferred source for report)
     const { error: resErr } = await sb
       .from("test_results")
       .upsert({ taker_id: taker.id, totals: submissionTotals }, { onConflict: "taker_id" });
@@ -193,7 +173,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       console.warn("test_results upsert failed", resErr.message);
     }
 
-    // 6) Mark taker completed
+    // 5) Mark taker completed
     await sb
       .from("test_takers")
       .update({ status: "completed" })
