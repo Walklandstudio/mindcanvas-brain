@@ -7,14 +7,26 @@ type Question = {
   id: string;
   idx?: number | null;
   order?: number | null;
-  type?: string | null;          // 'radio'
+  type?: string | null;          // 'radio' | 'scale5' etc.
   text: string;
   options?: string[] | null;     // labels
   category?: 'scored' | 'qual' | string | null;
 };
 
-type Answers = Record<string, number>; // qid -> 1..N
+type AnswersMap = Record<string, number>; // qid -> 1..N
 type Step = 'details' | 'questions';
+
+async function fetchJson(url: string, init?: RequestInit) {
+  const r = await fetch(url, init);
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    const text = (await r.text()).slice(0, 600);
+    throw new Error(`HTTP ${r.status} – non-JSON response:\n${text}`);
+  }
+  const j = await r.json();
+  if (!r.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
+  return j;
+}
 
 export default function PublicTestClient({ token }: { token: string }) {
   const router = useRouter();
@@ -28,35 +40,23 @@ export default function PublicTestClient({ token }: { token: string }) {
   const [step, setStep] = useState<Step>('details');
 
   const [i, setI] = useState(0);
-  const [answers, setAnswers] = useState<Answers>({});
+  const [answers, setAnswers] = useState<AnswersMap>({});
 
   // details
-  const [firstName,   setFirstName]   = useState('');
-  const [lastName,    setLastName]    = useState('');
-  const [email,       setEmail]       = useState('');
-  const [phone,       setPhone]       = useState('');
-  const [company,     setCompany]     = useState('');
-  const [roleTitle,   setRoleTitle]   = useState('');
+  const [firstName, setFirstName]   = useState('');
+  const [lastName,  setLastName]    = useState('');
+  const [email,     setEmail]       = useState('');
+  const [phone,     setPhone]       = useState('');
+  const [company,   setCompany]     = useState('');
+  const [roleTitle, setRoleTitle]   = useState('');
 
-  // taker id after creation
+  // taker_id we receive from server after saving details
   const [takerId, setTakerId] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
 
-  async function fetchJson(url: string, init?: RequestInit) {
-    const r = await fetch(url, init);
-    const ct = r.headers.get('content-type') || '';
-    if (!ct.includes('application/json')) {
-      const text = (await r.text()).slice(0, 600);
-      throw new Error(`HTTP ${r.status} – non-JSON response:\n${text}`);
-    }
-    const j = await r.json();
-    if (!r.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
-    return j;
-  }
-
-  // bootstrap: start + load questions
+  // bootstrap: load link meta + questions
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -64,24 +64,26 @@ export default function PublicTestClient({ token }: { token: string }) {
         setLoading(true);
         setError('');
 
-        // idempotent start (creates a taker server-side for safety too)
-        await fetchJson(`/api/public/test/${token}/start`, { method: 'POST' });
+        // Get meta + confirm link
+        const metaRes: any = await fetchJson(`/api/public/test/${token}`);
         if (!alive) return;
-        setStarted(true);
 
-        // load questions
+        setTestName(metaRes?.data?.name ?? null);
+
+        // Load questions
         const qRes: any = await fetchJson(`/api/public/test/${token}/questions`);
         if (!alive) return;
 
-        setTestName(typeof qRes?.test_name === 'string' ? qRes.test_name : null);
         const list: Question[] = Array.isArray(qRes?.questions) ? qRes.questions : [];
         setQuestions(list);
 
         // restore local state
+        const key = (k: string) => `mc_${k}_${token}`;
         if (typeof window !== 'undefined') {
-          const saved = window.localStorage.getItem(`mc_answers_${token}`);
-          if (saved) try { setAnswers(JSON.parse(saved)); } catch {}
-          const d = window.localStorage.getItem(`mc_details_${token}`);
+          const savedAns = window.localStorage.getItem(key('answers'));
+          if (savedAns) try { setAnswers(JSON.parse(savedAns)); } catch {}
+
+          const d = window.localStorage.getItem(key('details'));
           if (d) {
             try {
               const o = JSON.parse(d);
@@ -91,10 +93,14 @@ export default function PublicTestClient({ token }: { token: string }) {
               setPhone(o.phone || '');
               setCompany(o.company || '');
               setRoleTitle(o.roleTitle || '');
-              setTakerId(o.takerId || null);
             } catch {}
           }
+
+          const tid = window.localStorage.getItem(key('taker_id'));
+          if (tid) setTakerId(tid);
         }
+
+        setStarted(true);
       } catch (e: any) {
         if (alive) setError(String(e?.message || e));
       } finally {
@@ -115,42 +121,46 @@ export default function PublicTestClient({ token }: { token: string }) {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(
         `mc_details_${token}`,
-        JSON.stringify({ firstName, lastName, email, phone, company, roleTitle, takerId })
+        JSON.stringify({ firstName, lastName, email, phone, company, roleTitle })
       );
     }
-  }, [firstName, lastName, email, phone, company, roleTitle, takerId, token]);
+  }, [firstName, lastName, email, phone, company, roleTitle, token]);
 
   const q = questions[i];
   const allAnswered = useMemo(
     () => questions.length > 0 && questions.every(qq => Number(answers[qq.id]) >= 1),
     [questions, answers]
   );
+
   const setChoice = (qid: string, val: number) => setAnswers(a => ({ ...a, [qid]: val }));
 
-  // 1) Save details and create the taker (returns taker_id)
   const proceedToQuestions = async () => {
     try {
       setSavingDetails(true);
       setError('');
-      const payload = {
-        first_name: firstName || null,
-        last_name:  lastName  || null,
-        email:      email     || null,
-        phone:      phone     || null,
-        company:    company   || null,
-        role_title: roleTitle || null,
-      };
-      // This endpoint MUST respond with { ok:true, taker_id }
-      const res: any = await fetchJson(`/api/public/test/${token}/taker`, {
+
+      // Create/Upsert taker in portal.test_takers and get taker_id back
+      const res: any = await fetchJson(`/api/public/test/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          first_name: firstName || null,
+          last_name:  lastName  || null,
+          email:      email     || null,
+          phone:      phone     || null,
+          company:    company   || null,
+          role_title: roleTitle || null,
+        }),
       });
 
-      const id = res?.taker_id || res?.id || null;
-      if (!id) throw new Error('Failed to establish taker_id');
+      const tid = res?.id;
+      if (!tid) throw new Error('Failed to create taker');
 
-      setTakerId(id);
+      setTakerId(tid);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(`mc_taker_id_${token}`, tid);
+      }
+
       setStep('questions');
     } catch (e: any) {
       setError(String(e?.message || e));
@@ -159,44 +169,35 @@ export default function PublicTestClient({ token }: { token: string }) {
     }
   };
 
-  // 2) Submit answers (includes taker_id to satisfy older compiled handlers)
   const submit = async () => {
     try {
       setSubmitting(true);
       setError('');
 
-      // send answers in a flat array [{question_id, value}]
-      const answersArray = Object.entries(answers).map(([qid, val]) => ({
-        question_id: qid,
-        value: val,
-      }));
+      if (!takerId) throw new Error('missing taker_id');
 
-      const body: any = {
-        taker_id: takerId || null,
-        answers: answersArray,
-        // pass details too (server will upsert snapshot if needed)
-        first_name: firstName || null,
-        last_name:  lastName  || null,
-        email:      email     || null,
-        phone:      phone     || null,
-        company:    company   || null,
-        role_title: roleTitle || null,
-      };
+      // Convert map -> array of {question_id, value} to satisfy submit route
+      const payloadAnswers = Object.entries(answers).map(([question_id, value]) => ({
+        question_id, value
+      }));
 
       const res = await fetch(`/api/public/test/${token}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ taker_id: takerId, answers: payloadAnswers }),
       });
+
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
 
+      // clear local cache
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(`mc_answers_${token}`);
       }
-      // prefer returned taker id if API provides one
-      const tid = j?.taker_id || takerId;
-      router.replace(`/t/${token}/result?tid=${encodeURIComponent(String(tid || ''))}`);
+
+      // go to result
+      // pass tid in query so result/report API can verify it
+      router.replace(`/t/${token}/result?tid=${encodeURIComponent(takerId)}`);
     } catch (e: any) {
       setError(String(e?.message || e));
     } finally {
@@ -217,9 +218,8 @@ export default function PublicTestClient({ token }: { token: string }) {
         <div className="text-white/70 text-sm">
           Debug:
           <ul className="list-disc ml-5 mt-2">
-            <li><a className="underline" href={`/api/public/test/${token}/start`} target="_blank">/api/public/test/{token}/start</a></li>
+            <li><a className="underline" href={`/api/public/test/${token}`} target="_blank">/api/public/test/{token}</a></li>
             <li><a className="underline" href={`/api/public/test/${token}/questions`} target="_blank">/api/public/test/{token}/questions</a></li>
-            <li><a className="underline" href={`/api/public/test/${token}/taker`} target="_blank">/api/public/test/{token}/taker</a></li>
           </ul>
         </div>
       </div>
@@ -228,10 +228,8 @@ export default function PublicTestClient({ token }: { token: string }) {
 
   return (
     <div className="min-h-screen mc-bg text-white p-6 space-y-6">
-      <h1 className="text-3xl font-bold">{testName || 'Competency Coach'}</h1>
-      <div className="text-white/70">
-        Token: <code className="text-white">{token}</code> • {started ? 'started' : 'not started'} • Taker: {takerId ? <code>{takerId}</code> : '—'}
-      </div>
+      <h1 className="text-3xl font-bold">{testName || 'Profile Test'}</h1>
+      <div className="text-white/70">Token: <code className="text-white">{token}</code> • {started ? 'started' : 'not started'}</div>
 
       {step === 'details' ? (
         <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
@@ -250,16 +248,16 @@ export default function PublicTestClient({ token }: { token: string }) {
               <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={email} onChange={e=>setEmail(e.target.value)} />
             </label>
             <label className="block">
+              <span className="text-sm text-white/80">Phone (optional)</span>
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={phone} onChange={e=>setPhone(e.target.value)} />
+            </label>
+            <label className="block">
               <span className="text-sm text-white/80">Company (optional)</span>
               <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={company} onChange={e=>setCompany(e.target.value)} />
             </label>
-            <label className="block">
+            <label className="block md:col-span-2">
               <span className="text-sm text-white/80">Role / Department (optional)</span>
               <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={roleTitle} onChange={e=>setRoleTitle(e.target.value)} />
-            </label>
-            <label className="block md:col-span-2">
-              <span className="text-sm text-white/80">Phone (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={phone} onChange={e=>setPhone(e.target.value)} />
             </label>
           </div>
           <div className="mt-4 flex gap-3">
@@ -283,7 +281,7 @@ export default function PublicTestClient({ token }: { token: string }) {
             <div className="text-lg font-medium mb-4">{q.text}</div>
 
             {/* Prefer text options; fallback to 1..5 */}
-            {Array.isArray(q.options) && q.options.length > 0 ? (
+            {Array.isArray(q?.options) && q.options.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {q.options.map((label: string, idx: number) => {
                   const val = idx + 1;
