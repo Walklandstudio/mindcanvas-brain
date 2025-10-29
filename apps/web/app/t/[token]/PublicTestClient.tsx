@@ -9,7 +9,7 @@ type Question = {
   order?: number | null;
   type?: string | null;
   text: string;
-  options?: string[] | null;     // labels
+  options?: string[] | null;
   category?: 'scored' | 'qual' | string | null;
 };
 
@@ -57,7 +57,7 @@ export default function PublicTestClient({ token }: { token: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
 
-  // restore local storage
+  // restore local storage (details + answers)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -77,7 +77,7 @@ export default function PublicTestClient({ token }: { token: string }) {
     } catch {}
   }, [token]);
 
-  // persist
+  // persist local storage
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(
@@ -99,29 +99,7 @@ export default function PublicTestClient({ token }: { token: string }) {
   );
   const setChoice = (qid: string, val: number) => setAnswers(a => ({ ...a, [qid]: val }));
 
-  // Defensive: ensure taker exists even if user bypassed details
-  async function ensureStarted() {
-    if (takerId) return takerId;
-    const payload = {
-      first_name: firstName?.trim() || null,
-      last_name:  lastName?.trim()  || null,
-      email:      email?.trim()     || null,
-      company:    company?.trim()   || null,
-      role_title: roleTitle?.trim() || null,
-    };
-    const startRes: any = await fetchJson(`/api/public/test/${token}/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const newId = String(startRes?.taker_id || '');
-    if (!newId) throw new Error('Failed to create test taker');
-    setTakerId(newId);
-    setStarted(true);
-    return newId;
-  }
-
-  // proceed to questions (preferred path)
+  // DETAILS -> create taker -> load questions
   const proceedToQuestions = async () => {
     setSavingDetails(true);
     setError('');
@@ -129,7 +107,25 @@ export default function PublicTestClient({ token }: { token: string }) {
       if (!firstName.trim() || !lastName.trim() || !email.trim()) {
         throw new Error('Please enter first name, last name and a valid email.');
       }
-      await ensureStarted(); // creates & sets takerId
+
+      // 1) Create taker via /taker (NOT /start)
+      const takerRes: any = await fetchJson(`/api/public/test/${token}/taker`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: firstName.trim(),
+          last_name:  lastName.trim(),
+          email:      email.trim(),
+          company:    company.trim() || null,
+          role_title: roleTitle.trim() || null,
+        }),
+      });
+      const newTakerId = String(takerRes?.taker_id || '');
+      if (!newTakerId) throw new Error('Missing taker_id from /taker');
+      setTakerId(newTakerId);
+      setStarted(true);
+
+      // 2) Load questions AFTER taker exists
       setLoading(true);
       const qRes: any = await fetchJson(`/api/public/test/${token}/questions`);
       setTestName(typeof qRes?.test_name === 'string' ? qRes.test_name : null);
@@ -150,12 +146,14 @@ export default function PublicTestClient({ token }: { token: string }) {
     try {
       setSubmitting(true);
       setError('');
-      const id = await ensureStarted(); // guarantees taker_id exists
+      if (!takerId) {
+        throw new Error('Missing taker_id. Please go back and start the test again.');
+      }
 
       const payload = {
-        taker_id: id,
+        taker_id: takerId,
         answers,
-        // send identity again so server can patch if missing:
+        // also send identity so server can patch/denormalize:
         first_name: firstName?.trim() || null,
         last_name:  lastName?.trim()  || null,
         email:      email?.trim()     || null,
@@ -200,7 +198,7 @@ export default function PublicTestClient({ token }: { token: string }) {
         <div className="text-white/70 text-sm">
           Debug:
           <ul className="list-disc ml-5 mt-2">
-            <li><a className="underline" href={`/api/public/test/${token}/start`} target="_blank">/api/public/test/{token}/start</a></li>
+            <li><a className="underline" href={`/api/public/test/${token}/taker`} target="_blank">/api/public/test/{token}/taker</a></li>
             <li><a className="underline" href={`/api/public/test/${token}/questions`} target="_blank">/api/public/test/{token}/questions</a></li>
           </ul>
         </div>
@@ -218,60 +216,30 @@ export default function PublicTestClient({ token }: { token: string }) {
       {step === 'details' ? (
         <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
           <div className="text-lg font-semibold mb-3">Before we start, tell us about you</div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="block">
               <span className="text-sm text-white/80">First name</span>
-              <input
-                className="w-full rounded-xl bg-white text-black p-3 mt-1"
-                value={firstName}
-                onChange={e=>setFirstName(e.target.value)}
-                required
-              />
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={firstName} onChange={e=>setFirstName(e.target.value)} required />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Last name</span>
-              <input
-                className="w-full rounded-xl bg-white text-black p-3 mt-1"
-                value={lastName}
-                onChange={e=>setLastName(e.target.value)}
-                required
-              />
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={lastName} onChange={e=>setLastName(e.target.value)} required />
             </label>
             <label className="block md:col-span-2">
               <span className="text-sm text-white/80">Email</span>
-              <input
-                className="w-full rounded-xl bg-white text-black p-3 mt-1"
-                value={email}
-                onChange={e=>setEmail(e.target.value)}
-                type="email"
-                required
-              />
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={email} onChange={e=>setEmail(e.target.value)} type="email" required />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Company (optional)</span>
-              <input
-                className="w-full rounded-xl bg-white text-black p-3 mt-1"
-                value={company}
-                onChange={e=>setCompany(e.target.value)}
-              />
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={company} onChange={e=>setCompany(e.target.value)} />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Role / Department (optional)</span>
-              <input
-                className="w-full rounded-xl bg-white text-black p-3 mt-1"
-                value={roleTitle}
-                onChange={e=>setRoleTitle(e.target.value)}
-              />
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={roleTitle} onChange={e=>setRoleTitle(e.target.value)} />
             </label>
           </div>
-
           <div className="mt-4 flex gap-3">
-            <button
-              onClick={proceedToQuestions}
-              disabled={savingDetails}
-              className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 disabled:opacity-60"
-            >
+            <button onClick={proceedToQuestions} disabled={savingDetails} className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 disabled:opacity-60">
               {savingDetails ? 'Saving…' : 'Start the test'}
             </button>
           </div>
@@ -282,15 +250,10 @@ export default function PublicTestClient({ token }: { token: string }) {
           <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
             <div className="text-sm text-white/60 mb-2">
               Question {i + 1} / {questions.length}
-              {q?.category && (
-                <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">
-                  {q.category}
-                </span>
-              )}
+              {q?.category && <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">{q.category}</span>}
             </div>
             <div className="text-lg font-medium mb-4">{q?.text}</div>
 
-            {/* Prefer text options; fallback to 1..5 */}
             {Array.isArray(q?.options) && q.options.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {q.options.map((label: string, idx: number) => {
