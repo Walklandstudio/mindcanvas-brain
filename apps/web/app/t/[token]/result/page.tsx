@@ -17,14 +17,18 @@ type ResultRes = {
   ok: boolean;
   taker?: {
     id: string;
-    test_id: string;
-    org_id: string;
-    email: string | null;
-    first_name: string | null;
-    last_name: string | null;
-    created_at: string;
+    test_id?: string;
+    org_id?: string;
+    email?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    created_at?: string;
+    status?: string;
   };
-  totals?: {
+  // Your API currently returns a flat object like:
+  // { "PROFILE_1": 40, "PROFILE_3": 150, ... }
+  totals?: Record<string, number> & {
+    // optional shapes in other builds:
     total_points?: number | null;
     frequency_code?: string | null;
     profile_code?: string | null;
@@ -36,7 +40,7 @@ type ResultRes = {
 };
 
 async function getBaseUrl() {
-  // In your setup, headers() is async -> Promise<ReadonlyHeaders>
+  // Some Next typings have headers() as Promise-like; await for safety
   const h = await (headers() as unknown as Promise<Readonly<Headers>>);
   const proto = h.get("x-forwarded-proto") || "https";
   const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
@@ -59,24 +63,57 @@ function codeToProfileKey(code?: string | null) {
   return m ? m[1] : null;
 }
 
-function mapProfileName(code: string | null | undefined, meta?: MetaRes) {
-  const key = codeToProfileKey(code);
-  if (!key) return code || "—";
+function mapProfileName(profileCodeLike: string | null | undefined, meta?: MetaRes) {
+  const key = codeToProfileKey(profileCodeLike);
+  if (!key) return profileCodeLike || "—";
   const found = meta?.profiles?.find((p) => String(p.code) === String(key));
   return found?.name || `Profile ${key}`;
 }
 
-function mapFrequencyName(code: string | null | undefined, meta?: MetaRes) {
-  if (!code) return "—";
-  const found = meta?.frequencies?.find((f) => f.code === code);
-  return found?.name || `Frequency ${code}`;
+function mapFrequencyName(freqCodeLike: string | null | undefined, meta?: MetaRes) {
+  if (!freqCodeLike) return "—";
+  const found = meta?.frequencies?.find((f) => f.code === freqCodeLike);
+  return found?.name || `Frequency ${freqCodeLike}`;
 }
 
 function takerDisplayName(t?: ResultRes["taker"]) {
-  const first = t?.first_name?.trim() || "";
-  const last = t?.last_name?.trim() || "";
+  const first = (t?.first_name || "").trim();
+  const last = (t?.last_name || "").trim();
   const full = [first, last].filter(Boolean).join(" ");
   return full || t?.email || "there";
+}
+
+/** Extracts a normalized profile_totals map from whatever the API returned. */
+function getProfileTotals(totals?: ResultRes["totals"]) {
+  if (!totals) return null;
+
+  // Prefer an explicit nested map if present
+  const nested = (totals as any).profile_totals as Record<string, number> | undefined;
+  if (nested && typeof nested === "object") return nested;
+
+  // Otherwise, detect flat keys like "PROFILE_1", "P1", or "1"
+  const entries = Object.entries(totals).filter(([k, v]) => typeof v === "number");
+  const profileEntries = entries.filter(([k]) => /^(profile[_\s-]?|p)?\d+$/i.test(k) || /^PROFILE_\d+$/i.test(k));
+  if (profileEntries.length === 0) return null;
+
+  // Build a normalized map with numeric profile keys as strings ("1".."8")
+  const normalized: Record<string, number> = {};
+  for (const [k, v] of profileEntries) {
+    const key = codeToProfileKey(k) ?? k;
+    normalized[String(key)] = v as number;
+  }
+  return normalized;
+}
+
+/** Pick top profile code (numeric string) from totals */
+function getTopProfileCodeFromTotals(profileTotals: Record<string, number> | null) {
+  if (!profileTotals) return null;
+  let top: { code: string; val: number } | null = null;
+  for (const [code, val] of Object.entries(profileTotals)) {
+    const n = Number(val) || 0;
+    if (!top || n > top.val) top = { code, val: n };
+  }
+  return top?.code ?? null;
 }
 
 export default async function ResultPage({ params }: { params: { token: string } }) {
@@ -121,24 +158,33 @@ export default async function ResultPage({ params }: { params: { token: string }
   }
 
   const takerName = takerDisplayName(result.taker);
-  const topProfileCode = result.totals?.profile_code ?? null;
-  const topFrequencyCode = result.totals?.frequency_code ?? null;
-  const totalScore = result.totals?.total_points ?? null;
 
-  const topProfileName = mapProfileName(topProfileCode, meta || undefined);
-  const topFrequencyName = mapFrequencyName(topFrequencyCode, meta || undefined);
+  // 1) Normalize totals
+  const profileTotals = getProfileTotals(result.totals);
 
-  const freqTotals = result.totals?.frequency_totals || null;
-  const profTotals = result.totals?.profile_totals || null;
+  // 2) Determine top profile
+  // If API ever provides profile_code, prefer that:
+  const apiProfileCode =
+    (result.totals?.profile_code && codeToProfileKey(result.totals?.profile_code)) || null;
+  const computedTopProfileCode = getTopProfileCodeFromTotals(profileTotals);
+  const topProfileCode = apiProfileCode || computedTopProfileCode || null;
 
-  const normalizedProfileTotals =
-    profTotals &&
-    Object.fromEntries(
-      Object.entries(profTotals).map(([k, v]) => {
-        const key = codeToProfileKey(k) ?? k;
-        return [key, v as number];
-      })
-    );
+  // 3) Map names
+  const topProfileName = topProfileCode ? mapProfileName(topProfileCode, meta || undefined) : "—";
+
+  // 4) Dominant frequency:
+  // Prefer explicit frequency_code if ever present; else infer from top profile mapping in meta.profiles
+  const apiFreqCode = (result.totals?.frequency_code as string | null) || null;
+  let inferredFreqCode: string | null = null;
+  if (!apiFreqCode && topProfileCode && meta?.profiles) {
+    const p = meta.profiles.find((x) => String(x.code) === String(topProfileCode));
+    inferredFreqCode = p?.frequency ?? null;
+  }
+  const freqCode = apiFreqCode || inferredFreqCode || null;
+  const topFrequencyName = mapFrequencyName(freqCode, meta || undefined);
+
+  // 5) Optional frequency_totals if ever present
+  const freqTotals = (result.totals as any)?.frequency_totals as Record<string, number> | null;
 
   return (
     <main className="max-w-3xl mx-auto p-6 space-y-6">
@@ -147,7 +193,7 @@ export default async function ResultPage({ params }: { params: { token: string }
         <p className="text-gray-600">
           Hi {takerName}!{" "}
           <span className="text-gray-400">
-            Status: {result.taker ? "completed" : "pending"}
+            Status: {result.taker?.status ?? (result.taker ? "completed" : "pending")}
           </span>
         </p>
       </header>
@@ -156,8 +202,10 @@ export default async function ResultPage({ params }: { params: { token: string }
         <div className="border rounded-xl p-4 space-y-2">
           <div className="text-sm text-gray-500">Top Profile</div>
           <div className="text-xl font-semibold">{topProfileName}</div>
-          {totalScore !== null && (
-            <div className="text-sm text-gray-500">Score: {totalScore}</div>
+          {topProfileCode && profileTotals && (
+            <div className="text-sm text-gray-500">
+              Score: {profileTotals[String(topProfileCode)] ?? "—"}
+            </div>
           )}
         </div>
 
@@ -181,32 +229,31 @@ export default async function ResultPage({ params }: { params: { token: string }
         </div>
       </section>
 
-      {normalizedProfileTotals &&
-        Object.keys(normalizedProfileTotals).length > 0 && (
-          <section className="space-y-2">
-            <h2 className="text-lg font-semibold">Profile Scores</h2>
-            <div className="border rounded-xl overflow-hidden">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr className="text-left">
-                    <th className="p-3">Profile</th>
-                    <th className="p-3">Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(normalizedProfileTotals)
-                    .sort((a, b) => Number(b[1]) - Number(a[1]))
-                    .map(([k, v]) => (
-                      <tr key={k} className="border-t">
-                        <td className="p-3">{mapProfileName(k, meta || undefined)}</td>
-                        <td className="p-3">{v as number}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
+      {profileTotals && Object.keys(profileTotals).length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Profile Scores</h2>
+          <div className="border rounded-xl overflow-hidden">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr className="text-left">
+                  <th className="p-3">Profile</th>
+                  <th className="p-3">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(profileTotals)
+                  .sort((a, b) => Number(b[1]) - Number(a[1]))
+                  .map(([k, v]) => (
+                    <tr key={k} className="border-t">
+                      <td className="p-3">{mapProfileName(k, meta || undefined)}</td>
+                      <td className="p-3">{v as number}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <details className="border rounded-xl p-4">
         <summary className="cursor-pointer select-none">Debug JSON</summary>
