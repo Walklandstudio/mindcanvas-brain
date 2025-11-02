@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-// CORS — relax or lock down as you prefer
+// CORS — relax or restrict as you need
 const ALLOWED_ORIGIN = "*";
 function cors(res: NextResponse) {
   res.headers.set("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
@@ -31,7 +31,7 @@ function getAdminClient() {
   const key =
     process.env.SUPABASE_SERVICE_ROLE ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY; // keep all fallbacks harmlessly supported
+    process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) {
     throw new Error("Supabase env missing: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE");
   }
@@ -51,12 +51,12 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       return cors(NextResponse.json({ error: "Invalid token." }, { status: 400 }));
     }
 
-    // Parse optional identity fields
+    // Parse optional fields
     let body: StartBody = {};
     try {
       body = (await req.json()) ?? {};
     } catch {
-      /* empty body is fine */
+      /* empty body allowed */
     }
     const email =
       typeof body.email === "string" && body.email.trim()
@@ -68,7 +68,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     const role_title = body.role_title?.trim() || null;
     const meta = body.meta ?? null;
 
-    // 1) Link lookup (only columns that actually exist in portal.test_links)
+    // 1) Lookup link (matching your schema)
     const { data: link, error: linkErr } = await supabase
       .from("test_links")
       .select("id, token, org_id, test_id, max_uses, use_count")
@@ -87,7 +87,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       return cors(NextResponse.json({ error: "Test link not found." }, { status: 404 }));
     }
 
-    // 2) Usage limit check (no expiry in this schema)
+    // 2) Usage guard (no expires/is_disabled in your table)
     const currentUses = Number(link.use_count ?? 0);
     const maxUses =
       typeof link.max_uses === "number" && Number.isFinite(link.max_uses)
@@ -102,10 +102,10 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       );
     }
 
-    // 3) Test exists / active (portal.tests)
+    // 3) Verify test exists and belongs to the same org (select only existing cols)
     const { data: test, error: testErr } = await supabase
       .from("tests")
-      .select("id, org_id, name, slug, is_active")
+      .select("id, org_id, name, slug")
       .eq("id", link.test_id)
       .maybeSingle();
 
@@ -118,18 +118,17 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       );
     }
     if (!test) return cors(NextResponse.json({ error: "Test not found." }, { status: 404 }));
-    if (test.org_id !== link.org_id)
+    if (test.org_id !== link.org_id) {
       return cors(NextResponse.json({ error: "Test not in this org." }, { status: 403 }));
-    if (test.is_active === false)
-      return cors(NextResponse.json({ error: "This test is not active." }, { status: 403 }));
+    }
 
-    // 4) Insert/upsert test_takers (portal.test_takers) with contact fields
+    // 4) Insert/upsert test_takers (with contact fields)
     const nowIso = new Date().toISOString();
     let takerId: string | null = null;
     let newlyCreated = false;
 
     if (email) {
-      // Try existing by unique triple
+      // try existing
       const { data: existing, error: existErr } = await supabase
         .from("test_takers")
         .select("id, status")
@@ -180,7 +179,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
           .maybeSingle();
 
         if (insErr) {
-          // Race-safe reselect on duplicate
+          // race-safe duplicate fallback
           if (insErr.message?.toLowerCase().includes("duplicate key")) {
             const { data: reget } = await supabase
               .from("test_takers")
@@ -202,7 +201,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         }
       }
     } else {
-      // Anonymous: always insert new taker row
+      // anonymous
       const { data: inserted, error: insErr } = await supabase
         .from("test_takers")
         .insert({
@@ -242,7 +241,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       );
     }
 
-    // 5) Increment use_count only when newly created
+    // 5) Bump use_count only for new takers
     if (newlyCreated) {
       await supabase
         .from("test_links")
@@ -250,7 +249,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         .eq("id", link.id);
     }
 
-    // 6) Respond with taker.id (callers can append ?tid=… in the redirect)
+    // 6) Respond (UI can redirect to /t/{token}/start?tid={id})
     return cors(
       NextResponse.json(
         {
