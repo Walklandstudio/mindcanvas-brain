@@ -1,344 +1,225 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 type Question = {
   id: string;
-  idx?: number | null;
-  order?: number | null;
-  type?: string | null;
+  idx: number;
   text: string;
-  options?: string[] | null;
-  category?: 'scored' | 'qual' | string | null;
+  options: string[];
+  category?: string | null;
 };
 
-type AnswersMap = Record<string, number>;
-type Step = 'details' | 'questions';
+type StartPayload = {
+  ok: true;
+  startPath: string;
+  test: { id: string; name: string | null; slug: string | null };
+  link: { id: string; token: string; expires_at: string | null };
+  taker: { id: string; email: string | null; status: 'started' };
+};
 
-async function fetchJson(url: string, init?: RequestInit) {
-  const r = await fetch(url, init);
-  const ct = r.headers.get('content-type') || '';
-  if (!ct.includes('application/json')) {
-    const text = (await r.text()).slice(0, 600);
-    throw new Error(`HTTP ${r.status} – non-JSON response:\n${text}`);
-  }
-  const j = await r.json();
-  if (!r.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
-  return j;
-}
+type QuestionsPayload = { ok: true; questions: Question[] };
+
+type SubmitBody = {
+  taker_id: string;
+  answers: { question_id: string; value: number }[]; // value is 1..N
+};
 
 export default function PublicTestClient({ token }: { token: string }) {
   const router = useRouter();
+  const sp = useSearchParams();
 
+  // If you already pass email/name via URL or parent, you can read them here.
+  const presetEmail = sp.get('email') || '';
+
+  // Local state
+  const [takerId, setTakerId] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>('');
-
-  const [testName, setTestName] = useState<string | null>(null);
+  const [err, setErr] = useState<string>('');
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [started, setStarted] = useState(false);
-  const [step, setStep] = useState<Step>('details');
+  const [answers, setAnswers] = useState<Record<string, number>>({}); // qid -> 1..N
 
-  const [i, setI] = useState(0);
-  const [answers, setAnswers] = useState<AnswersMap>({});
-
-  // details
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [company, setCompany] = useState('');
-  const [roleTitle, setRoleTitle] = useState('');
-
-  const [takerId, setTakerId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [savingDetails, setSavingDetails] = useState(false);
-
-  // bootstrap: load link meta + questions
+  // ---- 1) Start the test (gets taker_id) ----
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         setLoading(true);
-        setError('');
+        setErr('');
 
-        const metaRes: any = await fetchJson(`/api/public/test/${token}`);
-        if (!alive) return;
-        setTestName(metaRes?.data?.name ?? null);
+        // POST /api/test/[token]/start
+        const startRes = await fetch(`/api/test/${encodeURIComponent(token)}/start`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            email: presetEmail || null,
+            // add first_name/last_name/company/role_title here if you collect them
+            // first_name, last_name, company, role_title
+            meta: null,
+          }),
+        });
 
-        const qRes: any = await fetchJson(`/api/public/test/${token}/questions`);
-        if (!alive) return;
-
-        const list: Question[] = Array.isArray(qRes?.questions) ? qRes.questions : [];
-        setQuestions(list);
-
-        const key = (k: string) => `mc_${k}_${token}`;
-        if (typeof window !== 'undefined') {
-          const savedAns = window.localStorage.getItem(key('answers'));
-          if (savedAns) try { setAnswers(JSON.parse(savedAns)); } catch {}
-
-          const d = window.localStorage.getItem(key('details'));
-          if (d) {
-            try {
-              const o = JSON.parse(d);
-              setFirstName(o.firstName || '');
-              setLastName(o.lastName || '');
-              setEmail(o.email || '');
-              setPhone(o.phone || '');
-              setCompany(o.company || '');
-              setRoleTitle(o.roleTitle || '');
-            } catch {}
-          }
-
-          const tid = window.localStorage.getItem(key('taker_id'));
-          if (tid) setTakerId(tid);
+        const ct = startRes.headers.get('content-type') || '';
+        const startJson: any = ct.includes('application/json') ? await startRes.json() : null;
+        if (!startRes.ok || !startJson?.ok) {
+          throw new Error(startJson?.error || `Start failed (${startRes.status})`);
         }
 
-        setStarted(true);
+        const startPayload = startJson as StartPayload;
+        if (!startPayload.taker?.id) throw new Error('No taker id returned from start');
+
+        // Save TID
+        if (alive) setTakerId(startPayload.taker.id);
+
+        // ---- 2) Fetch questions ----
+        const qRes = await fetch(`/api/public/test/${encodeURIComponent(token)}/questions`, {
+          cache: 'no-store',
+        });
+        const qCT = qRes.headers.get('content-type') || '';
+        const qJson: any = qCT.includes('application/json') ? await qRes.json() : null;
+        if (!qRes.ok || !qJson?.ok) {
+          throw new Error(qJson?.error || `Questions failed (${qRes.status})`);
+        }
+
+        const qp = qJson as QuestionsPayload;
+        if (alive) setQuestions(qp.questions || []);
       } catch (e: any) {
-        if (alive) setError(String(e?.message || e));
+        if (alive) setErr(String(e?.message || e));
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
-  }, [token]);
+    return () => {
+      alive = false;
+    };
+  }, [token, presetEmail]);
 
-  // persist answers & details
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(`mc_answers_${token}`, JSON.stringify(answers));
-    }
-  }, [answers, token]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(
-        `mc_details_${token}`,
-        JSON.stringify({ firstName, lastName, email, phone, company, roleTitle })
-      );
-    }
-  }, [firstName, lastName, email, phone, company, roleTitle, token]);
-
-  const q = questions[i];
-  const allAnswered = useMemo(
-    () => questions.length > 0 && questions.every(qq => Number(answers[qq.id]) >= 1),
-    [questions, answers]
+  const ordered = useMemo(
+    () => [...questions].sort((a, b) => Number(a.idx ?? 0) - Number(b.idx ?? 0)),
+    [questions]
   );
 
-  const setChoice = (qid: string, val: number) => setAnswers(a => ({ ...a, [qid]: val }));
+  function setAnswer(qid: string, optionIndex0: number) {
+    // store as 1..N for the submit API
+    setAnswers((prev) => ({ ...prev, [qid]: optionIndex0 + 1 }));
+  }
 
-  const proceedToQuestions = async () => {
+  async function onSubmit() {
     try {
-      setSavingDetails(true);
-      setError('');
+      if (!takerId) throw new Error('Missing taker id');
 
-      const res: any = await fetchJson(`/api/public/test/${token}`, {
+      // Build payload answers in the shape the API expects
+      const payload: SubmitBody = {
+        taker_id: takerId,
+        answers: ordered
+          .map((q) => ({
+            question_id: q.id,
+            value: answers[q.id] ?? 0, // 1..N (0 means skipped)
+          }))
+          .filter((a) => a.value > 0),
+      };
+
+      const res = await fetch(`/api/public/test/${encodeURIComponent(token)}/submit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_name: firstName || null,
-          last_name: lastName || null,
-          email: email || null,
-          phone: phone || null,
-          company: company || null,
-          role_title: roleTitle || null,
-        }),
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
       });
 
-      const tid = res?.id;
-      if (!tid) throw new Error('Failed to create taker');
-
-      setTakerId(tid);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(`mc_taker_id_${token}`, tid);
+      const ct = res.headers.get('content-type') || '';
+      const j: any = ct.includes('application/json') ? await res.json() : null;
+      if (!res.ok || j?.ok === false) {
+        throw new Error(j?.error || `Submit failed (${res.status})`);
       }
 
-      setStep('questions');
+      // Go to result (include tid so Result page & Report work)
+      router.push(`/t/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(takerId)}`);
     } catch (e: any) {
-      setError(String(e?.message || e));
-    } finally {
-      setSavingDetails(false);
+      setErr(String(e?.message || e));
     }
-  };
-
-  const submit = async () => {
-    try {
-      setSubmitting(true);
-      setError('');
-
-      if (!takerId) throw new Error('missing taker_id');
-
-      // ✅ FIXED: send { question_id, selected } (0-based index)
-      const payloadAnswers = Object.entries(answers).map(([question_id, value]) => ({
-        question_id,
-        selected: Number(value) - 1, // backend expects 0..3
-      }));
-
-      const res = await fetch(`/api/public/test/${token}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taker_id: takerId, answers: payloadAnswers }),
-      });
-
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
-
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(`mc_answers_${token}`);
-      }
-
-      router.replace(`/t/${token}/result?tid=${encodeURIComponent(takerId)}`);
-    } catch (e: any) {
-      setError(String(e?.message || e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  /* ---------------- UI ---------------- */
+  }
 
   if (loading) {
-    return <div className="min-h-screen mc-bg text-white p-6"><h1 className="text-2xl font-semibold">Loading…</h1></div>;
-  }
-  if (error) {
     return (
-      <div className="min-h-screen mc-bg text-white p-6 space-y-4">
-        <h1 className="text-2xl font-semibold">Couldn’t load test</h1>
-        <pre className="p-3 rounded bg-white text-black whitespace-pre-wrap border">{error}</pre>
-        <div className="text-white/70 text-sm">
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Preparing your test…</h1>
+      </div>
+    );
+  }
+
+  if (err) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Couldn’t start the test</h1>
+        <p className="text-red-600 mt-2">{err}</p>
+        <div className="text-xs text-gray-500 mt-3">
           Debug:
-          <ul className="list-disc ml-5 mt-2">
-            <li><a className="underline" href={`/api/public/test/${token}`} target="_blank">/api/public/test/{token}</a></li>
-            <li><a className="underline" href={`/api/public/test/${token}/questions`} target="_blank">/api/public/test/{token}/questions</a></li>
-          </ul>
+          <div className="mt-1">/api/test/{token}/start</div>
+          <div className="mt-1">/api/public/test/{token}/questions</div>
         </div>
       </div>
     );
   }
 
+  if (!ordered.length) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">No questions available</h1>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen mc-bg text-white p-6 space-y-6">
-      <h1 className="text-3xl font-bold">{testName || 'Profile Test'}</h1>
-      <div className="text-white/70">Token: <code className="text-white">{token}</code> • {started ? 'started' : 'not started'}</div>
+    <div className="p-6 space-y-8">
+      <header>
+        <h1 className="text-2xl font-semibold">Profile Test</h1>
+        <p className="text-sm text-gray-500 mt-1">Answer the questions below.</p>
+      </header>
 
-      {step === 'details' ? (
-        <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
-          <div className="text-lg font-semibold mb-3">Before we start, tell us about you</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-sm text-white/80">First name</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={firstName} onChange={e=>setFirstName(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="text-sm text-white/80">Last name</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={lastName} onChange={e=>setLastName(e.target.value)} />
-            </label>
-            <label className="block md:col-span-2">
-              <span className="text-sm text-white/80">Email</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={email} onChange={e=>setEmail(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="text-sm text-white/80">Phone (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={phone} onChange={e=>setPhone(e.target.value)} />
-            </label>
-            <label className="block">
-              <span className="text-sm text-white/80">Company (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={company} onChange={e=>setCompany(e.target.value)} />
-            </label>
-            <label className="block md:col-span-2">
-              <span className="text-sm text-white/80">Role / Department (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={roleTitle} onChange={e=>setRoleTitle(e.target.value)} />
-            </label>
-          </div>
-          <div className="mt-4 flex gap-3">
-            <button
-              onClick={proceedToQuestions}
-              disabled={savingDetails}
-              className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 disabled:opacity-60"
-            >
-              {savingDetails ? 'Saving…' : 'Start the test'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
-            <div className="text-sm text-white/60 mb-2">
-              Question {i + 1} / {questions.length}
-              {q?.category && <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">{q.category}</span>}
-            </div>
-            <div className="text-lg font-medium mb-4">{q.text}</div>
-
-            {Array.isArray(q?.options) && q.options.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {q.options.map((label: string, idx: number) => {
-                  const val = idx + 1;
-                  const selected = answers[q.id] === val;
+      <ol className="space-y-6">
+        {ordered.map((q, i) => {
+          const selected1 = answers[q.id] ?? 0; // 1..N
+          return (
+            <li key={q.id} className="rounded-xl border p-4">
+              <div className="font-medium mb-3">
+                {i + 1}. {q.text}
+              </div>
+              <div className="grid gap-2">
+                {q.options.map((opt, idx0) => {
+                  const checked = selected1 === idx0 + 1;
                   return (
-                    <button
-                      key={idx}
-                      onClick={() => setChoice(q.id, val)}
-                      className={[
-                        'text-left px-3 py-3 rounded-xl border transition',
-                        selected ? 'bg-white text-black border-white'
-                                 : 'bg-white/5 border-white/20 hover:bg-white/10'
-                      ].join(' ')}
+                    <label
+                      key={idx0}
+                      className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer ${
+                        checked ? 'border-sky-500 bg-sky-50' : 'hover:bg-gray-50'
+                      }`}
                     >
-                      {label}
-                    </button>
+                      <input
+                        type="radio"
+                        name={`q-${q.id}`}
+                        className="h-4 w-4"
+                        checked={checked}
+                        onChange={() => setAnswer(q.id, idx0)}
+                      />
+                      <span>{opt}</span>
+                    </label>
                   );
                 })}
               </div>
-            ) : (
-              <div className="grid grid-cols-5 gap-2">
-                {[1,2,3,4,5].map((val) => (
-                  <button
-                    key={val}
-                    onClick={() => setChoice(q.id, val)}
-                    className={[
-                      'px-3 py-3 rounded-xl border transition',
-                      answers[q.id] === val
-                        ? 'bg-white text-black border-white'
-                        : 'bg-white/5 border-white/20 hover:bg-white/10'
-                    ].join(' ')}
-                  >
-                    {val}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+            </li>
+          );
+        })}
+      </ol>
 
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setI(Math.max(0, i - 1))}
-              disabled={i === 0}
-              className="px-4 py-2 rounded-xl border border-white/20 hover:bg-white/10 disabled:opacity-50"
-            >
-              Previous
-            </button>
-
-            {i < questions.length - 1 ? (
-              <button
-                onClick={() => setI(Math.min(questions.length - 1, i + 1))}
-                className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 disabled:opacity-60"
-                disabled={!answers[q.id]}
-              >
-                Next
-              </button>
-            ) : (
-              <button
-                onClick={submit}
-                disabled={!allAnswered || submitting}
-                className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50"
-              >
-                {submitting ? 'Submitting…' : 'Submit & View Report'}
-              </button>
-            )}
-          </div>
-        </>
-      )}
+      <div className="pt-4">
+        <button
+          type="button"
+          onClick={onSubmit}
+          className="inline-flex items-center rounded-xl bg-sky-600 px-5 py-3 text-white hover:bg-sky-700"
+        >
+          Submit answers
+        </button>
+      </div>
     </div>
   );
 }
