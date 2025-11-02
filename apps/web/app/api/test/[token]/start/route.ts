@@ -20,48 +20,44 @@ export async function OPTIONS() {
 }
 
 type StartBody = {
-  // Optional — if you pass an email from your entry form, we’ll upsert on it
   email?: string | null;
-  // Optional — anything you want to store against the taker row
+  first_name?: string | null;
+  last_name?: string | null;
+  company?: string | null;
+  role_title?: string | null;
   meta?: Record<string, unknown> | null;
 };
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE;
+  // keep your env name; add fallbacks so staging/prod don’t break
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) {
-    throw new Error(
-      "Supabase env missing: set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE"
-    );
+    throw new Error("Supabase env missing: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE");
   }
   return createClient(url, key, {
     auth: { persistSession: false },
+    // If your tables are in the `portal` schema, uncomment the next line:
+    // db: { schema: "portal" },
   });
 }
 
 // Helper: token validity
 function isExpired(expiresAt: string | null | undefined) {
   if (!expiresAt) return false;
-  const now = new Date();
-  const exp = new Date(expiresAt);
-  return exp.getTime() <= now.getTime();
+  return new Date(expiresAt).getTime() <= Date.now();
 }
 
-export async function POST(
-  req: Request,
-  ctx: { params: { token: string } }
-) {
+export async function POST(req: Request, ctx: { params: { token: string } }) {
   try {
     const supabase = getAdminClient();
     const token = ctx.params?.token;
 
     if (!token || typeof token !== "string" || token.length < 6) {
-      return cors(
-        NextResponse.json(
-          { error: "Invalid token." },
-          { status: 400 }
-        )
-      );
+      return cors(NextResponse.json({ error: "Invalid token." }, { status: 400 }));
     }
 
     let body: StartBody = {};
@@ -70,53 +66,31 @@ export async function POST(
     } catch {
       // no body supplied is fine
     }
+
     const email =
       typeof body.email === "string" && body.email.trim().length > 0
         ? body.email.trim().toLowerCase()
         : null;
+
+    const first_name = body.first_name?.trim() || null;
+    const last_name = body.last_name?.trim() || null;
+    const company = body.company?.trim() || null;
+    const role_title = body.role_title?.trim() || null;
     const meta = body.meta ?? null;
 
-    // 1) Look up the link by token
+    // 1) Link lookup
     const { data: link, error: linkErr } = await supabase
       .from("test_links")
-      .select(
-        `
-        id,
-        token,
-        org_id,
-        test_id,
-        expires_at,
-        max_uses,
-        use_count,
-        is_disabled
-      `
-      )
+      .select("id, token, org_id, test_id, expires_at, max_uses, use_count, is_disabled")
       .eq("token", token)
       .maybeSingle();
 
     if (linkErr) {
-      return cors(
-        NextResponse.json(
-          { error: "Link lookup failed.", details: linkErr.message },
-          { status: 500 }
-        )
-      );
+      return cors(NextResponse.json({ error: "Link lookup failed.", details: linkErr.message }, { status: 500 }));
     }
-    if (!link) {
-      return cors(
-        NextResponse.json({ error: "Test link not found." }, { status: 404 })
-      );
-    }
-    if (link.is_disabled === true) {
-      return cors(
-        NextResponse.json({ error: "This link is disabled." }, { status: 403 })
-      );
-    }
-    if (isExpired(link.expires_at)) {
-      return cors(
-        NextResponse.json({ error: "This link has expired." }, { status: 410 })
-      );
-    }
+    if (!link) return cors(NextResponse.json({ error: "Test link not found." }, { status: 404 }));
+    if (link.is_disabled === true) return cors(NextResponse.json({ error: "This link is disabled." }, { status: 403 }));
+    if (isExpired(link.expires_at)) return cors(NextResponse.json({ error: "This link has expired." }, { status: 410 }));
     if (
       typeof link.max_uses === "number" &&
       link.max_uses >= 0 &&
@@ -124,14 +98,11 @@ export async function POST(
       link.use_count >= link.max_uses
     ) {
       return cors(
-        NextResponse.json(
-          { error: "This link has reached its maximum number of uses." },
-          { status: 403 }
-        )
+        NextResponse.json({ error: "This link has reached its maximum number of uses." }, { status: 403 })
       );
     }
 
-    // 2) Ensure the test exists & is active (adjust columns if yours differ)
+    // 2) Test exists / active
     const { data: test, error: testErr } = await supabase
       .from("tests")
       .select("id, org_id, name, slug, is_active")
@@ -139,114 +110,73 @@ export async function POST(
       .maybeSingle();
 
     if (testErr) {
-      return cors(
-        NextResponse.json(
-          { error: "Test lookup failed.", details: testErr.message },
-          { status: 500 }
-        )
-      );
+      return cors(NextResponse.json({ error: "Test lookup failed.", details: testErr.message }, { status: 500 }));
     }
-    if (!test) {
-      return cors(
-        NextResponse.json({ error: "Test not found." }, { status: 404 })
-      );
-    }
-    if (test.org_id !== link.org_id) {
-      // Guard cross-org leakage
-      return cors(
-        NextResponse.json(
-          { error: "Test not in this org." },
-          { status: 403 }
-        )
-      );
-    }
-    if (test.is_active === false) {
-      return cors(
-        NextResponse.json(
-          { error: "This test is not active." },
-          { status: 403 }
-        )
-      );
-    }
+    if (!test) return cors(NextResponse.json({ error: "Test not found." }, { status: 404 }));
+    if (test.org_id !== link.org_id) return cors(NextResponse.json({ error: "Test not in this org." }, { status: 403 }));
+    if (test.is_active === false) return cors(NextResponse.json({ error: "This test is not active." }, { status: 403 }));
 
-    // 3) Insert or re-use a test_takers row
-    // Strategy:
-    //  - If email is provided: upsert on (org_id, test_id, email)
-    //  - If no email: insert a new row each time (no unique clash)
+    // 3) Upsert/insert test taker (now with contact fields)
     const nowIso = new Date().toISOString();
-
     let takerId: string | null = null;
     let newlyCreated = false;
 
     if (email) {
-      // Try to find existing first (avoids opaque upsert return shapes)
       const { data: existing, error: existErr } = await supabase
         .from("test_takers")
         .select("id, status")
-        .match({
-          org_id: link.org_id,
-          test_id: link.test_id,
-          email,
-        })
+        .match({ org_id: link.org_id, test_id: link.test_id, email })
         .maybeSingle();
 
       if (existErr) {
-        return cors(
-          NextResponse.json(
-            { error: "Lookup test taker failed.", details: existErr.message },
-            { status: 500 }
-          )
-        );
+        return cors(NextResponse.json({ error: "Lookup test taker failed.", details: existErr.message }, { status: 500 }));
       }
 
       if (existing?.id) {
         takerId = existing.id;
-        // Optionally bump status to 'started' if previously not started
-        if (existing.status !== "started") {
-          await supabase
-            .from("test_takers")
-            .update({ status: "started", started_at: nowIso, link_token: token })
-            .eq("id", takerId);
-        }
+        await supabase
+          .from("test_takers")
+          .update({
+            status: existing.status === "started" ? "started" : "started",
+            started_at: nowIso,
+            link_token: token,
+            first_name,
+            last_name,
+            company,
+            role_title,
+            meta,
+          })
+          .eq("id", takerId);
       } else {
-        // Insert new
         const { data: inserted, error: insErr } = await supabase
           .from("test_takers")
           .insert({
             org_id: link.org_id,
             test_id: link.test_id,
             email,
+            first_name,
+            last_name,
+            company,
+            role_title,
             status: "started",
             started_at: nowIso,
-            link_token: token, // If you store which link was used
+            link_token: token,
             meta,
           })
           .select("id")
           .maybeSingle();
 
         if (insErr) {
-          // If unique violation happens despite guard, re-select
-          const isUniqueViolation =
-            typeof insErr.message === "string" &&
-            insErr.message.toLowerCase().includes("duplicate key");
-          if (isUniqueViolation) {
+          const dup = typeof insErr.message === "string" && insErr.message.toLowerCase().includes("duplicate key");
+          if (dup) {
             const { data: reget } = await supabase
               .from("test_takers")
               .select("id")
-              .match({
-                org_id: link.org_id,
-                test_id: link.test_id,
-                email,
-              })
+              .match({ org_id: link.org_id, test_id: link.test_id, email })
               .maybeSingle();
             takerId = reget?.id ?? null;
           } else {
-            return cors(
-              NextResponse.json(
-                { error: "Could not start test.", details: insErr.message },
-                { status: 500 }
-              )
-            );
+            return cors(NextResponse.json({ error: "Could not start test.", details: insErr.message }, { status: 500 }));
           }
         } else {
           takerId = inserted?.id ?? null;
@@ -254,13 +184,16 @@ export async function POST(
         }
       }
     } else {
-      // No email path — always insert a fresh row
       const { data: inserted, error: insErr } = await supabase
         .from("test_takers")
         .insert({
           org_id: link.org_id,
           test_id: link.test_id,
-          email: null, // keep null explicit for the unique constraint to ignore
+          email: null,
+          first_name,
+          last_name,
+          company,
+          role_title,
           status: "started",
           started_at: nowIso,
           link_token: token,
@@ -270,57 +203,34 @@ export async function POST(
         .maybeSingle();
 
       if (insErr) {
-        return cors(
-          NextResponse.json(
-            { error: "Could not start test.", details: insErr.message },
-            { status: 500 }
-          )
-        );
+        return cors(NextResponse.json({ error: "Could not start test.", details: insErr.message }, { status: 500 }));
       }
       takerId = inserted?.id ?? null;
       newlyCreated = true;
     }
 
     if (!takerId) {
-      return cors(
-        NextResponse.json(
-          { error: "Failed to create or retrieve test taker." },
-          { status: 500 }
-        )
-      );
+      return cors(NextResponse.json({ error: "Failed to create or retrieve test taker." }, { status: 500 }));
     }
 
-    // 4) Increment link.use_count only when newly created (prevents over-counting repeats)
+    // 4) Increment use_count if newly created
     if (newlyCreated) {
-      await supabase
-        .from("test_links")
-        .update({ use_count: (link.use_count ?? 0) + 1 })
-        .eq("id", link.id);
+      await supabase.from("test_links").update({ use_count: (link.use_count ?? 0) + 1 }).eq("id", link.id);
     }
 
-    // 5) Respond with a payload your UI can act on
-    // `startPath` points your app route (e.g. apps/web/app/t/[token]/start/page.tsx)
-    const payload = {
-      ok: true as const,
-      startPath: `/t/${token}/start`,
-      test: {
-        id: test.id,
-        name: test.name ?? null,
-        slug: test.slug ?? null,
-      },
-      link: {
-        id: link.id,
-        token: link.token,
-        expires_at: link.expires_at,
-      },
-      taker: {
-        id: takerId,
-        email,
-        status: "started" as const,
-      },
-    };
-
-    return cors(NextResponse.json(payload, { status: 200 }));
+    // 5) Respond (includes taker_id so callers can add ?tid=)
+    return cors(
+      NextResponse.json(
+        {
+          ok: true as const,
+          startPath: `/t/${token}/start`,
+          test: { id: test.id, name: test.name ?? null, slug: test.slug ?? null },
+          link: { id: link.id, token: link.token, expires_at: link.expires_at },
+          taker: { id: takerId, email, status: "started" as const },
+        },
+        { status: 200 }
+      )
+    );
   } catch (err: any) {
     return cors(
       NextResponse.json(
