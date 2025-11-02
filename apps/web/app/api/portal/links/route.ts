@@ -1,4 +1,3 @@
-// apps/web/app/api/portal/links/route.ts
 import { NextResponse } from 'next/server';
 import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
 
@@ -9,11 +8,16 @@ type Body = {
   expiresAt?: string | null; // ISO
 };
 
+// Small helper
 function makeToken(prefix = 'tp'): string {
   const rand = Math.random().toString(36).slice(2, 8);
   return `${prefix}${Date.now().toString(36)}${rand}`;
 }
 
+/**
+ * POST /api/portal/links
+ * Create a new test link for the active org.
+ */
 export async function POST(req: Request) {
   try {
     const sb = await getAdminClient();
@@ -31,7 +35,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing testKey (slug or id)' }, { status: 400 });
     }
 
-    // Resolve test_id by (id or slug) scoped to org
+    // Resolve test_id (id or slug) scoped to org
     const byId = await sb
       .from('org_tests')
       .select('id,slug')
@@ -71,7 +75,7 @@ export async function POST(req: Request) {
           expires_at: expiresAt,
           kind,           // optional column in your schema
           mode,           // REQUIRED by your schema (NOT NULL)
-          uses: 0,        // initialize to 0 in your schema
+          uses: 0,        // initialize if you keep a uses column
         } as any,
       ])
       .select('id, token')
@@ -90,3 +94,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
   }
 }
+
+/**
+ * DELETE /api/portal/links
+ * Body: { id?: string, token?: string }
+ * Deletes a link owned by the active org.
+ */
+export async function DELETE(req: Request) {
+  try {
+    const sb = await getAdminClient();
+    const orgId = await getActiveOrgId(sb);
+    if (!orgId) return NextResponse.json({ error: 'No active org' }, { status: 400 });
+
+    const body = (await req.json().catch(() => ({}))) as { id?: string; token?: string };
+    const id = (body.id || '').trim();
+    const token = (body.token || '').trim();
+
+    if (!id && !token) {
+      return NextResponse.json({ error: 'Provide id or token' }, { status: 400 });
+    }
+
+    // Scope by org for safety
+    const q = sb.from('test_links').delete();
+    if (id) q.eq('id', id);
+    if (token) q.eq('token', token);
+    q.eq('org_id', orgId);
+
+    const { error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return new NextResponse(null, { status: 204 });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
+  }
+}
+

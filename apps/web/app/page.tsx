@@ -6,7 +6,6 @@ export default function Landing() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#050914] text-white">
       {/* --- BACKGROUND LAYERS --- */}
-      {/* Deep radial glows */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div
           className="absolute -top-40 left-1/2 h-[120vh] w-[120vw] -translate-x-1/2 blur-3xl opacity-30"
@@ -18,7 +17,6 @@ export default function Landing() {
         />
       </div>
 
-      {/* Neon ribbon sweep */}
       <div
         aria-hidden
         className="pointer-events-none absolute -left-1/3 top-[-10%] h-[160vh] w-[180vw] rotate-[12deg] opacity-35"
@@ -30,7 +28,6 @@ export default function Landing() {
         }}
       />
 
-      {/* Soft grid (barely visible) */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-[0.05]"
@@ -52,21 +49,21 @@ export default function Landing() {
             <span className="text-base font-semibold tracking-tight">MindCanvas</span>
           </div>
 
-          {/* New header buttons */}
-          <div className="flex items-center gap-2">
+          {/* Quick nav to Portal + Admin */}
+          <nav className="hidden sm:flex items-center gap-3">
             <Link
               href="/portal"
-              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-[14px] font-medium text-slate-200 transition hover:bg-white/10"
+              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-white/10"
             >
               Portals
             </Link>
             <Link
-              href="/login"
-              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-[14px] font-medium text-slate-200 transition hover:bg-white/10"
+              href="/admin"
+              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-white/10"
             >
-              Login
+              Admin
             </Link>
-          </div>
+          </nav>
         </div>
       </header>
 
@@ -100,6 +97,21 @@ export default function Landing() {
               Create an Account
               <span className="ml-2 block h-[1px] w-4 translate-y-[1px] bg-white/70 group-hover:w-6 transition-all" />
             </Link>
+
+            <Link
+              href="/portal"
+              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
+            >
+              Portals
+            </Link>
+
+            <Link
+              href="/admin"
+              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
+            >
+              Admin
+            </Link>
+
             <Link
               href="/login"
               className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
@@ -110,7 +122,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* --- FOOTER --- */}
       <footer className="relative z-10 pb-10 text-center text-xs text-slate-500">
         © {new Date().getFullYear()} MindCanvas. All rights reserved.
       </footer>
