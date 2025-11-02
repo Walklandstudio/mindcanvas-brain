@@ -1,4 +1,3 @@
-// apps/web/app/api/public/test/[token]/submit/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -12,17 +11,24 @@ function supa() {
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
-// Accept PROFILE_1..8 or P1..P8 → A/B/C/D; fallback if value already starts with A/B/C/D
+function asNumber(x: any, d = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : d;
+}
+
+// PROFILE_1..8 (or P1..P8) → A/A/B/B/C/C/D/D
 function profileCodeToFreq(code: string): AB | null {
   const s = String(code || "").trim().toUpperCase();
-  let n: number | null = null;
-  const m1 = s.match(/^P(?:ROFILE)?[_\s-]?(\d+)$/);
-  if (m1) n = Number(m1[1]);
-  if (n && n >= 1 && n <= 8) return (n <= 2 ? "A" : n <= 4 ? "B" : n <= 6 ? "C" : "D") as AB;
+  const m = s.match(/^P(?:ROFILE)?[_\s-]?(\d+)$/); // PROFILE_1 or P1
+  if (m) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= 8) return (n <= 2 ? "A" : n <= 4 ? "B" : n <= 6 ? "C" : "D") as AB;
+  }
   const ch = s[0];
   return ch === "A" || ch === "B" || ch === "C" || ch === "D" ? (ch as AB) : null;
 }
 
+// normalise UI answer shapes → 0-based index
 function toZeroBasedSelected(row: any): number | null {
   if (row && typeof row.value === "number" && Number.isFinite(row.value)) {
     const sel = row.value - 1;
@@ -34,10 +40,6 @@ function toZeroBasedSelected(row: any): number | null {
   if (row?.value && typeof row.value.index === "number") return row.value.index;
   return null;
 }
-
-const asNumber = (x: any, d = 0) => (Number.isFinite(Number(x)) ? Number(x) : d);
-
-export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   try {
@@ -63,7 +65,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
     }
 
-    // Load questions with profile_map (drives scoring)
+    // Load questions (need profile_map)
     const { data: questions, error: qErr } = await sb
       .from("test_questions")
       .select("id, idx, profile_map")
@@ -78,39 +80,11 @@ export async function POST(req: Request, { params }: { params: { token: string }
     const byId: Record<string, QuestionRow> = {};
     for (const q of questions || []) byId[q.id] = q;
 
-    // Labels: name→code and code→frequency for this test
-    const { data: labels, error: labErr } = await sb
-      .from("test_profile_labels")
-      .select("profile_code, profile_name, frequency_code")
-      .eq("test_id", taker.test_id);
-
-    if (labErr) {
-      return NextResponse.json({ ok: false, error: `Labels load failed: ${labErr.message}` }, { status: 500 });
-    }
-
-    const nameToCode = new Map<string, string>();
-    const codeToFreq = new Map<string, AB>();
-    for (const r of labels || []) {
-      const code = String(r.profile_code || "").trim();
-      const name = String(r.profile_name || "").trim();
-      const f = String(r.frequency_code || "").trim().toUpperCase();
-      if (name && code) nameToCode.set(name, code);
-      if (code) {
-        if (f === "A" || f === "B" || f === "C" || f === "D") {
-          codeToFreq.set(code, f as AB);
-        } else {
-          const implied = profileCodeToFreq(code);
-          if (implied) codeToFreq.set(code, implied);
-        }
-      }
-    }
-
-    // Compute totals
+    // Totals
     const freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
     const profileTotals: Record<string, number> = {};
 
-    for (let idx = 0; idx < answers.length; idx++) {
-      const row = answers[idx];
+    for (const row of answers) {
       const qid = row?.question_id || row?.qid || row?.id;
       const q: QuestionRow | undefined = qid ? byId[qid] : undefined;
       if (!q || !Array.isArray(q.profile_map) || q.profile_map.length === 0) continue;
@@ -120,34 +94,29 @@ export async function POST(req: Request, { params }: { params: { token: string }
 
       const entry = q.profile_map[sel] || {};
       const points = asNumber(entry.points, 0);
-      let pcode = String(entry.profile || "").trim();
+      const rawProfile = String(entry.profile || "").trim();
+      if (!rawProfile || points <= 0) continue;
 
-      // Resolve profile *name* → code if needed
-      if (pcode && !/^P(?:ROFILE)?[_\s-]?\d+$/i.test(pcode)) {
-        const fromName = nameToCode.get(pcode);
-        if (fromName) pcode = fromName;
-      }
-      if (!pcode || points <= 0) continue;
+      // normalise to PROFILE_n when possible, otherwise keep as-is for CC names
+      let pcode = rawProfile.toUpperCase();
+      const m = pcode.match(/^P(?:ROFILE)?[_\s-]?(\d+)$/);
+      if (m) pcode = `PROFILE_${Number(m[1])}`;
 
       profileTotals[pcode] = (profileTotals[pcode] || 0) + points;
 
-      const f = codeToFreq.get(pcode) || profileCodeToFreq(pcode);
+      const f = profileCodeToFreq(pcode);
       if (f) freqTotals[f] += points;
     }
 
-    // Persist submission snapshot — write nested totals
-    const totals = {
-      frequencies: { A: freqTotals.A, B: freqTotals.B, C: freqTotals.C, D: freqTotals.D },
-      profiles: profileTotals,
-    };
+    // Persist submission snapshot (backward compatible)
+    const submissionTotals = { frequencies: freqTotals, profiles: profileTotals };
 
     const { error: subErr } = await sb.from("test_submissions").insert({
       taker_id: taker.id,
       test_id: taker.test_id,
       link_token: token,
-      totals,
+      totals: submissionTotals,
       answers_json: answers,
-      raw_answers: answers,
       first_name: taker.first_name ?? null,
       last_name: taker.last_name ?? null,
       email: taker.email ?? null,
@@ -158,18 +127,15 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: `Submission insert failed: ${subErr.message}` }, { status: 500 });
     }
 
-    // Upsert denormalized results (nested totals)
-    const { error: upErr } = await sb
+    // Upsert denormalised results
+    await sb
       .from("test_results")
-      .upsert({ taker_id: taker.id, totals }, { onConflict: "taker_id" });
-    if (upErr) {
-      return NextResponse.json({ ok: false, error: `Results upsert failed: ${upErr.message}` }, { status: 500 });
-    }
+      .upsert({ taker_id: taker.id, totals: submissionTotals }, { onConflict: "taker_id" });
 
-    // Mark taker completed (best-effort)
+    // Mark taker completed
     await sb.from("test_takers").update({ status: "completed" }).eq("id", taker.id).eq("link_token", token);
 
-    return NextResponse.json({ ok: true, totals });
+    return NextResponse.json({ ok: true, totals: submissionTotals });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
   }

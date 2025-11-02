@@ -1,4 +1,3 @@
-// apps/web/app/api/public/test/[token]/result/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { loadFrameworkBySlug, buildLookups, coerceOrgSlug } from "@/lib/frameworks";
@@ -12,14 +11,11 @@ function sb() {
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
-function toPctMap(t: Partial<Record<AB, number>>): Record<AB, number> {
-  const sum = AB_VALUES.reduce((acc, k) => acc + Number(t[k] ?? 0), 0);
-  const out = {} as Record<AB, number>;
-  for (const k of AB_VALUES) {
-    const v = Number(t[k] ?? 0);
-    out[k] = sum > 0 ? v / sum : 0;
-  }
-  return out;
+function toPctMap<T extends Record<string, number>>(totals: T): Record<keyof T, number> {
+  const sum = Object.values(totals).reduce((a, b) => a + Number(b || 0), 0);
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(totals)) out[k] = sum > 0 ? Number(v || 0) / sum : 0;
+  return out as Record<keyof T, number>;
 }
 
 function topAB(t: Partial<Record<AB, number>>): AB {
@@ -45,13 +41,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
   const supa = sb();
 
-  // --- 1) Resolve link → test_id, org_id, org_slug, test_name (NO CC defaulting here)
+  // 1) link → test_id, org_slug, test_name
   let test_id: string | null = null;
-  let org_id: string | null = null;
   let org_slug: string | null = null;
   let test_name: string | null = null;
 
-  // link
   const { data: link, error: linkErr } = await supa
     .from("test_links")
     .select("test_id, org_id")
@@ -59,11 +53,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     .maybeSingle();
   if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
   if (!link?.test_id) return NextResponse.json({ ok: false, error: "Invalid or expired link" }, { status: 404 });
-
   test_id = link.test_id;
-  org_id = link.org_id ?? null;
 
-  // v_org_tests has org_slug + test_name for a test_id (use if present)
   {
     const { data: vt } = await supa
       .from("v_org_tests")
@@ -73,33 +64,40 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     if (vt?.org_slug) org_slug = String(vt.org_slug);
     if (vt?.test_name) test_name = String(vt.test_name);
   }
-
-  // fallback to organizations.slug if needed
-  if (!org_slug && org_id) {
-    const { data: org } = await supa
-      .from("organizations")
-      .select("slug")
-      .eq("id", org_id)
-      .maybeSingle();
+  if (!org_slug && link?.org_id) {
+    const { data: org } = await supa.from("organizations").select("slug").eq("id", link.org_id).maybeSingle();
     if (org?.slug) org_slug = String(org.slug);
   }
-
-  // As a last resort, coerce but prefer TEAM PUZZLE over CC
   org_slug = coerceOrgSlug({ org_slug }) || "team-puzzle";
 
-  // --- 2) Load totals (results → submissions)
+  // 2) totals (results → submissions) – expect {frequencies, profiles}
   let freqTotals: Partial<Record<AB, number>> = { A: 0, B: 0, C: 0, D: 0 };
+  let profileTotals: Record<string, number> = {};
 
   {
     const r1 = await supa.from("test_results").select("totals").eq("taker_id", tid).maybeSingle();
-    const totalsObj = (r1.data?.totals ?? null) as any;
-    if (totalsObj && typeof totalsObj === "object") {
-      freqTotals = {
-        A: Number(totalsObj.A ?? totalsObj?.frequencies?.A ?? 0),
-        B: Number(totalsObj.B ?? totalsObj?.frequencies?.B ?? 0),
-        C: Number(totalsObj.C ?? totalsObj?.frequencies?.C ?? 0),
-        D: Number(totalsObj.D ?? totalsObj?.frequencies?.D ?? 0),
-      };
+    const t = r1.data?.totals as any;
+    if (t && typeof t === "object") {
+      // new shape
+      if (t.frequencies && typeof t.frequencies === "object") {
+        freqTotals = {
+          A: Number(t.frequencies.A || 0),
+          B: Number(t.frequencies.B || 0),
+          C: Number(t.frequencies.C || 0),
+          D: Number(t.frequencies.D || 0),
+        };
+      } else {
+        // legacy shape: {A,B,C,D}
+        freqTotals = {
+          A: Number(t.A || 0),
+          B: Number(t.B || 0),
+          C: Number(t.C || 0),
+          D: Number(t.D || 0),
+        };
+      }
+      if (t.profiles && typeof t.profiles === "object") profileTotals = Object.fromEntries(
+        Object.entries(t.profiles).map(([k, v]) => [String(k), Number(v || 0)])
+      );
     } else {
       const r2 = await supa
         .from("test_submissions")
@@ -108,54 +106,62 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      const t2 = (r2.data?.totals ?? null) as any;
+      const t2 = r2.data?.totals as any;
       if (t2 && typeof t2 === "object") {
-        freqTotals = {
-          A: Number(t2.A ?? t2?.frequencies?.A ?? 0),
-          B: Number(t2.B ?? t2?.frequencies?.B ?? 0),
-          C: Number(t2.C ?? t2?.frequencies?.C ?? 0),
-          D: Number(t2.D ?? t2?.frequencies?.D ?? 0),
-        };
+        if (t2.frequencies && typeof t2.frequencies === "object") {
+          freqTotals = {
+            A: Number(t2.frequencies.A || 0),
+            B: Number(t2.frequencies.B || 0),
+            C: Number(t2.frequencies.C || 0),
+            D: Number(t2.frequencies.D || 0),
+          };
+        } else {
+          freqTotals = {
+            A: Number(t2.A || 0),
+            B: Number(t2.B || 0),
+            C: Number(t2.C || 0),
+            D: Number(t2.D || 0),
+          };
+        }
+        if (t2.profiles && typeof t2.profiles === "object") profileTotals = Object.fromEntries(
+          Object.entries(t2.profiles).map(([k, v]) => [String(k), Number(v || 0)])
+        );
       }
     }
   }
 
-  const freqPct = toPctMap(freqTotals);
-  const topFreq = topAB(freqTotals);
+  const frequency_percentages = toPctMap({
+    A: Number(freqTotals.A || 0),
+    B: Number(freqTotals.B || 0),
+    C: Number(freqTotals.C || 0),
+    D: Number(freqTotals.D || 0),
+  });
+  const top_freq = topAB(freqTotals);
 
-  // --- 3) Labels: prefer DB tables for THIS test_id
-  // Tables: test_frequency_labels (frequency_code+name), test_profile_labels (profile_code+name+frequency_code)
+  // 3) Labels for THIS test
   let frequency_labels: { code: AB; name: string }[] = [];
   let profile_labels: { code: string; name: string; frequency?: AB }[] = [];
 
-  // frequency labels
   {
     const { data: fl } = await supa
       .from("test_frequency_labels")
       .select("frequency_code, frequency_name")
       .eq("test_id", test_id);
-
     if (Array.isArray(fl) && fl.length) {
       const map = new Map<AB, string>();
-      for (const row of fl) {
-        const code = String(row.frequency_code || "").toUpperCase() as AB;
-        const name = String(row.frequency_name || "").trim();
-        if (AB_VALUES.includes(code) && name) map.set(code, name);
+      for (const r of fl) {
+        const c = String(r.frequency_code || "").toUpperCase() as AB;
+        const n = String(r.frequency_name || "").trim();
+        if (AB_VALUES.includes(c) && n) map.set(c, n);
       }
-      frequency_labels = AB_VALUES.map((c) => ({
-        code: c,
-        name: map.get(c) || `Frequency ${c}`,
-      }));
+      frequency_labels = AB_VALUES.map((c) => ({ code: c, name: map.get(c) || `Frequency ${c}` }));
     }
   }
-
-  // profile labels
   {
     const { data: pl } = await supa
       .from("test_profile_labels")
       .select("profile_code, profile_name, frequency_code")
       .eq("test_id", test_id);
-
     if (Array.isArray(pl) && pl.length) {
       profile_labels = pl.map((r) => ({
         code: String(r.profile_code || "").trim() || "PROFILE_1",
@@ -165,9 +171,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     }
   }
 
-  // If any label set is missing, load it from the JSON framework for THIS org_slug
+  // JSON fallback tied to org_slug (never default to CC unless org_slug is CC)
   if (!frequency_labels.length || !profile_labels.length) {
-    const slug = coerceOrgSlug({ org_slug }) || "team-puzzle"; // <- never default to CC here
+    const slug = coerceOrgSlug({ org_slug }) || "team-puzzle";
     const fw = await loadFrameworkBySlug(slug);
     const lookups = buildLookups(fw);
 
@@ -177,28 +183,33 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         name: lookups.freqByCode.get(c)?.name || `Frequency ${c}`,
       }));
     }
-
     if (!profile_labels.length) {
       profile_labels = fw.framework.profiles.map((p) => ({
         code: String(p.code || "").trim() || "PROFILE_1",
         name: String(p.name || "").trim() || String(p.code || "Profile"),
-        // optional frequency mapping if present in your JSON
-        frequency: (lookups.profilePrimaryFreq.get(String(p.code || "")) as AB | undefined) || undefined,
       }));
     }
-
-    // also fill test_name if still missing
     if (!test_name) test_name = fw.framework.name || "Profile Test";
   }
-
-  // Always set a sane test_name if still empty
   if (!test_name) test_name = "Profile Test";
 
-  // Currently profile mix percentages may be empty (until you persist per-profile totals).
-  const profile_totals: Record<string, number> = {};
+  // profile % — align to label order, unknown keys still included
+  const profile_percentages_raw = toPctMap(profileTotals);
   const profile_percentages: Record<string, number> = {};
-  const top_profile_code = profile_labels[0]?.code || "PROFILE_1";
-  const top_profile_name = profile_labels[0]?.name || "Top Profile";
+  for (const p of profile_labels) profile_percentages[p.code] = Number(profile_percentages_raw[p.code] || 0);
+
+  // top profile heuristic (highest % among labels; falls back to first)
+  let top_profile_code = profile_labels[0]?.code || "PROFILE_1";
+  let top_profile_name = profile_labels[0]?.name || "Top Profile";
+  let max = -1;
+  for (const p of profile_labels) {
+    const v = Number(profile_percentages[p.code] || 0);
+    if (v > max) {
+      max = v;
+      top_profile_code = p.code;
+      top_profile_name = p.name;
+    }
+  }
 
   return NextResponse.json({
     ok: true,
@@ -208,18 +219,16 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       taker: { id: tid },
       frequency_labels,
       frequency_totals: {
-        A: Number(freqTotals.A ?? 0),
-        B: Number(freqTotals.B ?? 0),
-        C: Number(freqTotals.C ?? 0),
-        D: Number(freqTotals.D ?? 0),
+        A: Number(freqTotals.A || 0),
+        B: Number(freqTotals.B || 0),
+        C: Number(freqTotals.C || 0),
+        D: Number(freqTotals.D || 0),
       },
-      frequency_percentages: freqPct,
-      // If you’ve added per-frequency scores /10 upstream, you can attach here:
-      // frequency_scores: { A: 0, B: 0, C: 0, D: 0 },
+      frequency_percentages,
       profile_labels,
-      profile_totals,
+      profile_totals: profileTotals,
       profile_percentages,
-      top_freq: topFreq,
+      top_freq,
       top_profile_code,
       top_profile_name,
       version: "portal-v1",
