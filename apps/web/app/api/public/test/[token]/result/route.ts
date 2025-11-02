@@ -1,272 +1,228 @@
 // apps/web/app/api/public/test/[token]/result/route.ts
-import { NextResponse } from 'next/server';
-import { getServerSupabase } from '@/lib/supabase/server';
-import { loadFrameworkBySlug, buildLookups, coerceOrgSlug } from '@/lib/frameworks';
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { loadFrameworkBySlug, buildLookups, coerceOrgSlug } from "@/lib/frameworks";
 
-const AB_VALUES = ['A', 'B', 'C', 'D'] as const;
+const AB_VALUES = ["A", "B", "C", "D"] as const;
 type AB = (typeof AB_VALUES)[number];
-type TotalsAB = Partial<Record<AB, number>>;
 
-function toPercentages(t: TotalsAB): Record<AB, number> {
-  const sum: number = AB_VALUES.reduce((acc, key) => acc + (Number(t?.[key] ?? 0)), 0);
+function sb() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+  return createClient(url, key, { db: { schema: "portal" } });
+}
+
+function toPctMap(t: Partial<Record<AB, number>>): Record<AB, number> {
+  const sum = AB_VALUES.reduce((acc, k) => acc + Number(t[k] ?? 0), 0);
   const out = {} as Record<AB, number>;
-  for (const key of AB_VALUES) {
-    const v = Number(t?.[key] ?? 0);
-    out[key] = sum > 0 ? v / sum : 0;
+  for (const k of AB_VALUES) {
+    const v = Number(t[k] ?? 0);
+    out[k] = sum > 0 ? v / sum : 0;
   }
   return out;
 }
 
-function topKey(t: TotalsAB): AB {
-  let best: AB = 'A';
+function topAB(t: Partial<Record<AB, number>>): AB {
+  let best: AB = "A";
   let max = -Infinity;
-  for (const key of AB_VALUES) {
-    const v = Number(t?.[key] ?? 0);
+  for (const k of AB_VALUES) {
+    const v = Number(t[k] ?? 0);
     if (v > max) {
+      best = k;
       max = v;
-      best = key;
     }
   }
   return best;
 }
 
-/**
- * Spreadsheet-style extras:
- * - frequency_scores: 0..10 relative to max frequency (rounded)
- * - frequency_calc: secondary % series (defaults to frequency_percentages)
- */
-function computeFrequencyDerivatives(
-  freqTotals: TotalsAB,
-  freqPct: Record<AB, number>
-) {
-  const maxVal =
-    Math.max(0, ...AB_VALUES.map((k) => Number(freqTotals?.[k] ?? 0))) || 1;
-
-  const scores: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
-  const calc: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
-
-  for (const k of AB_VALUES) {
-    const raw = Number(freqTotals?.[k] ?? 0);
-    const score0to10 = Math.round((raw / maxVal) * 10); // e.g., 5/3/6/8
-    scores[k] = score0to10;
-
-    // “Instinct Calc” default → same as percentages (tweak here if needed)
-    calc[k] = Number(freqPct[k] ?? 0);
-  }
-
-  return { scores, calc };
-}
-
-export async function GET(
-  req: Request,
-  { params }: { params: { token: string } },
-) {
+export async function GET(req: Request, { params }: { params: { token: string } }) {
+  const token = decodeURIComponent(params.token || "");
   const url = new URL(req.url);
-  const token = params.token;
-  const tid = url.searchParams.get('tid');
+  const tid = url.searchParams.get("tid");
 
-  if (!token) return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400 });
-  if (!tid)   return NextResponse.json({ ok: false, error: 'Missing taker id (?tid=)' }, { status: 400 });
+  if (!token) return NextResponse.json({ ok: false, error: "Missing token" }, { status: 400 });
+  if (!tid) return NextResponse.json({ ok: false, error: "Missing taker id (?tid=)" }, { status: 400 });
 
-  const sb = getServerSupabase();
+  const supa = sb();
 
-  // 1) Resolve link → test_id (+ org metadata if available)
-  let testId: string | null = null;
-  let orgSlug: string | null = null;
-  let testName: string | null = null;
+  // --- 1) Resolve link → test_id, org_id, org_slug, test_name (NO CC defaulting here)
+  let test_id: string | null = null;
+  let org_id: string | null = null;
+  let org_slug: string | null = null;
+  let test_name: string | null = null;
 
-  try {
-    const { data: link } = await sb
-      .from('portal.test_links')
-      .select('test_id, org_id')
-      .eq('token', token)
-      .limit(1)
+  // link
+  const { data: link, error: linkErr } = await supa
+    .from("test_links")
+    .select("test_id, org_id")
+    .eq("token", token)
+    .maybeSingle();
+  if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
+  if (!link?.test_id) return NextResponse.json({ ok: false, error: "Invalid or expired link" }, { status: 404 });
+
+  test_id = link.test_id;
+  org_id = link.org_id ?? null;
+
+  // v_org_tests has org_slug + test_name for a test_id (use if present)
+  {
+    const { data: vt } = await supa
+      .from("v_org_tests")
+      .select("org_slug, test_name")
+      .eq("test_id", test_id)
       .maybeSingle();
-
-    if (link?.test_id) testId = link.test_id;
-
-    if (testId) {
-      const { data: vt } = await sb
-        .from('portal.v_org_tests')
-        .select('org_slug, test_name')
-        .eq('test_id', testId)
-        .limit(1)
-        .maybeSingle();
-      if (vt?.org_slug) orgSlug = vt.org_slug as string;
-      if (vt?.test_name) testName = vt.test_name as string;
-    }
-
-    if (!orgSlug && link?.org_id) {
-      const { data: org } = await sb
-        .from('portal.organizations')
-        .select('slug')
-        .eq('id', link.org_id)
-        .limit(1)
-        .maybeSingle();
-      if (org?.slug) orgSlug = org.slug as string;
-    }
-  } catch {
-    // soft-fail; we’ll fall back to JSON framework if needed
+    if (vt?.org_slug) org_slug = String(vt.org_slug);
+    if (vt?.test_name) test_name = String(vt.test_name);
   }
 
-  // 2) Load frequency totals (results → submissions fallback)
-  let frequencyTotals: TotalsAB = { A: 0, B: 0, C: 0, D: 0 };
-  try {
-    const { data: resRow } = await sb
-      .from('portal.test_results')
-      .select('totals')
-      .eq('taker_id', tid)
-      .limit(1)
+  // fallback to organizations.slug if needed
+  if (!org_slug && org_id) {
+    const { data: org } = await supa
+      .from("organizations")
+      .select("slug")
+      .eq("id", org_id)
       .maybeSingle();
+    if (org?.slug) org_slug = String(org.slug);
+  }
 
-    if (resRow?.totals && typeof resRow.totals === 'object') {
-      const t = resRow.totals as Record<string, number>;
-      frequencyTotals = {
-        A: Number(t.A ?? 0),
-        B: Number(t.B ?? 0),
-        C: Number(t.C ?? 0),
-        D: Number(t.D ?? 0),
+  // As a last resort, coerce but prefer TEAM PUZZLE over CC
+  org_slug = coerceOrgSlug({ org_slug }) || "team-puzzle";
+
+  // --- 2) Load totals (results → submissions)
+  let freqTotals: Partial<Record<AB, number>> = { A: 0, B: 0, C: 0, D: 0 };
+
+  {
+    const r1 = await supa.from("test_results").select("totals").eq("taker_id", tid).maybeSingle();
+    const totalsObj = (r1.data?.totals ?? null) as any;
+    if (totalsObj && typeof totalsObj === "object") {
+      freqTotals = {
+        A: Number(totalsObj.A ?? totalsObj?.frequencies?.A ?? 0),
+        B: Number(totalsObj.B ?? totalsObj?.frequencies?.B ?? 0),
+        C: Number(totalsObj.C ?? totalsObj?.frequencies?.C ?? 0),
+        D: Number(totalsObj.D ?? totalsObj?.frequencies?.D ?? 0),
       };
     } else {
-      const { data: subRow } = await sb
-        .from('portal.test_submissions')
-        .select('totals')
-        .eq('taker_id', tid)
+      const r2 = await supa
+        .from("test_submissions")
+        .select("totals")
+        .eq("taker_id", tid)
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (subRow?.totals && typeof subRow.totals === 'object') {
-        const t = subRow.totals as Record<string, number>;
-        frequencyTotals = {
-          A: Number(t.A ?? 0),
-          B: Number(t.B ?? 0),
-          C: Number(t.C ?? 0),
-          D: Number(t.D ?? 0),
+      const t2 = (r2.data?.totals ?? null) as any;
+      if (t2 && typeof t2 === "object") {
+        freqTotals = {
+          A: Number(t2.A ?? t2?.frequencies?.A ?? 0),
+          B: Number(t2.B ?? t2?.frequencies?.B ?? 0),
+          C: Number(t2.C ?? t2?.frequencies?.C ?? 0),
+          D: Number(t2.D ?? t2?.frequencies?.D ?? 0),
         };
       }
     }
-  } catch {
-    // keep zeros
   }
 
-  // 3) Labels: DB first, then framework JSON fallback (per-org)
-  let frequencyLabels: { code: AB; name: string }[] = AB_VALUES.map((c) => ({ code: c, name: `Frequency ${c}` }));
-  let profileLabels: { code: string; name: string }[] = Array.from({ length: 8 }).map((_, i) => ({
-    code: `PROFILE_${i + 1}`,
-    name: `Profile ${i + 1}`,
-  }));
+  const freqPct = toPctMap(freqTotals);
+  const topFreq = topAB(freqTotals);
 
-  if (testId) {
-    try {
-      const { data: fl } = await sb
-        .from('portal.test_frequency_labels')
-        .select('frequency_code, frequency_name')
-        .eq('test_id', testId);
+  // --- 3) Labels: prefer DB tables for THIS test_id
+  // Tables: test_frequency_labels (frequency_code+name), test_profile_labels (profile_code+name+frequency_code)
+  let frequency_labels: { code: AB; name: string }[] = [];
+  let profile_labels: { code: string; name: string; frequency?: AB }[] = [];
 
-      if (Array.isArray(fl) && fl.length) {
-        const map = new Map<string, string>();
-        for (const r of fl) {
-          const c = String(r.frequency_code || '').toUpperCase();
-          const n = String(r.frequency_name || '').trim();
-          if (AB_VALUES.includes(c as AB) && n) map.set(c, n);
-        }
-        frequencyLabels = AB_VALUES.map((c) => ({
-          code: c,
-          name: map.get(c) || `Frequency ${c}`,
-        }));
+  // frequency labels
+  {
+    const { data: fl } = await supa
+      .from("test_frequency_labels")
+      .select("frequency_code, frequency_name")
+      .eq("test_id", test_id);
+
+    if (Array.isArray(fl) && fl.length) {
+      const map = new Map<AB, string>();
+      for (const row of fl) {
+        const code = String(row.frequency_code || "").toUpperCase() as AB;
+        const name = String(row.frequency_name || "").trim();
+        if (AB_VALUES.includes(code) && name) map.set(code, name);
       }
-    } catch { /* noop */ }
+      frequency_labels = AB_VALUES.map((c) => ({
+        code: c,
+        name: map.get(c) || `Frequency ${c}`,
+      }));
+    }
+  }
 
-    try {
-      const { data: pl } = await sb
-        .from('portal.test_profile_labels')
-        .select('profile_code, profile_name')
-        .eq('test_id', testId);
+  // profile labels
+  {
+    const { data: pl } = await supa
+      .from("test_profile_labels")
+      .select("profile_code, profile_name, frequency_code")
+      .eq("test_id", test_id);
 
-      if (Array.isArray(pl) && pl.length) {
-        profileLabels = pl.map((r: any) => ({
-          code: String(r.profile_code || '').trim() || 'PROFILE_1',
-          name: String(r.profile_name || '').trim() || 'Profile',
-        }));
-      } else {
-        throw new Error('no-profile-table-or-empty');
-      }
-    } catch {
-      // Fallback to JSON framework
-      const slug = coerceOrgSlug({ org_slug: orgSlug });
-      const fw = await loadFrameworkBySlug(slug);
-      const lookups = buildLookups(fw);
+    if (Array.isArray(pl) && pl.length) {
+      profile_labels = pl.map((r) => ({
+        code: String(r.profile_code || "").trim() || "PROFILE_1",
+        name: String(r.profile_name || "").trim() || "Profile",
+        frequency: (String(r.frequency_code || "").toUpperCase() as AB) || undefined,
+      }));
+    }
+  }
 
-      frequencyLabels = AB_VALUES.map((c) => ({
+  // If any label set is missing, load it from the JSON framework for THIS org_slug
+  if (!frequency_labels.length || !profile_labels.length) {
+    const slug = coerceOrgSlug({ org_slug }) || "team-puzzle"; // <- never default to CC here
+    const fw = await loadFrameworkBySlug(slug);
+    const lookups = buildLookups(fw);
+
+    if (!frequency_labels.length) {
+      frequency_labels = AB_VALUES.map((c) => ({
         code: c,
         name: lookups.freqByCode.get(c)?.name || `Frequency ${c}`,
       }));
-      profileLabels = fw.framework.profiles.map((p) => ({
-        code: String(p.code || '').trim() || 'PROFILE_1',
-        name: String(p.name || '').trim() || String(p.code || 'Profile'),
-      }));
-
-      if (!testName) testName = fw.framework.name || 'Profile Test';
-      if (!orgSlug) orgSlug = slug;
     }
-  } else {
-    // No testId → still fall back to JSON framework
-    const slug = coerceOrgSlug({ org_slug: orgSlug });
-    const fw = await loadFrameworkBySlug(slug);
-    const lookups = buildLookups(fw);
-    frequencyLabels = AB_VALUES.map((c) => ({
-      code: c,
-      name: lookups.freqByCode.get(c)?.name || `Frequency ${c}`,
-    }));
-    profileLabels = fw.framework.profiles.map((p) => ({
-      code: String(p.code || '').trim() || 'PROFILE_1',
-      name: String(p.name || '').trim() || String(p.code || 'Profile'),
-    }));
-    if (!testName) testName = fw.framework.name || 'Profile Test';
-    if (!orgSlug) orgSlug = slug;
+
+    if (!profile_labels.length) {
+      profile_labels = fw.framework.profiles.map((p) => ({
+        code: String(p.code || "").trim() || "PROFILE_1",
+        name: String(p.name || "").trim() || String(p.code || "Profile"),
+        // optional frequency mapping if present in your JSON
+        frequency: (lookups.profilePrimaryFreq.get(String(p.code || "")) as AB | undefined) || undefined,
+      }));
+    }
+
+    // also fill test_name if still missing
+    if (!test_name) test_name = fw.framework.name || "Profile Test";
   }
 
-  // Existing normalization
-  const frequency_percentages = toPercentages(frequencyTotals);
-  const top_freq = topKey(frequencyTotals);
+  // Always set a sane test_name if still empty
+  if (!test_name) test_name = "Profile Test";
 
-  // NEW: spreadsheet-style extras (Instinct ≙ Frequency)
-  const { scores: frequency_scores, calc: frequency_calc } =
-    computeFrequencyDerivatives(frequencyTotals, frequency_percentages);
-
-  // Placeholders for profile mix unless you also persist per-profile totals
+  // Currently profile mix percentages may be empty (until you persist per-profile totals).
   const profile_totals: Record<string, number> = {};
   const profile_percentages: Record<string, number> = {};
-  const top_profile_code = profileLabels[0]?.code || 'PROFILE_1';
-  const top_profile_name = profileLabels[0]?.name || 'Top Profile';
+  const top_profile_code = profile_labels[0]?.code || "PROFILE_1";
+  const top_profile_name = profile_labels[0]?.name || "Top Profile";
 
   return NextResponse.json({
     ok: true,
     data: {
-      org_slug: orgSlug || 'competency-coach',
-      test_name: testName || 'Profile Test',
+      org_slug,
+      test_name,
       taker: { id: tid },
-
-      // Frequency (Instinct)
-      frequency_labels: frequencyLabels,
+      frequency_labels,
       frequency_totals: {
-        A: frequencyTotals.A ?? 0,
-        B: frequencyTotals.B ?? 0,
-        C: frequencyTotals.C ?? 0,
-        D: frequencyTotals.D ?? 0,
+        A: Number(freqTotals.A ?? 0),
+        B: Number(freqTotals.B ?? 0),
+        C: Number(freqTotals.C ?? 0),
+        D: Number(freqTotals.D ?? 0),
       },
-      frequency_percentages,
-      frequency_scores,     // 0..10 scale
-      frequency_calc,       // secondary % series (same as percentages by default)
-
-      // Profile
-      profile_labels: profileLabels,
+      frequency_percentages: freqPct,
+      // If you’ve added per-frequency scores /10 upstream, you can attach here:
+      // frequency_scores: { A: 0, B: 0, C: 0, D: 0 },
+      profile_labels,
       profile_totals,
       profile_percentages,
-
-      top_freq,
+      top_freq: topFreq,
       top_profile_code,
       top_profile_name,
-      version: 'portal-v1',
+      version: "portal-v1",
     },
   });
 }
