@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-// CORS — adjust if you lock this down
+// CORS — relax or lock down as you prefer
 const ALLOWED_ORIGIN = "*";
 function cors(res: NextResponse) {
   res.headers.set("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
@@ -31,21 +31,15 @@ function getAdminClient() {
   const key =
     process.env.SUPABASE_SERVICE_ROLE ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY;
+    process.env.SUPABASE_SERVICE_KEY; // keep all fallbacks harmlessly supported
   if (!url || !key) {
     throw new Error("Supabase env missing: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE");
   }
-  // Force the portal schema
+  // Your data lives in the `portal` schema
   return createClient(url, key, {
     auth: { persistSession: false },
     db: { schema: "portal" },
   });
-}
-
-// Helper: token validity
-function isExpired(expiresAt: string | null | undefined) {
-  if (!expiresAt) return false;
-  return new Date(expiresAt).getTime() <= Date.now();
 }
 
 export async function POST(req: Request, ctx: { params: { token: string } }) {
@@ -57,28 +51,27 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       return cors(NextResponse.json({ error: "Invalid token." }, { status: 400 }));
     }
 
+    // Parse optional identity fields
     let body: StartBody = {};
     try {
       body = (await req.json()) ?? {};
     } catch {
-      // no body supplied is fine
+      /* empty body is fine */
     }
-
     const email =
-      typeof body.email === "string" && body.email.trim().length > 0
+      typeof body.email === "string" && body.email.trim()
         ? body.email.trim().toLowerCase()
         : null;
-
     const first_name = body.first_name?.trim() || null;
     const last_name = body.last_name?.trim() || null;
     const company = body.company?.trim() || null;
     const role_title = body.role_title?.trim() || null;
     const meta = body.meta ?? null;
 
-    // 1) Link lookup — select * to avoid missing-column errors (expires_at vs valid_until, uses vs use_count, etc.)
+    // 1) Link lookup (only columns that actually exist in portal.test_links)
     const { data: link, error: linkErr } = await supabase
       .from("test_links")
-      .select("*")
+      .select("id, token, org_id, test_id, max_uses, use_count")
       .eq("token", token)
       .maybeSingle();
 
@@ -93,20 +86,13 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     if (!link) {
       return cors(NextResponse.json({ error: "Test link not found." }, { status: 404 }));
     }
-    if ((link as any).is_disabled === true) {
-      return cors(NextResponse.json({ error: "This link is disabled." }, { status: 403 }));
-    }
 
-    // Flexible expiry field
-    const expiresAt: string | null =
-      (link as any).expires_at ?? (link as any).valid_until ?? null;
-    if (isExpired(expiresAt)) {
-      return cors(NextResponse.json({ error: "This link has expired." }, { status: 410 }));
-    }
-
-    // Flexible counters
-    const currentUses = Number((link as any).uses ?? (link as any).use_count ?? 0);
-    const maxUses = Number.isFinite((link as any).max_uses) ? Number((link as any).max_uses) : null;
+    // 2) Usage limit check (no expiry in this schema)
+    const currentUses = Number(link.use_count ?? 0);
+    const maxUses =
+      typeof link.max_uses === "number" && Number.isFinite(link.max_uses)
+        ? (link.max_uses as number)
+        : null;
     if (maxUses !== null && currentUses >= maxUses) {
       return cors(
         NextResponse.json(
@@ -116,37 +102,46 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       );
     }
 
-    // 2) Test exists / active
+    // 3) Test exists / active (portal.tests)
     const { data: test, error: testErr } = await supabase
       .from("tests")
       .select("id, org_id, name, slug, is_active")
-      .eq("id", (link as any).test_id)
+      .eq("id", link.test_id)
       .maybeSingle();
 
     if (testErr) {
-      return cors(NextResponse.json({ error: "Test lookup failed.", details: testErr.message }, { status: 500 }));
+      return cors(
+        NextResponse.json(
+          { error: "Test lookup failed.", details: testErr.message },
+          { status: 500 }
+        )
+      );
     }
     if (!test) return cors(NextResponse.json({ error: "Test not found." }, { status: 404 }));
-    if (test.org_id !== (link as any).org_id)
+    if (test.org_id !== link.org_id)
       return cors(NextResponse.json({ error: "Test not in this org." }, { status: 403 }));
     if (test.is_active === false)
       return cors(NextResponse.json({ error: "This test is not active." }, { status: 403 }));
 
-    // 3) Upsert/insert test taker (with contact fields)
+    // 4) Insert/upsert test_takers (portal.test_takers) with contact fields
     const nowIso = new Date().toISOString();
     let takerId: string | null = null;
     let newlyCreated = false;
 
     if (email) {
+      // Try existing by unique triple
       const { data: existing, error: existErr } = await supabase
         .from("test_takers")
         .select("id, status")
-        .match({ org_id: (link as any).org_id, test_id: (link as any).test_id, email })
+        .match({ org_id: link.org_id, test_id: link.test_id, email })
         .maybeSingle();
 
       if (existErr) {
         return cors(
-          NextResponse.json({ error: "Lookup test taker failed.", details: existErr.message }, { status: 500 })
+          NextResponse.json(
+            { error: "Lookup test taker failed.", details: existErr.message },
+            { status: 500 }
+          )
         );
       }
 
@@ -169,8 +164,8 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         const { data: inserted, error: insErr } = await supabase
           .from("test_takers")
           .insert({
-            org_id: (link as any).org_id,
-            test_id: (link as any).test_id,
+            org_id: link.org_id,
+            test_id: link.test_id,
             email,
             first_name,
             last_name,
@@ -185,16 +180,21 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
           .maybeSingle();
 
         if (insErr) {
-          const dup = typeof insErr.message === "string" && insErr.message.toLowerCase().includes("duplicate key");
-          if (dup) {
+          // Race-safe reselect on duplicate
+          if (insErr.message?.toLowerCase().includes("duplicate key")) {
             const { data: reget } = await supabase
               .from("test_takers")
               .select("id")
-              .match({ org_id: (link as any).org_id, test_id: (link as any).test_id, email })
+              .match({ org_id: link.org_id, test_id: link.test_id, email })
               .maybeSingle();
             takerId = reget?.id ?? null;
           } else {
-            return cors(NextResponse.json({ error: "Could not start test.", details: insErr.message }, { status: 500 }));
+            return cors(
+              NextResponse.json(
+                { error: "Could not start test.", details: insErr.message },
+                { status: 500 }
+              )
+            );
           }
         } else {
           takerId = inserted?.id ?? null;
@@ -202,11 +202,12 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         }
       }
     } else {
+      // Anonymous: always insert new taker row
       const { data: inserted, error: insErr } = await supabase
         .from("test_takers")
         .insert({
-          org_id: (link as any).org_id,
-          test_id: (link as any).test_id,
+          org_id: link.org_id,
+          test_id: link.test_id,
           email: null,
           first_name,
           last_name,
@@ -221,30 +222,42 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         .maybeSingle();
 
       if (insErr) {
-        return cors(NextResponse.json({ error: "Could not start test.", details: insErr.message }, { status: 500 }));
+        return cors(
+          NextResponse.json(
+            { error: "Could not start test.", details: insErr.message },
+            { status: 500 }
+          )
+        );
       }
       takerId = inserted?.id ?? null;
       newlyCreated = true;
     }
 
     if (!takerId) {
-      return cors(NextResponse.json({ error: "Failed to create or retrieve test taker." }, { status: 500 }));
+      return cors(
+        NextResponse.json(
+          { error: "Failed to create or retrieve test taker." },
+          { status: 500 }
+        )
+      );
     }
 
-    // 4) Increment counter only when newly created — update both possible fields
+    // 5) Increment use_count only when newly created
     if (newlyCreated) {
-      const next = currentUses + 1;
-      await supabase.from("test_links").update({ uses: next, use_count: next }).eq("id", (link as any).id);
+      await supabase
+        .from("test_links")
+        .update({ use_count: currentUses + 1 })
+        .eq("id", link.id);
     }
 
-    // 5) Respond with taker id (so UI can append ?tid=…)
+    // 6) Respond with taker.id (callers can append ?tid=… in the redirect)
     return cors(
       NextResponse.json(
         {
           ok: true as const,
           startPath: `/t/${token}/start`,
           test: { id: test.id, name: test.name ?? null, slug: test.slug ?? null },
-          link: { id: (link as any).id, token: (link as any).token, expires_at: expiresAt },
+          link: { id: link.id, token: link.token },
           taker: { id: takerId, email, status: "started" as const },
         },
         { status: 200 }
@@ -253,7 +266,10 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
   } catch (err: any) {
     return cors(
       NextResponse.json(
-        { error: "Unexpected server error.", details: typeof err?.message === "string" ? err.message : String(err) },
+        {
+          error: "Unexpected server error.",
+          details: typeof err?.message === "string" ? err.message : String(err),
+        },
         { status: 500 }
       )
     );
