@@ -15,7 +15,8 @@ type StartPayload = {
   ok: true;
   startPath: string;
   test: { id: string; name: string | null; slug: string | null };
-  link: { id: string; token: string; expires_at: string | null };
+  // expires_at is optional / sometimes absent in your schema and responses
+  link: { id: string; token: string; expires_at?: string | null };
   taker: { id: string; email: string | null; status: 'started' };
 };
 
@@ -29,18 +30,14 @@ type SubmitBody = {
 export default function PublicTestClient({ token }: { token: string }) {
   const router = useRouter();
   const sp = useSearchParams();
-
-  // If you already pass email/name via URL or parent, you can read them here.
   const presetEmail = sp.get('email') || '';
 
-  // Local state
   const [takerId, setTakerId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>('');
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Record<string, number>>({}); // qid -> 1..N
 
-  // ---- 1) Start the test (gets taker_id) ----
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -48,14 +45,11 @@ export default function PublicTestClient({ token }: { token: string }) {
         setLoading(true);
         setErr('');
 
-        // POST /api/test/[token]/start
         const startRes = await fetch(`/api/test/${encodeURIComponent(token)}/start`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             email: presetEmail || null,
-            // add first_name/last_name/company/role_title here if you collect them
-            // first_name, last_name, company, role_title
             meta: null,
           }),
         });
@@ -68,11 +62,8 @@ export default function PublicTestClient({ token }: { token: string }) {
 
         const startPayload = startJson as StartPayload;
         if (!startPayload.taker?.id) throw new Error('No taker id returned from start');
-
-        // Save TID
         if (alive) setTakerId(startPayload.taker.id);
 
-        // ---- 2) Fetch questions ----
         const qRes = await fetch(`/api/public/test/${encodeURIComponent(token)}/questions`, {
           cache: 'no-store',
         });
@@ -101,21 +92,19 @@ export default function PublicTestClient({ token }: { token: string }) {
   );
 
   function setAnswer(qid: string, optionIndex0: number) {
-    // store as 1..N for the submit API
-    setAnswers((prev) => ({ ...prev, [qid]: optionIndex0 + 1 }));
+    setAnswers((prev) => ({ ...prev, [qid]: optionIndex0 + 1 })); // store as 1..N
   }
 
   async function onSubmit() {
     try {
       if (!takerId) throw new Error('Missing taker id');
 
-      // Build payload answers in the shape the API expects
       const payload: SubmitBody = {
         taker_id: takerId,
         answers: ordered
           .map((q) => ({
             question_id: q.id,
-            value: answers[q.id] ?? 0, // 1..N (0 means skipped)
+            value: answers[q.id] ?? 0,
           }))
           .filter((a) => a.value > 0),
       };
@@ -132,7 +121,6 @@ export default function PublicTestClient({ token }: { token: string }) {
         throw new Error(j?.error || `Submit failed (${res.status})`);
       }
 
-      // Go to result (include tid so Result page & Report work)
       router.push(`/t/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(takerId)}`);
     } catch (e: any) {
       setErr(String(e?.message || e));
@@ -178,7 +166,7 @@ export default function PublicTestClient({ token }: { token: string }) {
 
       <ol className="space-y-6">
         {ordered.map((q, i) => {
-          const selected1 = answers[q.id] ?? 0; // 1..N
+          const selected1 = answers[q.id] ?? 0;
           return (
             <li key={q.id} className="rounded-xl border p-4">
               <div className="font-medium mb-3">

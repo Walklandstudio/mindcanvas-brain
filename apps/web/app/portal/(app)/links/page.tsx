@@ -9,7 +9,7 @@ type LinkRow = {
   test_name?: string;
   use_count?: number | null;
   max_uses?: number | null;
-  expires_at?: string | null;
+  // expires_at?: string | null; // removed from UI – your table doesn’t have it
   created_at?: string | null;
 };
 
@@ -56,18 +56,13 @@ export default function LinksManagerPage() {
     <main className="p-6 space-y-6">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Test Links</h1>
-        <a
-          href="/portal/tests"
-          className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
-        >
+        <a href="/portal/tests" className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50">
           ← Back to Tests
         </a>
       </header>
 
       {err && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
-          {err}
-        </div>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">{err}</div>
       )}
 
       {loading ? (
@@ -83,7 +78,6 @@ export default function LinksManagerPage() {
                 <th className="py-2 pr-4">Test</th>
                 <th className="py-2 pr-4">Uses</th>
                 <th className="py-2 pr-4">Max</th>
-                <th className="py-2 pr-4">Expires</th>
                 <th className="py-2 pr-4">Created</th>
                 <th className="py-2 pr-4" />
               </tr>
@@ -95,8 +89,9 @@ export default function LinksManagerPage() {
                   <td className="py-2 pr-4">{r.test_name || r.test_id}</td>
                   <td className="py-2 pr-4">{r.use_count ?? 0}</td>
                   <td className="py-2 pr-4">{r.max_uses ?? "—"}</td>
-                  <td className="py-2 pr-4">{r.expires_at ? new Date(r.expires_at).toLocaleString() : "—"}</td>
-                  <td className="py-2 pr-4">{r.created_at ? new Date(r.created_at).toLocaleString() : "—"}</td>
+                  <td className="py-2 pr-4">
+                    {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
+                  </td>
                   <td className="py-2 pr-4">
                     <button
                       onClick={() => del(r.id)}
