@@ -1,10 +1,17 @@
 // apps/web/app/api/public/test/[token]/result/route.ts
 import { NextResponse } from 'next/server';
-import { getServerSupabase } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 
 const AB_VALUES = ['A', 'B', 'C', 'D'] as const;
 type AB = (typeof AB_VALUES)[number];
 type TotalsAB = Partial<Record<AB, number>>;
+
+function supa() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  // Use service role on the server if available; else anon
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+  return createClient(url, key, { db: { schema: 'portal' } });
+}
 
 function toPercentages(t: TotalsAB): Record<AB, number> {
   const sum = AB_VALUES.reduce((acc, k) => acc + Number(t?.[k] ?? 0), 0);
@@ -36,7 +43,7 @@ function zeroTotals(freq: TotalsAB, prof: Record<string, number>) {
   return sf === 0 && sp === 0;
 }
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request, { params }: { params: { token: string } }) {
   const url = new URL(req.url);
@@ -46,33 +53,24 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   if (!token) return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400 });
   if (!tid)   return NextResponse.json({ ok: false, error: 'Missing taker id (?tid=)' }, { status: 400 });
 
-  const sb = getServerSupabase();
+  const sb = supa();
 
-  // 1) Resolve link → test_id (+ org metadata if available)
-  const { data: link, error: linkErr } = await sb
-    .from('portal.test_links')
-    .select('test_id, org_id')
-    .eq('token', token)
-    .maybeSingle();
-  if (linkErr) return NextResponse.json({ ok: false, error: linkErr.message }, { status: 500 });
-  if (!link?.test_id) return NextResponse.json({ ok: false, error: 'test not found for token' }, { status: 404 });
-
-  const testId = link.test_id as string;
+  // 1) link -> test_id
+  const link = await sb.from('test_links').select('test_id').eq('token', token).maybeSingle();
+  if (link.error) return NextResponse.json({ ok: false, error: link.error.message }, { status: 500 });
+  if (!link.data?.test_id) return NextResponse.json({ ok: false, error: 'test not found for token' }, { status: 404 });
+  const testId = link.data.test_id as string;
 
   // 2) Load totals (prefer results → latest submission) + harvest raw answers for recompute
   let rawTotals: any = null;
   let rawAnswers: Array<{ question_id: string; value: number }> = [];
 
-  const r1 = await sb
-    .from('portal.test_results')
-    .select('totals')
-    .eq('taker_id', tid)
-    .maybeSingle();
+  const r1 = await sb.from('test_results').select('totals').eq('taker_id', tid).maybeSingle();
   rawTotals = r1.data?.totals ?? null;
 
   if (!rawTotals) {
     const r2 = await sb
-      .from('portal.test_submissions')
+      .from('test_submissions')
       .select('totals, raw_answers, answers_json')
       .eq('taker_id', tid)
       .order('created_at', { ascending: false })
@@ -92,37 +90,34 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   let frequencyTotals = normalizeFreqTotals(rawTotals);
   let profileTotals   = normalizeProfileTotals(rawTotals);
 
-  // 3) Load labels for THIS test (no cross-fallbacks)
+  // 3) Labels for THIS test (no cross-fallbacks)
   const fl = await sb
-    .from('portal.test_frequency_labels')
+    .from('test_frequency_labels')
     .select('frequency_code, frequency_name')
     .eq('test_id', testId);
   if (fl.error) return NextResponse.json({ ok: false, error: fl.error.message }, { status: 500 });
-  if (!fl.data || fl.data.length === 0) {
-    return NextResponse.json({ ok: false, error: 'labels_missing_for_test_frequency' }, { status: 500 });
-  }
+  if (!fl.data?.length) return NextResponse.json({ ok: false, error: 'labels_missing_for_test_frequency' }, { status: 500 });
+
   const frequencyLabels = AB_VALUES.map((c) => ({
     code: c,
     name: fl.data.find((r: any) => String(r.frequency_code).toUpperCase() === c)?.frequency_name || `Frequency ${c}`,
   }));
 
   const pl = await sb
-    .from('portal.test_profile_labels')
+    .from('test_profile_labels')
     .select('profile_code, profile_name, frequency_code')
     .eq('test_id', testId);
   if (pl.error) return NextResponse.json({ ok: false, error: pl.error.message }, { status: 500 });
-  if (!pl.data || pl.data.length === 0) {
-    return NextResponse.json({ ok: false, error: 'labels_missing_for_test_profile' }, { status: 500 });
-  }
+  if (!pl.data?.length) return NextResponse.json({ ok: false, error: 'labels_missing_for_test_profile' }, { status: 500 });
+
   const profileLabels = pl.data.map((r: any) => ({
     code: String(r.profile_code || '').trim(),
     name: String(r.profile_name || '').trim(),
     frequency: String(r.frequency_code || '').trim().toUpperCase() as AB | null,
   }));
 
-  // 4) Recompute if needed (missing/zero totals and we have answers)
+  // 4) Recompute if needed (zero totals + we have answers)
   if (zeroTotals(frequencyTotals, profileTotals) && rawAnswers.length > 0) {
-    // Build lookups for recompute
     const nameToCode = new Map<string, string>();
     const codeToFreq = new Map<string, AB>();
     for (const p of profileLabels) {
@@ -130,10 +125,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       if (p.code && p.frequency) codeToFreq.set(p.code, p.frequency);
     }
 
-    const qs = await sb
-      .from('portal.test_questions')
-      .select('id, profile_map')
-      .eq('test_id', testId);
+    const qs = await sb.from('test_questions').select('id, profile_map').eq('test_id', testId);
     if (qs.error) return NextResponse.json({ ok: false, error: qs.error.message }, { status: 500 });
 
     const mapByQ = new Map<string, Array<{ profile: string; points: number }>>();
@@ -141,10 +133,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       const a = Array.isArray((r as any).profile_map) ? (r as any).profile_map : [];
       mapByQ.set(
         r.id,
-        a.map((x: any) => ({
-          profile: String(x?.profile ?? '').trim(),
-          points: Number(x?.points ?? 0),
-        }))
+        a.map((x: any) => ({ profile: String(x?.profile ?? '').trim(), points: Number(x?.points ?? 0) }))
       );
     }
 
@@ -159,7 +148,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       if (!entry) continue;
 
       let pcode = entry.profile;
-      // allow profile names → codes
       if (pcode && !/^P(?:ROFILE)?[_\s-]?\d+$/i.test(pcode)) {
         const byName = nameToCode.get(pcode);
         if (byName) pcode = byName;
@@ -181,19 +169,17 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     };
     profileTotals = profTotals;
 
-    // Persist so next call is fast (use nested totals)
+    // Persist nested totals for fast subsequent loads
     await sb
-      .from('portal.test_results')
+      .from('test_results')
       .upsert({ taker_id: tid, totals: { frequencies: frequencyTotals, profiles: profileTotals } }, { onConflict: 'taker_id' });
   }
 
-  // 5) Build response
+  // 5) Build response with percentages
   const freqPct = toPercentages(frequencyTotals);
   const pSum = Object.values(profileTotals).reduce((a,b)=> a + Number(b||0), 0);
   const profilePercentages: Record<string, number> = {};
-  if (pSum > 0) {
-    for (const [k,v] of Object.entries(profileTotals)) profilePercentages[k] = Number(v||0) / pSum;
-  }
+  if (pSum > 0) for (const [k,v] of Object.entries(profileTotals)) profilePercentages[k] = Number(v||0) / pSum;
 
   const topFreq =
     (Object.entries(frequencyTotals).sort((a,b)=> Number(b[1]||0)-Number(a[1]||0))[0]?.[0] as AB) || 'A';
@@ -207,7 +193,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     data: {
       taker: { id: tid },
 
-      // Frequencies
       frequency_labels: frequencyLabels,
       frequency_totals: {
         A: Number(frequencyTotals.A || 0),
@@ -222,7 +207,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         D: Number(freqPct.D || 0),
       },
 
-      // Profiles
       profile_labels: profileLabels.map(p => ({ code: p.code, name: p.name })),
       profile_totals: profileTotals,
       profile_percentages: profilePercentages,
