@@ -9,12 +9,12 @@ function makeToken(prefix = 'tp'): string {
   return `${prefix}${Date.now().toString(36)}${rand}`;
 }
 
-async function createLink(testId: string, opts?: { maxUses?: number; kind?: 'full' | 'free'; expiresAt?: string | null; }) {
+async function createLink(testId: string, opts?: { maxUses?: number | null }) {
   const sb = await getAdminClient();
 
-  // Find the test and its org_id BY ID, not cookie
+  // Find the test (BY ID) and its org_id
   const tr = await sb
-    .from('org_tests')
+    .from('tests')
     .select('id, org_id, slug')
     .eq('id', testId)
     .maybeSingle();
@@ -23,13 +23,11 @@ async function createLink(testId: string, opts?: { maxUses?: number; kind?: 'ful
   if (!tr.data?.id) return { status: 404, json: { ok: false, error: `Test not found: ${testId}` } };
 
   const token = makeToken('tp');
-  const max_uses = Number.isFinite(opts?.maxUses) ? Number(opts!.maxUses) : 1;
-  const kind = (opts?.kind ?? 'full') as 'full' | 'free';
-  const expires_at = opts?.expiresAt ? new Date(opts.expiresAt!).toISOString() : null;
+  const max_uses = Number.isFinite(opts?.maxUses as any) ? Number(opts!.maxUses) : 1;
 
   const ins = await sb
     .from('test_links')
-    .insert([{ org_id: tr.data.org_id, test_id: tr.data.id, token, max_uses, kind, expires_at }])
+    .insert([{ org_id: tr.data.org_id, test_id: tr.data.id, token, max_uses }])
     .select('token')
     .maybeSingle();
 
@@ -38,14 +36,14 @@ async function createLink(testId: string, opts?: { maxUses?: number; kind?: 'ful
   const appOrigin = process.env.APP_ORIGIN || '';
   const url =
     appOrigin && appOrigin.startsWith('http')
-      ? `${appOrigin.replace(/\/+$/, '')}/t/${token}`
-      : `/t/${token}`;
+      ? `${appOrigin.replace(/\/+$/, '')}/t/${ins.data!.token}`
+      : `/t/${ins.data!.token}`;
 
-  return { status: 201, json: { ok: true, token, url } };
+  return { status: 201, json: { ok: true, token: ins.data!.token, url } };
 }
 
 // Next 15: params is a Promise
-export async function GET(req: Request, ctx: { params: Promise<Params> }) {
+export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
   try {
     const { id } = await ctx.params;
     const res = await createLink(id, {});
@@ -60,9 +58,7 @@ export async function POST(req: Request, ctx: { params: Promise<Params> }) {
     const { id } = await ctx.params;
     const body = await req.json().catch(() => ({}));
     const res = await createLink(id, {
-      maxUses: body?.maxUses,
-      kind: body?.kind,
-      expiresAt: body?.expiresAt ?? null,
+      maxUses: body?.maxUses ?? null,
     });
     return NextResponse.json(res.json, { status: res.status });
   } catch (e: any) {

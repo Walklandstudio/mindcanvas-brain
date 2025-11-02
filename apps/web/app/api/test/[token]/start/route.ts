@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-// CORS — relax or restrict as you need
 const ALLOWED_ORIGIN = "*";
 function cors(res: NextResponse) {
   res.headers.set("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
@@ -35,40 +34,40 @@ function getAdminClient() {
   if (!url || !key) {
     throw new Error("Supabase env missing: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE");
   }
-  // Your data lives in the `portal` schema
   return createClient(url, key, {
     auth: { persistSession: false },
-    db: { schema: "portal" },
+    db: { schema: "portal" }, // 👈 pin to portal schema
   });
 }
 
 export async function POST(req: Request, ctx: { params: { token: string } }) {
-  try {
-    const supabase = getAdminClient();
-    const token = ctx.params?.token;
+  const supabase = getAdminClient();
+  const token = ctx.params?.token;
 
+  try {
     if (!token || typeof token !== "string" || token.length < 6) {
       return cors(NextResponse.json({ error: "Invalid token." }, { status: 400 }));
     }
 
-    // Parse optional fields
     let body: StartBody = {};
     try {
       body = (await req.json()) ?? {};
     } catch {
       /* empty body allowed */
     }
+
     const email =
       typeof body.email === "string" && body.email.trim()
         ? body.email.trim().toLowerCase()
         : null;
+
     const first_name = body.first_name?.trim() || null;
     const last_name = body.last_name?.trim() || null;
     const company = body.company?.trim() || null;
     const role_title = body.role_title?.trim() || null;
     const meta = body.meta ?? null;
 
-    // 1) Lookup link (matching your schema)
+    // 1) Link lookup — ONLY columns that exist in portal.test_links
     const { data: link, error: linkErr } = await supabase
       .from("test_links")
       .select("id, token, org_id, test_id, max_uses, use_count")
@@ -87,7 +86,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       return cors(NextResponse.json({ error: "Test link not found." }, { status: 404 }));
     }
 
-    // 2) Usage guard (no expires/is_disabled in your table)
+    // 2) Usage limit (no expires/is_disabled in your schema)
     const currentUses = Number(link.use_count ?? 0);
     const maxUses =
       typeof link.max_uses === "number" && Number.isFinite(link.max_uses)
@@ -102,7 +101,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       );
     }
 
-    // 3) Verify test exists and belongs to the same org (select only existing cols)
+    // 3) Verify test belongs to org — ONLY columns we know exist
     const { data: test, error: testErr } = await supabase
       .from("tests")
       .select("id, org_id, name, slug")
@@ -122,13 +121,12 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       return cors(NextResponse.json({ error: "Test not in this org." }, { status: 403 }));
     }
 
-    // 4) Insert/upsert test_takers (with contact fields)
+    // 4) Upsert/insert test_takers (with contact fields)
     const nowIso = new Date().toISOString();
     let takerId: string | null = null;
     let newlyCreated = false;
 
     if (email) {
-      // try existing
       const { data: existing, error: existErr } = await supabase
         .from("test_takers")
         .select("id, status")
@@ -179,7 +177,6 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
           .maybeSingle();
 
         if (insErr) {
-          // race-safe duplicate fallback
           if (insErr.message?.toLowerCase().includes("duplicate key")) {
             const { data: reget } = await supabase
               .from("test_takers")
@@ -201,7 +198,6 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         }
       }
     } else {
-      // anonymous
       const { data: inserted, error: insErr } = await supabase
         .from("test_takers")
         .insert({
@@ -233,23 +229,15 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     }
 
     if (!takerId) {
-      return cors(
-        NextResponse.json(
-          { error: "Failed to create or retrieve test taker." },
-          { status: 500 }
-        )
-      );
+      return cors(NextResponse.json({ error: "Failed to create or retrieve test taker." }, { status: 500 }));
     }
 
-    // 5) Bump use_count only for new takers
+    // 5) Bump use_count if newly created
     if (newlyCreated) {
-      await supabase
-        .from("test_links")
-        .update({ use_count: currentUses + 1 })
-        .eq("id", link.id);
+      await supabase.from("test_links").update({ use_count: currentUses + 1 }).eq("id", link.id);
     }
 
-    // 6) Respond (UI can redirect to /t/{token}/start?tid={id})
+    // 6) Respond (includes taker.id for ?tid=)
     return cors(
       NextResponse.json(
         {
@@ -265,10 +253,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
   } catch (err: any) {
     return cors(
       NextResponse.json(
-        {
-          error: "Unexpected server error.",
-          details: typeof err?.message === "string" ? err.message : String(err),
-        },
+        { error: "Unexpected server error.", details: err?.message ?? String(err) },
         { status: 500 }
       )
     );

@@ -1,114 +1,125 @@
-// apps/web/app/t/[token]/submit/route.ts
-import { NextResponse } from 'next/server';
-import { getAdminClient } from '@/app/_lib/portal';
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-export const runtime = 'nodejs';
+type AB = "A" | "B" | "C" | "D";
+type PMEntry = { points?: number; profile?: string };
+type QuestionRow = { id: string; idx?: number | string | null; profile_map?: PMEntry[] | null };
 
-// simple in-memory throttle (per Vercel instance)
-const WINDOW_MS = 60_000;
-const LIMIT_PER_IP = 12;
-const buckets = new Map<string, { count: number; resetAt: number }>();
-
-function throttle(ip: string) {
-  const now = Date.now();
-  const b = buckets.get(ip);
-  if (!b || b.resetAt < now) {
-    buckets.set(ip, { count: 1, resetAt: now + WINDOW_MS });
-    return false;
-  }
-  if (b.count >= LIMIT_PER_IP) return true;
-  b.count += 1;
-  return false;
+function supa() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY!;
+  return createClient(url, key, { db: { schema: "portal" }, auth: { persistSession: false } });
 }
 
-export async function POST(req: Request) {
-  // grab token from URL: /t/{token}/submit
-  const { pathname } = new URL(req.url);
-  const parts = pathname.split('/'); // ["", "t", "{token}", "submit"]
-  const token = parts[2] || '';
-
-  const ip =
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    '0.0.0.0';
-
-  if (throttle(ip)) {
-    return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 });
+function profileCodeToFreq(code: string): AB | null {
+  const s = String(code || "").trim().toUpperCase();
+  const m = s.match(/^P(?:ROFILE)?[_\s-]?(\d+)$/); // PROFILE_1 or P1
+  if (m) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= 8) return (n <= 2 ? "A" : n <= 4 ? "B" : n <= 6 ? "C" : "D") as AB;
   }
+  const ch = s[0];
+  return ch === "A" || ch === "B" || ch === "C" || ch === "D" ? (ch as AB) : null;
+}
 
-  const sb = await getAdminClient();
-
-  // 1) Load link
-  const { data: link, error: linkErr } = await sb
-    .from('test_links')
-    .select('id, org_id, test_id, token, max_uses, expires_at')
-    .eq('token', token)
-    .maybeSingle();
-
-  if (linkErr || !link) {
-    return NextResponse.json({ error: 'Invalid link.' }, { status: 400 });
+function toZeroBasedSelected(row: any): number | null {
+  if (row && typeof row.value === "number" && Number.isFinite(row.value)) {
+    const sel = row.value - 1;
+    return sel >= 0 ? sel : null;
   }
+  if (typeof row.index === "number") return row.index;
+  if (typeof row.selected === "number") return row.selected;
+  if (typeof row.selected_index === "number") return row.selected_index;
+  if (row?.value && typeof row.value.index === "number") return row.value.index;
+  return null;
+}
 
-  // 2) Expiry check
-  if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) {
-    return NextResponse.json({ error: 'Link expired.' }, { status: 410 });
-  }
+function asNumber(x: any, d = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : d;
+}
 
-  // 3) Uses check
-  const usedRes = await sb
-    .from('test_submissions')
-    .select('id', { count: 'exact', head: true })
-    .eq('org_id', link.org_id)
-    .eq('test_id', link.test_id)
-    .eq('link_token', token);
+export async function POST(req: Request, { params }: { params: { token: string } }) {
+  try {
+    const token = params.token;
+    if (!token) return NextResponse.json({ ok: false, error: "Missing token" }, { status: 400 });
 
-  const usedCount = usedRes.count ?? 0;
-  if (usedCount >= (link.max_uses ?? 1)) {
-    return NextResponse.json({ error: 'Link already used.' }, { status: 409 });
-  }
+    const body = await req.json().catch(() => ({} as any));
+    const takerId: string | undefined = body.taker_id || body.takerId || body.tid;
+    if (!takerId) return NextResponse.json({ ok: false, error: "Missing taker_id" }, { status: 400 });
 
-  // 4) Parse payload
-  const body = await req.json().catch(() => ({}));
-  const takerEmail = (body?.taker_email || '').trim();
-  const takerName  = (body?.taker_name  || body?.name || '').trim();
-  const totals     = body?.totals ?? {};
-  const answers    = body?.answers ?? {};
+    const answers: any[] = Array.isArray(body.answers) ? body.answers : [];
+    const sb = supa();
 
-  // 5) Optional taker upsert (no GHL)
-  let takerId: string | null = null;
-  if (takerEmail) {
-    const upsert = await sb
-      .from('test_takers')
-      .upsert(
-        [{ org_id: link.org_id, email: takerEmail, name: takerName || null }],
-        { onConflict: 'org_id,email' }
-      )
-      .select('id')
+    // Resolve taker → test
+    const { data: taker, error: takerErr } = await sb
+      .from("test_takers")
+      .select("id, test_id, link_token, first_name, last_name, email, company, role_title")
+      .eq("id", takerId)
+      .eq("link_token", token)
       .maybeSingle();
-    takerId = upsert.data?.id ?? null;
-  }
 
-  // 6) Insert submission
-  const ins = await sb
-    .from('test_submissions')
-    .insert([{
-      org_id: link.org_id,
-      test_id: link.test_id,
+    if (takerErr || !taker) {
+      return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
+    }
+
+    // Load questions
+    const { data: questions, error: qErr } = await sb
+      .from("test_questions")
+      .select("id, idx, profile_map")
+      .eq("test_id", taker.test_id)
+      .order("idx", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (qErr) {
+      return NextResponse.json({ ok: false, error: `Questions load failed: ${qErr.message}` }, { status: 500 });
+    }
+
+    const byId: Record<string, QuestionRow> = {};
+    for (const q of questions || []) byId[q.id] = q;
+
+    // Compute frequency totals from answers
+    const freq: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
+
+    for (let idx = 0; idx < answers.length; idx++) {
+      const row = answers[idx];
+      const qid = row?.question_id || row?.qid || row?.id;
+      const q: QuestionRow | undefined = qid ? byId[qid] : undefined;
+      if (!q || !Array.isArray(q.profile_map) || q.profile_map.length === 0) continue;
+
+      const sel = toZeroBasedSelected(row);
+      if (sel == null || sel < 0 || sel >= q.profile_map.length) continue;
+
+      const entry = q.profile_map[sel] || {};
+      const points = asNumber(entry.points, 0);
+      const pcode = String(entry.profile || "").trim();
+      const f = profileCodeToFreq(pcode);
+      if (f && points > 0) freq[f] += points;
+    }
+
+    const submissionTotals = { A: freq.A, B: freq.B, C: freq.C, D: freq.D };
+
+    const { error: subErr } = await sb.from("test_submissions").insert({
+      taker_id: taker.id,
+      test_id: taker.test_id,
       link_token: token,
-      taker_id: takerId,
-      taker_email: takerEmail || null,
-      taker_name: takerName || null,
-      total_points: totals?.points ?? null,
-      frequency: totals?.frequency ?? null,
-      profile: totals?.profile ?? null,
-      answers
-    }])
-    .select('id')
-    .maybeSingle();
+      totals: submissionTotals,
+      answers_json: answers,
+      first_name: taker.first_name ?? null,
+      last_name: taker.last_name ?? null,
+      email: taker.email ?? null,
+      company: taker.company ?? null,
+      role_title: taker.role_title ?? null,
+    });
+    if (subErr) {
+      return NextResponse.json({ ok: false, error: `Submission insert failed: ${subErr.message}` }, { status: 500 });
+    }
 
-  if (ins.error) {
-    return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    await sb.from("test_results").upsert({ taker_id: taker.id, totals: submissionTotals }, { onConflict: "taker_id" });
+    await sb.from("test_takers").update({ status: "completed" }).eq("id", taker.id).eq("link_token", token);
+
+    return NextResponse.json({ ok: true, totals: submissionTotals });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, submissionId: ins.data?.id ?? null });
 }

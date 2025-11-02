@@ -1,14 +1,12 @@
+// apps/web/app/api/portal/links/route.ts
 import { NextResponse } from 'next/server';
 import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
 
 type Body = {
-  testKey?: string;       // org_tests.slug or org_tests.id
-  kind?: 'full' | 'free'; // optional; defaults to 'full'
+  testKey?: string;       // tests.slug or tests.id
   maxUses?: number | null;
-  expiresAt?: string | null; // ISO
 };
 
-// Small helper
 function makeToken(prefix = 'tp'): string {
   const rand = Math.random().toString(36).slice(2, 8);
   return `${prefix}${Date.now().toString(36)}${rand}`;
@@ -26,33 +24,31 @@ export async function POST(req: Request) {
 
     const body = (await req.json().catch(() => ({}))) as Body;
     const testKey = (body.testKey || '').trim();
-    const kind = (body.kind || 'full') as 'full' | 'free';
-    const mode = kind; // your table requires `mode` NOT NULL; mirror kind
     const maxUses = Number.isFinite(body.maxUses as any) ? Number(body.maxUses) : 1;
-    const expiresAt = body.expiresAt ? new Date(body.expiresAt).toISOString() : null;
 
     if (!testKey) {
       return NextResponse.json({ error: 'Missing testKey (slug or id)' }, { status: 400 });
     }
 
     // Resolve test_id (id or slug) scoped to org
+    let testId: string | null = null;
+
     const byId = await sb
-      .from('org_tests')
-      .select('id,slug')
+      .from('tests')
+      .select('id')
       .eq('org_id', orgId)
       .eq('id', testKey)
       .maybeSingle();
-
-    let testId: string | null = byId.data?.id ?? null;
+    if (byId.data?.id) testId = byId.data.id;
 
     if (!testId) {
       const bySlug = await sb
-        .from('org_tests')
-        .select('id,slug')
+        .from('tests')
+        .select('id')
         .eq('org_id', orgId)
         .eq('slug', testKey)
         .maybeSingle();
-      testId = bySlug.data?.id ?? null;
+      if (bySlug.data?.id) testId = bySlug.data.id;
     }
 
     if (!testId) {
@@ -66,18 +62,7 @@ export async function POST(req: Request) {
 
     const ins = await sb
       .from('test_links')
-      .insert([
-        {
-          org_id: orgId,
-          test_id: testId,
-          token,
-          max_uses: maxUses,
-          expires_at: expiresAt,
-          kind,           // optional column in your schema
-          mode,           // REQUIRED by your schema (NOT NULL)
-          uses: 0,        // initialize if you keep a uses column
-        } as any,
-      ])
+      .insert([{ org_id: orgId, test_id: testId, token, max_uses: maxUses }])
       .select('id, token')
       .maybeSingle();
 
@@ -86,10 +71,10 @@ export async function POST(req: Request) {
     const appOrigin = process.env.APP_ORIGIN || '';
     const url =
       appOrigin && appOrigin.startsWith('http')
-        ? `${appOrigin.replace(/\/+$/, '')}/t/${token}`
-        : `/t/${token}`;
+        ? `${appOrigin.replace(/\/+$/, '')}/t/${ins.data!.token}`
+        : `/t/${ins.data!.token}`;
 
-    return NextResponse.json({ token, url }, { status: 201 });
+    return NextResponse.json({ token: ins.data!.token, url }, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
   }
@@ -115,10 +100,9 @@ export async function DELETE(req: Request) {
     }
 
     // Scope by org for safety
-    const q = sb.from('test_links').delete();
+    const q = sb.from('test_links').delete().eq('org_id', orgId);
     if (id) q.eq('id', id);
     if (token) q.eq('token', token);
-    q.eq('org_id', orgId);
 
     const { error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -128,4 +112,3 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
   }
 }
-

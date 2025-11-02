@@ -1,3 +1,4 @@
+// apps/web/app/api/portal/tests/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -6,8 +7,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!,
-    { auth: { persistSession: false } }
+    process.env.NEXT_PUBLIC_SUPABASE_URL!, 
+    (process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY)!,
+    { auth: { persistSession: false }, db: { schema: "portal" } }
   );
 
   const { searchParams } = new URL(req.url);
@@ -17,13 +19,17 @@ export async function GET(req: NextRequest) {
     let orgId: string | null = null;
     if (slug) {
       const { data: org } = await supabase
-        .from("organizations").select("id").eq("slug", slug).maybeSingle();
+        .from("organizations")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
       orgId = org?.id ?? null;
     }
 
-    const q = supabase.from("tests")
-      .select("id, name, slug, is_active, kind, org_id")
-      .order("created_at", { ascending: false });
+    const q = supabase
+      .from("tests")
+      .select("id, name, slug, org_id")
+      .order("name", { ascending: true });
     if (orgId) q.eq("org_id", orgId);
 
     const { data, error } = await q;
