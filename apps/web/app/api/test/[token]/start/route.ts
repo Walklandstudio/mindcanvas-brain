@@ -1,3 +1,4 @@
+// apps/web/app/api/test/[token]/start/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -34,7 +35,7 @@ function getAdminClient() {
   if (!url || !key) {
     throw new Error("Supabase env missing: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE");
   }
-  // ✅ Force the portal schema so tables resolve correctly
+  // Force the portal schema
   return createClient(url, key, {
     auth: { persistSession: false },
     db: { schema: "portal" },
@@ -74,14 +75,10 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     const role_title = body.role_title?.trim() || null;
     const meta = body.meta ?? null;
 
-    // 1) Link lookup (defensive select to handle uses/use_count naming)
+    // 1) Link lookup — select * to avoid missing-column errors (expires_at vs valid_until, uses vs use_count, etc.)
     const { data: link, error: linkErr } = await supabase
       .from("test_links")
-      .select(
-        // Select both forms if they exist; PostgREST tolerates selecting a non-existent column?
-        // If it doesn’t in your project, comment the missing one — but the goal is to be schema-agnostic.
-        "id, token, org_id, test_id, expires_at, max_uses, uses, use_count, is_disabled"
-      )
+      .select("*")
       .eq("token", token)
       .maybeSingle();
 
@@ -96,19 +93,21 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     if (!link) {
       return cors(NextResponse.json({ error: "Test link not found." }, { status: 404 }));
     }
-    if (link.is_disabled === true) {
+    if ((link as any).is_disabled === true) {
       return cors(NextResponse.json({ error: "This link is disabled." }, { status: 403 }));
     }
-    if (isExpired(link.expires_at)) {
+
+    // Flexible expiry field
+    const expiresAt: string | null =
+      (link as any).expires_at ?? (link as any).valid_until ?? null;
+    if (isExpired(expiresAt)) {
       return cors(NextResponse.json({ error: "This link has expired." }, { status: 410 }));
     }
 
-    const currentUses = Number(
-      (link as any).uses ?? (link as any).use_count ?? 0
-    );
-    const hasMax =
-      typeof link.max_uses === "number" && Number.isFinite(link.max_uses);
-    if (hasMax && currentUses >= Number(link.max_uses)) {
+    // Flexible counters
+    const currentUses = Number((link as any).uses ?? (link as any).use_count ?? 0);
+    const maxUses = Number.isFinite((link as any).max_uses) ? Number((link as any).max_uses) : null;
+    if (maxUses !== null && currentUses >= maxUses) {
       return cors(
         NextResponse.json(
           { error: "This link has reached its maximum number of uses." },
@@ -121,19 +120,14 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     const { data: test, error: testErr } = await supabase
       .from("tests")
       .select("id, org_id, name, slug, is_active")
-      .eq("id", link.test_id)
+      .eq("id", (link as any).test_id)
       .maybeSingle();
 
     if (testErr) {
-      return cors(
-        NextResponse.json(
-          { error: "Test lookup failed.", details: testErr.message },
-          { status: 500 }
-        )
-      );
+      return cors(NextResponse.json({ error: "Test lookup failed.", details: testErr.message }, { status: 500 }));
     }
     if (!test) return cors(NextResponse.json({ error: "Test not found." }, { status: 404 }));
-    if (test.org_id !== link.org_id)
+    if (test.org_id !== (link as any).org_id)
       return cors(NextResponse.json({ error: "Test not in this org." }, { status: 403 }));
     if (test.is_active === false)
       return cors(NextResponse.json({ error: "This test is not active." }, { status: 403 }));
@@ -147,15 +141,12 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       const { data: existing, error: existErr } = await supabase
         .from("test_takers")
         .select("id, status")
-        .match({ org_id: link.org_id, test_id: link.test_id, email })
+        .match({ org_id: (link as any).org_id, test_id: (link as any).test_id, email })
         .maybeSingle();
 
       if (existErr) {
         return cors(
-          NextResponse.json(
-            { error: "Lookup test taker failed.", details: existErr.message },
-            { status: 500 }
-          )
+          NextResponse.json({ error: "Lookup test taker failed.", details: existErr.message }, { status: 500 })
         );
       }
 
@@ -178,8 +169,8 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         const { data: inserted, error: insErr } = await supabase
           .from("test_takers")
           .insert({
-            org_id: link.org_id,
-            test_id: link.test_id,
+            org_id: (link as any).org_id,
+            test_id: (link as any).test_id,
             email,
             first_name,
             last_name,
@@ -194,23 +185,16 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
           .maybeSingle();
 
         if (insErr) {
-          const dup =
-            typeof insErr.message === "string" &&
-            insErr.message.toLowerCase().includes("duplicate key");
+          const dup = typeof insErr.message === "string" && insErr.message.toLowerCase().includes("duplicate key");
           if (dup) {
             const { data: reget } = await supabase
               .from("test_takers")
               .select("id")
-              .match({ org_id: link.org_id, test_id: link.test_id, email })
+              .match({ org_id: (link as any).org_id, test_id: (link as any).test_id, email })
               .maybeSingle();
             takerId = reget?.id ?? null;
           } else {
-            return cors(
-              NextResponse.json(
-                { error: "Could not start test.", details: insErr.message },
-                { status: 500 }
-              )
-            );
+            return cors(NextResponse.json({ error: "Could not start test.", details: insErr.message }, { status: 500 }));
           }
         } else {
           takerId = inserted?.id ?? null;
@@ -221,8 +205,8 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       const { data: inserted, error: insErr } = await supabase
         .from("test_takers")
         .insert({
-          org_id: link.org_id,
-          test_id: link.test_id,
+          org_id: (link as any).org_id,
+          test_id: (link as any).test_id,
           email: null,
           first_name,
           last_name,
@@ -237,44 +221,30 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         .maybeSingle();
 
       if (insErr) {
-        return cors(
-          NextResponse.json(
-            { error: "Could not start test.", details: insErr.message },
-            { status: 500 }
-          )
-        );
+        return cors(NextResponse.json({ error: "Could not start test.", details: insErr.message }, { status: 500 }));
       }
       takerId = inserted?.id ?? null;
       newlyCreated = true;
     }
 
     if (!takerId) {
-      return cors(
-        NextResponse.json(
-          { error: "Failed to create or retrieve test taker." },
-          { status: 500 }
-        )
-      );
+      return cors(NextResponse.json({ error: "Failed to create or retrieve test taker." }, { status: 500 }));
     }
 
-    // 4) Increment counter only when newly created
+    // 4) Increment counter only when newly created — update both possible fields
     if (newlyCreated) {
       const next = currentUses + 1;
-      // Update both possible column names so either schema stays correct
-      await supabase
-        .from("test_links")
-        .update({ uses: next, use_count: next })
-        .eq("id", link.id);
+      await supabase.from("test_links").update({ uses: next, use_count: next }).eq("id", (link as any).id);
     }
 
-    // 5) Respond (includes taker_id so callers can add ?tid=)
+    // 5) Respond with taker id (so UI can append ?tid=…)
     return cors(
       NextResponse.json(
         {
           ok: true as const,
           startPath: `/t/${token}/start`,
           test: { id: test.id, name: test.name ?? null, slug: test.slug ?? null },
-          link: { id: link.id, token: link.token, expires_at: link.expires_at },
+          link: { id: (link as any).id, token: (link as any).token, expires_at: expiresAt },
           taker: { id: takerId, email, status: "started" as const },
         },
         { status: 200 }
@@ -283,10 +253,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
   } catch (err: any) {
     return cors(
       NextResponse.json(
-        {
-          error: "Unexpected server error.",
-          details: typeof err?.message === "string" ? err.message : String(err),
-        },
+        { error: "Unexpected server error.", details: typeof err?.message === "string" ? err.message : String(err) },
         { status: 500 }
       )
     );
