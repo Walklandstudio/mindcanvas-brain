@@ -37,6 +37,8 @@ function toZeroBasedSelected(row: any): number | null {
 
 const asNumber = (x: any, d = 0) => (Number.isFinite(Number(x)) ? Number(x) : d);
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   try {
     const token = params.token;
@@ -61,7 +63,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
     }
 
-    // Load questions with profile_map (we’ll use idx length only; profile_map drives scoring)
+    // Load questions with profile_map (drives scoring)
     const { data: questions, error: qErr } = await sb
       .from("test_questions")
       .select("id, idx, profile_map")
@@ -72,10 +74,11 @@ export async function POST(req: Request, { params }: { params: { token: string }
     if (qErr) {
       return NextResponse.json({ ok: false, error: `Questions load failed: ${qErr.message}` }, { status: 500 });
     }
+
     const byId: Record<string, QuestionRow> = {};
     for (const q of questions || []) byId[q.id] = q;
 
-    // 🔑 Map profile names → codes & codes → frequencies from labels
+    // Labels: name→code and code→frequency for this test
     const { data: labels, error: labErr } = await sb
       .from("test_profile_labels")
       .select("profile_code, profile_name, frequency_code")
@@ -96,7 +99,6 @@ export async function POST(req: Request, { params }: { params: { token: string }
         if (f === "A" || f === "B" || f === "C" || f === "D") {
           codeToFreq.set(code, f as AB);
         } else {
-          // fallback if frequency_code wasn’t set but code implies it
           const implied = profileCodeToFreq(code);
           if (implied) codeToFreq.set(code, implied);
         }
@@ -120,31 +122,30 @@ export async function POST(req: Request, { params }: { params: { token: string }
       const points = asNumber(entry.points, 0);
       let pcode = String(entry.profile || "").trim();
 
-      // If profile_map uses names (e.g., "Visionary"), resolve to PROFILE_#
+      // Resolve profile *name* → code if needed
       if (pcode && !/^P(?:ROFILE)?[_\s-]?\d+$/i.test(pcode)) {
         const fromName = nameToCode.get(pcode);
         if (fromName) pcode = fromName;
       }
-
       if (!pcode || points <= 0) continue;
 
-      // add to profile totals
       profileTotals[pcode] = (profileTotals[pcode] || 0) + points;
 
-      // project to frequency via labels
       const f = codeToFreq.get(pcode) || profileCodeToFreq(pcode);
       if (f) freqTotals[f] += points;
     }
 
     // Persist submission snapshot — write nested totals
-    const totals = { frequencies: { A: freqTotals.A, B: freqTotals.B, C: freqTotals.C, D: freqTotals.D }, profiles: profileTotals };
+    const totals = {
+      frequencies: { A: freqTotals.A, B: freqTotals.B, C: freqTotals.C, D: freqTotals.D },
+      profiles: profileTotals,
+    };
 
     const { error: subErr } = await sb.from("test_submissions").insert({
       taker_id: taker.id,
       test_id: taker.test_id,
       link_token: token,
       totals,
-      // keep your legacy field AND add a canonical copy
       answers_json: answers,
       raw_answers: answers,
       first_name: taker.first_name ?? null,
