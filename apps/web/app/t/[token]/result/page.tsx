@@ -113,7 +113,9 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     <div className="min-h-screen p-6 md:p-10 bg-gradient-to-b from-white to-slate-50">
       <header className="max-w-5xl mx-auto">
         <p className="text-sm text-gray-500">{data.org_slug} • Result</p>
-        <h1 className="text-3xl md:text-4xl font-bold mt-1">{data.test_name || "Profile Test"}</h1>
+        <h1 className="text-3xl md:text-4xl font-bold mt-1">
+          {data.test_name || "Profile Test"}
+        </h1>
         <p className="text-gray-700 mt-2">
           Top Profile: <span className="font-semibold">{data.top_profile_name}</span>
         </p>
@@ -131,7 +133,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
       <main className="max-w-5xl mx-auto mt-8 space-y-10">
         {/* Frequency mix */}
         <section>
-          <h2 className="text-xl font-semibold mb-4">Coaching Flow mix</h2>
+          <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
           <div className="grid gap-3">
             {data.frequency_labels.map((f) => (
               <div key={f.code} className="grid grid-cols-12 items-center gap-3">
