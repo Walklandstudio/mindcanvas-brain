@@ -1,3 +1,4 @@
+// apps/web/app/t/[token]/result/page.tsx
 'use client';
 
 import Link from "next/link";
@@ -10,12 +11,14 @@ type FrequencyLabel = { code: AB; name: string };
 type ProfileLabel = { code: string; name: string };
 
 type ReportData = {
-  org_slug: string;
-  test_name: string;
+  org_slug: string;                 // e.g., "competency-coach" or "team-puzzle"
+  test_name: string;                // human-friendly test name
   taker: { id: string };
   frequency_labels: FrequencyLabel[];
   frequency_totals: Record<AB, number>;
   frequency_percentages: Record<AB, number>;
+  // Optional: 0–10 score per frequency (we'll render if present)
+  frequency_scores?: Record<AB, number>;
   profile_labels: ProfileLabel[];
   profile_totals: Record<string, number>;
   profile_percentages: Record<string, number>;
@@ -72,8 +75,21 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     return () => { alive = false; };
   }, [token, tid]);
 
-  const freq = useMemo(() => data?.frequency_percentages ?? { A: 0, B: 0, C: 0, D: 0 }, [data]);
-  const prof = useMemo(() => data?.profile_percentages ?? {}, [data]);
+  const freqPct = useMemo(
+    () => data?.frequency_percentages ?? { A: 0, B: 0, C: 0, D: 0 },
+    [data]
+  );
+  const freqScore = useMemo(
+    () => data?.frequency_scores ?? { A: 0, B: 0, C: 0, D: 0 },
+    [data]
+  );
+  const profPct = useMemo(() => data?.profile_percentages ?? {}, [data]);
+
+  const freqSectionTitle = useMemo(() => {
+    const slug = (data?.org_slug || "").toLowerCase();
+    // CC uses Coaching Flow; Team Puzzle and others use Frequency
+    return slug.includes("competency-coach") ? "Coaching Flow mix" : "Frequency mix";
+  }, [data?.org_slug]);
 
   if (!tid) {
     return (
@@ -129,9 +145,9 @@ export default function ResultPage({ params }: { params: { token: string } }) {
       </header>
 
       <main className="max-w-5xl mx-auto mt-8 space-y-10">
-        {/* Frequency mix */}
+        {/* Frequency / Coaching Flow mix */}
         <section>
-          <h2 className="text-xl font-semibold mb-4">Coaching Flow mix</h2>
+          <h2 className="text-xl font-semibold mb-4">{freqSectionTitle}</h2>
           <div className="grid gap-3">
             {data.frequency_labels.map((f) => (
               <div key={f.code} className="grid grid-cols-12 items-center gap-3">
@@ -139,9 +155,17 @@ export default function ResultPage({ params }: { params: { token: string } }) {
                   <span className="font-medium">{f.name}</span>
                   <span className="text-gray-500 ml-2">({f.code})</span>
                 </div>
-                <div className="col-span-9 md:col-span-10">
-                  <Bar pct={freq[f.code]} />
-                  <div className="text-xs text-gray-500 mt-1">{Math.round((freq[f.code] || 0) * 100)}%</div>
+                <div className="col-span-7 md:col-span-9">
+                  <Bar pct={freqPct[f.code]} />
+                  <div className="text-xs text-gray-500 mt-1">
+                    {Math.round((freqPct[f.code] || 0) * 100)}%
+                  </div>
+                </div>
+                {/* Small /10 score badge */}
+                <div className="col-span-2 md:col-span-1 text-right">
+                  <span className="inline-flex items-center justify-center rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 bg-white">
+                    {Number(freqScore[f.code] ?? 0)}/10
+                  </span>
                 </div>
               </div>
             ))}
@@ -159,8 +183,10 @@ export default function ResultPage({ params }: { params: { token: string } }) {
                   <span className="text-gray-500 ml-2">({p.code.replace("PROFILE_", "P")})</span>
                 </div>
                 <div className="col-span-9 md:col-span-10">
-                  <Bar pct={prof[p.code] || 0} />
-                  <div className="text-xs text-gray-500 mt-1">{Math.round((prof[p.code] || 0) * 100)}%</div>
+                  <Bar pct={profPct[p.code] || 0} />
+                  <div className="text-xs text-gray-500 mt-1">
+                    {Math.round((profPct[p.code] || 0) * 100)}%
+                  </div>
                 </div>
               </div>
             ))}
@@ -174,3 +200,4 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     </div>
   );
 }
+
