@@ -35,13 +35,17 @@ function getAdminClient() {
     process.env.SUPABASE_SERVICE_ROLE ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_KEY;
+
   if (!url || !key) {
-    throw new Error("Supabase env missing: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE");
+    throw new Error(
+      "Supabase env missing: set NEXT_PUBLIC_SUPABASE_URL and one of SUPABASE_SERVICE_ROLE / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SERVICE_KEY"
+    );
   }
+
   return createClient(url, key, {
     auth: { persistSession: false },
-    // If your tables are in the `portal` schema, uncomment the next line:
-    // db: { schema: "portal" },
+    // IMPORTANT: your tables are in the `portal` schema
+    db: { schema: "portal" },
   });
 }
 
@@ -78,7 +82,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     const role_title = body.role_title?.trim() || null;
     const meta = body.meta ?? null;
 
-    // 1) Link lookup
+    // 1) Link lookup (portal.test_links)
     const { data: link, error: linkErr } = await supabase
       .from("test_links")
       .select("id, token, org_id, test_id, expires_at, max_uses, use_count, is_disabled")
@@ -102,7 +106,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       );
     }
 
-    // 2) Test exists / active
+    // 2) Test exists / active (portal.tests)
     const { data: test, error: testErr } = await supabase
       .from("tests")
       .select("id, org_id, name, slug, is_active")
@@ -116,7 +120,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
     if (test.org_id !== link.org_id) return cors(NextResponse.json({ error: "Test not in this org." }, { status: 403 }));
     if (test.is_active === false) return cors(NextResponse.json({ error: "This test is not active." }, { status: 403 }));
 
-    // 3) Upsert/insert test taker (now with contact fields)
+    // 3) Upsert/insert test taker (with contact fields) in portal.test_takers
     const nowIso = new Date().toISOString();
     let takerId: string | null = null;
     let newlyCreated = false;
@@ -137,7 +141,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
         await supabase
           .from("test_takers")
           .update({
-            status: existing.status === "started" ? "started" : "started",
+            status: "started",
             started_at: nowIso,
             link_token: token,
             first_name,
@@ -213,7 +217,7 @@ export async function POST(req: Request, ctx: { params: { token: string } }) {
       return cors(NextResponse.json({ error: "Failed to create or retrieve test taker." }, { status: 500 }));
     }
 
-    // 4) Increment use_count if newly created
+    // 4) Increment use_count if newly created (portal.test_links)
     if (newlyCreated) {
       await supabase.from("test_links").update({ use_count: (link.use_count ?? 0) + 1 }).eq("id", link.id);
     }
