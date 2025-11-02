@@ -1,0 +1,31 @@
+{
+  "primary": { "hex": "#16A1C9", "fgHex": "#FFFFFF" },
+
+  "neutral": {
+    "bgHex": "#FBFCFE",
+    "surfaceHex": "#FFFFFF",
+    "borderHex": "#E6E9EF",
+    "textHex": "#0B1220",
+    "subtleHex": "#5A6B80"
+  },
+
+  "frequencies": {
+    "A": "#E9C46A",
+    "B": "#F4A261",
+    "C": "#2A9D8F",
+    "D": "#264653"
+  },
+
+  "radii": { "md": 12, "lg": 16 },
+  "shadow": { "sm": "0 2px 8px rgba(0,0,0,0.05)", "md": "0 6px 24px rgba(0,0,0,0.06)" },
+
+  "typography": {
+    "h1Px": 40,
+    "h2Px": 24,
+    "h3Px": 18,
+    "bodyPx": 16,
+    "tightTracking": -0.02,
+    "sansFontVar": "--font-inter",
+    "displayFontVar": "--font-manrope"
+  }
+}

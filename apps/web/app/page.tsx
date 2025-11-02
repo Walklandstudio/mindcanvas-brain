@@ -6,7 +6,6 @@ export default function Landing() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#050914] text-white">
       {/* --- BACKGROUND LAYERS --- */}
-      {/* Deep radial glows */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div
           className="absolute -top-40 left-1/2 h-[120vh] w-[120vw] -translate-x-1/2 blur-3xl opacity-30"
@@ -30,7 +29,7 @@ export default function Landing() {
         }}
       />
 
-      {/* Soft grid (barely visible) */}
+      {/* Soft grid */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-[0.05]"
@@ -52,6 +51,15 @@ export default function Landing() {
             <span className="text-base font-semibold tracking-tight">MindCanvas</span>
           </div>
 
+          {/* Quick links in header */}
+          <nav className="hidden md:flex items-center gap-3 text-sm">
+            <Link href="/portal" className="text-slate-300 hover:text-white">
+              Portals
+            </Link>
+            <Link href="/portal/admin" className="text-slate-300 hover:text-white">
+              Admin login
+            </Link>
+          </nav>
         </div>
       </header>
 
@@ -75,7 +83,6 @@ export default function Landing() {
             profile tests
           </h1>
 
-
           {/* CTAs */}
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
@@ -86,6 +93,21 @@ export default function Landing() {
               Create an Account
               <span className="ml-2 block h-[1px] w-4 translate-y-[1px] bg-white/70 group-hover:w-6 transition-all" />
             </Link>
+
+            <Link
+              href="/portal"
+              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
+            >
+              Portals
+            </Link>
+
+            <Link
+              href="/portal/admin"
+              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
+            >
+              Admin login
+            </Link>
+
             <Link
               href="/login"
               className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"

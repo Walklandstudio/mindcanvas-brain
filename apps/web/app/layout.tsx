@@ -1,18 +1,16 @@
-import "./globals.css";
-import Header from "@/components/Header";
+import './globals.css';
+import '../styles/branding.css';
+import type { ReactNode } from 'react';
+import { Inter, Manrope } from 'next/font/google';
 
-export const metadata = {
-  title: "MindCanvas",
-  description: "Staging",
-};
+/** Swap these to your deck fonts if needed */
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
+const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope', display: 'swap' });
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body className="bg-slate-950 text-white">
-        <Header />
-        <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
-      </body>
+    <html lang="en" className={`${inter.variable} ${manrope.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

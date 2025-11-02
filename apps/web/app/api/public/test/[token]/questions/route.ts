@@ -1,35 +1,34 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { sbAdmin } from '@/lib/supabaseAdmin';
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-function admin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE!
-  );
+export async function GET(_: Request, { params }: { params: { token: string } }) {
+  const token = params.token;
+  if (!token) return json(200, { ok: false, stage: 'init', error: 'missing_token' });
+
+  try {
+    const db = sbAdmin.schema('portal');
+
+    const link = await db.from('test_links')
+      .select('test_id')
+      .eq('token', token)
+      .maybeSingle();
+    if (link.error) return json(200, { ok: false, stage: 'link_lookup', error: link.error.message });
+    if (!link.data)  return json(200, { ok: false, stage: 'link_lookup', error: 'link_not_found' });
+
+    const qs = await db.from('test_questions')
+      .select('id, idx, "order", type, text, options, profile_map')
+      .eq('test_id', link.data.test_id)
+      .order('idx', { ascending: true });
+
+    if (qs.error) return json(200, { ok: false, stage: 'questions', error: qs.error.message });
+
+    return json(200, { ok: true, questions: qs.data ?? [] });
+  } catch (e: any) {
+    return json(200, { ok: false, stage: 'catch', error: e?.message || 'internal_error' });
+  }
 }
 
-export async function GET(_req: Request, { params }: any) {
-  const token = params?.token as string;
-  if (!token) return NextResponse.json({ ok:false, error:'missing token' }, { status:400 });
-
-  const a = admin();
-  const { data: link } = await a
-    .from('test_links')
-    .select('test_id, mode')
-    .eq('token', token)
-    .maybeSingle();
-  if (!link) return NextResponse.json({ ok:false, error:'invalid link' }, { status:404 });
-
-  const q = a
-    .from('test_questions')
-    .select('id, text, type, "order"')
-    .eq('test_id', link.test_id)
-    .order('order', { ascending: true });
-
-  const { data, error } = link.mode === 'free'
-    ? await q.eq('visible_in_free', true)
-    : await q;
-
-  if (error) return NextResponse.json({ ok:false, error:error.message }, { status:500 });
-  return NextResponse.json({ ok:true, data, mode: link.mode });
+function json(status: number, body: any) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }

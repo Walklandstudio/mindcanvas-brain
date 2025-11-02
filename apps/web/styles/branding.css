@@ -1,0 +1,125 @@
+/* MindCanvas — BRAND TOKENS (pure CSS, no @apply/@layer)
+   Update ONLY the variables below to match your deck exactly. */
+
+/* ===== Brand Tokens ===== */
+:root {
+  /* Neutral system */
+  --mc-bg: 210 20% 99%;          /* App background */
+  --mc-surface: 0 0% 100%;       /* Panels/cards */
+  --mc-border: 220 14% 90%;      /* Lines/dividers */
+  --mc-text: 222 47% 11%;        /* Body text */
+  --mc-subtle: 215 16% 47%;      /* Secondary text */
+
+  /* Primary brand */
+  --mc-primary: 196 100% 40%;    /* Update to deck primary */
+  --mc-primary-fg: 0 0% 100%;
+
+  /* Accent set (frequencies) — update to your deck’s exact swatches */
+  --freq-a: 42 74% 66%;          /* e.g., A */
+  --freq-b: 24 89% 66%;          /* e.g., B */
+  --freq-c: 173 57% 37%;         /* e.g., C */
+  --freq-d: 205 44% 25%;         /* e.g., D */
+
+  /* Shape & elevation */
+  --mc-radius-md: 12px;
+  --mc-radius-lg: 16px;
+  --mc-shadow-sm: 0 2px 8px rgba(0,0,0,0.05);
+  --mc-shadow-md: 0 6px 24px rgba(0,0,0,0.06);
+
+  /* Typographic scale (adjust to deck) */
+  --mc-h1: 40px;
+  --mc-h2: 24px;
+  --mc-h3: 18px;
+  --mc-body: 16px;
+  --mc-tight: -0.02em;
+}
+
+/* ===== Base ===== */
+html, body {
+  background-color: hsl(var(--mc-bg));
+  color: hsl(var(--mc-text));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv02','cv03','cv04','cv11';
+  margin: 0;
+  padding: 0;
+}
+
+/* Typography families — swap font variables in app/layout.tsx */
+:root {
+  --font-sans: var(--font-inter, ui-sans-serif);
+  --font-display: var(--font-manrope, ui-sans-serif);
+}
+body { font-family: var(--font-sans); font-size: var(--mc-body); }
+
+/* ===== Layout helpers ===== */
+.mc-container {
+  margin: 0 auto; width: 100%; max-width: 72rem;
+  padding-left: 1rem; padding-right: 1rem;
+}
+@media (min-width: 640px) {.mc-container{padding-left:1.5rem;padding-right:1.5rem}}
+@media (min-width:1024px) {.mc-container{padding-left:2rem;padding-right:2rem}}
+
+/* ===== Card ===== */
+.mc-card {
+  background-color: hsl(var(--mc-surface));
+  border: 1px solid hsl(var(--mc-border));
+  border-radius: var(--mc-radius-lg);
+  box-shadow: var(--mc-shadow-md);
+}
+
+/* ===== Minimal Header (brand-aligned, no gradient) ===== */
+.mc-hero--minimal {
+  background: hsl(var(--mc-surface));
+  border-bottom: 1px solid hsl(var(--mc-border));
+  color: hsl(var(--mc-text));
+}
+.mc-hero__inner { padding: 28px 0; }
+.mc-hero__kicker { opacity: .8; font-size: 14px; }
+.mc-hero__title {
+  font-family: var(--font-display);
+  font-size: var(--mc-h1);
+  letter-spacing: var(--mc-tight);
+  font-weight: 700; margin: 6px 0 0;
+}
+.mc-hero__subtitle {
+  margin-top: 8px; color: hsl(var(--mc-subtle)); font-size: 15px; line-height: 1.6;
+}
+.mc-hero__bar {
+  height: 3px; width: 88px; border-radius: 999px; opacity: .85;
+  background: linear-gradient(90deg,
+    hsl(var(--freq-c)) 0%,
+    hsl(var(--freq-a)) 60%,
+    hsl(var(--freq-d)) 100%
+  );
+}
+
+/* ===== Buttons ===== */
+.mc-btn {
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius: var(--mc-radius-md);
+  padding: 10px 16px; font-size: 14px; font-weight: 600;
+  transition: transform .05s ease; border: 1px solid transparent; cursor: pointer;
+}
+.mc-btn:active { transform: scale(0.99); }
+.mc-btn:focus { outline: none; box-shadow: 0 0 0 2px rgba(0,0,0,0.05); }
+.mc-btn--primary {
+  color: hsl(var(--mc-primary-fg));
+  background-color: hsl(var(--mc-primary));
+  border-color: hsl(var(--mc-primary));
+}
+.mc-btn--primary:hover { filter: brightness(0.96); }
+.mc-btn--ghost {
+  color: hsl(var(--mc-text));
+  background-color: transparent;
+  border-color: hsl(var(--mc-border));
+}
+.mc-btn--ghost:hover { background-color: rgba(0,0,0,0.03); }
+
+/* ===== Utilities ===== */
+.mc-muted { color: hsl(var(--mc-subtle)); }
+.mc-gradient-text {
+  /* keep if you use accent text somewhere; safe to remove if not needed */
+  background: linear-gradient(135deg, hsl(var(--freq-a)) 0%, hsl(var(--freq-c)) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}

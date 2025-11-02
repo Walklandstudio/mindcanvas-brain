@@ -1,72 +1,220 @@
+// apps/web/app/api/public/test/[token]/result/route.ts
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-function admin() {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!);
+const AB_VALUES = ['A', 'B', 'C', 'D'] as const;
+type AB = (typeof AB_VALUES)[number];
+type TotalsAB = Partial<Record<AB, number>>;
+
+function supa() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  // Use service role on the server if available; else anon
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+  return createClient(url, key, { db: { schema: 'portal' } });
 }
 
-type Scores = { A: number; B: number; C: number; D: number };
-function topFreq(s: Scores): 'A'|'B'|'C'|'D' {
-  const entries: Array<['A'|'B'|'C'|'D', number]> = [['A',s.A],['B',s.B],['C',s.C],['D',s.D]];
-  return entries.sort((a,b)=>b[1]-a[1])[0][0];
-}
-function deriveExact(s: Scores): { top: 'A'|'B'|'C'|'D', exact: 'A1'|'A2'|'B1'|'B2'|'C1'|'C2'|'D1'|'D2' } {
-  const t = topFreq(s);
-  switch (t) {
-    case 'A': return { top: 'A', exact: (s.B >= s.C) ? 'A1' : 'A2' };
-    case 'B': return { top: 'B', exact: (s.A >= s.D) ? 'B1' : 'B2' };
-    case 'C': return { top: 'C', exact: (s.D >= s.A) ? 'C1' : 'C2' };
-    case 'D': return { top: 'D', exact: (s.C >= s.B) ? 'D1' : 'D2' };
+function toPercentages(t: TotalsAB): Record<AB, number> {
+  const sum = AB_VALUES.reduce((acc, k) => acc + Number(t?.[k] ?? 0), 0);
+  const out = {} as Record<AB, number>;
+  for (const k of AB_VALUES) {
+    const v = Number(t?.[k] ?? 0);
+    out[k] = sum > 0 ? v / sum : 0;
   }
+  return out;
+}
+function sumAB(t: TotalsAB) {
+  return AB_VALUES.reduce((acc, k) => acc + Number(t?.[k] ?? 0), 0);
+}
+function normalizeFreqTotals(input: any): TotalsAB {
+  if (!input || typeof input !== 'object') return { A: 0, B: 0, C: 0, D: 0 };
+  const t = input.frequencies && typeof input.frequencies === 'object' ? input.frequencies : input;
+  return { A: Number(t?.A ?? 0), B: Number(t?.B ?? 0), C: Number(t?.C ?? 0), D: Number(t?.D ?? 0) };
+}
+function normalizeProfileTotals(input: any): Record<string, number> {
+  if (!input || typeof input !== 'object') return {};
+  if (input.profiles && typeof input.profiles === 'object') {
+    return Object.fromEntries(Object.entries(input.profiles).map(([k, v]) => [k, Number(v as any || 0)]));
+  }
+  return {};
+}
+function zeroTotals(freq: TotalsAB, prof: Record<string, number>) {
+  const sf = sumAB(freq);
+  const sp = Object.values(prof).reduce((a, b) => a + Number(b || 0), 0);
+  return sf === 0 && sp === 0;
 }
 
-export async function GET(req: Request, { params }: any) {
-  const token = params?.token as string;
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: Request, { params }: { params: { token: string } }) {
   const url = new URL(req.url);
-  const tid = url.searchParams.get('tid') || '';
-  if (!token || !tid) return NextResponse.json({ ok:false, error:'missing token/tid' }, { status:400 });
+  const token = params.token;
+  const tid = url.searchParams.get('tid');
 
-  const a = admin();
+  if (!token) return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400 });
+  if (!tid)   return NextResponse.json({ ok: false, error: 'Missing taker id (?tid=)' }, { status: 400 });
 
-  // resolve test + org
-  const { data: link } = await a.from('test_links').select('test_id').eq('token', token).maybeSingle();
-  if (!link) return NextResponse.json({ ok:false, error:'invalid link' }, { status:404 });
+  const sb = supa();
 
-  // taker
-  const { data: taker } = await a
-    .from('test_takers')
-    .select('id, first_name, last_name')
-    .eq('id', tid).eq('test_id', link.test_id)
-    .maybeSingle();
-  if (!taker) return NextResponse.json({ ok:false, error:'invalid taker' }, { status:404 });
+  // 1) link -> test_id
+  const link = await sb.from('test_links').select('test_id').eq('token', token).maybeSingle();
+  if (link.error) return NextResponse.json({ ok: false, error: link.error.message }, { status: 500 });
+  if (!link.data?.test_id) return NextResponse.json({ ok: false, error: 'test not found for token' }, { status: 404 });
+  const testId = link.data.test_id as string;
 
-  // result
-  const { data: result } = await a
-    .from('test_results')
-    .select('id, freq_scores, profile_key, profile_exact_key')
-    .eq('test_id', link.test_id)
-    .eq('taker_id', tid)
-    .maybeSingle();
+  // 2) Load totals (prefer results → latest submission) + harvest raw answers for recompute
+  let rawTotals: any = null;
+  let rawAnswers: Array<{ question_id: string; value: number }> = [];
 
-  if (!result) return NextResponse.json({ ok:false, error:'no result' }, { status:404 });
+  const r1 = await sb.from('test_results').select('totals').eq('taker_id', tid).maybeSingle();
+  rawTotals = r1.data?.totals ?? null;
 
-  const scores = (result.freq_scores || {}) as Scores;
-  const derived = deriveExact(scores);
+  if (!rawTotals) {
+    const r2 = await sb
+      .from('test_submissions')
+      .select('totals, raw_answers, answers_json')
+      .eq('taker_id', tid)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  // backfill profile_exact_key if missing or stale
-  if (!result.profile_exact_key || !/^[ABCD][12]$/.test(result.profile_exact_key)) {
-    await a.from('test_results')
-      .update({ profile_key: derived.top, profile_exact_key: derived.exact })
-      .eq('id', result.id);
+    rawTotals = r2.data?.totals ?? null;
+    const ra = Array.isArray(r2.data?.raw_answers) ? r2.data?.raw_answers
+              : Array.isArray(r2.data?.answers_json) ? r2.data?.answers_json
+              : [];
+    rawAnswers = ra.map((a: any) => ({
+      question_id: String(a?.question_id ?? a?.id ?? ''),
+      value: Number(a?.value ?? a?.selected ?? a?.selected_index ?? a?.index ?? 0),
+    })).filter(x => x.question_id);
   }
+
+  let frequencyTotals = normalizeFreqTotals(rawTotals);
+  let profileTotals   = normalizeProfileTotals(rawTotals);
+
+  // 3) Labels for THIS test (no cross-fallbacks)
+  const fl = await sb
+    .from('test_frequency_labels')
+    .select('frequency_code, frequency_name')
+    .eq('test_id', testId);
+  if (fl.error) return NextResponse.json({ ok: false, error: fl.error.message }, { status: 500 });
+  if (!fl.data?.length) return NextResponse.json({ ok: false, error: 'labels_missing_for_test_frequency' }, { status: 500 });
+
+  const frequencyLabels = AB_VALUES.map((c) => ({
+    code: c,
+    name: fl.data.find((r: any) => String(r.frequency_code).toUpperCase() === c)?.frequency_name || `Frequency ${c}`,
+  }));
+
+  const pl = await sb
+    .from('test_profile_labels')
+    .select('profile_code, profile_name, frequency_code')
+    .eq('test_id', testId);
+  if (pl.error) return NextResponse.json({ ok: false, error: pl.error.message }, { status: 500 });
+  if (!pl.data?.length) return NextResponse.json({ ok: false, error: 'labels_missing_for_test_profile' }, { status: 500 });
+
+  const profileLabels = pl.data.map((r: any) => ({
+    code: String(r.profile_code || '').trim(),
+    name: String(r.profile_name || '').trim(),
+    frequency: String(r.frequency_code || '').trim().toUpperCase() as AB | null,
+  }));
+
+  // 4) Recompute if needed (zero totals + we have answers)
+  if (zeroTotals(frequencyTotals, profileTotals) && rawAnswers.length > 0) {
+    const nameToCode = new Map<string, string>();
+    const codeToFreq = new Map<string, AB>();
+    for (const p of profileLabels) {
+      if (p.name && p.code) nameToCode.set(p.name, p.code);
+      if (p.code && p.frequency) codeToFreq.set(p.code, p.frequency);
+    }
+
+    const qs = await sb.from('test_questions').select('id, profile_map').eq('test_id', testId);
+    if (qs.error) return NextResponse.json({ ok: false, error: qs.error.message }, { status: 500 });
+
+    const mapByQ = new Map<string, Array<{ profile: string; points: number }>>();
+    for (const r of qs.data || []) {
+      const a = Array.isArray((r as any).profile_map) ? (r as any).profile_map : [];
+      mapByQ.set(
+        r.id,
+        a.map((x: any) => ({ profile: String(x?.profile ?? '').trim(), points: Number(x?.points ?? 0) }))
+      );
+    }
+
+    const freqTotals: TotalsAB = { A: 0, B: 0, C: 0, D: 0 };
+    const profTotals: Record<string, number> = {};
+
+    for (const { question_id, value } of rawAnswers) {
+      const map = mapByQ.get(question_id);
+      if (!map || map.length === 0) continue;
+      const idx = Math.max(1, Math.min(Number(value) || 0, map.length)) - 1;
+      const entry = map[idx];
+      if (!entry) continue;
+
+      let pcode = entry.profile;
+      if (pcode && !/^P(?:ROFILE)?[_\s-]?\d+$/i.test(pcode)) {
+        const byName = nameToCode.get(pcode);
+        if (byName) pcode = byName;
+      }
+      if (!pcode) continue;
+
+      const pts = Number(entry.points || 0);
+      profTotals[pcode] = (profTotals[pcode] || 0) + pts;
+
+      const f = codeToFreq.get(pcode);
+      if (f) freqTotals[f] = Number(freqTotals[f] || 0) + pts;
+    }
+
+    frequencyTotals = {
+      A: Number(freqTotals.A || 0),
+      B: Number(freqTotals.B || 0),
+      C: Number(freqTotals.C || 0),
+      D: Number(freqTotals.D || 0),
+    };
+    profileTotals = profTotals;
+
+    // Persist nested totals for fast subsequent loads
+    await sb
+      .from('test_results')
+      .upsert({ taker_id: tid, totals: { frequencies: frequencyTotals, profiles: profileTotals } }, { onConflict: 'taker_id' });
+  }
+
+  // 5) Build response with percentages
+  const freqPct = toPercentages(frequencyTotals);
+  const pSum = Object.values(profileTotals).reduce((a,b)=> a + Number(b||0), 0);
+  const profilePercentages: Record<string, number> = {};
+  if (pSum > 0) for (const [k,v] of Object.entries(profileTotals)) profilePercentages[k] = Number(v||0) / pSum;
+
+  const topFreq =
+    (Object.entries(frequencyTotals).sort((a,b)=> Number(b[1]||0)-Number(a[1]||0))[0]?.[0] as AB) || 'A';
+  const topProfileCode =
+    Object.entries(profileTotals).sort((a,b)=> Number(b[1]||0)-Number(a[1]||0))[0]?.[0] || profileLabels[0]?.code || 'PROFILE_1';
+  const topProfileName =
+    profileLabels.find(p => p.code === topProfileCode)?.name || profileLabels[0]?.name || 'Top Profile';
 
   return NextResponse.json({
     ok: true,
     data: {
-      taker,
-      scores,
-      profile_key: derived.top,
-      profile_exact_key: result.profile_exact_key || derived.exact
-    }
+      taker: { id: tid },
+
+      frequency_labels: frequencyLabels,
+      frequency_totals: {
+        A: Number(frequencyTotals.A || 0),
+        B: Number(frequencyTotals.B || 0),
+        C: Number(frequencyTotals.C || 0),
+        D: Number(frequencyTotals.D || 0),
+      },
+      frequency_percentages: {
+        A: Number(freqPct.A || 0),
+        B: Number(freqPct.B || 0),
+        C: Number(freqPct.C || 0),
+        D: Number(freqPct.D || 0),
+      },
+
+      profile_labels: profileLabels.map(p => ({ code: p.code, name: p.name })),
+      profile_totals: profileTotals,
+      profile_percentages: profilePercentages,
+
+      top_freq: topFreq,
+      top_profile_code: topProfileCode,
+      top_profile_name: topProfileName,
+      version: 'portal-v1',
+    },
   });
 }
