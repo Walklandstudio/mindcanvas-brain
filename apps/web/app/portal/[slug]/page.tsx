@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabaseAdmin";
+import { createClient } from "@/lib/server/supabaseAdmin";
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard({ params }: any) {

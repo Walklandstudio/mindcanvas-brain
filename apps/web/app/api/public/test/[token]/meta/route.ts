@@ -1,6 +1,6 @@
 // apps/web/app/api/public/test/[token]/meta/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabaseAdmin";
+import { createClient } from "@/lib/server/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 

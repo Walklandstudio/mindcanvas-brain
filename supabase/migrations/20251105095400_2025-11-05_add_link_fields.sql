@@ -1,39 +1,40 @@
 do $$
-declare
-  sch text;
 begin
-  -- Detect which schema has the test_links table
+  -- If portal.test_links exists, add fields there
   if exists (
     select 1 from information_schema.tables
     where table_schema = 'portal' and table_name = 'test_links'
   ) then
-    sch := 'portal';
-  elsif exists (
+    execute $f$
+      alter table portal.test_links
+        add column if not exists name text,
+        add column if not exists reason text,
+        add column if not exists send_report boolean default false,
+        add column if not exists show_results boolean default true;
+      create index if not exists idx_portal_test_links_name on portal.test_links(name);
+      comment on column portal.test_links.name is 'Admin-facing name of the generated link';
+      comment on column portal.test_links.reason is 'Optional free text reason for link generation';
+      comment on column portal.test_links.send_report is 'Whether to email report to test taker after completion';
+      comment on column portal.test_links.show_results is 'Whether taker sees their results page immediately';
+    $f$;
+  end if;
+
+  -- If public.test_links exists, add the same fields there too
+  if exists (
     select 1 from information_schema.tables
     where table_schema = 'public' and table_name = 'test_links'
   ) then
-    sch := 'public';
-  else
-    raise exception 'test_links table not found in portal or public schema';
+    execute $f$
+      alter table public.test_links
+        add column if not exists name text,
+        add column if not exists reason text,
+        add column if not exists send_report boolean default false,
+        add column if not exists show_results boolean default true;
+      create index if not exists idx_public_test_links_name on public.test_links(name);
+      comment on column public.test_links.name is 'Admin-facing name of the generated link';
+      comment on column public.test_links.reason is 'Optional free text reason for link generation';
+      comment on column public.test_links.send_report is 'Whether to email report to test taker after completion';
+      comment on column public.test_links.show_results is 'Whether taker sees their results page immediately';
+    $f$;
   end if;
-
-  -- Add columns
-  execute format($f$
-    alter table %I.test_links
-      add column if not exists name text,
-      add column if not exists reason text,
-      add column if not exists send_report boolean default false,
-      add column if not exists show_results boolean default true
-  $f$, sch);
-
-  -- Optional index for searching by name
-  execute format($f$
-    create index if not exists idx_test_links_name on %I.test_links(name)
-  $f$, sch);
-
-  -- Helpful comments
-  execute format($f$ comment on column %I.test_links.name is %L $f$, sch, 'Admin-facing name of the generated link');
-  execute format($f$ comment on column %I.test_links.reason is %L $f$, sch, 'Optional free text reason for link generation');
-  execute format($f$ comment on column %I.test_links.send_report is %L $f$, sch, 'Whether to email report to test taker after completion');
-  execute format($f$ comment on column %I.test_links.show_results is %L $f$, sch, 'Whether taker sees their results page immediately');
 end $$;

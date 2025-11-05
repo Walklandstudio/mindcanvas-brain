@@ -1,5 +1,5 @@
 import TestsClient from "./tests.client";
-import { createClient } from "@/lib/supabaseAdmin";
+import { createClient } from "@/lib/server/supabaseAdmin";
 export const dynamic = "force-dynamic";
 
 export default async function TestsPage({ params }: any) {

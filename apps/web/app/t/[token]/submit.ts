@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sbAdmin } from '@/lib/supabaseAdmin';
+import { sbAdmin } from '@/lib/server/supabaseAdmin';
 
 type ProfileMapEntry = { profile: string; points: number };
 
