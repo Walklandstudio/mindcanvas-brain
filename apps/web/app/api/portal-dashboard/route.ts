@@ -22,29 +22,27 @@ function pct(n: number, total: number) {
   return `${((n * 100) / total).toFixed(1)}%`;
 }
 
-// TS-loose helper: pick an org's current test id from portal schema
-async function getTestIdForOrg(sb: any, orgSlug: string) {
-  const portal = sb.schema("portal");
-
+// Helper: pick an org's current test id from the portal schema
+async function getTestIdForOrg(portal: any, orgSlug: string) {
   const v = await portal
     .from("v_org_tests")
-    .select<any>("org_slug,test_id,is_active,created_at")
+    .select("org_slug,test_id,is_active,created_at")
     .eq("org_slug", orgSlug)
     .order("is_active", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);
 
-  const vRow = !v.error && Array.isArray(v.data) && (v.data as any[])[0];
+  const vRow = !v.error && Array.isArray(v.data) && v.data[0];
   if (vRow?.test_id) return String(vRow.test_id);
 
   const t = await portal
     .from("tests")
-    .select<any>("id,org_slug,created_at")
+    .select("id,org_slug,created_at")
     .eq("org_slug", orgSlug)
     .order("created_at", { ascending: false })
     .limit(1);
 
-  const tRow = !t.error && Array.isArray(t.data) && (t.data as any[])[0];
+  const tRow = !t.error && Array.isArray(t.data) && t.data[0];
   if (tRow?.id) return String(tRow.id);
 
   return null;
@@ -71,7 +69,7 @@ export async function GET(req: Request) {
     let payload: Payload | null = null;
     const consolidated = await portal
       .from("v_dashboard_consolidated")
-      .select<any>("*")
+      .select("*")
       .eq("org_slug", orgSlug)
       .limit(1);
 
@@ -94,7 +92,7 @@ export async function GET(req: Request) {
     }
 
     // Decide test_id for label lookup
-    const testId = explicitTestId || (await getTestIdForOrg(sb, orgSlug));
+    const testId = explicitTestId || (await getTestIdForOrg(portal, orgSlug));
 
     // Build label maps from portal tables (if testId is known)
     let freqMap: Record<string, string> = {};
@@ -102,8 +100,8 @@ export async function GET(req: Request) {
 
     if (testId) {
       const [freqLabels, profileLabels] = await Promise.all([
-        portal.from("test_frequency_labels").select<any>("frequency_code,frequency_name").eq("test_id", testId),
-        portal.from("test_profile_labels").select<any>("profile_code,profile_name").eq("test_id", testId),
+        portal.from("test_frequency_labels").select("frequency_code,frequency_name").eq("test_id", testId),
+        portal.from("test_profile_labels").select("profile_code,profile_name").eq("test_id", testId),
       ]);
 
       if (!freqLabels.error && Array.isArray(freqLabels.data)) {
