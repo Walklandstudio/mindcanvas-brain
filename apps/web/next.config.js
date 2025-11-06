@@ -1,8 +1,14 @@
-const path = require('path');
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    outputFileTracingRoot: path.join(__dirname, '..', '..'),
+  async redirects() {
+    return [
+      {
+        source: '/onboarding/(wizard)/:step',
+        destination: '/onboarding/:step',
+        permanent: true,
+      },
+    ];
   },
 };
+
 module.exports = nextConfig;
