@@ -22,10 +22,11 @@ function pct(n: number, total: number) {
   return `${((n * 100) / total).toFixed(1)}%`;
 }
 
-// TS-safe helper: pick an org's current test id
-async function getTestIdForOrg(sb: ReturnType<typeof createClient>, orgSlug: string) {
-  // Try view first
-  const v = await sb
+// TS-loose helper: pick an org's current test id from portal schema
+async function getTestIdForOrg(sb: any, orgSlug: string) {
+  const portal = sb.schema("portal");
+
+  const v = await portal
     .from("v_org_tests")
     .select<any>("org_slug,test_id,is_active,created_at")
     .eq("org_slug", orgSlug)
@@ -36,8 +37,7 @@ async function getTestIdForOrg(sb: ReturnType<typeof createClient>, orgSlug: str
   const vRow = !v.error && Array.isArray(v.data) && (v.data as any[])[0];
   if (vRow?.test_id) return String(vRow.test_id);
 
-  // Fallback: any test linked to org via portal.tests
-  const t = await sb
+  const t = await portal
     .from("tests")
     .select<any>("id,org_slug,created_at")
     .eq("org_slug", orgSlug)
@@ -55,8 +55,9 @@ export async function GET(req: Request) {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return NextResponse.json({ ok: false, error: "Supabase env not configured" }, { status: 500 });
     }
-    // use portal schema by default
-    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { db: { schema: "portal" } });
+
+    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const portal = sb.schema("portal");
 
     const url = new URL(req.url);
     const orgSlug = (url.searchParams.get("org") || "").trim();
@@ -66,48 +67,43 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing ?org=slug" }, { status: 400 });
     }
 
-    // 1) Try RPC first
+    // Read consolidated dashboard row from portal schema
     let payload: Payload | null = null;
-    const rpc = await sb.rpc("fn_get_dashboard_data", { p_org_slug: orgSlug, p_test_id: explicitTestId });
-    if (!rpc.error && rpc.data) {
-      payload = rpc.data as Payload;
-    } else {
-      // 2) Fallback: consolidated view
-      const consolidated = await sb.from("v_dashboard_consolidated").select<any>("*").eq("org_slug", orgSlug);
-      if (!consolidated.error && Array.isArray(consolidated.data) && consolidated.data.length) {
-        const row: any = consolidated.data[0];
-        payload = {
-          frequencies: row.frequencies ?? [],
-          profiles: row.profiles ?? [],
-          top3: row.top3 ?? [],
-          bottom3: row.bottom3 ?? [],
-          overall: row.overall ?? undefined,
-        };
-      }
+    const consolidated = await portal
+      .from("v_dashboard_consolidated")
+      .select<any>("*")
+      .eq("org_slug", orgSlug)
+      .limit(1);
+
+    if (!consolidated.error && Array.isArray(consolidated.data) && consolidated.data.length) {
+      const row: any = consolidated.data[0];
+      payload = {
+        frequencies: row.frequencies ?? [],
+        profiles: row.profiles ?? [],
+        top3: row.top3 ?? [],
+        bottom3: row.bottom3 ?? [],
+        overall: row.overall ?? undefined,
+      };
     }
 
     if (!payload) {
       return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Dashboard data source not found. Ensure RPC portal.fn_get_dashboard_data or view portal.v_dashboard_consolidated is present.",
-        },
+        { ok: false, error: "portal.v_dashboard_consolidated not found or empty for this org." },
         { status: 404 }
       );
     }
 
-    // 3) Decide test_id for label lookup
+    // Decide test_id for label lookup
     const testId = explicitTestId || (await getTestIdForOrg(sb, orgSlug));
 
-    // 4) Build label maps (safe if no testId)
+    // Build label maps from portal tables (if testId is known)
     let freqMap: Record<string, string> = {};
     let profileMap: Record<string, string> = {};
 
     if (testId) {
       const [freqLabels, profileLabels] = await Promise.all([
-        sb.from("test_frequency_labels").select<any>("frequency_code,frequency_name").eq("test_id", testId),
-        sb.from("test_profile_labels").select<any>("profile_code,profile_name").eq("test_id", testId),
+        portal.from("test_frequency_labels").select<any>("frequency_code,frequency_name").eq("test_id", testId),
+        portal.from("test_profile_labels").select<any>("profile_code,profile_name").eq("test_id", testId),
       ]);
 
       if (!freqLabels.error && Array.isArray(freqLabels.data)) {
@@ -122,7 +118,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // 5) Normalize rows + compute percent
+    // Normalize + compute percent server-side
     const sum = (arr: KV[]) => arr.reduce((acc, r) => acc + (Number(r.value) || 0), 0);
 
     const mapWithPercent = (rows: KV[], map: Record<string, string>) => {
