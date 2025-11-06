@@ -1,3 +1,4 @@
+
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -24,29 +25,37 @@ function serverError(msg: string) {
   return NextResponse.json({ ok: false, error: msg }, { status: 500 });
 }
 
-/**
- * Heuristics to pick a human-ish label and numeric value column
- * from arbitrary view shapes. We ignore obvious *_id columns for labels.
- */
+/** Pick “best guess” label/value columns if the view doesn’t expose standard names. */
 function pickCols(sample: Record<string, any>) {
   const cols = Object.keys(sample || {});
   const lower = (s: string) => s.toLowerCase();
 
   const isIdish = (c: string) =>
     /(^|_)id$/.test(lower(c)) ||
-    ["id", "org_id", "organization_id", "test_id", "orgid", "testid"].includes(lower(c));
+    ["id", "org_id", "organization_id", "test_id"].includes(lower(c));
 
-  const preferKeyHints = ["frequency", "freq", "profile", "name", "label", "code", "title", "key"];
-  const preferValHints = ["avg", "average", "value", "score", "count", "total", "sum", "mean"];
+  // Prefer explicit semantic columns first
+  const keyHints = [
+    "frequency_code",
+    "profile_code",
+    "frequency",
+    "profile",
+    "name",
+    "label",
+    "code",
+    "title",
+    "key",
+  ];
+  const valHints = ["avg", "average", "value", "score", "count", "total", "sum", "mean"];
 
   const keyCol =
-    cols.find((c) => preferKeyHints.some((h) => lower(c).includes(h)) && !isIdish(c)) ||
+    cols.find((c) => keyHints.some((h) => lower(c).includes(h)) && !isIdish(c)) ||
     cols.find((c) => typeof sample[c] === "string" && !isIdish(c)) ||
     cols.find((c) => !isIdish(c)) ||
     cols[0];
 
   const valCol =
-    cols.find((c) => preferValHints.some((h) => lower(c).includes(h))) ||
+    cols.find((c) => valHints.some((h) => lower(c).includes(h))) ||
     cols.find((c) => typeof sample[c] === "number") ||
     cols.find((c) => sample[c] != null && !Number.isNaN(Number(sample[c]))) ||
     cols[1] ||
@@ -85,7 +94,19 @@ function detectOverall(rows?: any[] | null) {
   };
 }
 
-/** Fallback: when views don’t expose human labels and all keys are identical */
+const PROFILE_ORDER = [
+  "PROFILE_1",
+  "PROFILE_2",
+  "PROFILE_3",
+  "PROFILE_4",
+  "PROFILE_5",
+  "PROFILE_6",
+  "PROFILE_7",
+  "PROFILE_8",
+];
+
+const FREQ_ORDER = ["A", "B", "C", "D"]; // matches your “four frequencies” order
+
 function allSameKey(rows: KV[]) {
   if (!rows.length) return false;
   return rows.every((r) => r.key === rows[0].key);
@@ -95,10 +116,9 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const orgSlug = (url.searchParams.get("org") || "").trim();
-    const testId = (url.searchParams.get("testId") || "").trim() || null; // reserved for future scoping
+    const testIdParam = (url.searchParams.get("testId") || "").trim() || null;
 
     if (!orgSlug) return badRequest("Missing ?org=slug");
-
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return serverError("Server misconfigured: missing Supabase env vars.");
     }
@@ -108,13 +128,63 @@ export async function GET(req: Request) {
     });
     const s = sb.schema("portal");
 
-    // Resolve org by slug
+    // 1) Resolve org by slug
     const orgQ = await s.from("v_organizations").select("id, slug, name").eq("slug", orgSlug).limit(1);
     if (orgQ.error) return serverError(`Org lookup failed: ${orgQ.error.message}`);
     const org = orgQ.data?.[0];
     if (!org) return NextResponse.json({ ok: false, error: "Org not found" }, { status: 404 });
 
-    // Pull dashboard datasets
+    // 2) Pick a test_id (explicit ?testId wins; else latest test for this org)
+    let testId: string | null = testIdParam;
+    if (!testId) {
+      const testsQ = await s
+        .from("v_org_tests")
+        .select("id, created_at")
+        .eq("org_id", org.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (testsQ.error) {
+        // Not fatal; dashboards may be across tests anyway
+        testId = null;
+      } else {
+        testId = testsQ.data?.[0]?.id ?? null;
+      }
+    }
+
+    // 3) Pull label maps (if we have a test_id)
+    type ProfLabel = { profile_code: string; profile_name: string };
+    type FreqLabel = { frequency_code: string; frequency_name: string };
+
+    let profileLabels: Record<string, string> = {};
+    let frequencyLabels: Record<string, string> = {};
+
+    if (testId) {
+      const [plQ, flQ] = await Promise.all([
+        s
+          .from("test_profile_labels")
+          .select("profile_code, profile_name")
+          .eq("test_id", testId)
+          .in("profile_code", PROFILE_ORDER),
+        s
+          .from("test_frequency_labels")
+          .select("frequency_code, frequency_name")
+          .eq("test_id", testId)
+          .in("frequency_code", FREQ_ORDER),
+      ]);
+
+      if (!plQ.error && plQ.data) {
+        profileLabels = Object.fromEntries(
+          (plQ.data as ProfLabel[]).map((r) => [r.profile_code, r.profile_name])
+        );
+      }
+      if (!flQ.error && flQ.data) {
+        frequencyLabels = Object.fromEntries(
+          (flQ.data as FreqLabel[]).map((r) => [r.frequency_code, r.frequency_name])
+        );
+      }
+    }
+
+    // 4) Pull dashboard datasets (scoped by org in-memory)
     const [freqQ, profQ, top3Q, bottom3Q, overallQ] = await Promise.all([
       s.from("v_dashboard_avg_frequency").select("*"),
       s.from("v_dashboard_avg_profile").select("*"),
@@ -129,40 +199,60 @@ export async function GET(req: Request) {
     const bottom3Rows = bottom3Q.error ? [] : onlyOrgRows(org.id, bottom3Q.data);
     const overallRows = overallQ.error ? [] : onlyOrgRows(org.id, overallQ.data);
 
+    // 5) Convert to KV form using heuristics
     let frequencies = toKV(freqRows);
     let profiles = toKV(profRows);
     let top3 = toKV(top3Rows);
     let bottom3 = toKV(bottom3Rows);
     const overall = detectOverall(overallRows);
 
-    // Friendly visual fallbacks if views don’t provide labels (avoid UUIDs)
-    if (frequencies.length === 4 && allSameKey(frequencies)) {
-      const labels = ["Frequency A", "Frequency B", "Frequency C", "Frequency D"];
-      frequencies = frequencies.map((r, i) => ({ ...r, key: labels[i] || `Frequency ${i + 1}` }));
+    // 6) Relabel with real names if keys look useless (all same/UUID-ish) AND we have label maps
+    const looksBad = (rows: KV[]) =>
+      !rows.length || allSameKey(rows) || /^[0-9a-f-]{30,}$/.test(rows[0]?.key || "");
+
+    if (frequencies.length === 4 && looksBad(frequencies) && Object.keys(frequencyLabels).length) {
+      // Map in canonical order A,B,C,D
+      frequencies = frequencies.map((r, i) => {
+        const code = FREQ_ORDER[i] || `A`;
+        const name = frequencyLabels[code] || code;
+        return { ...r, key: name };
+      });
     }
-    if (profiles.length === 8 && allSameKey(profiles)) {
-      const labels = [
-        "Profile 1",
-        "Profile 2",
-        "Profile 3",
-        "Profile 4",
-        "Profile 5",
-        "Profile 6",
-        "Profile 7",
-        "Profile 8",
-      ];
-      profiles = profiles.map((r, i) => ({ ...r, key: labels[i] || `Profile ${i + 1}` }));
+
+    if (profiles.length === 8 && looksBad(profiles) && Object.keys(profileLabels).length) {
+      // Map in canonical order PROFILE_1..PROFILE_8
+      profiles = profiles.map((r, i) => {
+        const code = PROFILE_ORDER[i] || `PROFILE_${i + 1}`;
+        const name = profileLabels[code] || code;
+        return { ...r, key: name };
+      });
     }
-    if (top3.length === 3 && allSameKey(top3)) {
-      top3 = top3.map((r, i) => ({ ...r, key: `Top ${i + 1}` }));
+
+    // Same treatment for top/bottom if they look bad and we have profile labels
+    if (top3.length === 3 && looksBad(top3) && Object.keys(profileLabels).length) {
+      // Sort by value desc just in case order matters, then label by position
+      top3 = top3
+        .slice()
+        .sort((a, b) => b.value - a.value)
+        .map((r, i) => {
+          const code = PROFILE_ORDER[i] || `PROFILE_${i + 1}`;
+          const name = profileLabels[code] || `Top ${i + 1}`;
+          return { ...r, key: name };
+        });
     }
-    if (bottom3.length === 3 && allSameKey(bottom3)) {
-      bottom3 = bottom3.map((r, i) => ({ ...r, key: `Bottom ${i + 1}` }));
+    if (bottom3.length === 3 && looksBad(bottom3) && Object.keys(profileLabels).length) {
+      bottom3 = bottom3
+        .slice()
+        .sort((a, b) => a.value - b.value)
+        .map((r, i) => {
+          const code = PROFILE_ORDER[i] || `PROFILE_${i + 1}`;
+          const name = profileLabels[code] || `Bottom ${i + 1}`;
+          return { ...r, key: name };
+        });
     }
 
     const data: DashboardPayload = { frequencies, profiles, top3, bottom3, overall };
-
-    return NextResponse.json({ ok: true, org: orgSlug, data }, { status: 200 });
+    return NextResponse.json({ ok: true, org: orgSlug, testId, data }, { status: 200 });
   } catch (e: any) {
     return serverError(e?.message || "Unknown error");
   }
