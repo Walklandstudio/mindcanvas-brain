@@ -38,7 +38,7 @@ function Bar({ pct }: { pct: number }) {
 export default function ResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
   const sp = useSearchParams();
-  const tid = sp.get("tid") ?? "";
+  const tid = sp?.get("tid") ?? "";
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
