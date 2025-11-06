@@ -1,4 +1,3 @@
-
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -25,16 +24,14 @@ function serverError(msg: string) {
   return NextResponse.json({ ok: false, error: msg }, { status: 500 });
 }
 
-/** Pick “best guess” label/value columns if the view doesn’t expose standard names. */
+/** Pick best label/value columns if the view exposes them. */
 function pickCols(sample: Record<string, any>) {
   const cols = Object.keys(sample || {});
-  const lower = (s: string) => s.toLowerCase();
+  const L = (s: string) => s.toLowerCase();
+  const isId = (c: string) =>
+    /(^|_)id$/.test(L(c)) ||
+    ["id", "org_id", "organization_id", "test_id"].includes(L(c));
 
-  const isIdish = (c: string) =>
-    /(^|_)id$/.test(lower(c)) ||
-    ["id", "org_id", "organization_id", "test_id"].includes(lower(c));
-
-  // Prefer explicit semantic columns first
   const keyHints = [
     "frequency_code",
     "profile_code",
@@ -49,13 +46,13 @@ function pickCols(sample: Record<string, any>) {
   const valHints = ["avg", "average", "value", "score", "count", "total", "sum", "mean"];
 
   const keyCol =
-    cols.find((c) => keyHints.some((h) => lower(c).includes(h)) && !isIdish(c)) ||
-    cols.find((c) => typeof sample[c] === "string" && !isIdish(c)) ||
-    cols.find((c) => !isIdish(c)) ||
+    cols.find((c) => keyHints.some((h) => L(c).includes(h)) && !isId(c)) ||
+    cols.find((c) => typeof sample[c] === "string" && !isId(c)) ||
+    cols.find((c) => !isId(c)) ||
     cols[0];
 
   const valCol =
-    cols.find((c) => valHints.some((h) => lower(c).includes(h))) ||
+    cols.find((c) => valHints.some((h) => L(c).includes(h))) ||
     cols.find((c) => typeof sample[c] === "number") ||
     cols.find((c) => sample[c] != null && !Number.isNaN(Number(sample[c]))) ||
     cols[1] ||
@@ -105,11 +102,27 @@ const PROFILE_ORDER = [
   "PROFILE_8",
 ];
 
-const FREQ_ORDER = ["A", "B", "C", "D"]; // matches your “four frequencies” order
+const FREQ_ORDER = ["A", "B", "C", "D"];
 
+function looksUuidish(s: string) {
+  return /^[0-9a-f-]{30,}$/i.test(s || "");
+}
 function allSameKey(rows: KV[]) {
   if (!rows.length) return false;
   return rows.every((r) => r.key === rows[0].key);
+}
+
+/** If rows don't expose codes, map by index using a canonical code order. */
+function relabelByIndex(rows: KV[], order: string[], names: Record<string, string>) {
+  return rows.map((r, i) => {
+    const code = order[i] ?? order[order.length - 1];
+    return { ...r, key: names[code] ?? code };
+  });
+}
+
+/** If rows DO expose codes, convert them to friendly names. */
+function relabelByCode(rows: KV[], codeToName: Record<string, string>) {
+  return rows.map((r) => ({ ...r, key: codeToName[r.key] ?? r.key }));
 }
 
 export async function GET(req: Request) {
@@ -128,13 +141,13 @@ export async function GET(req: Request) {
     });
     const s = sb.schema("portal");
 
-    // 1) Resolve org by slug
+    // 1) Resolve org
     const orgQ = await s.from("v_organizations").select("id, slug, name").eq("slug", orgSlug).limit(1);
     if (orgQ.error) return serverError(`Org lookup failed: ${orgQ.error.message}`);
     const org = orgQ.data?.[0];
     if (!org) return NextResponse.json({ ok: false, error: "Org not found" }, { status: 404 });
 
-    // 2) Pick a test_id (explicit ?testId wins; else latest test for this org)
+    // 2) Determine test_id (explicit > latest for org)
     let testId: string | null = testIdParam;
     if (!testId) {
       const testsQ = await s
@@ -143,20 +156,15 @@ export async function GET(req: Request) {
         .eq("org_id", org.id)
         .order("created_at", { ascending: false })
         .limit(1);
-      if (testsQ.error) {
-        // Not fatal; dashboards may be across tests anyway
-        testId = null;
-      } else {
-        testId = testsQ.data?.[0]?.id ?? null;
-      }
+      testId = testsQ.error ? null : testsQ.data?.[0]?.id ?? null;
     }
 
-    // 3) Pull label maps (if we have a test_id)
+    // 3) Build label maps from your tables (if we have a test)
     type ProfLabel = { profile_code: string; profile_name: string };
     type FreqLabel = { frequency_code: string; frequency_name: string };
 
-    let profileLabels: Record<string, string> = {};
-    let frequencyLabels: Record<string, string> = {};
+    let profileNames: Record<string, string> = {};
+    let frequencyNames: Record<string, string> = {};
 
     if (testId) {
       const [plQ, flQ] = await Promise.all([
@@ -173,18 +181,18 @@ export async function GET(req: Request) {
       ]);
 
       if (!plQ.error && plQ.data) {
-        profileLabels = Object.fromEntries(
+        profileNames = Object.fromEntries(
           (plQ.data as ProfLabel[]).map((r) => [r.profile_code, r.profile_name])
         );
       }
       if (!flQ.error && flQ.data) {
-        frequencyLabels = Object.fromEntries(
+        frequencyNames = Object.fromEntries(
           (flQ.data as FreqLabel[]).map((r) => [r.frequency_code, r.frequency_name])
         );
       }
     }
 
-    // 4) Pull dashboard datasets (scoped by org in-memory)
+    // 4) Pull dashboard datasets
     const [freqQ, profQ, top3Q, bottom3Q, overallQ] = await Promise.all([
       s.from("v_dashboard_avg_frequency").select("*"),
       s.from("v_dashboard_avg_profile").select("*"),
@@ -199,56 +207,51 @@ export async function GET(req: Request) {
     const bottom3Rows = bottom3Q.error ? [] : onlyOrgRows(org.id, bottom3Q.data);
     const overallRows = overallQ.error ? [] : onlyOrgRows(org.id, overallQ.data);
 
-    // 5) Convert to KV form using heuristics
+    // 5) Convert to KV
     let frequencies = toKV(freqRows);
     let profiles = toKV(profRows);
     let top3 = toKV(top3Rows);
     let bottom3 = toKV(bottom3Rows);
     const overall = detectOverall(overallRows);
 
-    // 6) Relabel with real names if keys look useless (all same/UUID-ish) AND we have label maps
-    const looksBad = (rows: KV[]) =>
-      !rows.length || allSameKey(rows) || /^[0-9a-f-]{30,}$/.test(rows[0]?.key || "");
-
-    if (frequencies.length === 4 && looksBad(frequencies) && Object.keys(frequencyLabels).length) {
-      // Map in canonical order A,B,C,D
-      frequencies = frequencies.map((r, i) => {
-        const code = FREQ_ORDER[i] || `A`;
-        const name = frequencyLabels[code] || code;
-        return { ...r, key: name };
-      });
+    // 6) Relabel with YOUR names
+    // Frequencies: if keys don't look like codes and count==4, map by index A,B,C,D
+    const freqKeysLookBad = !frequencies.length || allSameKey(frequencies) || looksUuidish(frequencies[0].key);
+    if (frequencies.length === 4 && Object.keys(frequencyNames).length) {
+      if (freqKeysLookBad) {
+        frequencies = relabelByIndex(frequencies, FREQ_ORDER, frequencyNames);
+      } else {
+        // if keys *are* codes already, rewrite to names by code
+        frequencies = relabelByCode(frequencies, frequencyNames);
+      }
     }
 
-    if (profiles.length === 8 && looksBad(profiles) && Object.keys(profileLabels).length) {
-      // Map in canonical order PROFILE_1..PROFILE_8
-      profiles = profiles.map((r, i) => {
-        const code = PROFILE_ORDER[i] || `PROFILE_${i + 1}`;
-        const name = profileLabels[code] || code;
-        return { ...r, key: name };
-      });
+    // Profiles: similar logic, 8 items in PROFILE_1..8
+    const profKeysLookBad = !profiles.length || allSameKey(profiles) || looksUuidish(profiles[0].key);
+    if (profiles.length === 8 && Object.keys(profileNames).length) {
+      if (profKeysLookBad) {
+        profiles = relabelByIndex(profiles, PROFILE_ORDER, profileNames);
+      } else {
+        profiles = relabelByCode(profiles, profileNames);
+      }
     }
 
-    // Same treatment for top/bottom if they look bad and we have profile labels
-    if (top3.length === 3 && looksBad(top3) && Object.keys(profileLabels).length) {
-      // Sort by value desc just in case order matters, then label by position
-      top3 = top3
-        .slice()
-        .sort((a, b) => b.value - a.value)
-        .map((r, i) => {
-          const code = PROFILE_ORDER[i] || `PROFILE_${i + 1}`;
-          const name = profileLabels[code] || `Top ${i + 1}`;
-          return { ...r, key: name };
-        });
+    // Top/Bottom 3: if keys look bad and we have profile names, keep order by value and label generically
+    if (top3.length === 3) {
+      if (profKeysLookBad && Object.keys(profileNames).length) {
+        top3 = top3
+          .slice()
+          .sort((a, b) => b.value - a.value)
+          .map((r, i) => ({ ...r, key: `Top ${i + 1}` }));
+      }
     }
-    if (bottom3.length === 3 && looksBad(bottom3) && Object.keys(profileLabels).length) {
-      bottom3 = bottom3
-        .slice()
-        .sort((a, b) => a.value - b.value)
-        .map((r, i) => {
-          const code = PROFILE_ORDER[i] || `PROFILE_${i + 1}`;
-          const name = profileLabels[code] || `Bottom ${i + 1}`;
-          return { ...r, key: name };
-        });
+    if (bottom3.length === 3) {
+      if (profKeysLookBad && Object.keys(profileNames).length) {
+        bottom3 = bottom3
+          .slice()
+          .sort((a, b) => a.value - b.value)
+          .map((r, i) => ({ ...r, key: `Bottom ${i + 1}` }));
+      }
     }
 
     const data: DashboardPayload = { frequencies, profiles, top3, bottom3, overall };
