@@ -1,34 +1,26 @@
 // apps/web/lib/server/supabaseAdmin.ts
-// Backward-compatible Supabase admin helper.
-// Exposes: `supabaseAdmin` (preferred), `sbAdmin` (legacy alias), and `createClient` (legacy factory).
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
-import { createClient as _createClient, type SupabaseClient } from '@supabase/supabase-js';
+// If you have generated DB types, you can import them and do:
+// import type { Database } from '@/types/supabase'; 
+// and then: createSupabaseClient<Database>(...)
 
-const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-if (!url || !serviceKey) {
-  console.warn(
-    '[supabaseAdmin] Missing SUPABASE env vars: SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'
-  );
-}
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 /**
- * Legacy-compatible factory used by older code that expects to call `createClient()`
- * from this module (instead of from '@supabase/supabase-js').
+ * Server-side Supabase client using the service-role key.
+ * Never import this into client components.
  */
-export function createClient(): SupabaseClient {
-  return _createClient(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { 'X-Client-Info': '@mindcanvas/web-admin' } },
-  });
+export const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
+/** Backwards-compat alias (some files expect this name) */
+export const sbAdmin = supabaseAdmin;
+
+/** Convenience factory to match older code paths */
+export function createClient() {
+  return supabaseAdmin;
 }
 
-/** Preferred singleton for server-side admin operations (service-role). */
-export const supabaseAdmin: SupabaseClient = createClient();
-
-/** Legacy alias some routes import: `import { sbAdmin } from "@/lib/server/supabaseAdmin"` */
-export const sbAdmin: SupabaseClient = supabaseAdmin;
-
-// Optional: also re-export the original named import in case any code grabs it
-export { _createClient as createSupabaseClientLib };
