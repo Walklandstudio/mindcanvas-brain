@@ -8,80 +8,66 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as strin
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type KV = { key: string; value: number };
-type Payload = {
-  frequencies: KV[];
-  profiles: KV[];
-  top3: KV[];
-  bottom3: KV[];
-  overall?: { average?: number; count?: number };
-};
+function toKV(rows: any[]): { key: string; value: number }[] {
+  if (!rows?.length) return [];
+  const sample = rows[0] as Record<string, any>;
+  const cols = Object.keys(sample);
+  let keyCol = cols.find((c) => typeof sample[c] === "string") || cols[0];
+  let valCol =
+    cols.find((c) => typeof sample[c] === "number") ||
+    cols.find((c) => sample[c] != null && !isNaN(Number(sample[c]))) ||
+    cols[1] ||
+    cols[0];
+
+  return rows.map((r) => ({
+    key: String(r[keyCol] ?? ""),
+    value: Number(r[valCol] ?? 0),
+  }));
+}
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const orgSlug = (url.searchParams.get("org") || "").trim();
-  const testId = (url.searchParams.get("testId") || "").trim() || null;
+  try {
+    const url = new URL(req.url);
+    const orgSlug = (url.searchParams.get("org") || "").trim();
+    if (!orgSlug) return NextResponse.json({ ok: false, error: "Missing ?org=slug" }, { status: 400 });
 
-  if (!orgSlug) {
-    return NextResponse.json({ ok: false, error: "Missing ?org=slug" }, { status: 400 });
+    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const s = sb.schema("portal");
+
+    // 1. Get the org ID
+    const orgQ = await s.from("v_organizations").select("id, slug").eq("slug", orgSlug).limit(1);
+    if (orgQ.error) throw new Error("Org lookup failed: " + orgQ.error.message);
+    const org = orgQ.data?.[0];
+    if (!org) throw new Error("Org not found");
+
+    // 2. Query all dashboard views
+    const [freq, prof, top3, bottom3, overall] = await Promise.all([
+      s.from("v_dashboard_avg_frequency").select("*").eq("org_id", org.id),
+      s.from("v_dashboard_avg_profile").select("*").eq("org_id", org.id),
+      s.from("v_dashboard_top3_profiles").select("*").eq("org_id", org.id),
+      s.from("v_dashboard_bottom3_profiles").select("*").eq("org_id", org.id),
+      s.from("v_dashboard_overall_avg").select("*").eq("org_id", org.id).limit(1),
+    ]);
+
+    const frequencies = toKV(freq.data || []);
+    const profiles = toKV(prof.data || []);
+    const top3Data = toKV(top3.data || []);
+    const bottom3Data = toKV(bottom3.data || []);
+
+    const row = overall.data?.[0] || {};
+    const avgKey = Object.keys(row).find(k => k.toLowerCase().includes("avg"));
+    const cntKey = Object.keys(row).find(k => k.toLowerCase().includes("count"));
+    const overallData = {
+      average: avgKey ? Number(row[avgKey]) : undefined,
+      count: cntKey ? Number(row[cntKey]) : undefined,
+    };
+
+    return NextResponse.json({
+      ok: true,
+      org: orgSlug,
+      data: { frequencies, profiles, top3: top3Data, bottom3: bottom3Data, overall: overallData },
+    });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Unknown error" }, { status: 500 });
   }
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return NextResponse.json({ ok: false, error: "Server misconfigured: missing Supabase env" }, { status: 500 });
-  }
-
-  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-  const s = sb.schema("portal"); // ✅ use portal schema
-
-  // 1) Find org by slug (table first, then view)
-  let orgRows: Array<{ id: string; slug: string }> | null = null;
-
-  const t1 = await s.from("orgs").select("id, slug").eq("slug", orgSlug).limit(1);
-  if (t1.error && t1.error.message.includes("schema cache")) {
-    const t2 = await s.from("v_organizations").select("id, slug").eq("slug", orgSlug).limit(1);
-    if (t2.error) {
-      return NextResponse.json({ ok: false, error: "Org lookup failed: " + t2.error.message }, { status: 500 });
-    }
-    orgRows = t2.data;
-  } else if (t1.error) {
-    return NextResponse.json({ ok: false, error: "Org lookup failed: " + t1.error.message }, { status: 500 });
-  } else {
-    orgRows = t1.data;
-  }
-
-  if (!orgRows || orgRows.length === 0) {
-    return NextResponse.json({ ok: false, error: "Org not found" }, { status: 404 });
-  }
-
-  // 2) Preferred: RPC (if installed)
-  const rpc = await sb.rpc("fn_get_dashboard_data", { p_org_slug: orgSlug, p_test_id: testId });
-  if (rpc.error && (rpc.error as any).code !== "42883") {
-    return NextResponse.json(
-      { ok: false, error: "RPC error: " + rpc.error.message, code: (rpc.error as any).code || null },
-      { status: 500 }
-    );
-  }
-  if (rpc.data) {
-    return NextResponse.json({ ok: true, org: orgSlug, testId, data: rpc.data as Payload }, { status: 200 });
-  }
-
-  // 3) Fallback: consolidated view
-  const view = await s
-    .from("v_dashboard_consolidated")
-    .select("*")
-    .or("org_slug.eq." + orgSlug + ",slug.eq." + orgSlug)
-    .limit(1);
-
-  if (!view.error && view.data && view.data.length > 0) {
-    return NextResponse.json({ ok: true, org: orgSlug, testId, data: view.data[0] as any }, { status: 200 });
-  }
-
-  return NextResponse.json(
-    {
-      ok: false,
-      error:
-        "Dashboard data source not found. Install RPC portal.fn_get_dashboard_data or expose portal.v_dashboard_consolidated.",
-    },
-    { status: 501 }
-  );
 }
-// touch: Thu Nov  6 20:53:17 SAST 2025
