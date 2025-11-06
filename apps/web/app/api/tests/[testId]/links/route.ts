@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { sbAdmin } from '@/lib/supabaseAdmin';
+import { sbAdmin } from '@/lib/server/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

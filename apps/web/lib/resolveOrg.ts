@@ -1,4 +1,4 @@
-import { sbAdmin } from '@/lib/supabaseAdmin';
+import { sbAdmin } from '@/lib/server/supabaseAdmin';
 
 export type OrgRow = {
   id: string; slug: string; name: string; is_active: boolean;
