@@ -1,7 +1,7 @@
 import Link from "next/link";
 import TestsClient from "./tests.client";
-import { createClient } from "@/lib/server/supabaseAdmin";
-
+// @ts-expect-error: Module might not have type declarations
+import { createClient } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 
 export default async function TestsPage({ params }: { params: { slug: string } }) {

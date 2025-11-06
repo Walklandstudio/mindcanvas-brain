@@ -4,11 +4,13 @@
 
 import { createClient as _createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 if (!url || !serviceKey) {
-  throw new Error('Missing SUPABASE env vars: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  console.warn(
+    '[supabaseAdmin] Missing SUPABASE env vars: SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'
+  );
 }
 
 /**
@@ -16,7 +18,10 @@ if (!url || !serviceKey) {
  * from this module (instead of from '@supabase/supabase-js').
  */
 export function createClient(): SupabaseClient {
-  return _createClient(url, serviceKey, { auth: { persistSession: false } });
+  return _createClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { 'X-Client-Info': '@mindcanvas/web-admin' } },
+  });
 }
 
 /** Preferred singleton for server-side admin operations (service-role). */
