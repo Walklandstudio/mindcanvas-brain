@@ -1,14 +1,10 @@
-// apps/web/app/portal/(app)/dashboard/ui/DashboardClient.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
-const ResponsiveContainer = dynamic(
-  async () => (await import('recharts')).ResponsiveContainer,
-  { ssr: false }
-);
+const ResponsiveContainer = dynamic(async () => (await import('recharts')).ResponsiveContainer, { ssr: false });
 const BarChart = dynamic(async () => (await import('recharts')).BarChart, { ssr: false });
 const Bar = dynamic(async () => (await import('recharts')).Bar, { ssr: false });
 const XAxis = dynamic(async () => (await import('recharts')).XAxis, { ssr: false });
@@ -30,7 +26,7 @@ function toCSV(rows: Array<Record<string, any>>): string {
   const headers = Object.keys(rows[0]);
   const escape = (v: any) => {
     const s = String(v ?? '');
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    return /[",\n]/.test(s) ? \`"\${s.replace(/"/g, '""')}"\` : s;
   };
   return [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
 }
@@ -48,8 +44,8 @@ function downloadCSV(filename: string, rows: KV[]) {
 
 export default function DashboardClient() {
   const params = useSearchParams();
-  const org = params?.get('org')?.trim() || '';
-  const testId = params?.get('testId')?.trim() || '';
+  const org = params.get('org')?.trim() || '';
+  const testId = params.get('testId')?.trim() || '';
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +59,7 @@ export default function DashboardClient() {
       setError(null);
       try {
         const qs = new URLSearchParams({ org, ...(testId ? { testId } : {}) });
-        const res = await fetch(`/api/portal-dashboard?${qs.toString()}`, { cache: 'no-store' });
+        const res = await fetch(\`/api/portal-dashboard?\${qs.toString()}\`, { cache: 'no-store' });
         const json = await res.json();
         if (!active) return;
         if (!json?.ok) setError(json?.error || 'Unknown error');
@@ -110,7 +106,7 @@ export default function DashboardClient() {
           <div className="rounded-2xl border p-4">
             <div className="text-xs opacity-60">Scope</div>
             <div className="text-2xl font-semibold">
-              {org}{testId ? ` • testId:${testId.slice(0, 8)}…` : ''}
+              {org}{testId ? \` • testId:\${testId.slice(0, 8)}…\` : ''}
             </div>
           </div>
         </div>
@@ -122,7 +118,7 @@ export default function DashboardClient() {
           <button
             className="rounded-md border px-3 py-1.5 text-sm"
             disabled={!org || !freq.length}
-            onClick={() => downloadCSV(`frequencies_${org}${testId ? `_${testId}` : ''}.csv`, freq)}
+            onClick={() => downloadCSV(\`frequencies_\${org}\${testId ? \`_\${testId}\` : ''}.csv\`, freq)}
           >
             Download CSV
           </button>
@@ -146,7 +142,7 @@ export default function DashboardClient() {
           <button
             className="rounded-md border px-3 py-1.5 text-sm"
             disabled={!org || !prof.length}
-            onClick={() => downloadCSV(`profiles_${org}${testId ? `_${testId}` : ''}.csv`, prof)}
+            onClick={() => downloadCSV(\`profiles_\${org}\${testId ? \`_\${testId}\` : ''}.csv\`, prof)}
           >
             Download CSV
           </button>
