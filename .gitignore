@@ -26,3 +26,6 @@ pnpm-debug.log*
 apps/web/.next
 apps/web/build.out
 apps/web/node_modules
+
+# Supabase
+supabase/.temp/
