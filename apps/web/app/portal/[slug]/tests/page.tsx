@@ -1,10 +1,16 @@
 import Link from "next/link";
 import TestsClient from "./tests.client";
-// @ts-expect-error: Module might not have type declarations
-import { createClient } from "@/lib/supabaseAdmin";
+import { createClient } from "@/lib/server/supabaseAdmin"; // ← keep this import
+
 export const dynamic = "force-dynamic";
 
-export default async function TestsPage({ params }: { params: { slug: string } }) {
+type TestsPageProps = {
+  params: {
+    slug: string;
+  };
+};
+
+export default async function TestsPage({ params }: TestsPageProps) {
   const { slug } = params;
   const sb = createClient().schema("portal");
 
@@ -49,7 +55,6 @@ export default async function TestsPage({ params }: { params: { slug: string } }
 
   return (
     <div className="p-6 space-y-6">
-      {/* Small header row with Generate Link button that navigates to the new page */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{org.name ?? slug}</h1>
         <Link
@@ -64,4 +69,3 @@ export default async function TestsPage({ params }: { params: { slug: string } }
     </div>
   );
 }
-
