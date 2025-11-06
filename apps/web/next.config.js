@@ -1,13 +1,11 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async redirects() {
-    return [
-      {
-        source: '/onboarding/(wizard)/:step',
-        destination: '/onboarding/:step',
-        permanent: true,
-      },
-    ];
+  // moved out of "experimental"
+  outputFileTracingRoot: path.join(__dirname, '..', '..'),
+  experimental: {
+    // keep other experimental flags here if you have any
   },
 };
 

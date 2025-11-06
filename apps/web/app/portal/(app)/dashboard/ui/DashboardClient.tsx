@@ -31,6 +31,7 @@ function toCSV(rows: Array<Record<string, any>>): string {
 
   function escapeCell(v: any): string {
     const s = String(v == null ? '' : v);
+    // If the value contains a quote, comma, or newline, wrap in quotes and escape quotes
     if (/[",\n]/.test(s)) {
       return '"' + s.replace(/"/g, '""') + '"';
     }
@@ -58,8 +59,8 @@ function downloadCSV(filename: string, rows: KV[]) {
 
 export default function DashboardClient() {
   const params = useSearchParams();
-  const org = (params.get('org') || '').trim();
-  const testId = (params.get('testId') || '').trim();
+  const org = (params?.get('org') || '').trim();
+  const testId = (params?.get('testId') || '').trim();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,3 +227,4 @@ export default function DashboardClient() {
     </div>
   );
 }
+

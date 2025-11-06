@@ -1,6 +1,7 @@
 import 'server-only';
 import { Suspense } from 'react';
 import DashboardClient from './ui/DashboardClient';
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -17,3 +18,5 @@ export default function PortalDashboardPage() {
     </div>
   );
 }
+
+
