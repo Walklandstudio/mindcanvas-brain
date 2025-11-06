@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { OverallTile, FrequenciesBar, ProfilesBar, TopBottom, HeaderFilters } from '@/components/dashboard/Widgets';
 
@@ -75,16 +75,13 @@ export default function DashboardPage() {
       {!loading && !err && (
         <>
           <OverallTile overallAvg={data?.overall?.overall_avg} />
-
           <div className="grid gap-6 md:grid-cols-2">
             <FrequenciesBar data={(data?.frequencies ?? []) as any[]} />
             <ProfilesBar data={(data?.profiles ?? []) as any[]} />
           </div>
-
           <TopBottom top3={(data?.top3 ?? []) as any[]} bottom3={(data?.bottom3 ?? []) as any[]} />
         </>
       )}
     </div>
   );
 }
-

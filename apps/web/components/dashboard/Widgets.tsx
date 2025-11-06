@@ -1,6 +1,5 @@
 'use client';
 
-import { Card } from '@/components/ui/Card'; // if you don’t have this, swap for a plain <div className="rounded-xl border p-4">
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LabelList } from 'recharts';
 import { downloadCsv, toCsv } from '@/lib/csv';
 import { useMemo } from 'react';
