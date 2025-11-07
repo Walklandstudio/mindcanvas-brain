@@ -2,6 +2,39 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
 
+/**
+ * GET /api/admin/tests?orgId=<uuid>
+ * Lists tests for the specified org (id), for use in the Link Generator dropdown.
+ * Non-breaking: only adds a GET handler; your existing POST remains untouched.
+ */
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const orgId = url.searchParams.get('orgId');
+    if (!orgId) {
+      return NextResponse.json({ ok: false, error: 'Missing orgId' }, { status: 400 });
+    }
+
+    const svc = admin(); // service client
+    const { data, error } = await svc
+      .from('tests')                // table: portal.tests if you use schemas via the client; otherwise set schema on the client factory
+      .select('id, name, test_type, is_active')
+      .eq('org_id', orgId)
+      .order('name', { ascending: true });
+
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+    return NextResponse.json(data ?? []);
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || 'GET /tests failed' }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/admin/tests
+ * Your original create-test logic (UNCHANGED).
+ */
 export async function POST(req: Request) {
   const { mode, name } = await req.json();
   if (!['free','full'].includes(mode)) return NextResponse.json({ error: 'mode' }, { status: 400 });
