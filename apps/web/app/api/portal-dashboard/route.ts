@@ -22,7 +22,26 @@ function pct(n: number, total: number) {
   return `${((n * 100) / total).toFixed(1)}%`;
 }
 
-// Helper: pick an org's current test id from the portal schema
+function sum(arr: { value: number }[]) {
+  return (arr || []).reduce((a, r) => a + (Number(r.value) || 0), 0);
+}
+
+// Best-effort key/value pickers for flexible view column names
+function pickKey(row: any): string {
+  const candidates = ["label","name","key","frequency_name","profile_name","frequency_code","profile_code","frequency","profile","code","id"];
+  for (const k of candidates) if (row && row[k] != null) return String(row[k]);
+  // last resort: first string-ish field
+  for (const [k,v] of Object.entries(row || {})) if (typeof v === "string") return v as string;
+  return "";
+}
+function pickValue(row: any): number {
+  const candidates = ["value","avg","average","score","count","total"];
+  for (const k of candidates) if (row && row[k] != null) return Number(row[k]);
+  // last resort: first number-ish field
+  for (const [,v] of Object.entries(row || {})) if (typeof v === "number") return v as number;
+  return 0;
+}
+
 async function getTestIdForOrg(portal: any, orgSlug: string) {
   const v = await portal
     .from("v_org_tests")
@@ -65,7 +84,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing ?org=slug" }, { status: 400 });
     }
 
-    // Read consolidated dashboard row from portal schema
+    // 1) Try consolidated view (fast path)
     let payload: Payload | null = null;
     const consolidated = await portal
       .from("v_dashboard_consolidated")
@@ -76,25 +95,45 @@ export async function GET(req: Request) {
     if (!consolidated.error && Array.isArray(consolidated.data) && consolidated.data.length) {
       const row: any = consolidated.data[0];
       payload = {
-        frequencies: row.frequencies ?? [],
-        profiles: row.profiles ?? [],
-        top3: row.top3 ?? [],
-        bottom3: row.bottom3 ?? [],
+        frequencies: (row.frequencies ?? []) as KV[],
+        profiles: (row.profiles ?? []) as KV[],
+        top3: (row.top3 ?? []) as KV[],
+        bottom3: (row.bottom3 ?? []) as KV[],
         overall: row.overall ?? undefined,
       };
     }
 
+    // 2) Fallback: build from individual views
     if (!payload) {
-      return NextResponse.json(
-        { ok: false, error: "portal.v_dashboard_consolidated not found or empty for this org." },
-        { status: 404 }
-      );
+      const [vf, vp, vt, vb, vo] = await Promise.all([
+        portal.from("v_dashboard_avg_frequency").select("*").eq("org_slug", orgSlug),
+        portal.from("v_dashboard_avg_profile").select("*").eq("org_slug", orgSlug),
+        portal.from("v_dashboard_top3_profiles").select("*").eq("org_slug", orgSlug),
+        portal.from("v_dashboard_bottom3_profiles").select("*").eq("org_slug", orgSlug),
+        portal.from("v_dashboard_overall_avg").select("*").eq("org_slug", orgSlug).limit(1),
+      ]);
+
+      const toKV = (rows: any[] = []) => rows.map(r => ({ key: pickKey(r), value: pickValue(r) }));
+
+      const frequencies = !vf.error ? toKV(vf.data as any[]) : [];
+      const profiles   = !vp.error ? toKV(vp.data as any[]) : [];
+      const top3       = !vt.error ? toKV(vt.data as any[]) : [];
+      const bottom3    = !vb.error ? toKV(vb.data as any[]) : [];
+
+      let overall: Payload["overall"] = undefined;
+      if (!vo.error && Array.isArray(vo.data) && vo.data[0]) {
+        const o = vo.data[0] as any;
+        const average = (o.average ?? o.avg ?? o.value) as number | undefined;
+        const count = (o.count ?? o.total) as number | undefined;
+        overall = { average, count };
+      }
+
+      payload = { frequencies, profiles, top3, bottom3, overall };
     }
 
-    // Decide test_id for label lookup
+    // 3) Map labels from test_*_labels (if we can resolve a test)
     const testId = explicitTestId || (await getTestIdForOrg(portal, orgSlug));
 
-    // Build label maps from portal tables (if testId is known)
     let freqMap: Record<string, string> = {};
     let profileMap: Record<string, string> = {};
 
@@ -116,9 +155,6 @@ export async function GET(req: Request) {
       }
     }
 
-    // Normalize + compute percent server-side
-    const sum = (arr: KV[]) => arr.reduce((acc, r) => acc + (Number(r.value) || 0), 0);
-
     const mapWithPercent = (rows: KV[], map: Record<string, string>) => {
       const total = sum(rows);
       return (rows || []).map((r) => ({
@@ -128,26 +164,12 @@ export async function GET(req: Request) {
       }));
     };
 
-    const frequencies = mapWithPercent(payload.frequencies || [], freqMap);
-    const profiles = mapWithPercent(payload.profiles || [], profileMap);
-    const top3 = mapWithPercent(payload.top3 || [], profileMap);
-    const bottom3 = mapWithPercent(payload.bottom3 || [], profileMap);
-
-    const freqTotal = sum(payload.frequencies || []);
-    const profTotal = sum(payload.profiles || []);
-    const overallCount =
-      payload.overall?.count ??
-      (profTotal > 0 ? profTotal : freqTotal > 0 ? freqTotal : undefined);
-
     const out: Payload = {
-      frequencies,
-      profiles,
-      top3,
-      bottom3,
-      overall: {
-        average: payload.overall?.average,
-        count: overallCount,
-      },
+      frequencies: mapWithPercent(payload.frequencies || [], freqMap),
+      profiles: mapWithPercent(payload.profiles || [], profileMap),
+      top3: mapWithPercent(payload.top3 || [], profileMap),
+      bottom3: mapWithPercent(payload.bottom3 || [], profileMap),
+      overall: payload.overall,
     };
 
     return NextResponse.json({ ok: true, org: orgSlug, testId, data: out }, { status: 200 });
