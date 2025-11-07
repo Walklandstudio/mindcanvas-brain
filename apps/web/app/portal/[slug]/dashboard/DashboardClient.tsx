@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 
-// Lazy-load Recharts on client
 const ResponsiveContainer = dynamic(async () => (await import("recharts")).ResponsiveContainer, { ssr: false });
 const BarChart           = dynamic(async () => (await import("recharts")).BarChart, { ssr: false });
 const Bar                = dynamic(async () => (await import("recharts")).Bar, { ssr: false });
@@ -23,14 +22,14 @@ type Payload = {
   overall?: { average?: number; count?: number };
 };
 
-// Brand colors
 const COLORS = {
-  freq: "#2d8fc4",     // main brand blue
-  prof: "#64bae2",     // lighter accent blue
+  freq: "#2d8fc4",
+  prof: "#64bae2",
+  tileBg: "rgba(45,143,196,0.05)",
 };
 
 function toCSV(rows: Array<Record<string, any>>): string {
-  if (!rows || !rows.length) return "";
+  if (!rows?.length) return "";
   const headers = Object.keys(rows[0]);
   const escape = (v: any) => {
     const s = String(v ?? "");
@@ -102,17 +101,17 @@ export default function DashboardClient() {
     <div className="space-y-6">
       {/* Header tiles */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border p-3">
-          <div className="text-xs opacity-60">Overall Average</div>
-          <div className="text-2xl font-semibold">{overall?.average ?? "—"}</div>
+        <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
+          <div className="text-xs opacity-70">Overall Average</div>
+          <div className="text-2xl font-semibold text-[#2d8fc4]">{overall?.average ?? "—"}</div>
         </div>
-        <div className="rounded-2xl border p-3">
-          <div className="text-xs opacity-60">Total Responses</div>
-          <div className="text-2xl font-semibold">{overall?.count ?? "—"}</div>
+        <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
+          <div className="text-xs opacity-70">Total Responses</div>
+          <div className="text-2xl font-semibold text-[#2d8fc4]">{overall?.count ?? "—"}</div>
         </div>
-        <div className="rounded-2xl border p-3">
-          <div className="text-xs opacity-60">Scope</div>
-          <div className="text-2xl font-semibold">{slug || "—"}</div>
+        <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
+          <div className="text-xs opacity-70">Scope</div>
+          <div className="text-2xl font-semibold text-[#2d8fc4]">{slug || "—"}</div>
         </div>
       </div>
 
@@ -120,11 +119,11 @@ export default function DashboardClient() {
       {error && <div className="text-sm text-red-600">Error: {error}</div>}
 
       {/* Frequencies */}
-      <section className="rounded-2xl border p-4">
+      <section className="rounded-2xl border p-4 shadow-sm">
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-medium">Frequencies (% of total)</h2>
+          <h2 className="text-lg font-medium text-[#2d8fc4]">Frequencies (% of total)</h2>
           <button
-            className="rounded-md border px-3 py-1 text-sm"
+            className="rounded-md border border-[#2d8fc4] px-3 py-1 text-sm text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition"
             disabled={!slug || !freq.length}
             onClick={() => downloadCSV(`frequencies_${slug}.csv`, freq)}
           >
@@ -147,11 +146,11 @@ export default function DashboardClient() {
       </section>
 
       {/* Profiles */}
-      <section className="rounded-2xl border p-4">
+      <section className="rounded-2xl border p-4 shadow-sm">
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-medium">Profiles (% of total)</h2>
+          <h2 className="text-lg font-medium text-[#2d8fc4]">Profiles (% of total)</h2>
           <button
-            className="rounded-md border px-3 py-1 text-sm"
+            className="rounded-md border border-[#2d8fc4] px-3 py-1 text-sm text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition"
             disabled={!slug || !prof.length}
             onClick={() => downloadCSV(`profiles_${slug}.csv`, prof)}
           >
@@ -173,11 +172,11 @@ export default function DashboardClient() {
         </div>
       </section>
 
-      {/* Top/Bottom 3 */}
-      {(top3.length || bottom3.length) ? (
+      {/* Top / Bottom */}
+      {(top3.length || bottom3.length) && (
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border p-3">
-            <h3 className="mb-1 text-base font-medium">Top 3 Profiles</h3>
+          <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
+            <h3 className="mb-1 text-base font-medium text-[#2d8fc4]">Top 3 Profiles</h3>
             <ul className="space-y-1 text-sm">
               {top3.map((t) => (
                 <li key={t.key} className="flex items-center justify-between">
@@ -187,8 +186,8 @@ export default function DashboardClient() {
               ))}
             </ul>
           </div>
-          <div className="rounded-2xl border p-3">
-            <h3 className="mb-1 text-base font-medium">Bottom 3 Profiles</h3>
+          <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
+            <h3 className="mb-1 text-base font-medium text-[#2d8fc4]">Bottom 3 Profiles</h3>
             <ul className="space-y-1 text-sm">
               {bottom3.map((b) => (
                 <li key={b.key} className="flex items-center justify-between">
@@ -199,7 +198,7 @@ export default function DashboardClient() {
             </ul>
           </div>
         </section>
-      ) : null}
+      )}
     </div>
   );
 }
