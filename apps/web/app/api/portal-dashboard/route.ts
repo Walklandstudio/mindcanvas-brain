@@ -21,26 +21,25 @@ function pct(n: number, total: number) {
   if (!total || !Number.isFinite(n)) return "0%";
   return `${((n * 100) / total).toFixed(1)}%`;
 }
-
 function sum(arr: { value: number }[]) {
   return (arr || []).reduce((a, r) => a + (Number(r.value) || 0), 0);
 }
 
-// Best-effort key/value pickers for flexible view column names
+// Flexible pickers so we can consume different view shapes safely
 function pickKey(row: any): string {
-  const candidates = ["label","name","key","frequency_name","profile_name","frequency_code","profile_code","frequency","profile","code","id"];
-  for (const k of candidates) if (row && row[k] != null) return String(row[k]);
-  // last resort: first string-ish field
+  const c = ["label","name","key","frequency_name","profile_name","frequency_code","profile_code","frequency","profile","code","id"];
+  for (const k of c) if (row && row[k] != null) return String(row[k]);
   for (const [k,v] of Object.entries(row || {})) if (typeof v === "string") return v as string;
   return "";
 }
 function pickValue(row: any): number {
-  const candidates = ["value","avg","average","score","count","total"];
-  for (const k of candidates) if (row && row[k] != null) return Number(row[k]);
-  // last resort: first number-ish field
+  const c = ["value","avg","average","score","count","total"];
+  for (const k of c) if (row && row[k] != null) return Number(row[k]);
   for (const [,v] of Object.entries(row || {})) if (typeof v === "number") return v as number;
   return 0;
 }
+const toKV = (rows: any): KV[] =>
+  Array.isArray(rows) ? rows.map(r => ({ key: pickKey(r), value: pickValue(r) })) : [];
 
 async function getTestIdForOrg(portal: any, orgSlug: string) {
   const v = await portal
@@ -50,7 +49,6 @@ async function getTestIdForOrg(portal: any, orgSlug: string) {
     .order("is_active", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);
-
   const vRow = !v.error && Array.isArray(v.data) && v.data[0];
   if (vRow?.test_id) return String(vRow.test_id);
 
@@ -60,7 +58,6 @@ async function getTestIdForOrg(portal: any, orgSlug: string) {
     .eq("org_slug", orgSlug)
     .order("created_at", { ascending: false })
     .limit(1);
-
   const tRow = !t.error && Array.isArray(t.data) && t.data[0];
   if (tRow?.id) return String(tRow.id);
 
@@ -72,19 +69,15 @@ export async function GET(req: Request) {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return NextResponse.json({ ok: false, error: "Supabase env not configured" }, { status: 500 });
     }
-
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const portal = sb.schema("portal");
 
     const url = new URL(req.url);
     const orgSlug = (url.searchParams.get("org") || "").trim();
     const explicitTestId = (url.searchParams.get("testId") || "").trim() || null;
+    if (!orgSlug) return NextResponse.json({ ok: false, error: "Missing ?org=slug" }, { status: 400 });
 
-    if (!orgSlug) {
-      return NextResponse.json({ ok: false, error: "Missing ?org=slug" }, { status: 400 });
-    }
-
-    // 1) Try consolidated view (fast path)
+    // 1) Try consolidated (normalize inner arrays!)
     let payload: Payload | null = null;
     const consolidated = await portal
       .from("v_dashboard_consolidated")
@@ -95,15 +88,15 @@ export async function GET(req: Request) {
     if (!consolidated.error && Array.isArray(consolidated.data) && consolidated.data.length) {
       const row: any = consolidated.data[0];
       payload = {
-        frequencies: (row.frequencies ?? []) as KV[],
-        profiles: (row.profiles ?? []) as KV[],
-        top3: (row.top3 ?? []) as KV[],
-        bottom3: (row.bottom3 ?? []) as KV[],
+        frequencies: toKV(row.frequencies),
+        profiles: toKV(row.profiles),
+        top3: toKV(row.top3),
+        bottom3: toKV(row.bottom3),
         overall: row.overall ?? undefined,
       };
     }
 
-    // 2) Fallback: build from individual views
+    // 2) Fallback to per-view (already normalized)
     if (!payload) {
       const [vf, vp, vt, vb, vo] = await Promise.all([
         portal.from("v_dashboard_avg_frequency").select("*").eq("org_slug", orgSlug),
@@ -113,12 +106,10 @@ export async function GET(req: Request) {
         portal.from("v_dashboard_overall_avg").select("*").eq("org_slug", orgSlug).limit(1),
       ]);
 
-      const toKV = (rows: any[] = []) => rows.map(r => ({ key: pickKey(r), value: pickValue(r) }));
-
-      const frequencies = !vf.error ? toKV(vf.data as any[]) : [];
-      const profiles   = !vp.error ? toKV(vp.data as any[]) : [];
-      const top3       = !vt.error ? toKV(vt.data as any[]) : [];
-      const bottom3    = !vb.error ? toKV(vb.data as any[]) : [];
+      const frequencies = !vf.error ? toKV(vf.data) : [];
+      const profiles   = !vp.error ? toKV(vp.data) : [];
+      const top3       = !vt.error ? toKV(vt.data) : [];
+      const bottom3    = !vb.error ? toKV(vb.data) : [];
 
       let overall: Payload["overall"] = undefined;
       if (!vo.error && Array.isArray(vo.data) && vo.data[0]) {
@@ -131,9 +122,8 @@ export async function GET(req: Request) {
       payload = { frequencies, profiles, top3, bottom3, overall };
     }
 
-    // 3) Map labels from test_*_labels (if we can resolve a test)
+    // 3) Label maps (if we can resolve a test id)
     const testId = explicitTestId || (await getTestIdForOrg(portal, orgSlug));
-
     let freqMap: Record<string, string> = {};
     let profileMap: Record<string, string> = {};
 
@@ -142,7 +132,6 @@ export async function GET(req: Request) {
         portal.from("test_frequency_labels").select("frequency_code,frequency_name").eq("test_id", testId),
         portal.from("test_profile_labels").select("profile_code,profile_name").eq("test_id", testId),
       ]);
-
       if (!freqLabels.error && Array.isArray(freqLabels.data)) {
         for (const r of freqLabels.data as any[]) {
           if (r.frequency_code && r.frequency_name) freqMap[r.frequency_code] = r.frequency_name;
