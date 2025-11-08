@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Test = { id: string; name: string; test_type?: string | null; is_active?: boolean | null };
 type LinkRow = {
@@ -19,24 +19,18 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
 
   const [tests, setTests] = useState<Test[]>([]);
   const [links, setLinks] = useState<LinkRow[]>([]);
-
   const [testId, setTestId] = useState("");
   const [testDisplayName, setTestDisplayName] = useState("");
   const [contactOwner, setContactOwner] = useState("");
   const [showResults, setShowResults] = useState(true);
   const [emailReport, setEmailReport] = useState(true);
-  const [message, setMessage] = useState("Thank you for taking the test. Your facilitator will follow up with next steps.");
-  const [redirectUrl, setRedirectUrl] = useState("");
   const [expiresAt, setExpiresAt] = useState<string>("");
-
-  const [recipientEmail, setRecipientEmail] = useState("");
-  const [recipientName, setRecipientName] = useState("");
-
-  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // load tests
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://mindcanvas.app";
+
+  // Fetch tests
   useEffect(() => {
     fetch(`/api/admin/tests?orgId=${orgId}`)
       .then((r) => r.json())
@@ -44,240 +38,243 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
       .catch(() => setTests([]));
   }, [orgId]);
 
+  // Fetch recent links
   const refreshLinks = () => {
     fetch(`/api/admin/links?orgId=${orgId}`)
       .then((r) => r.json())
-      .then((rows) => setLinks(Array.isArray(rows) ? rows : []))
+      .then((d) => setLinks(Array.isArray(d) ? d : []))
       .catch(() => setLinks([]));
   };
-  useEffect(() => {
-    refreshLinks();
-  }, [orgId]);
+  useEffect(refreshLinks, [orgId]);
 
-  const baseUrl = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    const u = new URL(window.location.href);
-    return `${u.protocol}//${u.host}`;
-  }, []);
   const fullLink = (token: string) => `${baseUrl}/t/${token}`;
+  const embedCode = (url: string) =>
+    `<iframe src="${url}" width="100%" height="800" frameborder="0"></iframe>`;
+  const htmlButton = (url: string) =>
+    `<a href="${url}" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;text-align:center;display:inline-block;">Start your test</a>`;
 
-  const doCopy = async (text: string, label = "Link copied!") => {
+  const doCopy = async (text: string, label?: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(label);
-      setTimeout(() => setCopied(null), 2000);
+      setStatus(label || "Copied!");
+      setTimeout(() => setStatus(null), 2000);
     } catch {
-      setStatus("Clipboard failed. Please copy manually.");
+      setStatus("Copy failed");
     }
   };
 
-  const generate = async (sendEmail = false) => {
+  const generate = async () => {
     setLoading(true);
     setStatus(null);
-    try {
-      const payload = {
-        orgId,
-        testId,
-        testDisplayName: testDisplayName || null,
-        contactOwner: contactOwner || null,
-        showResults,
-        emailReport,
-        hiddenResultsMessage: showResults ? null : message || null,
-        redirectUrl: showResults ? null : redirectUrl || null,
-        expiresAt: expiresAt || null,
-        recipientEmail: sendEmail ? recipientEmail : null,
-        recipientName: sendEmail ? recipientName : null,
-      };
 
-      const res = await fetch("/api/admin/create-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-
-      if (!data.ok) {
-        setStatus(`Error: ${data.error || "unknown"}`);
-      } else {
-        await doCopy(data.url as string, "New link copied!");
-        if (sendEmail) setStatus(`✅ Email sent to ${recipientEmail}`);
-        setTestDisplayName("");
-        setContactOwner("");
-        setRecipientEmail("");
-        setRecipientName("");
-        refreshLinks();
-      }
-    } catch (e: any) {
-      setStatus(e?.message || "Failed to create link");
-    } finally {
+    // Sanity check: ensure UUID
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRe.test(testId)) {
+      setStatus("Please select a valid test (missing ID). Try reselecting.");
       setLoading(false);
+      return;
     }
+
+    const body = {
+      orgId,
+      testId,
+      testDisplayName,
+      contactOwner,
+      showResults,
+      emailReport,
+      expiresAt: expiresAt || null,
+    };
+
+    const res = await fetch("/api/admin/create-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data?.ok) {
+      setStatus("Link created!");
+      await new Promise((r) => setTimeout(r, 400));
+      refreshLinks();
+    } else {
+      setStatus(data?.error || "Error creating link");
+    }
+    setLoading(false);
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Generate Test Link</h1>
-          <p className="text-sm text-gray-600">
-            Generate a test link. Optionally email it to a recipient.
-          </p>
-        </div>
-        {copied && (
-          <span className="rounded-md bg-green-100 text-green-800 text-xs px-2 py-1">{copied}</span>
-        )}
-      </div>
+    <div className="grid gap-6 md:grid-cols-2">
+      <div>
+        <h2 className="text-lg font-semibold mb-2">Generate Test Link</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          Generate a test link. Optionally email it to a recipient.
+        </p>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-3 rounded-xl border p-4 bg-white">
-          <label className="text-sm block">
-            <span className="mb-1 block">Select test</span>
-            <select className="w-full rounded border p-2" value={testId} onChange={(e) => setTestId(e.target.value)}>
-              <option value="">Select test…</option>
+        <div className="space-y-3 border p-4 rounded-lg">
+          <label className="block text-sm">
+            <span className="block mb-1">Select test</span>
+            <select
+              className="w-full rounded border p-2"
+              value={testId}
+              onChange={(e) => setTestId(e.target.value)}
+            >
+              <option value="">Select test...</option>
               {tests.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name}{t.test_type ? ` (${t.test_type})` : ""}
+                  {t.name}
                 </option>
               ))}
             </select>
           </label>
 
-          <label className="text-sm block">
-            <span className="mb-1 block">Name Test</span>
+          <label className="block text-sm">
+            <span className="block mb-1">Name Test</span>
             <input
+              type="text"
               className="w-full rounded border p-2"
+              placeholder="e.g. Team Puzzle — Sales intake"
               value={testDisplayName}
               onChange={(e) => setTestDisplayName(e.target.value)}
-              placeholder="e.g. Team Puzzle Profile — Sales intake"
             />
           </label>
 
-          <label className="text-sm block">
-            <span className="mb-1 block">Contact owner&apos;s name</span>
+          <label className="block text-sm">
+            <span className="block mb-1">Contact owner's name</span>
             <input
+              type="text"
               className="w-full rounded border p-2"
+              placeholder="e.g. Sarah Ndlovu"
               value={contactOwner}
               onChange={(e) => setContactOwner(e.target.value)}
-              placeholder="e.g. Sarah Ndlovu"
             />
           </label>
 
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={showResults} onChange={() => setShowResults((v) => !v)} />
+            <input
+              type="checkbox"
+              checked={showResults}
+              onChange={(e) => setShowResults(e.target.checked)}
+            />
             Show results to taker <span className="text-gray-500">after completion</span>
           </label>
 
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={emailReport} onChange={() => setEmailReport((v) => !v)} />
+            <input
+              type="checkbox"
+              checked={emailReport}
+              onChange={(e) => setEmailReport(e.target.checked)}
+            />
             Email the report
           </label>
 
-          <label className="text-sm block">
-            <span className="mb-1 block">Expiry (optional)</span>
+          <label className="block text-sm">
+            <span className="block mb-1">Expiry (optional)</span>
             <input
               type="datetime-local"
               className="w-full rounded border p-2"
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
             />
-            <span className="block mt-1 text-xs text-gray-500">If left blank, the link never expires.</span>
-          </label>
-
-          <div className="flex items-center gap-3 pt-1">
-            <button
-              className="rounded bg-black px-3 py-2 text-white text-sm disabled:opacity-50"
-              disabled={!testId || loading}
-              onClick={() => generate(false)}
-            >
-              {loading ? "Generating…" : "Generate link"}
-            </button>
-            {status && <span className="text-sm text-red-600">{status}</span>}
-          </div>
-
-          {/* --- Email Section --- */}
-          <hr className="my-4" />
-          <h2 className="font-medium text-sm">Send link via email</h2>
-          <p className="text-xs text-gray-500 mb-2">
-            Generate a link first, then email it to a recipient. The token is only embedded in the email URL.
-          </p>
-
-          <label className="text-sm block">
-            <span className="mb-1 block">Recipient email</span>
-            <input
-              className="w-full rounded border p-2"
-              value={recipientEmail}
-              onChange={(e) => setRecipientEmail(e.target.value)}
-              placeholder="person@example.com"
-            />
-          </label>
-
-          <label className="text-sm block">
-            <span className="mb-1 block">Recipient name (optional)</span>
-            <input
-              className="w-full rounded border p-2"
-              value={recipientName}
-              onChange={(e) => setRecipientName(e.target.value)}
-              placeholder="Jane Doe"
-            />
+            <span className="text-xs text-gray-500">
+              If left blank, the link never expires.
+            </span>
           </label>
 
           <button
-            className="mt-2 rounded bg-blue-600 px-3 py-2 text-white text-sm disabled:opacity-50"
-            disabled={!testId || !recipientEmail || loading}
-            onClick={() => generate(true)}
+            type="button"
+            disabled={loading}
+            onClick={generate}
+            className="bg-black text-white px-4 py-2 rounded-md hover:bg-gray-800 w-full"
           >
-            {loading ? "Sending…" : "Send email"}
+            {loading ? "Generating..." : "Generate link"}
           </button>
-        </div>
 
-        <div className="rounded-xl border p-4 bg-white">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="font-medium">Recent links — {orgName}</h2>
-            <button onClick={refreshLinks} className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50" type="button">Refresh</button>
-          </div>
-          <div className="overflow-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50">
+          {status && <p className="text-sm mt-2 text-gray-700">{status}</p>}
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold mb-2">Recent links — {orgName}</h2>
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">Test</th>
+                <th className="px-3 py-2 text-left font-medium">Created</th>
+                <th className="px-3 py-2 text-left font-medium">Results</th>
+                <th className="px-3 py-2 text-left font-medium">Expiry</th>
+                <th className="px-3 py-2 text-left font-medium">Link</th>
+                <th className="px-3 py-2 text-left font-medium">Copy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {links.length === 0 && (
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">Test</th>
-                  <th className="px-3 py-2 text-left font-medium">Created</th>
-                  <th className="px-3 py-2 text-left font-medium">Results</th>
-                  <th className="px-3 py-2 text-left font-medium">Expiry</th>
-                  <th className="px-3 py-2 text-left font-medium">Link</th>
+                  <td colSpan={6} className="text-center py-6 text-gray-500">
+                    No links yet.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {links.map((r) => {
-                  const url = fullLink(r.token);
-                  const expired = r.expires_at ? new Date(r.expires_at) < new Date() : false;
-                  return (
-                    <tr key={r.token} className="border-t">
-                      <td className="px-3 py-2">{r.test_name}</td>
-                      <td className="px-3 py-2">
-                        {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
-                        {!r.is_active && <span className="ml-2 text-xs text-gray-500">(inactive)</span>}
-                      </td>
-                      <td className="px-3 py-2">{r.show_results ? "Shown" : "Hidden"}</td>
-                      <td className="px-3 py-2">
-                        {r.expires_at ? `${new Date(r.expires_at).toLocaleString()}${expired ? " (expired)" : ""}` : "—"}
-                      </td>
-                      <td className="px-3 py-2">
-                        <button type="button" onClick={() => doCopy(url)} className="underline" title="Copy link">
-                          /t/{r.token}
+              )}
+              {links.map((r) => {
+                const url = fullLink(r.token);
+                const expired = r.expires_at
+                  ? new Date(r.expires_at) < new Date()
+                  : false;
+                return (
+                  <tr key={r.token} className="border-t">
+                    <td className="px-3 py-2">{r.test_name}</td>
+                    <td className="px-3 py-2">
+                      {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
+                      {!r.is_active && (
+                        <span className="ml-2 text-xs text-gray-500">(inactive)</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {r.show_results ? "Shown" : "Hidden"}
+                    </td>
+                    <td className="px-3 py-2">
+                      {r.expires_at
+                        ? `${new Date(r.expires_at).toLocaleString()}${
+                            expired ? " (expired)" : ""
+                          }`
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => doCopy(url, "URL copied")}
+                        className="underline text-blue-600"
+                      >
+                        /t/{r.token}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-2">
+                        <button
+                          className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                          onClick={() => doCopy(url, "URL copied")}
+                        >
+                          URL
                         </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!links.length && (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-gray-500" colSpan={5}>No links yet.</td>
+                        <button
+                          className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                          onClick={() => doCopy(embedCode(url), "Embed copied")}
+                        >
+                          Embed
+                        </button>
+                        <button
+                          className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                          onClick={() => doCopy(htmlButton(url), "Snippet copied")}
+                        >
+                          Snippet
+                        </button>
+                      </div>
+                    </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs text-gray-500 mt-3">Path: /portal/{orgSlug}/links</p>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
