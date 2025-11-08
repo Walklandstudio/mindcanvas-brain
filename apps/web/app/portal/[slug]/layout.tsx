@@ -1,18 +1,45 @@
 import { ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-async function loadOrg(slug: string) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+// Force server Node runtime + dynamic render (no prerender cache)
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+type Org = {
+  slug: string;
+  name: string;
+  brand_name?: string | null;
+  brand_primary?: string | null;
+  brand_secondary?: string | null;
+  brand_accent?: string | null;
+  brand_text?: string | null;
+  report_font_family?: string | null;
+  report_font_size?: string | null;
+  logo_url?: string | null;
+  watermark?: string | null;
+  report_cover_tagline?: string | null;
+  report_disclaimer?: string | null;
+};
+
+async function loadOrg(slug: string): Promise<Org | null> {
+  // Guard for env so we don't crash the layout
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+
+  const supabase = createClient(url, key);
   const { data, error } = await supabase
     .from("portal.orgs")
     .select("*")
     .eq("slug", slug)
     .maybeSingle();
-  if (error) throw error;
-  return data;
+
+  if (error) {
+    console.error("org load error:", error.message);
+    return null;
+  }
+  return (data as Org) ?? null;
 }
 
 export default async function OrgLayout({
@@ -21,6 +48,7 @@ export default async function OrgLayout({
 }: { children: ReactNode; params: { slug: string } }) {
   const org = await loadOrg(params.slug);
 
+  // Safe defaults if org not found or env missing
   const vars: Record<string, string> = {
     "--brand-primary": org?.brand_primary ?? "#2d8fc4",
     "--brand-secondary": org?.brand_secondary ?? "#015a8b",
