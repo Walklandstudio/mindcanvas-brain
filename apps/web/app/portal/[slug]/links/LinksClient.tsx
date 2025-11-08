@@ -25,25 +25,43 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
   const [showResults, setShowResults] = useState(true);
   const [emailReport, setEmailReport] = useState(true);
   const [expiresAt, setExpiresAt] = useState<string>("");
+
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingLinks, setLoadingLinks] = useState(false);
 
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://mindcanvas.app";
 
+  // fetch helpers (uncached)
+  const fetchJSON = async (url: string) => {
+    const r = await fetch(`${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`);
+    const j = await r.json();
+    if (!r.ok || (j && j.error)) throw new Error(j?.error || `HTTP ${r.status}`);
+    return j;
+  };
+
   // Fetch tests
   useEffect(() => {
-    fetch(`/api/admin/tests?orgId=${orgId}`)
-      .then((r) => r.json())
+    fetchJSON(`/api/admin/tests?orgId=${orgId}`)
       .then((d) => setTests(Array.isArray(d) ? d : []))
-      .catch(() => setTests([]));
+      .catch((e) => {
+        setTests([]);
+        setStatus(`Tests load error: ${e.message}`);
+        console.error("tests error", e);
+      });
   }, [orgId]);
 
   // Fetch recent links
   const refreshLinks = () => {
-    fetch(`/api/admin/links?orgId=${orgId}`)
-      .then((r) => r.json())
+    setLoadingLinks(true);
+    fetchJSON(`/api/admin/links?orgId=${orgId}`)
       .then((d) => setLinks(Array.isArray(d) ? d : []))
-      .catch(() => setLinks([]));
+      .catch((e) => {
+        setLinks([]);
+        setStatus(`Links load error: ${e.message}`);
+        console.error("links error", e);
+      })
+      .finally(() => setLoadingLinks(false));
   };
   useEffect(refreshLinks, [orgId]);
 
@@ -67,50 +85,55 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
     setLoading(true);
     setStatus(null);
 
-    // Sanity check: ensure UUID
-    const uuidRe =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    // UUID sanity
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRe.test(testId)) {
       setStatus("Please select a valid test (missing ID). Try reselecting.");
       setLoading(false);
       return;
     }
 
-    const body = {
-      orgId,
-      testId,
-      testDisplayName,
-      contactOwner,
-      showResults,
-      emailReport,
-      expiresAt: expiresAt || null,
-    };
-
-    const res = await fetch("/api/admin/create-link", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (data?.ok) {
+    try {
+      const res = await fetch("/api/admin/create-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orgId,
+          testId,
+          testDisplayName,
+          contactOwner,
+          showResults,
+          emailReport,
+          expiresAt: expiresAt || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
       setStatus("Link created!");
-      await new Promise((r) => setTimeout(r, 400));
+      // small delay to avoid replica lag, then refresh (uncached)
+      await new Promise((r) => setTimeout(r, 500));
       refreshLinks();
-    } else {
-      setStatus(data?.error || "Error creating link");
+    } catch (e: any) {
+      setStatus(e?.message || "Error creating link");
+      console.error("create-link error", e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
       <div>
-        <h2 className="text-lg font-semibold mb-2">Generate Test Link</h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-semibold">Generate Test Link</h2>
+        </div>
         <p className="text-sm text-gray-600 mb-4">
           Generate a test link. Optionally email it to a recipient.
         </p>
 
-        <div className="space-y-3 border p-4 rounded-lg">
+        <div className="space-y-3 border p-4 rounded-lg bg-white">
           <label className="block text-sm">
             <span className="block mb-1">Select test</span>
             <select
@@ -121,10 +144,15 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
               <option value="">Select test...</option>
               {tests.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name}
+                  {t.name}{t.test_type ? ` (${t.test_type})` : ""}
                 </option>
               ))}
             </select>
+            {!tests.length && (
+              <span className="text-xs text-gray-500 mt-1 block">
+                No tests found for this organisation. Create one under the <em>Tests</em> tab.
+              </span>
+            )}
           </label>
 
           <label className="block text-sm">
@@ -194,8 +222,20 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
       </div>
 
       <div>
-        <h2 className="text-lg font-semibold mb-2">Recent links — {orgName}</h2>
-        <div className="border rounded-lg overflow-hidden">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-semibold">Recent links — {orgName}</h2>
+          <button
+            type="button"
+            onClick={refreshLinks}
+            className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+            disabled={loadingLinks}
+            title="Reload"
+          >
+            {loadingLinks ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+
+        <div className="border rounded-lg overflow-hidden bg-white">
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -217,55 +257,32 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
               )}
               {links.map((r) => {
                 const url = fullLink(r.token);
-                const expired = r.expires_at
-                  ? new Date(r.expires_at) < new Date()
-                  : false;
+                const expired = r.expires_at ? new Date(r.expires_at) < new Date() : false;
                 return (
                   <tr key={r.token} className="border-t">
                     <td className="px-3 py-2">{r.test_name}</td>
                     <td className="px-3 py-2">
                       {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
-                      {!r.is_active && (
-                        <span className="ml-2 text-xs text-gray-500">(inactive)</span>
-                      )}
+                      {!r.is_active && <span className="ml-2 text-xs text-gray-500">(inactive)</span>}
+                    </td>
+                    <td className="px-3 py-2">{r.show_results ? "Shown" : "Hidden"}</td>
+                    <td className="px-3 py-2">
+                      {r.expires_at ? `${new Date(r.expires_at).toLocaleString()}${expired ? " (expired)" : ""}` : "—"}
                     </td>
                     <td className="px-3 py-2">
-                      {r.show_results ? "Shown" : "Hidden"}
-                    </td>
-                    <td className="px-3 py-2">
-                      {r.expires_at
-                        ? `${new Date(r.expires_at).toLocaleString()}${
-                            expired ? " (expired)" : ""
-                          }`
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => doCopy(url, "URL copied")}
-                        className="underline text-blue-600"
-                      >
+                      <button type="button" onClick={() => doCopy(url, "URL copied")} className="underline text-blue-600">
                         /t/{r.token}
                       </button>
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
-                        <button
-                          className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
-                          onClick={() => doCopy(url, "URL copied")}
-                        >
+                        <button className="rounded border px-2 py-1 text-xs hover:bg-gray-50" onClick={() => doCopy(url, "URL copied")}>
                           URL
                         </button>
-                        <button
-                          className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
-                          onClick={() => doCopy(embedCode(url), "Embed copied")}
-                        >
+                        <button className="rounded border px-2 py-1 text-xs hover:bg-gray-50" onClick={() => doCopy(embedCode(url), "Embed copied")}>
                           Embed
                         </button>
-                        <button
-                          className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
-                          onClick={() => doCopy(htmlButton(url), "Snippet copied")}
-                        >
+                        <button className="rounded border px-2 py-1 text-xs hover:bg-gray-50" onClick={() => doCopy(htmlButton(url), "Snippet copied")}>
                           Snippet
                         </button>
                       </div>
@@ -276,6 +293,8 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
             </tbody>
           </table>
         </div>
+
+        {status && <p className="text-xs text-gray-500 mt-3">{status}</p>}
       </div>
     </div>
   );
