@@ -1,31 +1,40 @@
-import Link from "next/link";
+import { ReactNode } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-export default function OrgLayout({ children, params }: any) {
-  const { slug } = params;
-  const tabs = [
-    { href: `/portal/${slug}`, label: "Dashboard" },
-    { href: `/portal/${slug}/database`, label: "Database" },
-    { href: `/portal/${slug}/tests`, label: "Tests" },
-    { href: `/portal/${slug}/settings`, label: "Profile Settings" },
-  ];
+async function loadOrg(slug: string) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  const { data, error } = await supabase
+    .from("portal.orgs")
+    .select("*")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export default async function OrgLayout({
+  children,
+  params
+}: { children: ReactNode; params: { slug: string } }) {
+  const org = await loadOrg(params.slug);
+
+  const vars: Record<string, string> = {
+    "--brand-primary": org?.brand_primary ?? "#2d8fc4",
+    "--brand-secondary": org?.brand_secondary ?? "#015a8b",
+    "--brand-accent": org?.brand_accent ?? "#64bae2",
+    "--brand-text": org?.brand_text ?? "#111827",
+    "--report-font-family": org?.report_font_family ?? "Inter, sans-serif",
+    "--report-font-size": org?.report_font_size ?? "14px",
+  };
+
   return (
-    <div className="p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{slug}</h1>
-        <Link href="/portal/admin" className="text-sm underline">Back to admin</Link>
-      </header>
-      <nav className="flex gap-3">
-        {tabs.map((t) => (
-          <Link
-            key={t.href}
-            href={t.href}
-            className="px-3 py-2 rounded-lg border hover:bg-gray-50"
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
-      <section>{children}</section>
-    </div>
+    <html style={vars as any}>
+      <body style={{ fontFamily: "var(--report-font-family)" }} className="text-[var(--brand-text)]">
+        {children}
+      </body>
+    </html>
   );
 }
