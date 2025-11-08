@@ -30,8 +30,8 @@ export function assembleNarrative(raw: any): ReportData {
       }
     },
     copy: {
-      intro: null,
-      disclaimer: raw.org?.report_disclaimer ?? null
+      intro: undefined, // ✅ Type-safe for string | undefined
+      disclaimer: raw.org?.report_disclaimer ?? null,
     }
   };
 }
