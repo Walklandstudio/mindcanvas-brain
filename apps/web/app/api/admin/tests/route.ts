@@ -6,6 +6,13 @@ export const runtime = "nodejs";
 
 type Out = { id: string; name: string; test_type?: string | null; is_active?: boolean | null };
 
+function pickId(row: any): string | null {
+  return row?.id ?? row?.test_id ?? row?.tid ?? null;
+}
+function pickName(row: any): string {
+  return row?.name ?? row?.test_name ?? "Untitled test";
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -14,7 +21,7 @@ export async function GET(req: Request) {
 
     const sb = createClient().schema("portal");
 
-    // 1) Try the org-scoped view first (preferred)
+    // Try org-scoped view first
     let rows: any[] = [];
     {
       const { data, error } = await sb
@@ -23,14 +30,10 @@ export async function GET(req: Request) {
         .eq("org_id", orgId)
         .order("created_at", { ascending: false });
 
-      if (error) {
-        // don’t fail yet — fall through to base table
-      } else if (Array.isArray(data) && data.length) {
-        rows = data;
-      }
+      if (!error && Array.isArray(data) && data.length) rows = data;
     }
 
-    // 2) Fallback: base table (org_id on tests)
+    // Fallback to base table
     if (!rows.length) {
       const { data, error } = await sb
         .from("tests")
@@ -39,16 +42,21 @@ export async function GET(req: Request) {
         .order("created_at", { ascending: false });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      rows = Array.isArray(rows) && rows.length ? rows : (data ?? []);
+      rows = data ?? [];
     }
 
-    // 3) Map to safe output (handle varied column names)
-    const out: Out[] = (rows || []).map((r: any) => ({
-      id: r.id,
-      name: r.name ?? r.test_name ?? "Untitled test",
-      test_type: r.test_type ?? r.mode ?? null,
-      is_active: r.is_active ?? r.active ?? null,
-    }));
+    const out: Out[] = (rows || [])
+      .map((r: any) => {
+        const id = pickId(r);
+        if (!id) return null;
+        return {
+          id,
+          name: pickName(r),
+          test_type: r?.test_type ?? r?.mode ?? null,
+          is_active: r?.is_active ?? r?.active ?? null,
+        };
+      })
+      .filter(Boolean) as Out[];
 
     return NextResponse.json(out);
   } catch (e: any) {
