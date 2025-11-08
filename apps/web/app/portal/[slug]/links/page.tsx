@@ -1,12 +1,18 @@
-import LinkCreateForm from '@/components/admin/LinkCreateForm';
+import { createClient } from "@/lib/server/supabaseAdmin";
+import LinksClient from "./LinksClient";
 
-export const runtime = 'nodejs';
-export const revalidate = 0;
+export const dynamic = "force-dynamic";
 
-export default function OrgLinksPage({ params }: { params: { org: string } }) {
-  return (
-    <div className="p-6">
-      <LinkCreateForm />
-    </div>
-  );
+export default async function OrgLinksPage({ params }: { params: { slug: string } }) {
+  const sb = createClient().schema("portal");
+  const { data: org, error } = await sb
+    .from("orgs")
+    .select("id, name, slug")
+    .eq("slug", params.slug)
+    .maybeSingle();
+
+  if (error) return <div className="p-6 text-red-600">{error.message}</div>;
+  if (!org) return <div className="p-6 text-red-600">Org not found</div>;
+
+  return <LinksClient orgId={org.id} orgSlug={org.slug} orgName={org.name ?? org.slug} />;
 }
