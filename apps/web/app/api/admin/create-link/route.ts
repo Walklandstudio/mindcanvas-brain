@@ -31,15 +31,16 @@ function absoluteUrl(path: string) {
     process.env.VERCEL_PROJECT_PRODUCTION_URL ||
     process.env.VERCEL_URL ||
     "http://localhost:3000";
-  const base = host.startsWith("http") ? host : \`https://\${host}\`;
-  return \`\${base}\${path.startsWith("/") ? path : \`/\${path}\`}\`;
+  const base = host.startsWith("http") ? host : `https://${host}`;
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
-    if (!body.orgId || !body.testId)
+    if (!body.orgId || !body.testId) {
       return NextResponse.json({ ok: false, error: "Missing orgId or testId" }, { status: 400 });
+    }
 
     const {
       orgId,
@@ -70,7 +71,6 @@ export async function POST(req: Request) {
       redirect_url: showResults ? null : redirectUrl || null,
       is_active: true,
     };
-
     if (expiresAt) insertPayload.expires_at = new Date(expiresAt).toISOString();
 
     const { data: linkRow, error: insErr } = await sb
@@ -78,52 +78,36 @@ export async function POST(req: Request) {
       .insert(insertPayload)
       .select("token")
       .single();
+    if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
 
-    if (insErr)
-      return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
+    const publicUrl = absoluteUrl(`/t/${linkRow!.token}`);
 
-    const publicUrl = absoluteUrl(\`/t/\${linkRow!.token}\`);
-
-    // ✅ Optional email send
+    // Optional email via Resend
     let emailResult: any = null;
     if (recipientEmail) {
-      if (!RESEND_API_KEY)
+      if (!RESEND_API_KEY) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: "Missing RESEND_API_KEY or EMAIL_FROM env vars.",
-            url: publicUrl,
-          },
+          { ok: false, error: "Missing RESEND_API_KEY or EMAIL_FROM env vars.", url: publicUrl },
           { status: 500 }
         );
-
+      }
       const resend = new Resend(RESEND_API_KEY);
-      const toName = recipientName?.trim();
-      const to = toName ? \`\${toName} <\${recipientEmail}>\` : recipientEmail;
-      const subject = testDisplayName
-        ? \`Your \${testDisplayName} link\`
-        : "Your MindCanvas test link";
-
-      const html = \`
+      const to = recipientName?.trim() ? `${recipientName} <${recipientEmail}>` : recipientEmail;
+      const subject = testDisplayName ? `Your ${testDisplayName} link` : "Your MindCanvas test link";
+      const html = `
         <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height:1.6;">
           <h2 style="margin:0 0 12px;">You're invited to take a MindCanvas profile test</h2>
-          \${contactOwner ? \`<p>Contact owner: <strong>\${escapeHtml(contactOwner)}</strong></p>\` : ""}
+          ${contactOwner ? `<p>Contact owner: <strong>${escapeHtml(contactOwner)}</strong></p>` : ""}
           <p>Click below to start:</p>
           <p style="margin:16px 0;">
-            <a href="\${publicUrl}" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Start your test</a>
+            <a href="${publicUrl}" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Start your test</a>
           </p>
           <p style="margin:16px 0 0;font-size:12px;color:#666;">
-            If the button doesn't work, copy this link:<br/>\${publicUrl}
+            If the button doesn't work, copy this link:<br/>${publicUrl}
           </p>
         </div>
-      \`;
-
-      emailResult = await resend.emails.send({
-        from: EMAIL_FROM,
-        to,
-        subject,
-        html,
-      });
+      `;
+      emailResult = await resend.emails.send({ from: EMAIL_FROM, to, subject, html });
     }
 
     return NextResponse.json({
@@ -134,10 +118,7 @@ export async function POST(req: Request) {
       emailResultId: emailResult?.id ?? null,
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Unexpected error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
 
