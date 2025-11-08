@@ -29,6 +29,9 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
   const [redirectUrl, setRedirectUrl] = useState("");
   const [expiresAt, setExpiresAt] = useState<string>("");
 
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [recipientName, setRecipientName] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -36,21 +39,21 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
   // load tests
   useEffect(() => {
     fetch(`/api/admin/tests?orgId=${orgId}`)
-      .then(r => r.json())
-      .then(d => setTests(Array.isArray(d) ? d : []))
+      .then((r) => r.json())
+      .then((d) => setTests(Array.isArray(d) ? d : []))
       .catch(() => setTests([]));
   }, [orgId]);
 
-  // load links
   const refreshLinks = () => {
     fetch(`/api/admin/links?orgId=${orgId}`)
-      .then(r => r.json())
-      .then(rows => setLinks(Array.isArray(rows) ? rows : []))
+      .then((r) => r.json())
+      .then((rows) => setLinks(Array.isArray(rows) ? rows : []))
       .catch(() => setLinks([]));
   };
-  useEffect(() => { refreshLinks(); }, [orgId]);
+  useEffect(() => {
+    refreshLinks();
+  }, [orgId]);
 
-  // helpers
   const baseUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
     const u = new URL(window.location.href);
@@ -68,7 +71,7 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
     }
   };
 
-  const generate = async () => {
+  const generate = async (sendEmail = false) => {
     setLoading(true);
     setStatus(null);
     try {
@@ -79,9 +82,11 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
         contactOwner: contactOwner || null,
         showResults,
         emailReport,
-        hiddenResultsMessage: showResults ? null : (message || null),
-        redirectUrl: showResults ? null : (redirectUrl || null),
+        hiddenResultsMessage: showResults ? null : message || null,
+        redirectUrl: showResults ? null : redirectUrl || null,
         expiresAt: expiresAt || null,
+        recipientEmail: sendEmail ? recipientEmail : null,
+        recipientName: sendEmail ? recipientName : null,
       };
 
       const res = await fetch("/api/admin/create-link", {
@@ -95,12 +100,11 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
         setStatus(`Error: ${data.error || "unknown"}`);
       } else {
         await doCopy(data.url as string, "New link copied!");
+        if (sendEmail) setStatus(`✅ Email sent to ${recipientEmail}`);
         setTestDisplayName("");
         setContactOwner("");
-        if (!showResults) {
-          setMessage("Thank you for taking the test. Your facilitator will follow up with next steps.");
-          setRedirectUrl("");
-        }
+        setRecipientEmail("");
+        setRecipientName("");
         refreshLinks();
       }
     } catch (e: any) {
@@ -112,7 +116,6 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Generate Test Link</h1>
@@ -121,23 +124,15 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
           </p>
         </div>
         {copied && (
-          <span className="rounded-md bg-green-100 text-green-800 text-xs px-2 py-1">
-            {copied}
-          </span>
+          <span className="rounded-md bg-green-100 text-green-800 text-xs px-2 py-1">{copied}</span>
         )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Form */}
         <div className="space-y-3 rounded-xl border p-4 bg-white">
-          {/* Select test */}
           <label className="text-sm block">
             <span className="mb-1 block">Select test</span>
-            <select
-              className="w-full rounded border p-2"
-              value={testId}
-              onChange={(e) => setTestId(e.target.value)}
-            >
+            <select className="w-full rounded border p-2" value={testId} onChange={(e) => setTestId(e.target.value)}>
               <option value="">Select test…</option>
               {tests.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -147,7 +142,6 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
             </select>
           </label>
 
-          {/* Name Test */}
           <label className="text-sm block">
             <span className="mb-1 block">Name Test</span>
             <input
@@ -158,7 +152,6 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
             />
           </label>
 
-          {/* Contact owner */}
           <label className="text-sm block">
             <span className="mb-1 block">Contact owner&apos;s name</span>
             <input
@@ -169,55 +162,16 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
             />
           </label>
 
-          {/* Show results */}
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={showResults}
-              onChange={() => setShowResults(v => !v)}
-            />
+            <input type="checkbox" checked={showResults} onChange={() => setShowResults((v) => !v)} />
             Show results to taker <span className="text-gray-500">after completion</span>
           </label>
 
-          {/* Hidden-results config */}
-          {!showResults && (
-            <div className="space-y-3">
-              <label className="block text-sm">
-                <span className="mb-1 block">
-                  Thank you / next steps message (shown after completion)
-                </span>
-                <textarea
-                  rows={4}
-                  className="w-full rounded border p-2"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Thank you for taking the test. We’ll be in touch with your next steps."
-                />
-              </label>
-
-              <label className="block text-sm">
-                <span className="mb-1 block">Redirect URL (optional)</span>
-                <input
-                  className="w-full rounded border p-2"
-                  value={redirectUrl}
-                  onChange={(e) => setRedirectUrl(e.target.value)}
-                  placeholder="https://example.com/next-steps"
-                />
-              </label>
-            </div>
-          )}
-
-          {/* Email report */}
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={emailReport}
-              onChange={() => setEmailReport(v => !v)}
-            />
+            <input type="checkbox" checked={emailReport} onChange={() => setEmailReport((v) => !v)} />
             Email the report
           </label>
 
-          {/* Optional expiry */}
           <label className="text-sm block">
             <span className="mb-1 block">Expiry (optional)</span>
             <input
@@ -226,37 +180,61 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
             />
-            <span className="block mt-1 text-xs text-gray-500">
-              If left blank, the link never expires.
-            </span>
+            <span className="block mt-1 text-xs text-gray-500">If left blank, the link never expires.</span>
           </label>
 
-          {/* Actions */}
           <div className="flex items-center gap-3 pt-1">
             <button
               className="rounded bg-black px-3 py-2 text-white text-sm disabled:opacity-50"
               disabled={!testId || loading}
-              onClick={generate}
+              onClick={() => generate(false)}
             >
               {loading ? "Generating…" : "Generate link"}
             </button>
             {status && <span className="text-sm text-red-600">{status}</span>}
           </div>
+
+          {/* --- Email Section --- */}
+          <hr className="my-4" />
+          <h2 className="font-medium text-sm">Send link via email</h2>
+          <p className="text-xs text-gray-500 mb-2">
+            Generate a link first, then email it to a recipient. The token is only embedded in the email URL.
+          </p>
+
+          <label className="text-sm block">
+            <span className="mb-1 block">Recipient email</span>
+            <input
+              className="w-full rounded border p-2"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              placeholder="person@example.com"
+            />
+          </label>
+
+          <label className="text-sm block">
+            <span className="mb-1 block">Recipient name (optional)</span>
+            <input
+              className="w-full rounded border p-2"
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              placeholder="Jane Doe"
+            />
+          </label>
+
+          <button
+            className="mt-2 rounded bg-blue-600 px-3 py-2 text-white text-sm disabled:opacity-50"
+            disabled={!testId || !recipientEmail || loading}
+            onClick={() => generate(true)}
+          >
+            {loading ? "Sending…" : "Send email"}
+          </button>
         </div>
 
-        {/* Existing links */}
         <div className="rounded-xl border p-4 bg-white">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-medium">Recent links — {orgName}</h2>
-            <button
-              onClick={refreshLinks}
-              className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
-              type="button"
-            >
-              Refresh
-            </button>
+            <button onClick={refreshLinks} className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50" type="button">Refresh</button>
           </div>
-
           <div className="overflow-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50">
@@ -274,27 +252,17 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
                   const expired = r.expires_at ? new Date(r.expires_at) < new Date() : false;
                   return (
                     <tr key={r.token} className="border-t">
-                      <td className="px-3 py-2">
-                        {r.test_name}
-                        {r.contact_owner && <span className="ml-2 text-xs text-gray-500">({r.contact_owner})</span>}
-                      </td>
+                      <td className="px-3 py-2">{r.test_name}</td>
                       <td className="px-3 py-2">
                         {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
                         {!r.is_active && <span className="ml-2 text-xs text-gray-500">(inactive)</span>}
                       </td>
                       <td className="px-3 py-2">{r.show_results ? "Shown" : "Hidden"}</td>
                       <td className="px-3 py-2">
-                        {r.expires_at
-                          ? `${new Date(r.expires_at).toLocaleString()}${expired ? " (expired)" : ""}`
-                          : "—"}
+                        {r.expires_at ? `${new Date(r.expires_at).toLocaleString()}${expired ? " (expired)" : ""}` : "—"}
                       </td>
                       <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => doCopy(url)}
-                          className="underline"
-                          title="Copy link"
-                        >
+                        <button type="button" onClick={() => doCopy(url)} className="underline" title="Copy link">
                           /t/{r.token}
                         </button>
                       </td>
@@ -303,15 +271,12 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
                 })}
                 {!links.length && (
                   <tr>
-                    <td className="px-3 py-6 text-center text-gray-500" colSpan={5}>
-                      No links yet.
-                    </td>
+                    <td className="px-3 py-6 text-center text-gray-500" colSpan={5}>No links yet.</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-
           <p className="text-xs text-gray-500 mt-3">Path: /portal/{orgSlug}/links</p>
         </div>
       </div>
