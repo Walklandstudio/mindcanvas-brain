@@ -1,8 +1,33 @@
-// server component - taker detail
+// Server component — /portal/[slug]/database/[takerId]
+// Shows contact info + latest results (robust, no views required)
+
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/server/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
+
+type Totals = Record<string, number> | string | null | undefined;
+
+function parseTotals(totals: Totals): Record<string, number> {
+  if (!totals) return {};
+  try {
+    if (typeof totals === "string") {
+      const once = JSON.parse(totals);
+      if (typeof once === "string") return JSON.parse(once);
+      return once;
+    }
+    return totals;
+  } catch {
+    return {};
+  }
+}
+
+function sortEntries(obj: Record<string, number>) {
+  return Object.entries(obj)
+    .filter(([, v]) => typeof v === "number")
+    .sort((a, b) => (b[1] === a[1] ? a[0].localeCompare(b[0]) : b[1] - a[1]));
+}
 
 export default async function TakerDetail({
   params,
@@ -12,49 +37,34 @@ export default async function TakerDetail({
   const { slug, takerId } = params;
   const sb = createClient().schema("portal");
 
-  // taker + org check
-  const { data: taker, error: takerErr } = await sb
-    .from("test_takers")
-    .select("id, org_id, first_name, last_name, email, company, team")
-    .eq("id", takerId)
-    .maybeSingle();
-
-  if (takerErr || !taker) return notFound();
-
   const { data: org } = await sb
     .from("orgs")
     .select("id, slug, name")
-    .eq("id", taker.org_id)
+    .eq("slug", slug)
     .maybeSingle();
+  if (!org) return notFound();
 
-  if (!org || org.slug !== slug) return notFound();
-
-  // latest completed submission
-  const { data: latest } = await sb
-    .from("v_latest_completed_submission")
-    .select("submission_id, test_id, completed_at")
-    .eq("taker_id", taker.id)
+  const { data: taker } = await sb
+    .from("test_takers")
+    .select("id, org_id, first_name, last_name, email")
+    .eq("id", takerId)
     .maybeSingle();
-
-  // test meta
-  const { data: test } = latest
-    ? await sb.from("tests")
-        .select("id, name, test_type")
-        .eq("id", latest.test_id)
-        .maybeSingle()
-    : { data: null };
-
-  // results (all rows for that submission)
-  const { data: results } = latest
-    ? await sb
-        .from("test_results")
-        .select("kind, code, name, percent, raw")
-        .eq("submission_id", latest.submission_id)
-        .order("kind", { ascending: true })
-    : { data: [] as any[] };
+  if (!taker || taker.org_id !== org.id) return notFound();
 
   const fullName =
     [taker.first_name, taker.last_name].filter(Boolean).join(" ").trim() || "—";
+
+  const { data: results } = await sb
+    .from("test_results")
+    .select("id, created_at, totals")
+    .eq("taker_id", taker.id)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const latest = (results ?? [])[0] || null;
+  const totals = parseTotals(latest?.totals ?? null);
+  const sorted = sortEntries(totals);
+  const top = sorted[0];
 
   return (
     <div className="space-y-6">
@@ -63,58 +73,70 @@ export default async function TakerDetail({
           <h1 className="text-2xl font-semibold">{fullName}</h1>
           <p className="text-sm text-gray-500">{org.name}</p>
         </div>
-        <div className="flex gap-2">
-          {latest && (
-            <a
-              className="rounded-md border px-3 py-2 text-sm"
-              href={`/api/portal/report/${latest.submission_id}.pdf`}
-            >
-              Generate PDF
-            </a>
-          )}
-          <a
-            className="rounded-md border px-3 py-2 text-sm"
-            href={`/portal/${slug}/database`}
-          >
-            Back
-          </a>
-        </div>
+        <Link
+          href={`/portal/${slug}/database`}
+          className="rounded-md border px-3 py-2 text-sm"
+        >
+          Back to database
+        </Link>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border p-4">
-          <h2 className="font-medium mb-2">Identity</h2>
-          <dl className="grid grid-cols-3 gap-2 text-sm">
-            <dt className="text-gray-500">Email</dt>
-            <dd className="col-span-2">{taker.email || "—"}</dd>
-            <dt className="text-gray-500">Company</dt>
-            <dd className="col-span-2">{taker.company || "—"}</dd>
-            <dt className="text-gray-500">Team</dt>
-            <dd className="col-span-2">{taker.team || "—"}</dd>
-          </dl>
-        </div>
+      <section className="rounded-xl border p-4 bg-white">
+        <h2 className="font-medium mb-2">Contact</h2>
+        <dl className="grid grid-cols-3 gap-2 text-sm">
+          <dt className="text-gray-500">Name</dt>
+          <dd className="col-span-2">{fullName}</dd>
+          <dt className="text-gray-500">Email</dt>
+          <dd className="col-span-2">{taker.email || "—"}</dd>
+        </dl>
+      </section>
 
-        <div className="rounded-xl border p-4">
-          <h2 className="font-medium mb-2">Latest Submission</h2>
-          <dl className="grid grid-cols-3 gap-2 text-sm">
-            <dt className="text-gray-500">Test</dt>
-            <dd className="col-span-2">{test?.name || "—"}</dd>
-            <dt className="text-gray-500">Type</dt>
-            <dd className="col-span-2">{test?.test_type || "—"}</dd>
-            <dt className="text-gray-500">Completed</dt>
-            <dd className="col-span-2">
-              {latest?.completed_at
-                ? new Date(latest.completed_at).toLocaleString()
-                : "—"}
-            </dd>
-          </dl>
+      <section className="rounded-xl border p-4 bg-white">
+        <h2 className="font-medium mb-2">Latest Result</h2>
+        <dl className="grid grid-cols-3 gap-2 text-sm mb-4">
+          <dt className="text-gray-500">Completed</dt>
+          <dd className="col-span-2">
+            {latest?.created_at
+              ? new Date(latest.created_at as any).toLocaleString()
+              : "—"}
+          </dd>
+          <dt className="text-gray-500">Top profile</dt>
+          <dd className="col-span-2">
+            {top ? `${top[0]} (${top[1]})` : "—"}
+          </dd>
+        </dl>
+
+        <div className="overflow-auto rounded-lg border">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">Profile</th>
+                <th className="px-3 py-2 text-left font-medium">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(([name, score]) => (
+                <tr key={name} className="border-t">
+                  <td className="px-3 py-2">{name}</td>
+                  <td className="px-3 py-2">{score}</td>
+                </tr>
+              ))}
+              {sorted.length === 0 && (
+                <tr>
+                  <td className="px-3 py-4 text-gray-500" colSpan={2}>
+                    No results yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 
-      <section className="rounded-xl border p-4">
-        <h2 className="font-medium mb-3">Frequency / Profile Mix</h2>
-        <pre className="text-xs overflow-auto rounded bg-gray-50 p-3">
-{JSON.stringify(results ?? [], null, 2)}
+      <section className="rounded-xl border p-4 bg-white">
+        <h2 className="font-medium mb-2">Debug</h2>
+        <pre className="text-xs overflow-auto bg-gray-50 p-3 rounded">
+{JSON.stringify({ taker, latest }, null, 2)}
         </pre>
       </section>
     </div>
