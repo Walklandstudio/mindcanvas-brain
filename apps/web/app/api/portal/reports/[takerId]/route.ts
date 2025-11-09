@@ -7,7 +7,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// Allow both POST (intended) and GET (handy for quick tests)
 export async function POST(req: NextRequest, ctx: { params: { takerId: string } }) {
   return handle(req, ctx);
 }
@@ -31,16 +30,13 @@ async function handle(req: NextRequest, { params }: { params: { takerId: string 
 
     const pdf = await generateReportBuffer(data, {
       primary: raw.org.brand_primary ?? "#2d8fc4",
-      text: raw.org.brand_text ?? "#111827",
+      text:    raw.org.brand_text ?? "#111827",
     });
 
-    return new NextResponse(
-      pdf as unknown as ReadableStream<Uint8Array>,
-      {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
-          // cache disabled for safety in preview
+    return new NextResponse(pdf, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
         "Cache-Control": "no-store",
       },
     });
