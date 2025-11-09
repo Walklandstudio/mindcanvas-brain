@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
 import { fetchReportData } from "@/lib/report/fetchReportData";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
@@ -15,25 +15,44 @@ export async function GET(req: NextRequest, ctx: { params: { takerId: string } }
 }
 
 async function handle(req: NextRequest, { params }: { params: { takerId: string } }) {
-  try {
-    const url = new URL(req.url);
-    const slug = url.searchParams.get("slug")?.trim();
-    if (!slug) {
-      return NextResponse.json({ ok: false, error: "missing org slug (?slug=...)" }, { status: 400 });
-    }
+  const url = new URL(req.url);
+  const slug = url.searchParams.get("slug")?.trim();
+  if (!slug) {
+    return new Response(JSON.stringify({ ok: false, error: "missing org slug (?slug=...)" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
+  try {
     const raw = await fetchReportData({ orgSlug: slug, takerId: params.takerId });
-    if (!raw?.org) return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
-    if (!raw?.taker) return NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
+    if (!raw?.org) {
+      return new Response(JSON.stringify({ ok: false, error: "org not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (!raw?.taker) {
+      return new Response(JSON.stringify({ ok: false, error: "taker not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     const data = assembleNarrative(raw);
 
     const pdf = await generateReportBuffer(data, {
       primary: raw.org.brand_primary ?? "#2d8fc4",
-      text:    raw.org.brand_text ?? "#111827",
+      text: raw.org.brand_text ?? "#111827",
     });
 
-    return new NextResponse(pdf, {
+    // Convert Node Buffer -> ArrayBuffer for Response body
+    const ab =
+      pdf instanceof Buffer
+        ? pdf.buffer.slice(pdf.byteOffset, pdf.byteLength + pdf.byteOffset)
+        : (pdf as ArrayBuffer);
+
+    return new Response(ab, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
@@ -42,6 +61,9 @@ async function handle(req: NextRequest, { params }: { params: { takerId: string 
     });
   } catch (err: any) {
     console.error("report-pdf-error:", err);
-    return NextResponse.json({ ok: false, error: "failed to generate pdf" }, { status: 500 });
+    return new Response(JSON.stringify({ ok: false, error: "failed to generate pdf" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
