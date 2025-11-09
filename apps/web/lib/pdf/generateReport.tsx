@@ -1,5 +1,5 @@
 import { pdf } from '@react-pdf/renderer';
-import ReportDoc from '@/lib/pdf/Doc';
+import { ReportDoc } from '@/lib/pdf/Doc';
 import type { ReportData } from '@/lib/report/assembleNarrative';
 
 /**
