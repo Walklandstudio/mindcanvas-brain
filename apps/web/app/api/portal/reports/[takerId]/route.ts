@@ -2,21 +2,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+
 
 import type { NextRequest } from "next/server";
 import { fetchReportData } from "@/lib/report/fetchReportData";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 export async function POST(req: NextRequest, ctx: { params: { takerId: string } }) {
   return handle(req, ctx);
