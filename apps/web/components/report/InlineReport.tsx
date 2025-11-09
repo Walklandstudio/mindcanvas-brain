@@ -8,5 +8,5 @@ export const revalidate = 0;
 export default async function InlineReport({ orgSlug, takerId }: { orgSlug: string; takerId: string }) {
   const raw = await fetchReportData({ orgSlug, takerId });
   const data = assembleNarrative(raw);
-  return <ReportShell data={data} />;
+  return <ReportShell data={data as any} />;
 }

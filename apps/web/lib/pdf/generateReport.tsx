@@ -1,15 +1,12 @@
-// apps/web/lib/pdf/generateReport.ts
-import { renderToBuffer } from '@react-pdf/renderer';
-import ReportPDF from './Doc';
-import type { ReportData } from '@/components/report/ReportShell';
+import { pdf } from "@react-pdf/renderer";
+import { ReportDoc } from "./Doc";
+import type { ReportData } from "@/lib/report/assembleNarrative";
 
-export async function generateReportBuffer(data: ReportData, brand: { primary: string; text: string }) {
-  // pass brand tokens via a tiny global shim the Doc reads
-  (global as any).__brand_primary = brand.primary;
-  (global as any).__brand_text = brand.text;
-
-  const buffer = await renderToBuffer(<ReportPDF data={data} />);
-  delete (global as any).__brand_primary;
-  delete (global as any).__brand_text;
-  return buffer;
+export async function generateReportBuffer(
+  data: ReportData,
+  colors: { primary: string; text: string }
+): Promise<Uint8Array> {
+  const instance = pdf(ReportDoc(data, colors));
+  const buf = await instance.toBuffer(); // Node Buffer (Uint8Array subclass)
+  return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
