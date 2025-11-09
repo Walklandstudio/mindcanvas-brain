@@ -1,3 +1,4 @@
+// SENTINEL 2025-11-09T15:50:20Z
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
