@@ -1,14 +1,14 @@
 // apps/web/lib/pdf/Doc.tsx
-import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
+import { Document as PDFDocument, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 import type { ReportData } from '@/components/report/ReportShell';
 
-export function buildStyles(colors:{primary:string;text:string}, fontSize=12) {
+export function buildStyles(colors: { primary: string; text: string }, fontSize = 12) {
   return StyleSheet.create({
     page: { padding: 28, fontSize, color: colors.text },
-    h1: { fontSize: fontSize+6, marginBottom: 8, color: colors.primary },
-    h2: { fontSize: fontSize+2, marginTop: 12, marginBottom: 6 },
+    h1: { fontSize: fontSize + 6, marginBottom: 8, color: colors.primary },
+    h2: { fontSize: fontSize + 2, marginTop: 12, marginBottom: 6 },
     box: { border: 1, borderColor: '#e5e7eb', padding: 8, borderRadius: 6, marginBottom: 6 },
-    logo: { height: 24, marginBottom: 8 }
+    logo: { height: 24, marginBottom: 8 },
   });
 }
 
@@ -20,15 +20,20 @@ export default function ReportPDF({ data }: { data: ReportData }) {
   const styles = buildStyles(colors, 12);
 
   return (
-    <Document>
+    <PDFDocument>
       <Page size="A4" style={styles.page}>
         {data.org.logo_url ? <Image src={data.org.logo_url} style={styles.logo} /> : null}
-        <Text style={styles.h1}>{(data.org.brand_name ?? data.org.name) + ' — Signature Profiling Report'}</Text>
+
+        <Text style={styles.h1}>
+          {(data.org.brand_name ?? data.org.name) + ' — Signature Profiling Report'}
+        </Text>
         {data.org.report_cover_tagline ? <Text>{data.org.report_cover_tagline}</Text> : null}
 
         <View style={{ marginTop: 10 }}>
-          <Text>Participant: {data.taker.first_name} {data.taker.last_name}</Text>
-          <Text>Date: {(new Date()).toLocaleDateString()}</Text>
+          <Text>
+            Participant: {data.taker.first_name} {data.taker.last_name}
+          </Text>
+          <Text>Date: {new Date().toLocaleDateString()}</Text>
         </View>
 
         <Text style={styles.h2}>Frequency Summary</Text>
@@ -45,6 +50,6 @@ export default function ReportPDF({ data }: { data: ReportData }) {
           {data.results.topProfile.desc ? <Text>{data.results.topProfile.desc}</Text> : null}
         </View>
       </Page>
-    </Document>
+    </PDFDocument>
   );
 }
