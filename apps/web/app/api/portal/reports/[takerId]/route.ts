@@ -1,3 +1,6 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import type { NextRequest } from "next/server";
 import { fetchReportData } from "@/lib/report/fetchReportData";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
