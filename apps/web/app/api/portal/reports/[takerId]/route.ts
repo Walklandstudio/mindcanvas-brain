@@ -45,26 +45,21 @@ async function handle(req: NextRequest, { params }: { params: { takerId: string 
       text: raw.org.brand_text ?? "#111827",
     });
 
-    // ---- Normalize to Uint8Array without 'instanceof' checks ----
+    // Normalize to Blob (works for Buffer | Uint8Array | ArrayBuffer)
+    let bytes: Uint8Array;
     const anyPdf: any = pdf;
-    let body: Uint8Array;
-
     if (typeof Buffer !== "undefined" && Buffer.isBuffer(anyPdf)) {
-      // Node Buffer (Uint8Array subclass)
-      body = new Uint8Array(anyPdf.buffer, anyPdf.byteOffset, anyPdf.byteLength);
-    } else if (anyPdf && typeof anyPdf === "object" && typeof anyPdf.byteLength === "number" && typeof anyPdf.byteOffset === "number" && anyPdf.buffer) {
-      // Looks like a generic Uint8Array
-      body = new Uint8Array(anyPdf.buffer, anyPdf.byteOffset, anyPdf.byteLength);
-    } else if (anyPdf && typeof anyPdf === "object" && typeof anyPdf.byteLength === "number" && typeof anyPdf.slice === "function" && !("byteOffset" in anyPdf)) {
-      // Bare ArrayBuffer (has byteLength + slice, but no byteOffset/buffer props)
-      body = new Uint8Array(anyPdf as ArrayBuffer);
+      bytes = new Uint8Array(anyPdf.buffer, anyPdf.byteOffset, anyPdf.byteLength);
+    } else if (anyPdf && anyPdf.buffer && typeof anyPdf.byteOffset === "number") {
+      bytes = new Uint8Array(anyPdf.buffer, anyPdf.byteOffset, anyPdf.byteLength);
+    } else if (anyPdf && typeof anyPdf.byteLength === "number" && typeof anyPdf.slice === "function") {
+      bytes = new Uint8Array(anyPdf as ArrayBuffer);
     } else {
-      // Last resort: trust it's already a Uint8Array
-      body = anyPdf as Uint8Array;
+      bytes = anyPdf as Uint8Array;
     }
-    // ----------------------------------------------------------------
+    const blob = new Blob([bytes], { type: "application/pdf" });
 
-    return new Response(body, {
+    return new Response(blob, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
