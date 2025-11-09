@@ -1,3 +1,6 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { fetchReportData } from "@/lib/report/fetchReportData";
 export async function GET(req: Request) {
