@@ -1,4 +1,4 @@
-import { type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { fetchReportData } from "@/lib/report/fetchReportData";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
@@ -40,26 +40,31 @@ async function handle(req: NextRequest, { params }: { params: { takerId: string 
     }
 
     const data = assembleNarrative(raw);
-    const pdf = await generateReportBuffer(data, {
+    const pdfAny: any = await generateReportBuffer(data, {
       primary: raw.org.brand_primary ?? "#2d8fc4",
-      text: raw.org.brand_text ?? "#111827",
+      text:    raw.org.brand_text ?? "#111827",
     });
 
-    // Normalize to Blob (works for Buffer | Uint8Array | ArrayBuffer)
+    // ---- Normalize to a fresh ArrayBuffer (copy bytes) ----
     let bytes: Uint8Array;
-    const anyPdf: any = pdf;
-    if (typeof Buffer !== "undefined" && Buffer.isBuffer(anyPdf)) {
-      bytes = new Uint8Array(anyPdf.buffer, anyPdf.byteOffset, anyPdf.byteLength);
-    } else if (anyPdf && anyPdf.buffer && typeof anyPdf.byteOffset === "number") {
-      bytes = new Uint8Array(anyPdf.buffer, anyPdf.byteOffset, anyPdf.byteLength);
-    } else if (anyPdf && typeof anyPdf.byteLength === "number" && typeof anyPdf.slice === "function") {
-      bytes = new Uint8Array(anyPdf as ArrayBuffer);
+    if (typeof Buffer !== "undefined" && Buffer.isBuffer(pdfAny)) {
+      bytes = new Uint8Array(pdfAny.buffer, pdfAny.byteOffset, pdfAny.byteLength);
+    } else if (pdfAny && typeof pdfAny === "object" && pdfAny.buffer && typeof pdfAny.byteOffset === "number") {
+      // Uint8Array-like
+      bytes = new Uint8Array(pdfAny.buffer, pdfAny.byteOffset, pdfAny.byteLength);
+    } else if (pdfAny && typeof pdfAny === "object" && typeof pdfAny.byteLength === "number" && typeof pdfAny.slice === "function" && !("byteOffset" in pdfAny)) {
+      // ArrayBuffer-like
+      bytes = new Uint8Array(pdfAny as ArrayBuffer);
     } else {
-      bytes = anyPdf as Uint8Array;
+      // Assume it's already Uint8Array
+      bytes = pdfAny as Uint8Array;
     }
-    const blob = new Blob([bytes], { type: "application/pdf" });
 
-    return new Response(blob, {
+    const ab = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(ab).set(bytes);
+    // -------------------------------------------------------
+
+    return new Response(ab, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
