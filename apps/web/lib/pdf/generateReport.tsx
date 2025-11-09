@@ -11,21 +11,14 @@ export async function generateReportBuffer(
   colors: { primary: string; text: string }
 ): Promise<Uint8Array> {
   // Normalise nullable fields to what the PDF doc expects
-  const safe: ReportData = {
+  const safe: any = {
     ...data,
     org: {
       ...data.org,
       // coerce null -> undefined to satisfy older prop expectations
       logo_url: (data.org.logo_url ?? null) as string | null,
       tagline: (data.org.tagline ?? null) as string | null,
-    },
-    copy: data.copy
-      ? {
-          ...data.copy,
-          disclaimer: (data.copy.disclaimer ?? undefined) as string | null,
-        }
-      : undefined,
-  };
+    },};
 
   const instance: any = pdf(ReportDoc(safe as any, colors));
   // In Node runtime, toBuffer() returns a Node Buffer (Uint8Array subclass)
