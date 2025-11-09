@@ -6,6 +6,7 @@ export type ReportRaw = {
     id: string; slug: string; name: string;
     brand_primary: string|null; brand_secondary: string|null; brand_accent: string|null; brand_text: string|null;
     logo_url: string|null; report_cover_tagline: string|null; report_disclaimer: string|null;
+    __schema?: "portal" | "public";
   } | null;
   taker: {
     id: string; org_id: string; test_id: string|null;
@@ -15,47 +16,85 @@ export type ReportRaw = {
   latestResult: { id: string; created_at: string; totals: Json|null } | null;
 };
 
-export async function fetchReportData({ orgSlug, takerId }:{ orgSlug: string; takerId: string }): Promise<ReportRaw> {
-  const sb = createClient().schema("portal");
+async function selectOrgBySlug(slug: string) {
+  const base = createClient();
+  const portal = base.schema("portal");
+  const pub = base.schema("public");
 
-  // TAKER FIRST (so we can fall back to taker.org_id)
+  // exact match first (portal)
+  let { data } = await portal
+    .from("orgs")
+    .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (data) return { ...data, __schema: "portal" as const };
+
+  // ilike (portal)
+  let ilike = await portal
+    .from("orgs")
+    .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
+    .ilike("slug", slug)
+    .maybeSingle();
+  if (ilike.data) return { ...ilike.data, __schema: "portal" as const };
+
+  // exact match in public
+  let pubEq = await pub
+    .from("orgs")
+    .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (pubEq.data) return { ...pubEq.data, __schema: "public" as const };
+
+  // ilike in public
+  let pubIlike = await pub
+    .from("orgs")
+    .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
+    .ilike("slug", slug)
+    .maybeSingle();
+  if (pubIlike.data) return { ...pubIlike.data, __schema: "public" as const };
+
+  return null;
+}
+
+async function selectOrgById(id: string) {
+  const base = createClient();
+  const portal = base.schema("portal");
+  const pub = base.schema("public");
+
+  let { data } = await portal
+    .from("orgs")
+    .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
+    .eq("id", id)
+    .maybeSingle();
+  if (data) return { ...data, __schema: "portal" as const };
+
+  let p2 = await pub
+    .from("orgs")
+    .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
+    .eq("id", id)
+    .maybeSingle();
+  if (p2.data) return { ...p2.data, __schema: "public" as const };
+
+  return null;
+}
+
+export async function fetchReportData({ orgSlug, takerId }:{ orgSlug: string; takerId: string }): Promise<ReportRaw> {
+  const base = createClient();
+  const sb = base.schema("portal");
+
+  // TAKER FIRST
   const { data: taker } = await sb
     .from("test_takers")
     .select("id, org_id, test_id, first_name, last_name, email, company, role_title")
     .eq("id", takerId)
     .maybeSingle();
 
-  // ORG by slug (exact), then ilike, then by taker.org_id
+  // ORG by slug or by taker.org_id (both schemas)
   let org = null as ReportRaw["org"];
+  if (orgSlug) org = await selectOrgBySlug(orgSlug.trim());
+  if (!org && taker?.org_id) org = await selectOrgById(taker.org_id);
 
-  if (orgSlug) {
-    const { data: byEq } = await sb
-      .from("orgs")
-      .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
-      .eq("slug", orgSlug.trim())
-      .maybeSingle();
-    org = (byEq as any) ?? null;
-
-    if (!org) {
-      const { data: byIlike } = await sb
-        .from("orgs")
-        .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
-        .ilike("slug", orgSlug.trim())
-        .maybeSingle();
-      org = (byIlike as any) ?? null;
-    }
-  }
-
-  if (!org && taker?.org_id) {
-    const { data: byId } = await sb
-      .from("orgs")
-      .select("id,slug,name,brand_primary,brand_secondary,brand_accent,brand_text,logo_url,report_cover_tagline,report_disclaimer")
-      .eq("id", taker.org_id)
-      .maybeSingle();
-    org = (byId as any) ?? null;
-  }
-
-  // TEST (optional)
+  // TEST
   let test = null as ReportRaw["test"];
   if (taker?.test_id) {
     const { data: t } = await sb.from("tests").select("id,name,meta").eq("id", taker.test_id).maybeSingle();
@@ -75,7 +114,7 @@ export async function fetchReportData({ orgSlug, takerId }:{ orgSlug: string; ta
     latestResult = (results ?? [])[0] ?? null;
   }
 
-  // Guard: taker must belong to org
+  // Guard: taker must belong to org (if both are present)
   if (org && taker && taker.org_id !== org.id) {
     return { org: null, taker: null, test: null, latestResult: null };
   }
