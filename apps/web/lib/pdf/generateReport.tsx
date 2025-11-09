@@ -16,13 +16,13 @@ export async function generateReportBuffer(
     org: {
       ...data.org,
       // coerce null -> undefined to satisfy older prop expectations
-      logo_url: (data.org.logo_url ?? undefined) as unknown as string | undefined,
-      report_cover_tagline: (data.org.report_cover_tagline ?? undefined) as unknown as string | undefined,
+      logo_url: (data.org.logo_url ?? null) as string | null,
+      report_cover_tagline: (data.org.report_cover_tagline ?? null) as string | null,
     },
     copy: data.copy
       ? {
           ...data.copy,
-          disclaimer: (data.copy.disclaimer ?? undefined) as unknown as string | undefined,
+          disclaimer: (data.copy.disclaimer ?? undefined) as string | null,
         }
       : undefined,
   };
