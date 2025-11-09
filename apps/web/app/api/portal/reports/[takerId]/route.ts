@@ -40,19 +40,24 @@ async function handle(req: NextRequest, { params }: { params: { takerId: string 
     }
 
     const data = assembleNarrative(raw);
-
     const pdf = await generateReportBuffer(data, {
       primary: raw.org.brand_primary ?? "#2d8fc4",
       text: raw.org.brand_text ?? "#111827",
     });
 
-    // Convert Node Buffer -> ArrayBuffer for Response body
-    const ab =
-      pdf instanceof Buffer
-        ? pdf.buffer.slice(pdf.byteOffset, pdf.byteLength + pdf.byteOffset)
-        : (pdf as ArrayBuffer);
+    // ✅ Convert to a web-compatible Uint8Array (fixes all Buffer/ArrayBuffer type errors)
+    const body =
+      pdf instanceof Uint8Array
+        ? pdf
+        : pdf instanceof ArrayBuffer
+        ? new Uint8Array(pdf)
+        : new Uint8Array(
+            (pdf as Buffer).buffer,
+            (pdf as Buffer).byteOffset,
+            (pdf as Buffer).byteLength
+          );
 
-    return new Response(ab, {
+    return new Response(body, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
