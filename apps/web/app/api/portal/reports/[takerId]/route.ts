@@ -45,17 +45,24 @@ async function handle(req: NextRequest, { params }: { params: { takerId: string 
       text: raw.org.brand_text ?? "#111827",
     });
 
-    // ✅ Convert to a web-compatible Uint8Array (fixes all Buffer/ArrayBuffer type errors)
-    const body =
-      pdf instanceof Uint8Array
-        ? pdf
-        : pdf instanceof ArrayBuffer
-        ? new Uint8Array(pdf)
-        : new Uint8Array(
-            (pdf as Buffer).buffer,
-            (pdf as Buffer).byteOffset,
-            (pdf as Buffer).byteLength
-          );
+    // ---- Normalize to Uint8Array without 'instanceof' checks ----
+    const anyPdf: any = pdf;
+    let body: Uint8Array;
+
+    if (typeof Buffer !== "undefined" && Buffer.isBuffer(anyPdf)) {
+      // Node Buffer (Uint8Array subclass)
+      body = new Uint8Array(anyPdf.buffer, anyPdf.byteOffset, anyPdf.byteLength);
+    } else if (anyPdf && typeof anyPdf === "object" && typeof anyPdf.byteLength === "number" && typeof anyPdf.byteOffset === "number" && anyPdf.buffer) {
+      // Looks like a generic Uint8Array
+      body = new Uint8Array(anyPdf.buffer, anyPdf.byteOffset, anyPdf.byteLength);
+    } else if (anyPdf && typeof anyPdf === "object" && typeof anyPdf.byteLength === "number" && typeof anyPdf.slice === "function" && !("byteOffset" in anyPdf)) {
+      // Bare ArrayBuffer (has byteLength + slice, but no byteOffset/buffer props)
+      body = new Uint8Array(anyPdf as ArrayBuffer);
+    } else {
+      // Last resort: trust it's already a Uint8Array
+      body = anyPdf as Uint8Array;
+    }
+    // ----------------------------------------------------------------
 
     return new Response(body, {
       headers: {
