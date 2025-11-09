@@ -17,7 +17,7 @@ export async function generateReportBuffer(
       ...data.org,
       // coerce null -> undefined to satisfy older prop expectations
       logo_url: (data.org.logo_url ?? null) as string | null,
-      tagline: (data.org.report_cover_tagline ?? null) as string | null,
+      tagline: (data.org.tagline ?? null) as string | null,
     },
     copy: data.copy
       ? {
