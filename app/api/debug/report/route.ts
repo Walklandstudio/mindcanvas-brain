@@ -14,14 +14,11 @@ export async function GET(req: Request) {
     const raw = await fetchReportData({ orgSlug: slug, takerId: taker });
     return NextResponse.json({
       ok: true,
-      org: raw.org
-        ? { id: raw.org.id, slug: raw.org.slug, schema: raw.org.__schema ?? "portal" }
-        : null,
+      org: raw.org ? { id: raw.org.id, slug: raw.org.slug, schema: raw.org.__schema ?? "portal" } : null,
       taker: raw.taker ? { id: raw.taker.id, org_id: raw.taker.org_id } : null,
-      hasResult: !!raw.results,
+      hasResult: !!raw.latestResult,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
-

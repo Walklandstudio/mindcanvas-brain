@@ -1,10 +1,36 @@
 import React from "react";
 import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
-import type { ReportData } from "@/lib/report/assembleNarrative";
-export function buildStyles(colors:{primary:string;text:string}, fontSize=12){
-  return StyleSheet.create({page:{padding:32,fontSize,color:colors.text},h1:{fontSize:fontSize+10,marginBottom:8},h2:{fontSize:fontSize+4,marginTop:12,marginBottom:6},logo:{width:80,height:80,objectFit:"contain",marginBottom:8},barW:{marginVertical:2,backgroundColor:"#e5e7eb",height:6,borderRadius:3},bar:{backgroundColor:"#2563eb",height:6,borderRadius:3}});
+// Fixed: ReportData was not exported from assembleNarrative, so remove the import type or define a local type instead
+// import type { ReportData } from "@/lib/report/assembleNarrative"; 
+type ReportData = {
+  org: {
+    name: string;
+    logo_url?: string;
+    tagline?: string;
+    disclaimer?: string;
+  };
+  taker: {
+    fullName: string;
+    completed_at?: string;
+  };
+  test: {
+    name?: string;
+  };
+  freqPct: Record<string, number>;
+  profilePct: Record<string, number>;
+};
+
+export function buildStyles(colors: { primary: string; text: string }, fontSize = 12) {
+  return StyleSheet.create({
+    page: { padding: 32, fontSize, color: colors.text },
+    h1: { fontSize: fontSize + 10, marginBottom: 8 },
+    h2: { fontSize: fontSize + 4, marginTop: 12, marginBottom: 6 },
+    logo: { width: 80, height: 80, objectFit: "contain", marginBottom: 8 },
+    barW: { marginVertical: 2, backgroundColor: "#e5e7eb", height: 6, borderRadius: 3 },
+    bar: { backgroundColor: "#2563eb", height: 6, borderRadius: 3 },
+  });
 }
-export function ReportDoc(data:ReportData, colors:{primary:string;text:string}){
+export function ReportDoc(data: ReportData, colors: { primary: string; text: string }) {
   const s=buildStyles(colors,12);const freq=Object.entries(data.freqPct);const prof=Object.entries(data.profilePct);
   return (<Document><Page size="A4" style={s.page}>
     {data.org.logo_url ? <Image src={data.org.logo_url} style={s.logo}/> : null}
