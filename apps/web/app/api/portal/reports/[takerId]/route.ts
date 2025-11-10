@@ -70,7 +70,10 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const pdfBytes = await generateReportBuffer(data as any, colors);
 
-    return new Response(pdfBytes, {
+    const ab = (pdfBytes instanceof Uint8Array)
+  ? pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength)
+  : (pdfBytes as ArrayBuffer);
+return new Response(ab, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
