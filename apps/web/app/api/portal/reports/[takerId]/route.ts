@@ -70,11 +70,6 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const pdfBytes = await generateReportBuffer(data as any, colors);
 
-    const ab = (pdfBytes instanceof Uint8Array)
-  ? pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength)
-  : (pdfBytes as ArrayBuffer);
-const blob = new Blob([ab], { type: "application/pdf" });
-return new Response(blob, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
@@ -86,3 +81,22 @@ return new Response(blob, {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
+const ab =
+  pdfBytes instanceof Uint8Array
+    ? pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength)
+    : (pdfBytes as ArrayBuffer | SharedArrayBuffer);
+
+// Always give Blob a Uint8Array, not an (ArrayBuffer | SharedArrayBuffer)
+const body = pdfBytes instanceof Uint8Array
+  ? pdfBytes
+  : new Uint8Array(ab as ArrayBufferLike);
+
+const blob = new Blob([body], { type: "application/pdf" });
+return new Response(blob, {
+  headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
+    "Cache-Control": "no-store",
+  },
+});
