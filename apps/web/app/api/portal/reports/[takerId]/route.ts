@@ -82,17 +82,13 @@ export async function GET(req: Request, { params }: { params: Params }) {
   }
 }
 
-const ab =
-  pdfBytes instanceof Uint8Array
-    ? pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength)
-    : (pdfBytes as ArrayBuffer | SharedArrayBuffer);
-
-// Always give Blob a Uint8Array, not an (ArrayBuffer | SharedArrayBuffer)
-const body = pdfBytes instanceof Uint8Array
-  ? pdfBytes
-  : new Uint8Array(ab as ArrayBufferLike);
-
-const blob = new Blob([body], { type: "application/pdf" });
+return new Response(pdfBytes as unknown as BodyInit, {
+  headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
+    "Cache-Control": "no-store",
+  },
+});
 return new Response(blob, {
   headers: {
     "Content-Type": "application/pdf",
