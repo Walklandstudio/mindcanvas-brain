@@ -1,43 +1,65 @@
-import 'server-only';
-import { NextResponse } from 'next/server';
-import { admin, getOwnerOrgAndFramework } from '../../_lib/org';
+import "server-only";
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/server/supabaseAdmin";
 
-export async function POST(req: Request) {
-  const { mode, name } = await req.json();
-  if (!['free','full'].includes(mode)) return NextResponse.json({ error: 'mode' }, { status: 400 });
+export const runtime = "nodejs";
 
-  const svc = admin();
-  const { orgId, frameworkId } = await getOwnerOrgAndFramework();
+type Out = { id: string; name: string; test_type?: string | null; is_active?: boolean | null };
 
-  // create def
-  const { data: def, error: defErr } = await svc
-    .from('org_test_defs')
-    .insert({ org_id: orgId, framework_id: frameworkId, name: name || (mode==='free'?'Free Test':'Full Test'), mode })
-    .select('*').single();
-  if (defErr) return NextResponse.json({ error: defErr.message }, { status: 500 });
+function pickId(row: any): string | null {
+  return row?.id ?? row?.test_id ?? row?.tid ?? null;
+}
+function pickName(row: any): string {
+  return row?.name ?? row?.test_name ?? "Untitled test";
+}
 
-  // load base questions (15) and pick subset for free
-  const { data: base } = await svc
-    .from('org_questions')
-    .select('*')
-    .eq('org_id', orgId)
-    .eq('framework_id', frameworkId)
-    .order('question_no');
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const orgId = searchParams.get("orgId");
+    if (!orgId) return NextResponse.json({ error: "Missing orgId" }, { status: 400 });
 
-  const pick = mode === 'free' ? (base || []).slice(0, 7) : (base || []);
-  const rows = pick.map((q, i) => ({
-    test_id: def.id,
-    q_no: i+1,
-    source: 'base',
-    prompt: q.prompt,
-    options: q.options,
-    weights: q.weights
-  }));
+    const sb = createClient().schema("portal");
 
-  if (rows.length) {
-    const { error: insErr } = await svc.from('org_test_questions').insert(rows);
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+    // Try org-scoped view first
+    let rows: any[] = [];
+    {
+      const { data, error } = await sb
+        .from("v_org_tests")
+        .select("*")
+        .eq("org_id", orgId)
+        .order("created_at", { ascending: false });
+
+      if (!error && Array.isArray(data) && data.length) rows = data;
+    }
+
+    // Fallback to base table
+    if (!rows.length) {
+      const { data, error } = await sb
+        .from("tests")
+        .select("id, name, test_type, is_active, org_id, created_at")
+        .eq("org_id", orgId)
+        .order("created_at", { ascending: false });
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      rows = data ?? [];
+    }
+
+    const out: Out[] = (rows || [])
+      .map((r: any) => {
+        const id = pickId(r);
+        if (!id) return null;
+        return {
+          id,
+          name: pickName(r),
+          test_type: r?.test_type ?? r?.mode ?? null,
+          is_active: r?.is_active ?? r?.active ?? null,
+        };
+      })
+      .filter(Boolean) as Out[];
+
+    return NextResponse.json(out);
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
-
-  return NextResponse.json({ ok: true, testId: def.id });
 }

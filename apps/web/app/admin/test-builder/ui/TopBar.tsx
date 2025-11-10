@@ -17,6 +17,9 @@ export default function TopBar({
 }) {
   const router = useRouter();
   const search = useSearchParams();
+  const view = search?.get("view") ?? "list";
+  // and any other search.get(...) → search?.get(...) ?? ""
+  
 
   async function onCreate(mode: 'free' | 'full') {
     const name = window.prompt(`Name this ${mode} test:`) || '';

@@ -1,5 +1,5 @@
 // app/api/public/supabase-ping/route.ts
-import { sbAdmin } from '@/lib/supabaseAdmin';
+import { sbAdmin } from '@/lib/server/supabaseAdmin';
 export const runtime = 'nodejs'; export const dynamic = 'force-dynamic';
 export async function GET() {
   const { data, error } = await sbAdmin.from('v_organizations').select('id,slug,name').order('slug');

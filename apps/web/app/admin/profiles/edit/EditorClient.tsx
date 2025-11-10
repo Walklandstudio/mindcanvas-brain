@@ -30,7 +30,8 @@ function coerceFreq(v: string | null | undefined): Freq {
 
 export default function EditorClient() {
   const router = useRouter();
-  const sp = useSearchParams(); // may be typed nullable in strict TS
+  const sp = useSearchParams();
+  const code = sp?.get("code") ?? "";
 
   const initialName = sp?.get('name') ?? '';
   const initialFreq: Freq = coerceFreq(sp?.get('frequency'));

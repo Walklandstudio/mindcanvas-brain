@@ -1,8 +1,16 @@
+import Link from "next/link";
 import TestsClient from "./tests.client";
-import { createClient } from "@/lib/supabaseAdmin";
+import { createClient } from "@/lib/server/supabaseAdmin"; // ← keep this import
+
 export const dynamic = "force-dynamic";
 
-export default async function TestsPage({ params }: any) {
+type TestsPageProps = {
+  params: {
+    slug: string;
+  };
+};
+
+export default async function TestsPage({ params }: TestsPageProps) {
   const { slug } = params;
   const sb = createClient().schema("portal");
 
@@ -21,10 +29,15 @@ export default async function TestsPage({ params }: any) {
     .eq("org_slug", slug)
     .order("created_at", { ascending: false });
 
-  if (testsErr)
-    return <div className="p-6 text-red-600">Failed to load tests: {testsErr.message}</div>;
+  if (testsErr) {
+    return (
+      <div className="p-6 text-red-600">
+        Failed to load tests: {testsErr.message}
+      </div>
+    );
+  }
 
-  // prefetch links per test
+  // Prefetch links per test
   const linksByTest: Record<string, any[]> = {};
   if (tests?.length) {
     const ids = tests.map((t: any) => t.test_id);
@@ -33,12 +46,26 @@ export default async function TestsPage({ params }: any) {
       .select("*")
       .in("test_id", ids);
 
-    if (!linksErr) {
-      for (const l of links ?? []) {
+    if (!linksErr && links) {
+      for (const l of links) {
         (linksByTest[l.test_id] ||= []).push(l);
       }
     }
   }
 
-  return <TestsClient org={org} tests={tests ?? []} linksByTest={linksByTest} />;
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">{org.name ?? slug}</h1>
+        <Link
+          href={`/portal/${slug}/links`}
+          className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+        >
+          Generate link
+        </Link>
+      </div>
+
+      <TestsClient org={org} tests={tests ?? []} linksByTest={linksByTest} />
+    </div>
+  );
 }

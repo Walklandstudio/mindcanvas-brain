@@ -38,7 +38,7 @@ function Bar({ pct }: { pct: number }) {
 export default function ResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
   const sp = useSearchParams();
-  const tid = sp.get("tid") || "";
+  const tid = sp?.get("tid") ?? "";
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
@@ -54,7 +54,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
 
         const url = `/api/public/test/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(tid)}`;
         const res = await fetch(url, { cache: "no-store" });
-        const ct = res.headers.get("content-type") || "";
+        const ct = res.headers.get("content-type") ?? "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
           throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 300)}`);
