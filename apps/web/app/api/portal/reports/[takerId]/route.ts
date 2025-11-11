@@ -1,8 +1,10 @@
+// apps/web/app/api/portal/reports/[takerId]/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
+import { Buffer } from "node:buffer";
 import { supabaseAdmin } from "@/lib/server/supabaseAdmin";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
@@ -10,108 +12,98 @@ import { generateReportBuffer } from "@/lib/pdf/generateReport";
 type Params = { takerId: string };
 
 export async function GET(req: Request, { params }: { params: Params }) {
-  const url   = new URL(req.url);
-  const slug  = (url.searchParams.get("slug") ?? "").trim();
-  const debug = url.searchParams.get("debug") === "1";
-
-  // 🔒 Use the portal schema only
-  const db = supabaseAdmin.schema("portal");
-
   try {
-    // 1) Load taker (authoritative org_id)
-    const takerQ = await db
-      .from("test_takers")
-      .select("id, org_id, first_name, last_name, email, role")
+    const url  = new URL(req.url);
+    const slug = (url.searchParams.get("slug") || "").trim();
+    const dbg  = url.searchParams.get("debug") === "1";
+
+    // 1) Taker (authoritative org_id)
+    const takerQ = await supabaseAdmin
+      .from("portal.test_takers")
+      .select("id, org_id, first_name, last_name, email, role_title")
       .eq("id", params.takerId)
-      .maybeSingle();
+      .single();
 
     const taker = takerQ.data ?? null;
     if (!taker) {
-      const payload = { ok: false, error: "taker not found", takerQ };
-      return debug ? NextResponse.json(payload, { status: 404 })
-                   : NextResponse.json({ ok:false, error:"taker not found" }, { status:404 });
+      const out = { ok: false, error: "taker not found", detail: takerQ.error?.message ?? null };
+      return NextResponse.json(out, { status: 404 });
     }
 
-    // 2) Try org by slug (safe select: only columns we know exist everywhere)
-    let org: any = null;
-    let orgBySlugQ: any = null;
-    let orgByIdQ: any = null;
+    // 2) Org lookups (portal.orgs)
+    const orgBySlugQ = slug
+      ? await supabaseAdmin
+          .from("portal.orgs")
+          .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
+          .ilike("slug", slug)
+          .maybeSingle()
+      : { data: null, error: null };
 
-    if (slug) {
-      orgBySlugQ = await db
-        .from("orgs")
-        .select("id, slug, name")
-        .ilike("slug", slug)
-        .maybeSingle();
-      if (orgBySlugQ?.data) org = orgBySlugQ.data;
-    }
+    const orgByIdQ = await supabaseAdmin
+      .from("portal.orgs")
+      .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
+      .eq("id", taker.org_id)
+      .maybeSingle();
 
-    // Fallback: org by taker.org_id
-    if (!org) {
-      orgByIdQ = await db
-        .from("orgs")
-        .select("id, slug, name")
-        .eq("id", taker.org_id)
-        .maybeSingle();
-      if (orgByIdQ?.data) org = orgByIdQ.data;
-    }
+    const orgBySlug = (orgBySlugQ as any).data ?? null;
+    const orgById   = (orgByIdQ as any).data ?? null;
 
-    if (!org) {
-      const payload = {
-        ok: false,
-        error: "org not found",
-        debug: {
-          receivedSlug: slug,
-          taker: { id: taker.id, org_id: taker.org_id },
-          orgBySlugQ,
-          orgByIdQ,
+    // Prefer ID match; use slug if same org or ID absent
+    const chosenOrg =
+      (orgById && (!orgBySlug || orgBySlug.id === orgById.id)) ? orgById :
+      (orgBySlug || orgById || null);
+
+    if (dbg) {
+      return NextResponse.json({
+        ok: !!chosenOrg,
+        taker: { id: taker.id, org_id: taker.org_id },
+        slugParam: slug || null,
+        lookups: {
+          orgBySlug: { data: orgBySlug, error: (orgBySlugQ as any).error ?? null },
+          orgById:   { data: orgById,   error: (orgByIdQ as any).error   ?? null },
         },
-      };
-      return NextResponse.json(payload, { status: 404 });
+        chosenOrg
+      }, { status: chosenOrg ? 200 : 404 });
     }
 
-    // 3) Latest result
-    const latestResultQ = await db
-      .from("test_results")
+    if (!chosenOrg) {
+      return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
+    }
+
+    // 3) Latest result (portal.test_results)
+    const latestResultQ = await supabaseAdmin
+      .from("portal.test_results")
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const latestResult = latestResultQ?.data ?? null;
+    const latestResult = (latestResultQ as any).data ?? null;
 
-    if (debug) {
-      return NextResponse.json({
-        ok: true,
-        inputs: { slug, taker: { id: taker.id, org_id: taker.org_id } },
-        chosenOrg: org,
-        latestResultQ,
-      });
-    }
-
-    // 4) Assemble narrative -> PDF
-    // Provide safe defaults for optional org branding fields the PDF template might expect
-    const orgForPdf = {
-      ...org,
-      brand_primary: "#2d8fc4",
-      brand_text: "#111827",
-      logo_url: null as string | null,
-      report_cover_tagline: null as string | null,
+    // 4) Assemble → PDF
+    const raw = {
+      org: chosenOrg,
+      taker: {
+        first_name: taker.first_name ?? null,
+        last_name:  taker.last_name  ?? null,
+        email:      taker.email      ?? null,
+        role:       taker.role_title ?? null,
+      },
+      test: null,
+      latestResult
     };
 
-    const raw = { org: orgForPdf, taker, test: null, latestResult };
-    const data = assembleNarrative(raw as any);
-
+    const data   = assembleNarrative(raw as any);
     const colors = {
-      primary: orgForPdf.brand_primary || "#2d8fc4",
-      text:    orgForPdf.brand_text    || "#111827",
+      primary: chosenOrg.brand_primary || "#2d8fc4",
+      text:    chosenOrg.brand_text    || "#111827",
     };
 
     const pdfBytes = await generateReportBuffer(data as any, colors); // Uint8Array
-    const nodeBuf = Buffer.from(pdfBytes.buffer, pdfBytes.byteOffset, pdfBytes.byteLength);
+    const body     = Buffer.from(pdfBytes); // Node Buffer is valid BodyInit
 
-    return new Response(nodeBuf as unknown as BodyInit, {
+    return new Response(body, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
