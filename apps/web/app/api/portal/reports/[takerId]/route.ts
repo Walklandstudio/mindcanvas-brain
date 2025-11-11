@@ -10,15 +10,15 @@ import { generateReportBuffer } from "@/lib/pdf/generateReport";
 type Params = { takerId: string };
 
 export async function GET(req: Request, { params }: { params: Params }) {
-  const url = new URL(req.url);
-  const slug = (url.searchParams.get("slug") ?? "").trim();
+  const url   = new URL(req.url);
+  const slug  = (url.searchParams.get("slug") ?? "").trim();
   const debug = url.searchParams.get("debug") === "1";
 
-  // 🔒 HARD-PIN to portal schema for ALL queries in THIS route
+  // 🔒 Use the portal schema only
   const db = supabaseAdmin.schema("portal");
 
   try {
-    // 1) Taker (authoritative org_id)
+    // 1) Load taker (authoritative org_id)
     const takerQ = await db
       .from("test_takers")
       .select("id, org_id, first_name, last_name, email, role")
@@ -32,7 +32,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
                    : NextResponse.json({ ok:false, error:"taker not found" }, { status:404 });
     }
 
-    // 2) Org by slug (case-insensitive) -> fallback by taker.org_id
+    // 2) Try org by slug (safe select: only columns we know exist everywhere)
     let org: any = null;
     let orgBySlugQ: any = null;
     let orgByIdQ: any = null;
@@ -40,16 +40,17 @@ export async function GET(req: Request, { params }: { params: Params }) {
     if (slug) {
       orgBySlugQ = await db
         .from("orgs")
-        .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
+        .select("id, slug, name")
         .ilike("slug", slug)
         .maybeSingle();
       if (orgBySlugQ?.data) org = orgBySlugQ.data;
     }
 
+    // Fallback: org by taker.org_id
     if (!org) {
       orgByIdQ = await db
         .from("orgs")
-        .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
+        .select("id, slug, name")
         .eq("id", taker.org_id)
         .maybeSingle();
       if (orgByIdQ?.data) org = orgByIdQ.data;
@@ -89,13 +90,22 @@ export async function GET(req: Request, { params }: { params: Params }) {
       });
     }
 
-    // 4) Assemble & PDF
-    const raw = { org, taker, test: null, latestResult };
+    // 4) Assemble narrative -> PDF
+    // Provide safe defaults for optional org branding fields the PDF template might expect
+    const orgForPdf = {
+      ...org,
+      brand_primary: "#2d8fc4",
+      brand_text: "#111827",
+      logo_url: null as string | null,
+      report_cover_tagline: null as string | null,
+    };
+
+    const raw = { org: orgForPdf, taker, test: null, latestResult };
     const data = assembleNarrative(raw as any);
 
     const colors = {
-      primary: org.brand_primary || "#2d8fc4",
-      text:   org.brand_text    || "#111827",
+      primary: orgForPdf.brand_primary || "#2d8fc4",
+      text:    orgForPdf.brand_text    || "#111827",
     };
 
     const pdfBytes = await generateReportBuffer(data as any, colors); // Uint8Array
@@ -104,7 +114,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     return new Response(nodeBuf as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="report-\${params.takerId}.pdf"`,
+        "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
         "Cache-Control": "no-store",
       },
     });
