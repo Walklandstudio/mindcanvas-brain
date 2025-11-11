@@ -15,9 +15,9 @@ export async function GET(req: Request, { params }: { params: Params }) {
     const rawSlug = url.searchParams.get("slug") ?? "";
     const slug = rawSlug.trim();
 
-    // 1) Load taker (authoritative for org_id)
+    // 1) Taker (authoritative org_id)
     const { data: taker, error: takerErr } = await supabaseAdmin
-      .from("portal.test_takers")
+      .from("test_takers")
       .select("id, org_id, first_name, last_name, email, role")
       .eq("id", params.takerId)
       .single();
@@ -29,20 +29,22 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // 2) Org by slug (case-insensitive), fallback to taker.org_id
+    // 2) Org by slug (case-insensitive), fallback by taker.org_id
     let org: any = null;
 
-    const bySlug = await supabaseAdmin
-      .from("portal.orgs")
-      .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
-      .ilike("slug", slug)
-      .maybeSingle();
+    const bySlug = slug
+      ? await supabaseAdmin
+          .from("orgs")
+          .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
+          .ilike("slug", slug)
+          .maybeSingle()
+      : { data: null as any };
 
     if (bySlug.data) {
       org = bySlug.data;
     } else {
       const byId = await supabaseAdmin
-        .from("portal.orgs")
+        .from("orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
         .eq("id", taker.org_id)
         .maybeSingle();
@@ -54,11 +56,11 @@ export async function GET(req: Request, { params }: { params: Params }) {
             ok: false,
             error: "org not found",
             debug: {
-              supabaseUrl: (process as any).env.NEXT_PUBLIC_SUPABASE_URL,
+              supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
               projectRef:
-                ((process as any).env.NEXT_PUBLIC_SUPABASE_URL || "")
-                  .split("https://")[1]
-                  ?.split(".supabase.co")[0] || null,
+                (process.env.NEXT_PUBLIC_SUPABASE_URL || "")
+                  .split("https://")[1]?.split(".supabase.co")[0] || null,
+              schema: "portal",
               slug,
               taker: { id: taker.id, org_id: taker.org_id },
               bySlug,
@@ -72,22 +74,17 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     // 3) Latest result for this taker
     const { data: latestResult } = await supabaseAdmin
-      .from("portal.test_results")
+      .from("test_results")
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    // 4) Assemble and generate PDF
-    const raw = {
-      org,
-      taker,
-      test: null,
-      latestResult: latestResult ?? null,
-    };
-
+    // 4) Assemble + PDF
+    const raw = { org, taker, test: null, latestResult: latestResult ?? null };
     const data = assembleNarrative(raw as any);
+
     const colors = {
       primary: org.brand_primary || "#2d8fc4",
       text: org.brand_text || "#111827",

@@ -11,26 +11,20 @@ export async function GET(req: Request) {
   const slug = rawSlug.trim();
   const id = url.searchParams.get("id") ?? "";
 
-  const bySlug = await supabaseAdmin
-    .from("portal.orgs")
-    .select("id, slug, name")
-    .ilike("slug", slug)
-    .maybeSingle();
+  const bySlug = slug
+    ? await supabaseAdmin.from("orgs").select("id, slug, name").ilike("slug", slug).maybeSingle()
+    : { data: null };
 
   const byId = id
-    ? await supabaseAdmin
-        .from("portal.orgs")
-        .select("id, slug, name")
-        .eq("id", id)
-        .maybeSingle()
+    ? await supabaseAdmin.from("orgs").select("id, slug, name").eq("id", id).maybeSingle()
     : null;
 
   return NextResponse.json({
-    supabaseUrl: (process as any).env.NEXT_PUBLIC_SUPABASE_URL,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
     projectRef:
-      ((process as any).env.NEXT_PUBLIC_SUPABASE_URL || "")
-        .split("https://")[1]
-        ?.split(".supabase.co")[0] || null,
+      (process.env.NEXT_PUBLIC_SUPABASE_URL || "")
+        .split("https://")[1]?.split(".supabase.co")[0] || null,
+    schema: "portal",
     slug,
     id,
     bySlug,
