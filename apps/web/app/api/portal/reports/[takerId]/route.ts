@@ -12,12 +12,11 @@ type Params = { takerId: string };
 export async function GET(req: Request, { params }: { params: Params }) {
   try {
     const url = new URL(req.url);
-    const slug = (url.searchParams.get("slug") || "").trim();
+    const slug = url.searchParams.get("slug") || "";
 
-    // 1) taker (authoritative org_id) — use portal schema
+    // 1) Load taker (authoritative for org_id)
     const { data: taker, error: takerErr } = await supabaseAdmin
-      .schema("portal")
-      .from("test_takers")
+      .from("portal.test_takers")
       .select("id, org_id, first_name, last_name, email, role")
       .eq("id", params.takerId)
       .single();
@@ -26,18 +25,16 @@ export async function GET(req: Request, { params }: { params: Params }) {
       return NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
     }
 
-    // 2) org by slug (portal), else by taker.org_id
-    let { data: org } = await supabaseAdmin
-      .schema("portal")
-      .from("orgs")
+    // 2) Org by slug in portal.orgs (not public.portal.orgs), else fallback by taker.org_id
+    let { data: org, error: orgBySlugErr } = await supabaseAdmin
+      .from("portal.orgs")
       .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
       .eq("slug", slug)
       .single();
 
     if (!org) {
       const byId = await supabaseAdmin
-        .schema("portal")
-        .from("orgs")
+        .from("portal.orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
         .eq("id", taker.org_id)
         .single();
@@ -48,32 +45,39 @@ export async function GET(req: Request, { params }: { params: Params }) {
       return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
     }
 
-    // 3) latest result (portal)
+    // 3) Latest result for this taker
     const { data: latestResult } = await supabaseAdmin
-      .schema("portal")
-      .from("test_results")
+      .from("portal.test_results")
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    // 4) assemble + pdf
-    const raw = { org, taker, test: null, latestResult: latestResult ?? null };
-    const data = assembleNarrative(raw as any);
+    // 4) Assemble and generate PDF
+    const raw = {
+      org,
+      taker,
+      test: null,
+      latestResult: latestResult ?? null,
+    };
 
+    const data = assembleNarrative(raw as any);
     const colors = {
       primary: org.brand_primary || "#2d8fc4",
       text: org.brand_text || "#111827",
     };
 
-    const pdfBytes = await generateReportBuffer(data as any, colors);
+    const pdfBytes = await generateReportBuffer(data as any, colors); // Uint8Array
 
-    // Use a Node Buffer for a clean BodyInit
-    const body = Buffer.from(pdfBytes);
+    // Return a Node Buffer body (compatible BodyInit)
+    const nodeBuf = Buffer.from(
+      pdfBytes.buffer,
+      pdfBytes.byteOffset,
+      pdfBytes.byteLength
+    );
 
-    return new NextResponse(body, {
-      status: 200,
+    return new Response(nodeBuf as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
