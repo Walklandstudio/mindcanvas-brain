@@ -10,53 +10,66 @@ import { generateReportBuffer } from "@/lib/pdf/generateReport";
 type Params = { takerId: string };
 
 export async function GET(req: Request, { params }: { params: Params }) {
-  try {
-    const url = new URL(req.url);
-    const slug = (url.searchParams.get("slug") ?? "").trim();
+  const url = new URL(req.url);
+  const slug = (url.searchParams.get("slug") ?? "").trim();
+  const debug = url.searchParams.get("debug") === "1";
 
-    // 1) Taker (authoritative org_id) — from portal.test_takers
-    const { data: taker, error: takerErr } = await supabaseAdmin
+  try {
+    // 1) Taker (authoritative org_id)
+    const takerQ = await supabaseAdmin
       .from("test_takers")
       .select("id, org_id, first_name, last_name, email, role")
       .eq("id", params.takerId)
-      .single();
+      .maybeSingle();
 
-    if (takerErr || !taker) {
-      return NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
+    const taker = takerQ.data ?? null;
+
+    if (!taker) {
+      const payload = { ok: false, error: "taker not found", q: takerQ };
+      return debug
+        ? NextResponse.json(payload, { status: 404 })
+        : NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
     }
 
-    // 2) Org by slug (case-insensitive), else by taker.org_id — from portal.orgs
+    // 2) Org by slug (case-insensitive). If not found, fallback by taker.org_id.
     let org: any = null;
+    let orgBySlugQ: any = null;
+    let orgByIdQ: any = null;
 
     if (slug) {
-      const bySlug = await supabaseAdmin
+      orgBySlugQ = await supabaseAdmin
         .from("orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
         .ilike("slug", slug)
         .maybeSingle();
-      org = bySlug.data ?? null;
+      if (orgBySlugQ?.data) org = orgBySlugQ.data;
     }
+
     if (!org) {
-      const byId = await supabaseAdmin
+      orgByIdQ = await supabaseAdmin
         .from("orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
         .eq("id", taker.org_id)
         .maybeSingle();
-      org = byId.data ?? null;
-    }
-    if (!org) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "org not found",
-          debug: { slug, taker: { id: taker.id, org_id: taker.org_id } },
-        },
-        { status: 404 }
-      );
+      if (orgByIdQ?.data) org = orgByIdQ.data;
     }
 
-    // 3) Latest result — from portal.test_results
-    const { data: latestResult } = await supabaseAdmin
+    if (!org) {
+      const payload = {
+        ok: false,
+        error: "org not found",
+        debug: {
+          receivedSlug: slug,
+          taker: { id: taker.id, org_id: taker.org_id },
+          orgBySlugQ,
+          orgByIdQ,
+        },
+      };
+      return NextResponse.json(payload, { status: 404 });
+    }
+
+    // 3) Latest result for this taker
+    const latestResultQ = await supabaseAdmin
       .from("test_results")
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
@@ -64,9 +77,25 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .limit(1)
       .maybeSingle();
 
+    const latestResult = latestResultQ?.data ?? null;
+
+    // If debug flag is on, just show the assembled inputs
+    if (debug) {
+      return NextResponse.json({
+        ok: true,
+        inputs: {
+          slug,
+          taker: { id: taker.id, org_id: taker.org_id },
+        },
+        chosenOrg: org,
+        latestResultQ,
+      });
+    }
+
     // 4) Assemble + PDF
-    const raw = { org, taker, test: null, latestResult: latestResult ?? null };
+    const raw = { org, taker, test: null, latestResult };
     const data = assembleNarrative(raw as any);
+
     const colors = {
       primary: org.brand_primary || "#2d8fc4",
       text: org.brand_text || "#111827",
