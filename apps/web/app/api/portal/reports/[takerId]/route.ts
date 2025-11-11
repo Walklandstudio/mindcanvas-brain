@@ -14,7 +14,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     const url = new URL(req.url);
     const slug = url.searchParams.get("slug") || "";
 
-    // 1) Taker (authoritative source for org_id)
+    // 1) Taker (authoritative org_id)
     const { data: taker, error: takerErr } = await supabaseAdmin
       .from("portal.test_takers")
       .select("id, org_id, first_name, last_name, email, role")
@@ -25,7 +25,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       return NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
     }
 
-    // 2) Org by slug, else fallback by taker.org_id (schema MUST be portal.orgs)
+    // 2) Org by slug, else fallback to taker.org_id
     let { data: org } = await supabaseAdmin
       .from("portal.orgs")
       .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
@@ -45,7 +45,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
     }
 
-    // 3) Latest result for this taker
+    // 3) Latest result
     const { data: latestResult } = await supabaseAdmin
       .from("portal.test_results")
       .select("totals, created_at")
@@ -54,15 +54,10 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .limit(1)
       .maybeSingle();
 
-    // 4) Assemble and generate
-    const raw = {
-      org,
-      taker,
-      test: null,
-      latestResult: latestResult ?? null,
-    };
-
+    // 4) Assemble + generate PDF
+    const raw = { org, taker, test: null, latestResult: latestResult ?? null };
     const data = assembleNarrative(raw as any);
+
     const colors = {
       primary: org.brand_primary || "#2d8fc4",
       text: org.brand_text || "#111827",
@@ -70,6 +65,8 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const pdfBytes = await generateReportBuffer(data as any, colors);
 
+    // Return the PDF bytes; cast to BodyInit for TS
+    return new Response(pdfBytes as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
@@ -81,18 +78,3 @@ export async function GET(req: Request, { params }: { params: Params }) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
-
-return new Response(pdfBytes as unknown as BodyInit, {
-  headers: {
-    "Content-Type": "application/pdf",
-    "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
-    "Cache-Control": "no-store",
-  },
-});
-return new Response(blob, {
-  headers: {
-    "Content-Type": "application/pdf",
-    "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
-    "Cache-Control": "no-store",
-  },
-});
