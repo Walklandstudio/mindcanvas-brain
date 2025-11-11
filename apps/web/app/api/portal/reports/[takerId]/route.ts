@@ -10,10 +10,12 @@ import { generateReportBuffer } from "@/lib/pdf/generateReport";
 type Params = { takerId: string };
 
 export async function GET(req: Request, { params }: { params: Params }) {
-  try {
-    const url = new URL(req.url);
-    const slug = url.searchParams.get("slug") || "";
+  const url = new URL(req.url);
+  const slugRaw = url.searchParams.get("slug") || "";
+  const slug = slugRaw.trim().toLowerCase();
+  const wantDebug = url.searchParams.get("debug") === "1";
 
+  try {
     // 1) Taker (authoritative org_id)
     const { data: taker, error: takerErr } = await supabaseAdmin
       .from("portal.test_takers")
@@ -22,31 +24,44 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .single();
 
     if (takerErr || !taker) {
-      return NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
+      const payload = { ok: false, error: "taker not found", details: { takerErr } };
+      return wantDebug ? NextResponse.json(payload, { status: 404 }) : NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
     }
 
-    // 2) Org by slug, else fallback to taker.org_id
-    let { data: org } = await supabaseAdmin
+    // 2) Org: prefer by ID (authoritative); fallback by slug if needed.
+    let orgQuery = "byId";
+    let { data: org, error: orgByIdErr } = await supabaseAdmin
       .from("portal.orgs")
       .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
-      .eq("slug", slug)
-      .single();
+      .eq("id", taker.org_id)
+      .maybeSingle();
 
     if (!org) {
-      const byId = await supabaseAdmin
+      orgQuery = "bySlug";
+      const { data: bySlug, error: orgBySlugErr } = await supabaseAdmin
         .from("portal.orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
-        .eq("id", taker.org_id)
-        .single();
-      org = byId.data || null;
+        // use ilike to dodge case sensitivity & stray caps
+        .ilike("slug", slug || "")
+        .maybeSingle();
+      org = bySlug ?? null;
+
+      if (!org) {
+        const payload = {
+          ok: false,
+          error: "org not found",
+          details: {
+            tried: { byId: taker.org_id, bySlug: slug || "(empty)" },
+            errors: { orgByIdErr, orgBySlugErr },
+            note: "Checking portal.orgs with service-role; if this fails, env vars likely point at a DB without this org row.",
+          },
+        };
+        return wantDebug ? NextResponse.json(payload, { status: 404 }) : NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
+      }
     }
 
-    if (!org) {
-      return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
-    }
-
-    // 3) Latest result
-    const { data: latestResult } = await supabaseAdmin
+    // 3) Latest result for this taker
+    const { data: latestResult, error: latestErr } = await supabaseAdmin
       .from("portal.test_results")
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
@@ -54,10 +69,22 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .limit(1)
       .maybeSingle();
 
-    // 4) Assemble + generate PDF
+    if (wantDebug) {
+      return NextResponse.json({
+        ok: true,
+        debug: true,
+        orgQueryPath: orgQuery,
+        slugGiven: slugRaw,
+        taker: { id: taker.id, org_id: taker.org_id },
+        org: { id: org.id, slug: org.slug, name: org.name },
+        hasResult: !!latestResult,
+        errors: { takerErr, orgByIdErr, latestErr },
+      });
+    }
+
+    // 4) Assemble and render PDF
     const raw = { org, taker, test: null, latestResult: latestResult ?? null };
     const data = assembleNarrative(raw as any);
-
     const colors = {
       primary: org.brand_primary || "#2d8fc4",
       text: org.brand_text || "#111827",
@@ -65,7 +92,6 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const pdfBytes = await generateReportBuffer(data as any, colors);
 
-    // Return the PDF bytes; cast to BodyInit for TS
     return new Response(pdfBytes as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
