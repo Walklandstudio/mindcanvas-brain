@@ -12,10 +12,9 @@ type Params = { takerId: string };
 export async function GET(req: Request, { params }: { params: Params }) {
   try {
     const url = new URL(req.url);
-    const rawSlug = url.searchParams.get("slug") ?? "";
-    const slug = rawSlug.trim();
+    const slug = (url.searchParams.get("slug") ?? "").trim();
 
-    // 1) Taker (authoritative org_id)
+    // 1) Taker (authoritative org_id) — from portal.test_takers
     const { data: taker, error: takerErr } = await supabaseAdmin
       .from("test_takers")
       .select("id, org_id, first_name, last_name, email, role")
@@ -23,56 +22,40 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .single();
 
     if (takerErr || !taker) {
-      return NextResponse.json(
-        { ok: false, error: "taker not found", debug: { takerErr, params } },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
     }
 
-    // 2) Org by slug (case-insensitive), fallback by taker.org_id
+    // 2) Org by slug (case-insensitive), else by taker.org_id — from portal.orgs
     let org: any = null;
 
-    const bySlug = slug
-      ? await supabaseAdmin
-          .from("orgs")
-          .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
-          .ilike("slug", slug)
-          .maybeSingle()
-      : { data: null as any };
-
-    if (bySlug.data) {
-      org = bySlug.data;
-    } else {
+    if (slug) {
+      const bySlug = await supabaseAdmin
+        .from("orgs")
+        .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
+        .ilike("slug", slug)
+        .maybeSingle();
+      org = bySlug.data ?? null;
+    }
+    if (!org) {
       const byId = await supabaseAdmin
         .from("orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
         .eq("id", taker.org_id)
         .maybeSingle();
       org = byId.data ?? null;
-
-      if (!org) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "org not found",
-            debug: {
-              supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-              projectRef:
-                (process.env.NEXT_PUBLIC_SUPABASE_URL || "")
-                  .split("https://")[1]?.split(".supabase.co")[0] || null,
-              schema: "portal",
-              slug,
-              taker: { id: taker.id, org_id: taker.org_id },
-              bySlug,
-              byId,
-            },
-          },
-          { status: 404 }
-        );
-      }
+    }
+    if (!org) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "org not found",
+          debug: { slug, taker: { id: taker.id, org_id: taker.org_id } },
+        },
+        { status: 404 }
+      );
     }
 
-    // 3) Latest result for this taker
+    // 3) Latest result — from portal.test_results
     const { data: latestResult } = await supabaseAdmin
       .from("test_results")
       .select("totals, created_at")
@@ -84,7 +67,6 @@ export async function GET(req: Request, { params }: { params: Params }) {
     // 4) Assemble + PDF
     const raw = { org, taker, test: null, latestResult: latestResult ?? null };
     const data = assembleNarrative(raw as any);
-
     const colors = {
       primary: org.brand_primary || "#2d8fc4",
       text: org.brand_text || "#111827",
