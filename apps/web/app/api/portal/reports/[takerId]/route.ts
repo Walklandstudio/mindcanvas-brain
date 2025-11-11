@@ -12,7 +12,8 @@ type Params = { takerId: string };
 export async function GET(req: Request, { params }: { params: Params }) {
   try {
     const url = new URL(req.url);
-    const slug = url.searchParams.get("slug") || "";
+    const rawSlug = url.searchParams.get("slug") ?? "";
+    const slug = rawSlug.trim();
 
     // 1) Load taker (authoritative for org_id)
     const { data: taker, error: takerErr } = await supabaseAdmin
@@ -22,27 +23,51 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .single();
 
     if (takerErr || !taker) {
-      return NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "taker not found", debug: { takerErr, params } },
+        { status: 404 }
+      );
     }
 
-    // 2) Org by slug in portal.orgs (not public.portal.orgs), else fallback by taker.org_id
-    let { data: org, error: orgBySlugErr } = await supabaseAdmin
+    // 2) Org by slug (case-insensitive), fallback to taker.org_id
+    let org: any = null;
+
+    const bySlug = await supabaseAdmin
       .from("portal.orgs")
       .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
-      .eq("slug", slug)
-      .single();
+      .ilike("slug", slug)
+      .maybeSingle();
 
-    if (!org) {
+    if (bySlug.data) {
+      org = bySlug.data;
+    } else {
       const byId = await supabaseAdmin
         .from("portal.orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
         .eq("id", taker.org_id)
-        .single();
-      org = byId.data || null;
-    }
+        .maybeSingle();
+      org = byId.data ?? null;
 
-    if (!org) {
-      return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
+      if (!org) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "org not found",
+            debug: {
+              supabaseUrl: (process as any).env.NEXT_PUBLIC_SUPABASE_URL,
+              projectRef:
+                ((process as any).env.NEXT_PUBLIC_SUPABASE_URL || "")
+                  .split("https://")[1]
+                  ?.split(".supabase.co")[0] || null,
+              slug,
+              taker: { id: taker.id, org_id: taker.org_id },
+              bySlug,
+              byId,
+            },
+          },
+          { status: 404 }
+        );
+      }
     }
 
     // 3) Latest result for this taker
@@ -69,13 +94,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     };
 
     const pdfBytes = await generateReportBuffer(data as any, colors); // Uint8Array
-
-    // Return a Node Buffer body (compatible BodyInit)
-    const nodeBuf = Buffer.from(
-      pdfBytes.buffer,
-      pdfBytes.byteOffset,
-      pdfBytes.byteLength
-    );
+    const nodeBuf = Buffer.from(pdfBytes.buffer, pdfBytes.byteOffset, pdfBytes.byteLength);
 
     return new Response(nodeBuf as unknown as BodyInit, {
       headers: {
