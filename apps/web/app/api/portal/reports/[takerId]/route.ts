@@ -14,30 +14,31 @@ export async function GET(req: Request, { params }: { params: Params }) {
   const slug = (url.searchParams.get("slug") ?? "").trim();
   const debug = url.searchParams.get("debug") === "1";
 
+  // 🔒 HARD-PIN to portal schema for ALL queries in THIS route
+  const db = supabaseAdmin.schema("portal");
+
   try {
     // 1) Taker (authoritative org_id)
-    const takerQ = await supabaseAdmin
+    const takerQ = await db
       .from("test_takers")
       .select("id, org_id, first_name, last_name, email, role")
       .eq("id", params.takerId)
       .maybeSingle();
 
     const taker = takerQ.data ?? null;
-
     if (!taker) {
-      const payload = { ok: false, error: "taker not found", q: takerQ };
-      return debug
-        ? NextResponse.json(payload, { status: 404 })
-        : NextResponse.json({ ok: false, error: "taker not found" }, { status: 404 });
+      const payload = { ok: false, error: "taker not found", takerQ };
+      return debug ? NextResponse.json(payload, { status: 404 })
+                   : NextResponse.json({ ok:false, error:"taker not found" }, { status:404 });
     }
 
-    // 2) Org by slug (case-insensitive). If not found, fallback by taker.org_id.
+    // 2) Org by slug (case-insensitive) -> fallback by taker.org_id
     let org: any = null;
     let orgBySlugQ: any = null;
     let orgByIdQ: any = null;
 
     if (slug) {
-      orgBySlugQ = await supabaseAdmin
+      orgBySlugQ = await db
         .from("orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
         .ilike("slug", slug)
@@ -46,7 +47,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     }
 
     if (!org) {
-      orgByIdQ = await supabaseAdmin
+      orgByIdQ = await db
         .from("orgs")
         .select("id, slug, name, brand_primary, brand_text, report_cover_tagline, logo_url")
         .eq("id", taker.org_id)
@@ -68,8 +69,8 @@ export async function GET(req: Request, { params }: { params: Params }) {
       return NextResponse.json(payload, { status: 404 });
     }
 
-    // 3) Latest result for this taker
-    const latestResultQ = await supabaseAdmin
+    // 3) Latest result
+    const latestResultQ = await db
       .from("test_results")
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
@@ -79,26 +80,22 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const latestResult = latestResultQ?.data ?? null;
 
-    // If debug flag is on, just show the assembled inputs
     if (debug) {
       return NextResponse.json({
         ok: true,
-        inputs: {
-          slug,
-          taker: { id: taker.id, org_id: taker.org_id },
-        },
+        inputs: { slug, taker: { id: taker.id, org_id: taker.org_id } },
         chosenOrg: org,
         latestResultQ,
       });
     }
 
-    // 4) Assemble + PDF
+    // 4) Assemble & PDF
     const raw = { org, taker, test: null, latestResult };
     const data = assembleNarrative(raw as any);
 
     const colors = {
       primary: org.brand_primary || "#2d8fc4",
-      text: org.brand_text || "#111827",
+      text:   org.brand_text    || "#111827",
     };
 
     const pdfBytes = await generateReportBuffer(data as any, colors); // Uint8Array
@@ -107,7 +104,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     return new Response(nodeBuf as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
+        "Content-Disposition": `attachment; filename="report-\${params.takerId}.pdf"`,
         "Cache-Control": "no-store",
       },
     });
