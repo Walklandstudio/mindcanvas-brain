@@ -31,7 +31,10 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // 2) Org by the taker.org_id (NO slug involved)
+    const url = new URL(req.url);
+const debug = url.searchParams.get('debug') === '1';
+
+// 2) Org by the taker.org_id (NO slug involved)
     const orgQ = await portal
       .from("orgs")
       .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
@@ -39,6 +42,14 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .maybeSingle();
 
     const org = orgQ.data ?? null;
+
+      if (debug) {
+        return NextResponse.json({
+          taker: { id: taker.id, org_id: taker.org_id },
+          orgQ,
+          org
+        }, { status: org ? 200 : 404 });
+      }
     if (!org) {
       return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
     }
