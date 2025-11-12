@@ -19,7 +19,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     // 1) Taker (authoritative org_id)
     const takerQ = await supabaseAdmin
-      .from("test_takers")
+      .schema('portal').schema('portal').from('test_takers')
       .select("id, org_id, first_name, last_name, email, role_title")
       .eq("id", params.takerId)
       .single();
@@ -33,14 +33,14 @@ export async function GET(req: Request, { params }: { params: Params }) {
     // 2) Org lookups (portal.orgs)
     const orgBySlugQ = slug
       ? await supabaseAdmin
-          .from("orgs")
+          .schema('portal').schema('portal').from('orgs')
           .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
           .ilike("slug", slug)
           .maybeSingle()
       : { data: null, error: null };
 
     const orgByIdQ = await supabaseAdmin
-      .from("orgs")
+      .schema('portal').schema('portal').from('orgs')
       .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
       .eq("id", taker.org_id)
       .maybeSingle();
@@ -72,7 +72,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     // 3) Latest result (portal.test_results)
     const latestResultQ = await supabaseAdmin
-      .from("test_results")
+      .schema('portal').schema('portal').from('test_results')
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
       .order("created_at", { ascending: false })
