@@ -37,7 +37,7 @@ const debug = url.searchParams.get('debug') === '1';
 // 2) Org by the taker.org_id (NO slug involved)
     const orgQ = await portal
       .from("orgs")
-      .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
+      .select("id, slug, name, brand_primary, brand_text, logo_url")
       .eq("id", taker.org_id)
       .maybeSingle();
 
