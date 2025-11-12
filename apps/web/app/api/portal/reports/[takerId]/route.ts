@@ -88,3 +88,4 @@ export async function GET(req: Request, { params }: { params: Params }) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+const portal = supabaseAdmin.schema('portal');
