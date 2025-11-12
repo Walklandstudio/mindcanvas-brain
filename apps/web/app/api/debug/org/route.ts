@@ -7,7 +7,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const slug = (url.searchParams.get("slug") || "").trim();
   const bySlug = await supabaseAdmin
-    .from("portal.orgs")
+    .from("orgs")
     .select("id, slug, name")
     .ilike("slug", slug)
     .maybeSingle();
