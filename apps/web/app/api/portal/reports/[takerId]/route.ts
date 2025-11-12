@@ -16,9 +16,6 @@ export async function GET(req: Request, { params }: { params: Params }) {
     // IMPORTANT: use the portal schema for ALL tables
     const portal = supabaseAdmin.schema("portal");
 
-    const url  = new URL(req.url);
-    const dbg  = url.searchParams.get("debug") === "1";
-
     // 1) Taker (authoritative org_id)
     const takerQ = await portal
       .from("test_takers")
@@ -34,7 +31,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // 2) Org by the taker.org_id (NO slug involved here)
+    // 2) Org by the taker.org_id (NO slug involved)
     const orgQ = await portal
       .from("orgs")
       .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
@@ -42,18 +39,6 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .maybeSingle();
 
     const org = orgQ.data ?? null;
-    if (dbg) {
-      return NextResponse.json(
-        {
-          ok: !!org,
-          step: "after-org-by-id",
-          taker: { id: taker.id, org_id: taker.org_id },
-          orgLookup: { data: org, error: orgQ.error ?? null },
-        },
-        { status: org ? 200 : 404 }
-      );
-    }
-
     if (!org) {
       return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
     }
@@ -94,7 +79,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     return new Response(body, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
+        "Content-Disposition": `attachment; filename="report-\${params.takerId}.pdf"`,
         "Cache-Control": "no-store",
       },
     });
