@@ -5,6 +5,7 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
+import * as React from "react";
 import { supabaseAdmin } from "@/lib/server/supabaseAdmin";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
@@ -69,7 +70,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       text:    org.brand_text    || "#111827",
     };
 
-    // MINI: guaranteed-safe PDF (no custom components)
+    // MINI mode: build a tiny PDF without JSX (createElement API)
     if (mini) {
       const styles = StyleSheet.create({
         page: { padding: 24 },
@@ -77,19 +78,25 @@ export async function GET(req: Request, { params }: { params: Params }) {
         p: { fontSize: 12, marginBottom: 8 },
       });
 
-      const MiniDoc = (
-        <Document>
-          <Page size="A4" style={styles.page}>
-            <View>
-              <Text style={styles.h1}>MindCanvas Report (Mini)</Text>
-              <Text style={styles.p}>Org: {(org.name ?? "").toString()}</Text>
-              <Text style={styles.p}>
-                Taker: {`${taker.first_name ?? ""} ${taker.last_name ?? ""}`.trim()}
-              </Text>
-              <Text style={styles.p}>Has result: {latestResult ? "yes" : "no"}</Text>
-            </View>
-          </Page>
-        </Document>
+      const MiniDoc = React.createElement(
+        Document,
+        null,
+        React.createElement(
+          Page,
+          { size: "A4", style: styles.page },
+          React.createElement(
+            View,
+            null,
+            React.createElement(Text, { style: styles.h1 }, "MindCanvas Report (Mini)"),
+            React.createElement(Text, { style: styles.p }, `Org: ${(org.name ?? "").toString()}`),
+            React.createElement(
+              Text,
+              { style: styles.p },
+              `Taker: ${`${taker.first_name ?? ""} ${taker.last_name ?? ""}`.trim()}`
+            ),
+            React.createElement(Text, { style: styles.p }, `Has result: ${latestResult ? "yes" : "no"}`)
+          )
+        )
       );
 
       const { pdf } = await import("@react-pdf/renderer");
@@ -104,7 +111,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       });
     }
 
-    // FULL pipeline (guard if no results yet)
+    // FULL pipeline (requires a result)
     if (!latestResult) {
       return NextResponse.json(
         { ok: false, error: "no results for taker yet" },
