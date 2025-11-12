@@ -13,16 +13,18 @@ type Params = { takerId: string };
 
 export async function GET(req: Request, { params }: { params: Params }) {
   try {
+    // IMPORTANT: use the portal schema for ALL tables
+    const portal = supabaseAdmin.schema("portal");
+
     const url  = new URL(req.url);
     const dbg  = url.searchParams.get("debug") === "1";
 
-    // 1) Load taker (authoritative org_id)
-    const takerQ = await supabaseAdmin
-      .schema("portal")
+    // 1) Taker (authoritative org_id)
+    const takerQ = await portal
       .from("test_takers")
       .select("id, org_id, first_name, last_name, email, role_title")
       .eq("id", params.takerId)
-      .single();
+      .maybeSingle();
 
     const taker = takerQ.data ?? null;
     if (!taker) {
@@ -32,33 +34,32 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // 2) Load org strictly by taker.org_id (no slug involved)
-    const orgQ = await supabaseAdmin
-      .schema("portal")
+    // 2) Org by the taker.org_id (NO slug involved here)
+    const orgQ = await portal
       .from("orgs")
       .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
       .eq("id", taker.org_id)
       .maybeSingle();
 
-    const org = (orgQ as any).data ?? null;
-
+    const org = orgQ.data ?? null;
     if (dbg) {
-      return NextResponse.json({
-        step: "after-org-by-id",
-        schemaClient: "portal",
-        taker: { id: taker.id, org_id: taker.org_id },
-        org,
-        orgErr: (orgQ as any).error ?? null
-      }, { status: org ? 200 : 404 });
+      return NextResponse.json(
+        {
+          ok: !!org,
+          step: "after-org-by-id",
+          taker: { id: taker.id, org_id: taker.org_id },
+          orgLookup: { data: org, error: orgQ.error ?? null },
+        },
+        { status: org ? 200 : 404 }
+      );
     }
 
     if (!org) {
       return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
     }
 
-    // 3) Latest result for taker
-    const latestResultQ = await supabaseAdmin
-      .schema("portal")
+    // 3) Latest result for this taker
+    const latestResultQ = await portal
       .from("test_results")
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
@@ -66,9 +67,9 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .limit(1)
       .maybeSingle();
 
-    const latestResult = (latestResultQ as any).data ?? null;
+    const latestResult = latestResultQ.data ?? null;
 
-    // 4) Assemble → PDF
+    // 4) Assemble and generate
     const raw = {
       org,
       taker: {
@@ -78,7 +79,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
         role:       taker.role_title ?? null,
       },
       test: null,
-      latestResult
+      latestResult,
     };
 
     const data = assembleNarrative(raw as any);
@@ -88,7 +89,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     };
 
     const pdfBytes = await generateReportBuffer(data as any, colors); // Uint8Array
-    const body = Buffer.from(pdfBytes); // Valid BodyInit in Node runtime
+    const body = Buffer.from(pdfBytes); // Node Buffer is a valid BodyInit
 
     return new Response(body, {
       headers: {
