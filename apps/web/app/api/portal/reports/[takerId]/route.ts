@@ -17,9 +17,10 @@ export async function GET(req: Request, { params }: { params: Params }) {
     const slug = (url.searchParams.get("slug") || "").trim();
     const dbg  = url.searchParams.get("debug") === "1";
 
-    // 1) Taker (authoritative org_id)
+    // 1) Taker (authoritative org_id) — portal.test_takers
     const takerQ = await supabaseAdmin
-      .schema('portal').schema('portal').from('test_takers')
+      .schema("portal")
+      .from("test_takers")
       .select("id, org_id, first_name, last_name, email, role_title")
       .eq("id", params.takerId)
       .single();
@@ -30,17 +31,19 @@ export async function GET(req: Request, { params }: { params: Params }) {
       return NextResponse.json(out, { status: 404 });
     }
 
-    // 2) Org lookups (portal.orgs)
+    // 2) Org lookups — portal.orgs
     const orgBySlugQ = slug
       ? await supabaseAdmin
-          .schema('portal').schema('portal').from('orgs')
+          .schema("portal")
+          .from("orgs")
           .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
-          .ilike("slug", slug)
+          .eq("slug", slug)
           .maybeSingle()
-      : { data: null, error: null };
+      : { data: null, error: null } as const;
 
     const orgByIdQ = await supabaseAdmin
-      .schema('portal').schema('portal').from('orgs')
+      .schema("portal")
+      .from("orgs")
       .select("id, slug, name, brand_primary, brand_text, logo_url, report_cover_tagline")
       .eq("id", taker.org_id)
       .maybeSingle();
@@ -48,19 +51,20 @@ export async function GET(req: Request, { params }: { params: Params }) {
     const orgBySlug = (orgBySlugQ as any).data ?? null;
     const orgById   = (orgByIdQ as any).data ?? null;
 
-    // Prefer ID match; use slug if same org or ID absent
+    // Prefer ID match; use slug if same org or if ID missing
     const chosenOrg =
       (orgById && (!orgBySlug || orgBySlug.id === orgById.id)) ? orgById :
       (orgBySlug || orgById || null);
 
     if (dbg) {
       return NextResponse.json({
+        schemaClient: "portal",
         ok: !!chosenOrg,
         taker: { id: taker.id, org_id: taker.org_id },
         slugParam: slug || null,
         lookups: {
-          orgBySlug: { data: orgBySlug, error: (orgBySlugQ as any).error ?? null },
-          orgById:   { data: orgById,   error: (orgByIdQ as any).error   ?? null },
+          bySlug: { data: orgBySlug, error: (orgBySlugQ as any).error ?? null },
+          byId:   { data: orgById,   error: (orgByIdQ as any).error   ?? null },
         },
         chosenOrg
       }, { status: chosenOrg ? 200 : 404 });
@@ -70,9 +74,10 @@ export async function GET(req: Request, { params }: { params: Params }) {
       return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
     }
 
-    // 3) Latest result (portal.test_results)
+    // 3) Latest result — portal.test_results
     const latestResultQ = await supabaseAdmin
-      .schema('portal').schema('portal').from('test_results')
+      .schema("portal")
+      .from("test_results")
       .select("totals, created_at")
       .eq("taker_id", params.takerId)
       .order("created_at", { ascending: false })
@@ -101,7 +106,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     };
 
     const pdfBytes = await generateReportBuffer(data as any, colors); // Uint8Array
-    const body     = Buffer.from(pdfBytes); // Node Buffer is valid BodyInit
+    const body     = Buffer.from(pdfBytes); // Node Buffer is valid BodyInit in Node runtime
 
     return new Response(body, {
       headers: {
