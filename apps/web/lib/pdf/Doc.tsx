@@ -2,25 +2,25 @@ import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer';
 import type { ReportData } from '@/lib/report/assembleNarrative';
 
 const styles = StyleSheet.create({
-  page:   { padding: 32 },
-  h1:     { fontSize: 20, marginBottom: 12 },
-  p:      { fontSize: 12, marginBottom: 6 },
-  row:    { marginBottom: 8 }
+  page: { padding: 32 },
+  h1: { fontSize: 20, marginBottom: 12 },
+  p: { fontSize: 12, marginBottom: 6 },
+  row: { marginBottom: 8 },
 });
 
 /**
- * Minimal, safe PDF doc:
- * - Only strings/numbers inside <Text>
- * - No nested components inside <Text>
+ * Minimal, safe PDF doc that:
+ * - Uses taker.fullName (assembleNarrative output) instead of first_name/last_name
+ * - Only renders strings/numbers inside <Text>
  */
 export function ReportDoc(data: ReportData, colors: { primary: string; text: string }) {
-  const orgName   = String(data?.org?.name ?? '');
-  const takerName = String([data?.taker?.first_name, data?.taker?.last_name].filter(Boolean).join(' ') || '');
-  const topProf   = String(data?.results?.topProfile?.name ?? '');
-  const freqA     = Number(data?.results?.frequencies?.A ?? 0);
-  const freqB     = Number(data?.results?.frequencies?.B ?? 0);
-  const freqC     = Number(data?.results?.frequencies?.C ?? 0);
-  const freqD     = Number(data?.results?.frequencies?.D ?? 0);
+  const orgName   = String((data as any)?.org?.name ?? '');
+  const takerName = String((data as any)?.taker?.fullName ?? '');
+  const topProf   = String((data as any)?.results?.topProfile?.name ?? '');
+  const freqA     = Number((data as any)?.results?.frequencies?.A ?? 0);
+  const freqB     = Number((data as any)?.results?.frequencies?.B ?? 0);
+  const freqC     = Number((data as any)?.results?.frequencies?.C ?? 0);
+  const freqD     = Number((data as any)?.results?.frequencies?.D ?? 0);
 
   return (
     <Document>
@@ -34,7 +34,9 @@ export function ReportDoc(data: ReportData, colors: { primary: string; text: str
           <Text style={styles.p}>Top Profile: {topProf || '—'}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={styles.p}>Frequencies (A/B/C/D): {`${freqA} / ${freqB} / ${freqC} / ${freqD}`}</Text>
+          <Text style={styles.p}>
+            Frequencies (A/B/C/D): {`${freqA} / ${freqB} / ${freqC} / ${freqD}`}
+          </Text>
         </View>
       </Page>
     </Document>
