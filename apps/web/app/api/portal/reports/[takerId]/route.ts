@@ -1,4 +1,3 @@
-// apps/web/app/api/portal/reports/[takerId]/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -6,17 +5,17 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import * as React from "react";
+import * as PDF from "@react-pdf/renderer";
 import { supabaseAdmin } from "@/lib/server/supabaseAdmin";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 
 type Params = { takerId: string };
 
 export async function GET(req: Request, { params }: { params: Params }) {
   try {
     const portal = supabaseAdmin.schema("portal");
-    const url = new URL(req.url);
+    const url   = new URL(req.url);
     const debug = url.searchParams.get("debug") === "1";
     const mini  = url.searchParams.get("mini") === "1";
 
@@ -59,10 +58,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     const latestResult = latestResultQ.data ?? null;
 
     if (debug) {
-      return NextResponse.json(
-        { ok: true, taker, org, latestResult },
-        { status: 200 }
-      );
+      return NextResponse.json({ ok: true, taker, org, latestResult }, { status: 200 });
     }
 
     const colors = {
@@ -70,37 +66,36 @@ export async function GET(req: Request, { params }: { params: Params }) {
       text:    org.brand_text    || "#111827",
     };
 
-    // MINI mode: build a tiny PDF without JSX (createElement API)
+    // MINI sanity-PDF using @react-pdf/renderer *namespace* (no JSX)
     if (mini) {
-      const styles = StyleSheet.create({
+      const styles = PDF.StyleSheet.create({
         page: { padding: 24 },
         h1: { fontSize: 18, marginBottom: 12 },
         p: { fontSize: 12, marginBottom: 8 },
       });
 
       const MiniDoc = React.createElement(
-        Document,
+        PDF.Document,
         null,
         React.createElement(
-          Page,
+          PDF.Page,
           { size: "A4", style: styles.page },
           React.createElement(
-            View,
+            PDF.View,
             null,
-            React.createElement(Text, { style: styles.h1 }, "MindCanvas Report (Mini)"),
-            React.createElement(Text, { style: styles.p }, `Org: ${(org.name ?? "").toString()}`),
+            React.createElement(PDF.Text, { style: styles.h1 }, "MindCanvas Report (Mini)"),
+            React.createElement(PDF.Text, { style: styles.p }, `Org: ${org.name ?? ""}`),
             React.createElement(
-              Text,
+              PDF.Text,
               { style: styles.p },
               `Taker: ${`${taker.first_name ?? ""} ${taker.last_name ?? ""}`.trim()}`
             ),
-            React.createElement(Text, { style: styles.p }, `Has result: ${latestResult ? "yes" : "no"}`)
+            React.createElement(PDF.Text, { style: styles.p }, `Has result: ${latestResult ? "yes" : "no"}`)
           )
         )
       );
 
-      const { pdf } = await import("@react-pdf/renderer");
-      const instance: any = pdf(MiniDoc);
+      const instance: any = PDF.pdf(MiniDoc);
       const bytes: Uint8Array = await instance.toBuffer();
       return new Response(Buffer.from(bytes), {
         headers: {
@@ -111,12 +106,9 @@ export async function GET(req: Request, { params }: { params: Params }) {
       });
     }
 
-    // FULL pipeline (requires a result)
+    // FULL pipeline: require a result to build full narrative
     if (!latestResult) {
-      return NextResponse.json(
-        { ok: false, error: "no results for taker yet" },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, error: "no results for taker yet" }, { status: 404 });
     }
 
     const data = assembleNarrative({
