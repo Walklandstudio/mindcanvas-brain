@@ -51,10 +51,13 @@ export default function Landing() {
             <span className="text-base font-semibold tracking-tight">MindCanvas</span>
           </div>
 
-          {/* Only Login in header now */}
-          <nav className="hidden md:flex items-center gap-3 text-sm">
+          {/* Header nav: Login + Admin (for testing) */}
+          <nav className="hidden md:flex items-center gap-4 text-sm">
             <Link href="/login" className="text-slate-300 hover:text-white">
               Login
+            </Link>
+            <Link href="/portal/admin" className="text-slate-300 hover:text-white">
+              Admin
             </Link>
           </nav>
         </div>
@@ -80,7 +83,7 @@ export default function Landing() {
             profile tests
           </h1>
 
-          {/* CTAs */}
+          {/* CTAs – only Create Account + Login */}
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/onboarding/create-account"
@@ -108,3 +111,4 @@ export default function Landing() {
     </main>
   );
 }
+
