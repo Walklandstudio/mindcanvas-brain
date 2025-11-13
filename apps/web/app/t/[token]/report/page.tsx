@@ -26,8 +26,8 @@ type ResultData = {
   version: string;
 };
 
-type ResultAPI = { ok: boolean; data: ResultData };
-type PortalAPI = { ok: boolean; data: any };
+type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
+type PortalAPI = { ok: boolean; data?: any; error?: string };
 
 function Bar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(1, Number(pct) || 0));
@@ -63,40 +63,101 @@ export default async function ReportPage({
 
   const base = await getBaseUrl();
 
-  // Fetch BOTH: scoring/result data + branded portal report data
+  const resultUrl = `${base}/api/public/test/${encodeURIComponent(
+    token
+  )}/result?tid=${encodeURIComponent(tid)}`;
+  const portalUrl = `${base}/api/portal/reports/${encodeURIComponent(
+    tid
+  )}?json=1`;
+
   const [resultRes, portalRes] = await Promise.all([
-    fetch(
-      `${base}/api/public/test/${encodeURIComponent(
-        token
-      )}/result?tid=${encodeURIComponent(tid)}`,
-      { cache: "no-store" }
-    ),
-    fetch(
-      `${base}/api/portal/reports/${encodeURIComponent(tid)}?json=1`,
-      { cache: "no-store" }
-    ),
+    fetch(resultUrl, { cache: "no-store" }),
+    fetch(portalUrl, { cache: "no-store" }),
   ]);
 
-  if (!resultRes.ok || !portalRes.ok) {
+  // --- Error collection (so we can show clear debug info) ---
+  let resultErr: string | null = null;
+  let portalErr: string | null = null;
+
+  if (!resultRes.ok) {
+    resultErr = `HTTP ${resultRes.status} ${resultRes.statusText}`;
+  } else {
+    const ct = resultRes.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) {
+      const text = await resultRes.text().catch(() => "");
+      resultErr = `Non-JSON response (${resultRes.status}): ${text.slice(
+        0,
+        200
+      )}`;
+    }
+  }
+
+  if (!portalRes.ok) {
+    portalErr = `HTTP ${portalRes.status} ${portalRes.statusText}`;
+  } else {
+    const ct = portalRes.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) {
+      const text = await portalRes.text().catch(() => "");
+      portalErr = `Non-JSON response (${portalRes.status}): ${text.slice(
+        0,
+        200
+      )}`;
+    }
+  }
+
+  // If either fetch misbehaved, show a detailed debug block
+  if (resultErr || portalErr) {
     return (
-      <div className="mx-auto max-w-3xl p-6">
+      <div className="mx-auto max-w-3xl p-6 space-y-4">
         <h1 className="text-2xl font-semibold">Personalised Report</h1>
         <p className="text-destructive mt-4">
           Could not load your report. Please refresh or contact support.
         </p>
+
+        <div className="mt-4 rounded-lg border bg-slate-50 p-4 text-xs text-slate-700 space-y-3">
+          <p className="font-semibold">Debug information (for developer):</p>
+
+          <div>
+            <div className="font-medium">Result API</div>
+            <div className="break-all">
+              URL: <code>{resultUrl}</code>
+            </div>
+            <div>Error: {resultErr ?? "none"}</div>
+          </div>
+
+          <div>
+            <div className="font-medium">Portal report API</div>
+            <div className="break-all">
+              URL: <code>{portalUrl}</code>
+            </div>
+            <div>Error: {portalErr ?? "none"}</div>
+          </div>
+
+          <p className="mt-2">
+            You can open these URLs in a new tab to inspect the raw JSON
+            response.
+          </p>
+        </div>
       </div>
     );
   }
 
+  // At this point both responses are OK & JSON
   const resultJson = (await resultRes.json()) as ResultAPI | any;
   const portalJson = (await portalRes.json()) as PortalAPI | any;
 
   if (resultJson?.ok === false || !resultJson?.data) {
     return (
-      <div className="mx-auto max-w-3xl p-6">
+      <div className="mx-auto max-w-3xl p-6 space-y-3">
         <h1 className="text-2xl font-semibold">Personalised Report</h1>
         <p className="text-destructive mt-4">
           Could not load your scoring data. Please refresh or contact support.
+        </p>
+        <pre className="mt-2 rounded bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+{JSON.stringify(resultJson, null, 2)}
+        </pre>
+        <p className="text-xs text-slate-500 mt-2">
+          Debug URL: <code>{resultUrl}</code>
         </p>
       </div>
     );
@@ -104,10 +165,17 @@ export default async function ReportPage({
 
   if (portalJson?.ok === false || !portalJson?.data) {
     return (
-      <div className="mx-auto max-w-3xl p-6">
+      <div className="mx-auto max-w-3xl p-6 space-y-3">
         <h1 className="text-2xl font-semibold">Personalised Report</h1>
         <p className="text-destructive mt-4">
-          Could not load your report details. Please refresh or contact support.
+          Could not load your report details. Please refresh or contact
+          support.
+        </p>
+        <pre className="mt-2 rounded bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+{JSON.stringify(portalJson, null, 2)}
+        </pre>
+        <p className="text-xs text-slate-500 mt-2">
+          Debug URL: <code>{portalUrl}</code>
         </p>
       </div>
     );
@@ -126,9 +194,7 @@ export default async function ReportPage({
     "Your Personalised Report";
 
   const topName: string =
-    resultData.top_profile_name ||
-    portalData?.top_profile_name ||
-    "—";
+    resultData.top_profile_name || portalData?.top_profile_name || "—";
 
   const sections = portalData?.sections ?? null;
 
@@ -169,7 +235,7 @@ export default async function ReportPage({
       </header>
 
       <main className="max-w-5xl mx-auto mt-8 space-y-10">
-        {/* Frequency mix block (reused from result page) */}
+        {/* Frequency mix block (reused structure from result page) */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
           <div className="grid gap-3">
@@ -190,7 +256,7 @@ export default async function ReportPage({
           </div>
         </section>
 
-        {/* Profile mix block (reused from result page) */}
+        {/* Profile mix block (reused structure from result page) */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
           <div className="grid gap-3">
@@ -213,7 +279,7 @@ export default async function ReportPage({
           </div>
         </section>
 
-        {/* Portal / narrative section (placeholder for future AI text, etc.) */}
+        {/* Portal / narrative section */}
         {sections ? (
           <section className="rounded-2xl border p-6 text-sm space-y-4 bg-white shadow-sm">
             <div>
