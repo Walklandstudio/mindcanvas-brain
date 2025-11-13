@@ -47,13 +47,17 @@ export default async function OrgLayout({
     "--report-font-size": org?.report_font_size ?? "14px",
   };
 
-  return (
-    <html style={vars as any}>
-      <body style={{ fontFamily: "var(--report-font-family)" }} className="text-[var(--brand-text)]">
-        <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
-          {children}
-        </PortalChrome>
-      </body>
-    </html>
-  );
+   return (
+   <html style={vars as any}>
+     <body
+       style={{ fontFamily: "var(--report-font-family)" }}
+       className="mc-bg min-h-screen text-white"
+    >
+      <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
+        {children}
+      </PortalChrome>
+    </body>
+  </html>
+);
+
 }
