@@ -171,6 +171,28 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     [resultData]
   );
 
+  // Map profile code -> name for nicer display
+  const profileNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (resultData?.profile_labels) {
+      for (const p of resultData.profile_labels) {
+        map[p.code] = p.name;
+      }
+    }
+    return map;
+  }, [resultData]);
+
+  // Top 3 profiles by percentage
+  const topProfiles = useMemo(() => {
+    const entries = Object.entries(prof);
+    entries.sort((a, b) => (b[1] || 0) - (a[1] || 0));
+    return entries.slice(0, 3).map(([code, pct]) => ({
+      code,
+      pct,
+      name: profileNameMap[code] ?? code,
+    }));
+  }, [prof, profileNameMap]);
+
   const title =
     portalData?.title ||
     portalData?.orgName ||
@@ -280,7 +302,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
       </header>
 
       <main className="max-w-5xl mx-auto mt-8 space-y-10">
-        {/* Frequency mix (same structure as result page) */}
+        {/* Frequency mix */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
           <div className="grid gap-3">
@@ -301,7 +323,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Profile mix (same structure as result page) */}
+        {/* Profile mix */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
           <div className="grid gap-3">
@@ -324,36 +346,42 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Narrative / raw data from portal report API */}
-        {sections ? (
-          <section className="rounded-2xl border p-6 text-sm space-y-4 bg-white shadow-sm">
-            <div>
-              <h3 className="font-semibold mb-1">Frequencies (raw)</h3>
-              <pre className="whitespace-pre-wrap">
-                {JSON.stringify(sections.frequencies ?? {}, null, 2)}
-              </pre>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-1">Profiles (raw)</h3>
-              <pre className="whitespace-pre-wrap">
-                {JSON.stringify(sections.profiles ?? {}, null, 2)}
-              </pre>
-            </div>
-            {sections.summary_text ? (
-              <div>
-                <h3 className="font-semibold mb-1">Summary</h3>
-                <p className="leading-6">{sections.summary_text}</p>
+        {/* Top profiles summary */}
+        <section className="grid gap-4 md:grid-cols-3">
+          {topProfiles.map((p, idx) => (
+            <div
+              key={p.code}
+              className="rounded-2xl border bg-white p-4 shadow-sm"
+            >
+              <div className="text-xs uppercase text-gray-500">
+                {idx === 0 ? "Primary profile" : idx === 1 ? "Secondary" : "Tertiary"}
               </div>
-            ) : null}
-          </section>
-        ) : (
-          <section className="rounded-2xl border p-6 bg-white shadow-sm">
-            <p className="text-sm text-gray-600">
-              Your detailed written report content will appear here once it has
-              been attached by the report API.
+              <div className="mt-1 text-lg font-semibold">{p.name}</div>
+              <div className="text-sm text-gray-500">
+                ({p.code.replace("PROFILE_", "P")})
+              </div>
+              <div className="mt-3 text-sm text-gray-700">
+                {Math.round((p.pct || 0) * 100)}% match
+              </div>
+            </div>
+          ))}
+        </section>
+
+        {/* Narrative / summary section */}
+        <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
+          <h2 className="text-xl font-semibold">Summary</h2>
+          {sections?.summary_text ? (
+            <p className="text-sm leading-6 text-gray-700">
+              {sections.summary_text}
             </p>
-          </section>
-        )}
+          ) : (
+            <p className="text-sm leading-6 text-gray-600">
+              Your detailed written report will appear here once it has been
+              added to the report template for this test. For now, use the
+              frequency and profile mix above as your guide to this profile.
+            </p>
+          )}
+        </section>
       </main>
 
       <footer className="max-w-5xl mx-auto py-10 text-sm text-gray-500">
