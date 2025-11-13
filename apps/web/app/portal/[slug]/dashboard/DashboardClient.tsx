@@ -34,7 +34,6 @@ const LabelList = dynamic(
   { ssr: false }
 );
 
-// NEW: pie chart bits
 const PieChart = dynamic(
   async () => (await import("recharts")).PieChart,
   { ssr: false }
@@ -61,7 +60,6 @@ const COLORS = {
   tileBg: "rgba(15,23,42,0.9)",
 };
 
-// palette for pie slices
 const PIE_COLORS = [
   "#64bae2",
   "#2d8fc4",
@@ -146,10 +144,11 @@ export default function DashboardClient() {
 
   const freqChartData = useMemo(
     () =>
-      freq.map((f) => ({
-        name: f.key,
-        percentNum: Number((f.percent || "0%").replace("%", "")),
-      })),
+      freq.map((f) => {
+        const raw = f.percent || "0%";
+        const num = Number(raw.replace("%", ""));
+        return { name: f.key, percentNum: num, percent: raw };
+      }),
     [freq]
   );
 
@@ -167,10 +166,9 @@ export default function DashboardClient() {
 
   return (
     <div className="space-y-6 text-slate-100">
-      {/* HEADER */}
+      {/* HEADER – remove big second “Dashboard” heading, just show scope */}
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="text-sm text-slate-300">
             {slug ? `Scope: ${slug}` : "Signature Profile Test dashboard"}
           </p>
@@ -208,10 +206,10 @@ export default function DashboardClient() {
       {loading && <div className="text-sm text-slate-300">Loading data…</div>}
       {error && <div className="text-sm text-red-400">Error: {error}</div>}
 
-      {/* FREQUENCIES + PROFILE PIE */}
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
-        {/* Frequencies bar chart */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
+      {/* PIE for FREQUENCIES, BAR for PROFILES */}
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
+        {/* Frequencies pie chart */}
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg flex flex-col">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-white">
               Frequencies (% of total)
@@ -224,12 +222,93 @@ export default function DashboardClient() {
               Download CSV
             </button>
           </div>
-          <div className="h-56 w-full">
+          <div className="flex-1 flex flex-col md:flex-row md:items-center gap-4">
+            <div className="h-52 w-full md:w-1/2">
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie
+                    data={freqChartData}
+                    dataKey="percentNum"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius="80%"
+                    innerRadius="45%"
+                    paddingAngle={2}
+                  >
+                    {freqChartData.map((entry, index) => (
+                      <Cell
+                        key={entry.name}
+                        fill={PIE_COLORS[index % PIE_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(v: any, _name: any, props: any) => [
+                      `${v}%`,
+                      props?.payload?.name || "Frequency",
+                    ]}
+                    contentStyle={{
+                      backgroundColor: "#020617",
+                      borderColor: "rgba(148,163,184,0.45)",
+                      borderRadius: 8,
+                      color: "#e5e7eb",
+                      fontSize: 12,
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Frequencies legend */}
+            <ul className="flex-1 space-y-1 text-xs">
+              {freqChartData.map((f, index) => (
+                <li
+                  key={f.name}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{
+                        backgroundColor:
+                          PIE_COLORS[index % PIE_COLORS.length],
+                      }}
+                    />
+                    <span className="text-slate-200">{f.name}</span>
+                  </span>
+                  <span className="font-semibold text-slate-50">
+                    {f.percent ?? `${f.percentNum}%`}
+                  </span>
+                </li>
+              ))}
+              {!freqChartData.length && (
+                <li className="text-slate-400">No frequency data yet.</li>
+              )}
+            </ul>
+          </div>
+        </div>
+
+        {/* Profiles bar chart */}
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-white">
+              Profiles (% of total)
+            </h2>
+            <button
+              className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition disabled:opacity-40"
+              disabled={!slug || !prof.length}
+              onClick={() => downloadCSV(`profiles_${slug}.csv`, prof)}
+            >
+              Download CSV
+            </button>
+          </div>
+          <div className="h-72 w-full">
             <ResponsiveContainer>
               <BarChart
-                data={freqChartData}
+                data={profChartData}
                 layout="vertical"
-                margin={{ left: 80, right: 24, top: 8, bottom: 8 }}
+                margin={{ left: 160, right: 24, top: 8, bottom: 8 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -248,7 +327,7 @@ export default function DashboardClient() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={100}
+                  width={180}
                   tick={{
                     fill: "rgba(148,163,184,0.9)",
                     fontSize: 11,
@@ -267,7 +346,7 @@ export default function DashboardClient() {
                 />
                 <Bar
                   dataKey="percentNum"
-                  fill={COLORS.freq}
+                  fill={COLORS.prof}
                   radius={[6, 6, 6, 6]}
                 >
                   <LabelList
@@ -278,87 +357,6 @@ export default function DashboardClient() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Profiles pie chart */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg flex flex-col">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-white">
-              Profile distribution
-            </h2>
-            <button
-              className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition disabled:opacity-40"
-              disabled={!slug || !prof.length}
-              onClick={() => downloadCSV(`profiles_${slug}.csv`, prof)}
-            >
-              Download CSV
-            </button>
-          </div>
-          <div className="flex-1 flex flex-col md:flex-row md:items-center gap-4">
-            <div className="h-52 w-full md:w-1/2">
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie
-                    data={profChartData}
-                    dataKey="percentNum"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius="80%"
-                    innerRadius="45%"
-                    paddingAngle={2}
-                  >
-                    {profChartData.map((entry, index) => (
-                      <Cell
-                        key={entry.name}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(v: any, _name: any, props: any) => [
-                      `${v}%`,
-                      props?.payload?.name || "Profile",
-                    ]}
-                    contentStyle={{
-                      backgroundColor: "#020617",
-                      borderColor: "rgba(148,163,184,0.45)",
-                      borderRadius: 8,
-                      color: "#e5e7eb",
-                      fontSize: 12,
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Legend */}
-            <ul className="flex-1 space-y-1 text-xs">
-              {profChartData.map((p, index) => (
-                <li
-                  key={p.name}
-                  className="flex items-center justify-between gap-2"
-                >
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{
-                        backgroundColor:
-                          PIE_COLORS[index % PIE_COLORS.length],
-                      }}
-                    />
-                    <span className="text-slate-200">{p.name}</span>
-                  </span>
-                  <span className="font-semibold text-slate-50">
-                    {p.percent ?? `${p.percentNum}%`}
-                  </span>
-                </li>
-              ))}
-              {!profChartData.length && (
-                <li className="text-slate-400">No profile data yet.</li>
-              )}
-            </ul>
           </div>
         </div>
       </section>

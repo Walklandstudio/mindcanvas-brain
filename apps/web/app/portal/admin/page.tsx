@@ -1,86 +1,54 @@
 import Link from "next/link";
 import { createClient } from "@/lib/server/supabaseAdmin";
-import AppBackground from "@/components/ui/AppBackground";
 
 export const dynamic = "force-dynamic";
-
-type Org = {
-  id: string;
-  slug: string;
-  name: string;
-  brand_name?: string | null;
-  logo_url?: string | null;
-};
 
 export default async function AdminOrgsPage() {
   const sb = createClient().schema("portal");
   const { data: orgs, error } = await sb
     .from("v_organizations")
-    .select("*")
+    .select("id, slug, name")
     .order("name");
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#050914] text-red-400 p-6">
-        <p>Load error: {error.message}</p>
+      <main className="min-h-screen mc-bg text-red-400 flex items-center justify-center px-6">
+        <div>Load error: {error.message}</div>
       </main>
     );
   }
 
   return (
-    <main className="relative min-h-screen w-full overflow-hidden bg-[#050914] text-white">
-      {/* background grid & glow */}
-      <AppBackground />
-
-      <div className="relative z-10 mx-auto max-w-6xl px-8 py-10 space-y-6">
-        <header className="flex items-center justify-between">
+    <main className="min-h-screen mc-bg text-white">
+      <div className="mx-auto max-w-6xl px-6 py-10 space-y-6">
+        <header className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Organizations</h1>
           <Link
             href="/"
-            className="text-sm text-sky-300 hover:text-sky-200 underline-offset-2 hover:underline"
+            className="text-sm text-sky-300 hover:text-sky-100 underline-offset-4 hover:underline"
           >
             Back to home
           </Link>
         </header>
 
-        <ul className="grid gap-5 md:grid-cols-2">
-          {orgs?.map((o: Org) => (
+        <ul className="grid gap-4 md:grid-cols-2">
+          {orgs?.map((o: any) => (
             <li
               key={o.id}
-              className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 shadow-lg flex items-center justify-between gap-4"
+              className="rounded-2xl border border-white/10 bg-white/5 px-6 py-4 shadow-lg flex items-center justify-between"
             >
-              <div className="flex items-center gap-4">
-                {o.logo_url && (
-                  <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center overflow-hidden">
-                    <img
-                      src={o.logo_url}
-                      alt={o.brand_name ?? o.name}
-                      className="max-h-10 max-w-10 object-contain"
-                    />
-                  </div>
-                )}
-                <div>
-                  <div className="text-sm font-medium">
-                    {o.brand_name ?? o.name}
-                  </div>
-                  <div className="text-xs text-white/60">{o.slug}</div>
-                </div>
+              <div>
+                <div className="font-medium">{o.name}</div>
+                <div className="text-xs text-slate-300">{o.slug}</div>
               </div>
-
               <Link
-                href={`/portal/${o.slug}/dashboard`}
-                className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] text-white shadow hover:brightness-110 transition"
+                className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition"
+                href={`/portal/${o.slug}`}
               >
                 Open portal
               </Link>
             </li>
           ))}
-
-          {!orgs?.length && (
-            <li className="text-sm text-white/70">
-              No organizations found yet.
-            </li>
-          )}
         </ul>
       </div>
     </main>
