@@ -1,5 +1,3 @@
-// apps/web/app/t/[token]/report/page.tsx
-
 import { headers } from "next/headers";
 import { getOrgFramework } from "@/lib/report/getOrgFramework";
 
@@ -63,8 +61,8 @@ async function fetchJson(url: string) {
   }
 }
 
-function buildBaseUrl() {
-  const hdrs = headers();
+async function buildBaseUrl() {
+  const hdrs = await headers();
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
   const proto = hdrs.get("x-forwarded-proto") ?? "https";
   return `${proto}://${host}`;
@@ -104,7 +102,7 @@ export default async function ReportPage({
     );
   }
 
-  const base = buildBaseUrl();
+  const base = await buildBaseUrl();
 
   const resultUrl = `${base}/api/public/test/${encodeURIComponent(
     token
@@ -148,7 +146,6 @@ export default async function ReportPage({
     );
   }
 
-  // Unwrap envelopes: { ok:true, data:{...} }
   const resultEnvelope = resultRes.data as ApiEnvelope<PublicResultData>;
   const portalEnvelope = portalRes.data as ApiEnvelope<PortalReportData>;
 
@@ -160,7 +157,6 @@ export default async function ReportPage({
 
   const framework = getOrgFramework(orgSlug);
 
-  // Dominant frequency from public result payload
   const topFreqCode = result.top_freq;
   const freqLabelsByCode = Object.fromEntries(
     result.frequency_labels.map((f) => [f.code, f.name] as const)
@@ -172,7 +168,6 @@ export default async function ReportPage({
     freqDef?.summary ||
     `Your strongest overall frequency is ${topFreqName}, which represents how you naturally direct your energy at work.`;
 
-  // Top profile mapping, using numeric code from "PROFILE_3" → "3"
   const topProfileCode = result.top_profile_code; // e.g. "PROFILE_3"
   const topProfileLabel =
     result.profile_labels.find((p) => p.code === topProfileCode)?.name || result.top_profile_name;
@@ -345,4 +340,5 @@ export default async function ReportPage({
     </div>
   );
 }
+
 
