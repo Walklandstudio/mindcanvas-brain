@@ -193,12 +193,36 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     }));
   }, [prof, profileNameMap]);
 
-  const title =
-    portalData?.title ||
-    portalData?.orgName ||
+  const sections = portalData?.sections ?? null;
+
+  // Try to get org + taker nicely
+  const orgName: string =
     (typeof portalData?.org === "string"
       ? portalData.org
       : portalData?.org?.name) ||
+    resultData?.org_slug ||
+    "Your organisation";
+
+  const orgLogo: string | null =
+    (portalData?.org && typeof portalData.org !== "string"
+      ? portalData.org.logo_url ?? null
+      : null) ?? null;
+
+  const takerFirst =
+    portalData?.taker?.first_name ??
+    (resultData as any)?.taker?.first_name ??
+    "";
+  const takerLast =
+    portalData?.taker?.last_name ??
+    (resultData as any)?.taker?.last_name ??
+    "";
+  const takerName =
+    `${takerFirst} ${takerLast}`.trim() || "Your profile report";
+
+  const title =
+    portalData?.title ||
+    portalData?.orgName ||
+    orgName ||
     resultData?.test_name ||
     "Your Personalised Report";
 
@@ -207,7 +231,11 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     portalData?.top_profile_name ||
     "—";
 
-  const sections = portalData?.sections ?? null;
+  const topFreqCode: AB | null = resultData?.top_freq ?? null;
+  const topFreqLabel =
+    topFreqCode && resultData?.frequency_labels
+      ? resultData.frequency_labels.find((f) => f.code === topFreqCode)
+      : null;
 
   if (!tid) {
     return (
@@ -282,29 +310,103 @@ export default function ReportPage({ params }: { params: { token: string } }) {
         }
       `}</style>
 
-      <header className="max-w-5xl mx-auto">
-        <p className="text-sm text-gray-500">
-          {resultData.org_slug} • Personalised report
-        </p>
-        <h1 className="text-3xl md:text-4xl font-bold mt-1">{title}</h1>
-        <p className="text-gray-700 mt-2">
-          Top Profile: <span className="font-semibold">{topName}</span>
-        </p>
+      {/* 1. COVER / HERO */}
+      <header className="max-w-5xl mx-auto flex flex-col gap-6 md:flex-row md:items-center">
+        <div className="flex-1">
+          <p className="text-sm text-gray-500">• Personalised report</p>
+          <h1 className="text-3xl md:text-4xl font-bold mt-1">{orgName}</h1>
+          <p className="mt-1 text-lg text-gray-700">
+            <span className="font-semibold">{takerName}</span>
+          </p>
+          <p className="mt-1 text-gray-700">
+            Top Profile: <span className="font-semibold">{topName}</span>
+          </p>
 
-        <div className="no-print mt-4">
-          <button
-            onClick={() => window.print()}
-            className="inline-flex items-center px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 text-gray-900"
-          >
-            Download PDF
-          </button>
+          <div className="no-print mt-4">
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 text-gray-900"
+            >
+              Download PDF
+            </button>
+          </div>
         </div>
+
+        {orgLogo && (
+          <div className="w-32 h-32 rounded-2xl border bg-white shadow-sm flex items-center justify-center overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={orgLogo}
+              alt={`${orgName} logo`}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+        )}
       </header>
 
-      <main className="max-w-5xl mx-auto mt-8 space-y-10">
-        {/* Frequency mix */}
-        <section>
-          <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
+      <main className="max-w-5xl mx-auto mt-10 space-y-10">
+        {/* 2. INTRODUCTION */}
+        <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
+          <h2 className="text-xl font-semibold">Introduction</h2>
+          <p className="text-sm leading-6 text-gray-700">
+            This report gives you a personalised view of your natural working
+            style using the MindCanvas Profiling System. It combines four
+            Frequencies and eight Profiles to describe how you prefer to think,
+            decide, and collaborate with others.
+          </p>
+          <p className="text-sm leading-6 text-gray-700">
+            The goal is not to label you, but to provide language for the
+            preferences you already use every day. Use this report as a starting
+            point for reflection, coaching conversations, and better
+            collaboration with your team.
+          </p>
+
+          <div className="grid gap-4 md:grid-cols-2 mt-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                Frequencies (A–D)
+              </h3>
+              <ul className="mt-2 text-sm text-gray-700 space-y-1">
+                {resultData.frequency_labels.map((f) => (
+                  <li key={f.code}>
+                    <span className="font-medium">
+                      {f.name} ({f.code})
+                    </span>
+                    {": "}
+                    <span className="text-gray-600">
+                      Your relative energy in this way of thinking.
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                Profiles (P1–P8)
+              </h3>
+              <p className="mt-2 text-sm text-gray-700">
+                Each profile blends the frequencies into a pattern of strengths,
+                motivations, and potential blind spots. Your mix across the
+                profiles shows how you naturally contribute to a team.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. FREQUENCY SUMMARY */}
+        <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-4">
+          <h2 className="text-xl font-semibold">Frequency summary</h2>
+          <p className="text-sm text-gray-700">
+            Your strongest overall frequency is{" "}
+            <span className="font-semibold">
+              {topFreqLabel?.name} ({topFreqLabel?.code})
+            </span>
+            , which shapes how you approach problems and make decisions. Higher
+            percentages indicate where you naturally spend more energy; lower
+            percentages highlight areas that may feel less comfortable or more
+            draining.
+          </p>
+
           <div className="grid gap-3">
             {resultData.frequency_labels.map((f) => (
               <div key={f.code} className="grid grid-cols-12 items-center gap-3">
@@ -321,10 +423,19 @@ export default function ReportPage({ params }: { params: { token: string } }) {
               </div>
             ))}
           </div>
+
+          {topFreqLabel && (
+            <p className="text-sm text-gray-700">
+              With {topFreqLabel.name.toLowerCase()} as a dominant pattern, you
+              are likely to feel most confident when you can lean into this way
+              of thinking, while the lowest frequency may represent a useful
+              stretch or development area.
+            </p>
+          )}
         </section>
 
-        {/* Profile mix */}
-        <section>
+        {/* 4. PROFILE MIX */}
+        <section className="rounded-2xl border bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
           <div className="grid gap-3">
             {resultData.profile_labels.map((p) => (
@@ -346,28 +457,97 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Top profiles summary */}
+        {/* 5. PROFILE OVERVIEW – TOP 3 */}
         <section className="grid gap-4 md:grid-cols-3">
           {topProfiles.map((p, idx) => (
             <div
               key={p.code}
-              className="rounded-2xl border bg-white p-4 shadow-sm"
+              className="rounded-2xl border bg-white p-4 shadow-sm flex flex-col gap-2"
             >
               <div className="text-xs uppercase text-gray-500">
-                {idx === 0 ? "Primary profile" : idx === 1 ? "Secondary" : "Tertiary"}
+                {idx === 0
+                  ? "Primary profile"
+                  : idx === 1
+                  ? "Secondary"
+                  : "Tertiary"}
               </div>
-              <div className="mt-1 text-lg font-semibold">{p.name}</div>
+              <div className="text-lg font-semibold">{p.name}</div>
               <div className="text-sm text-gray-500">
                 ({p.code.replace("PROFILE_", "P")})
               </div>
-              <div className="mt-3 text-sm text-gray-700">
+              <div className="mt-1 text-sm text-gray-700">
                 {Math.round((p.pct || 0) * 100)}% match
               </div>
+              <p className="mt-2 text-xs text-gray-600">
+                This profile represents a key way you show up at work, combining
+                your natural energy, decision style, and contribution to others.
+              </p>
             </div>
           ))}
         </section>
 
-        {/* Narrative / summary section */}
+        {/* 6. STRENGTHS & DEVELOPMENT AREAS */}
+        <section className="rounded-2xl border bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold mb-2">
+            Strengths & development areas
+          </h2>
+          <p className="text-sm text-gray-700 mb-4">
+            These themes are based on your overall frequency and profile mix.
+            Use them as a starting point for reflection, not as fixed labels.
+          </p>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                Strengths
+              </h3>
+              <ul className="mt-2 space-y-2 text-sm text-gray-700">
+                <li>
+                  You bring strong energy in your{" "}
+                  <span className="font-semibold">{topName}</span> profile,
+                  which often translates into reliable strengths in this area.
+                </li>
+                {topFreqLabel && (
+                  <li>
+                    Your emphasis on{" "}
+                    <span className="font-semibold">
+                      {topFreqLabel.name.toLowerCase()}
+                    </span>{" "}
+                    supports decisions and behaviour that align with that
+                    pattern.
+                  </li>
+                )}
+                <li>
+                  Your spread across the other profiles suggests additional
+                  flexibility you can draw on when the situation requires it.
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">
+                Development areas
+              </h3>
+              <ul className="mt-2 space-y-2 text-sm text-gray-700">
+                <li>
+                  Lower frequencies may point to areas that feel less natural,
+                  but can become powerful stretch zones when developed
+                  intentionally.
+                </li>
+                <li>
+                  Pay attention to situations where your primary profile might
+                  overplay its strengths (for example, moving too quickly,
+                  over-analysing, or avoiding conflict).
+                </li>
+                <li>
+                  Coaching conversations can help you decide which behaviours to
+                  dial up or down for more impact in your role.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        {/* 7. SUMMARY / NARRATIVE */}
         <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
           <h2 className="text-xl font-semibold">Summary</h2>
           {sections?.summary_text ? (
@@ -376,11 +556,52 @@ export default function ReportPage({ params }: { params: { token: string } }) {
             </p>
           ) : (
             <p className="text-sm leading-6 text-gray-600">
-              Your detailed written report will appear here once it has been
+              Your detailed written narrative will appear here once it has been
               added to the report template for this test. For now, use the
-              frequency and profile mix above as your guide to this profile.
+              frequency and profile mix above to reflect on where you feel most
+              energised, where you add the most value, and which situations ask
+              you to stretch.
             </p>
           )}
+        </section>
+
+        {/* 8. TEAM FIT / COLLABORATION – placeholder for future team data */}
+        <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
+          <h2 className="text-xl font-semibold">Team fit & collaboration</h2>
+          <p className="text-sm text-gray-700">
+            When team data is connected for your organisation, this section will
+            show how your profile sits alongside your colleagues, including team
+            frequency blends and where you naturally complement others.
+          </p>
+          <p className="text-sm text-gray-600">
+            For now, consider which teammates feel very similar to you and which
+            feel different. Those differences often hold the key to stronger
+            collaboration and shared decision-making.
+          </p>
+        </section>
+
+        {/* 9. NEXT STEPS / ACTION PLAN */}
+        <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
+          <h2 className="text-xl font-semibold">Next steps</h2>
+          <p className="text-sm text-gray-700">
+            A profile report is most powerful when it turns into conversation
+            and action. Use these suggestions to decide what you want to do
+            with your insights.
+          </p>
+          <ul className="mt-2 text-sm text-gray-700 space-y-2">
+            <li>• Highlight 2–3 sentences in this report that feel most true.</li>
+            <li>• Note one strength you want to lean into more deliberately.</li>
+            <li>
+              • Note one development area you would like to experiment with over
+              the next month.
+            </li>
+          </ul>
+
+          <div className="no-print mt-4">
+            <button className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700">
+              Talk through this report with your coach
+            </button>
+          </div>
         </section>
       </main>
 
