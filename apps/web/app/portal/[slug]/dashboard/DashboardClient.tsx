@@ -141,67 +141,23 @@ export default function DashboardClient() {
 
   return (
     <div className="space-y-6 text-slate-100">
-      {/* HERO CARD */}
-      <section className="rounded-3xl border border-white/10 bg-white/5 p-6 md:p-7 shadow-xl">
-        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="max-w-xl">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-300">
-              Signature Profile Test
-            </p>
-            <h2 className="mt-3 text-2xl md:text-3xl font-semibold">
-              {slug ? `${slug} dashboard` : "Team dashboard"}
-            </h2>
-            <p className="mt-2 text-sm text-slate-300">
-              View participation, frequency mix, and profile distribution for
-              this organisation’s Signature Profile Test. Use the tabs below to
-              switch between analytics, raw data, tests, and profile settings.
-            </p>
-          </div>
-
-          <div className="flex flex-col items-start md:items-end gap-3">
-            <div className="text-xs text-slate-300">
-              Overall participants
-            </div>
-            <div className="text-3xl font-semibold text-[#64bae2] leading-none">
-              {overall?.count ?? "—"}
-            </div>
-            <Link
-              href={basePath ? `${basePath}/tests` : "#"}
-              className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition disabled:opacity-40"
-            >
-              Manage Test
-            </Link>
-          </div>
+      {/* COMPACT HEADER */}
+      <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <p className="text-sm text-slate-300">
+            {slug ? `Scope: ${slug}` : "Signature Profile Test dashboard"}
+          </p>
         </div>
-
-        {/* LOCAL TABS ROW */}
-        <div className="mt-6 flex flex-wrap gap-2 text-xs">
-          <Link
-            href={basePath ? `${basePath}/dashboard` : "#"}
-            className="rounded-full bg-[#2d8fc4] px-4 py-1.5 font-medium text-white shadow"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href={basePath ? `${basePath}/database` : "#"}
-            className="rounded-full border border-white/15 bg-white/5 px-4 py-1.5 font-medium text-slate-100 hover:bg-white/10 transition"
-          >
-            Database
-          </Link>
+        <div className="flex gap-2">
           <Link
             href={basePath ? `${basePath}/tests` : "#"}
-            className="rounded-full border border-white/15 bg-white/5 px-4 py-1.5 font-medium text-slate-100 hover:bg-white/10 transition"
+            className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition disabled:opacity-40"
           >
-            Tests
-          </Link>
-          <Link
-            href={basePath ? `${basePath}/profile-settings` : "#"}
-            className="rounded-full border border-white/15 bg-white/5 px-4 py-1.5 font-medium text-slate-100 hover:bg-white/10 transition"
-          >
-            Profile Settings
+            Manage Test
           </Link>
         </div>
-      </section>
+      </header>
 
       {/* HEADER TILES */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -362,7 +318,7 @@ export default function DashboardClient() {
         </div>
       </section>
 
-      {/* TOP / BOTTOM */}
+      {/* TOP / BOTTOM PROFILES */}
       {(top3.length || bottom3.length) && (
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div
