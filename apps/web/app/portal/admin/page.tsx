@@ -28,30 +28,30 @@ export default async function AdminOrgsPage() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#050914] text-white">
+    <main className="relative min-h-screen w-full overflow-hidden bg-[#050914] text-white">
+      {/* background grid & glow */}
       <AppBackground />
 
-      <div className="relative z-10 mx-auto max-w-6xl px-6 py-8 space-y-6">
+      <div className="relative z-10 mx-auto max-w-6xl px-8 py-10 space-y-6">
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Organizations</h1>
           <Link
-            href="/admin"
+            href="/"
             className="text-sm text-sky-300 hover:text-sky-200 underline-offset-2 hover:underline"
           >
-            Back to admin
+            Back to home
           </Link>
         </header>
 
-        <ul className="grid gap-4 md:grid-cols-2">
+        <ul className="grid gap-5 md:grid-cols-2">
           {orgs?.map((o: Org) => (
             <li
               key={o.id}
-              className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg flex items-center justify-between gap-4"
+              className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 shadow-lg flex items-center justify-between gap-4"
             >
               <div className="flex items-center gap-4">
                 {o.logo_url && (
                   <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center overflow-hidden">
-                    {/* we can keep this as img for now; swap to next/image later if you want */}
                     <img
                       src={o.logo_url}
                       alt={o.brand_name ?? o.name}
@@ -77,7 +77,9 @@ export default async function AdminOrgsPage() {
           ))}
 
           {!orgs?.length && (
-            <li className="text-sm text-white/70">No organizations found yet.</li>
+            <li className="text-sm text-white/70">
+              No organizations found yet.
+            </li>
           )}
         </ul>
       </div>
