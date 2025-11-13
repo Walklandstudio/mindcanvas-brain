@@ -50,7 +50,11 @@ async function fetchJson(url: string) {
       return {
         ok: false as const,
         status: res.status,
-        error: json?.error || text.slice(0, 300),
+        error:
+          json?.error ||
+          (ct.includes("text/html")
+            ? `Non-JSON HTML response (status ${res.status}).`
+            : text.slice(0, 300)),
         raw: json,
       };
     }
@@ -183,9 +187,22 @@ export default async function ReportPage({
     : topProfileCode;
 
   const profileDef = framework?.profiles?.find((p) => p.code === profileNumericCode);
+
   const topProfileSummary =
     profileDef?.summary ||
     `This profile reflects how you prefer to contribute, collaborate, and create momentum in your work.`;
+
+  // Optional bullet lists from framework JSON
+  const traits: string[] =
+    (profileDef && (profileDef as any).traits) ||
+    (profileDef && (profileDef as any).strengths) ||
+    [];
+  const motivators: string[] =
+    (profileDef && (profileDef as any).motivators) ||
+    (profileDef && (profileDef as any).drivers) ||
+    [];
+  const blindSpots: string[] =
+    (profileDef && ((profileDef as any).blind_spots || (profileDef as any).risks)) || [];
 
   const takerName = `${portal.taker?.first_name ?? ""} ${portal.taker?.last_name ?? ""}`.trim();
 
@@ -228,9 +245,10 @@ export default async function ReportPage({
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
           <h2 className="text-xl font-semibold text-slate-900">About this profiling system</h2>
           <p className="text-sm leading-relaxed text-slate-700">
-            This report is based on <span className="font-medium">{orgName}</span>&apos;s profiling
-            framework. It is designed to give you language for your natural working style, the
-            patterns you lean on most often, and the areas that may require more conscious effort.
+            This report is based on{" "}
+            <span className="font-medium">{orgName}</span>&apos;s profiling framework. It is
+            designed to give you language for your natural working style, the patterns you lean on
+            most often, and the areas that may require more conscious effort.
           </p>
           <p className="text-sm leading-relaxed text-slate-700">
             You can use this report to reflect on how you make decisions, how you collaborate with
@@ -333,7 +351,41 @@ export default async function ReportPage({
                 {topProfileLabel || "Your strongest pattern"}
               </p>
               <p className="mt-3 text-sm text-slate-700">{topProfileSummary}</p>
-              {/* TODO: later – add bullet list (traits / motivators / blind spots) from framework */}
+
+              {(traits.length || motivators.length || blindSpots.length) && (
+                <div className="mt-4 space-y-4 text-sm text-slate-700">
+                  {traits.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-slate-900 text-sm">Key strengths</h4>
+                      <ul className="mt-1 list-disc list-inside space-y-1">
+                        {traits.map((t, i) => (
+                          <li key={i}>{t}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {motivators.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-slate-900 text-sm">Motivators</h4>
+                      <ul className="mt-1 list-disc list-inside space-y-1">
+                        {motivators.map((m, i) => (
+                          <li key={i}>{m}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {blindSpots.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-slate-900 text-sm">Potential blind spots</h4>
+                      <ul className="mt-1 list-disc list-inside space-y-1">
+                        {blindSpots.map((b, i) => (
+                          <li key={i}>{b}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </section>
