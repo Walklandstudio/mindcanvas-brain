@@ -41,6 +41,9 @@ const PieChart = dynamic(
 const Pie = dynamic(async () => (await import("recharts")).Pie, {
   ssr: false,
 });
+const Cell = dynamic(async () => (await import("recharts")).Cell, {
+  ssr: false,
+});
 
 type KV = { key: string; value: number; percent?: string };
 type Payload = {
@@ -56,6 +59,13 @@ const COLORS = {
   prof: "#64bae2",
   tileBg: "rgba(15,23,42,0.9)",
 };
+
+const PIE_COLORS = [
+  "#64bae2",
+  "#2d8fc4",
+  "#0ea5e9",
+  "#0369a1",
+]; // 4 frequencies → 4 blues
 
 function toCSV(rows: Array<Record<string, any>>): string {
   if (!rows?.length) return "";
@@ -154,7 +164,7 @@ export default function DashboardClient() {
 
   return (
     <div className="space-y-6 text-slate-100">
-      {/* HEADER – only the button now */}
+      {/* HEADER – only button */}
       <header className="flex justify-end">
         <Link
           href={basePath ? `${basePath}/tests` : "#"}
@@ -218,8 +228,16 @@ export default function DashboardClient() {
                     outerRadius="80%"
                     innerRadius="45%"
                     paddingAngle={2}
-                    fill={COLORS.freq} // teal instead of grey
-                  />
+                  >
+                    {freqChartData.map((entry, index) => (
+                      <Cell
+                        key={entry.name}
+                        fill={PIE_COLORS[index % PIE_COLORS.length]}
+                        stroke="#020617"
+                        strokeWidth={1.5}
+                      />
+                    ))}
+                  </Pie>
                   <Tooltip
                     formatter={(v: any, _name: any, props: any) => [
                       `${v}%`,
@@ -230,7 +248,7 @@ export default function DashboardClient() {
                       borderColor: "rgba(148,163,184,0.45)",
                       borderRadius: 8,
                       color: "#e5e7eb",
-                      fontSize: 12,
+                      fontSize: 13,
                     }}
                   />
                 </PieChart>
@@ -239,14 +257,20 @@ export default function DashboardClient() {
 
             {/* Frequencies legend */}
             <ul className="flex-1 space-y-1 text-xs">
-              {freqChartData.map((f) => (
+              {freqChartData.map((f, index) => (
                 <li
                   key={f.name}
                   className="flex items-center justify-between gap-2"
                 >
                   <span className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#2d8fc4]" />
-                    <span className="text-slate-200">{f.name}</span>
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{
+                        backgroundColor:
+                          PIE_COLORS[index % PIE_COLORS.length],
+                      }}
+                    />
+                    <span className="text-slate-100">{f.name}</span>
                   </span>
                   <span className="font-semibold text-slate-50">
                     {f.percent ?? `${f.percentNum}%`}
@@ -279,7 +303,7 @@ export default function DashboardClient() {
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                margin={{ left: 120, right: 24, top: 8, bottom: 8 }}
+                margin={{ left: 70, right: 8, top: 8, bottom: 8 }} // more room for bars
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -287,7 +311,7 @@ export default function DashboardClient() {
                 />
                 <XAxis
                   type="number"
-                  domain={[0, "dataMax"]} // let bars use full width
+                  domain={[0, (dataMax: number) => Math.max(10, dataMax * 1.15)]}
                   tickFormatter={(v: number) => `${v}%`}
                   tick={{
                     fill: "rgba(226,232,240,0.9)",
@@ -298,7 +322,7 @@ export default function DashboardClient() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={180}
+                  width={120} // narrower so chart area is wider
                   tick={{
                     fill: "rgba(148,163,184,0.9)",
                     fontSize: 11,
