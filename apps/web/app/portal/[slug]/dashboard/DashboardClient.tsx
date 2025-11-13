@@ -60,12 +60,7 @@ const COLORS = {
   tileBg: "rgba(15,23,42,0.9)",
 };
 
-const PIE_COLORS = [
-  "#64bae2",
-  "#2d8fc4",
-  "#0ea5e9",
-  "#0369a1",
-]; // 4 frequencies → 4 blues
+const PIE_COLORS = ["#64bae2", "#2d8fc4", "#0ea5e9", "#0369a1"];
 
 function toCSV(rows: Array<Record<string, any>>): string {
   if (!rows?.length) return "";
@@ -138,7 +133,7 @@ export default function DashboardClient() {
   const bottom3 = data?.bottom3 ?? [];
   const overall = data?.overall;
 
-  // Frequencies → pie
+  // Frequencies → pie data
   const freqChartData = useMemo(
     () =>
       freq.map((f) => {
@@ -149,7 +144,7 @@ export default function DashboardClient() {
     [freq]
   );
 
-  // Profiles → bar chart
+  // Profiles → bar chart data
   const profChartData = useMemo(
     () =>
       prof.map((p) => {
@@ -164,7 +159,7 @@ export default function DashboardClient() {
 
   return (
     <div className="space-y-6 text-slate-100">
-      {/* HEADER – only button */}
+      {/* HEADER – only Manage Test button */}
       <header className="flex justify-end">
         <Link
           href={basePath ? `${basePath}/tests` : "#"}
@@ -215,6 +210,7 @@ export default function DashboardClient() {
               Download CSV
             </button>
           </div>
+
           <div className="flex-1 flex flex-col md:flex-row md:items-center gap-4">
             <div className="h-52 w-full md:w-1/2">
               <ResponsiveContainer>
@@ -228,28 +224,35 @@ export default function DashboardClient() {
                     outerRadius="80%"
                     innerRadius="45%"
                     paddingAngle={2}
+                    isAnimationActive={false}
+                    stroke="#020617"
+                    strokeWidth={1.5}
                   >
-                    {freqChartData.map((entry, index) => (
-                      <Cell
-                        key={entry.name}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                        stroke="#020617"
-                        strokeWidth={1.5}
-                      />
-                    ))}
+                    {freqChartData.map(
+                      (entry: { name: string }, index: number) => (
+                        <Cell
+                          key={entry.name}
+                          fill={PIE_COLORS[index % PIE_COLORS.length]}
+                        />
+                      )
+                    )}
                   </Pie>
                   <Tooltip
-                    formatter={(v: any, _name: any, props: any) => [
-                      `${v}%`,
-                      props?.payload?.name || "Frequency",
-                    ]}
+                    formatter={(value: any, _name: any, props: any) => {
+                      const label =
+                        (props?.payload as { name?: string })?.name ??
+                        "Frequency";
+                      return [`${value}%`, label] as [string, string];
+                    }}
                     contentStyle={{
-                      backgroundColor: "#020617",
-                      borderColor: "rgba(148,163,184,0.45)",
+                      backgroundColor: "rgba(15,23,42,0.95)",
+                      borderColor: "rgba(148,163,184,0.35)",
                       borderRadius: 8,
-                      color: "#e5e7eb",
+                      color: "#f1f5f9",
                       fontSize: 13,
                     }}
+                    itemStyle={{ color: "#f1f5f9" }}
+                    labelStyle={{ color: "#f1f5f9" }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -257,26 +260,31 @@ export default function DashboardClient() {
 
             {/* Frequencies legend */}
             <ul className="flex-1 space-y-1 text-xs">
-              {freqChartData.map((f, index) => (
-                <li
-                  key={f.name}
-                  className="flex items-center justify-between gap-2"
-                >
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{
-                        backgroundColor:
-                          PIE_COLORS[index % PIE_COLORS.length],
-                      }}
-                    />
-                    <span className="text-slate-100">{f.name}</span>
-                  </span>
-                  <span className="font-semibold text-slate-50">
-                    {f.percent ?? `${f.percentNum}%`}
-                  </span>
-                </li>
-              ))}
+              {freqChartData.map(
+                (
+                  f: { name: string; percent?: string; percentNum: number },
+                  index: number
+                ) => (
+                  <li
+                    key={f.name}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{
+                          backgroundColor:
+                            PIE_COLORS[index % PIE_COLORS.length],
+                        }}
+                      />
+                      <span className="text-slate-100">{f.name}</span>
+                    </span>
+                    <span className="font-semibold text-slate-50">
+                      {f.percent ?? `${f.percentNum}%`}
+                    </span>
+                  </li>
+                )
+              )}
               {!freqChartData.length && (
                 <li className="text-slate-400">No frequency data yet.</li>
               )}
@@ -303,7 +311,7 @@ export default function DashboardClient() {
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                margin={{ left: 70, right: 8, top: 8, bottom: 8 }} // more room for bars
+                margin={{ left: 70, right: 8, top: 8, bottom: 8 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -311,7 +319,10 @@ export default function DashboardClient() {
                 />
                 <XAxis
                   type="number"
-                  domain={[0, (dataMax: number) => Math.max(10, dataMax * 1.15)]}
+                  domain={[
+                    0,
+                    (dataMax: number) => Math.max(10, dataMax * 1.15),
+                  ]}
                   tickFormatter={(v: number) => `${v}%`}
                   tick={{
                     fill: "rgba(226,232,240,0.9)",
@@ -322,7 +333,7 @@ export default function DashboardClient() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={120} // narrower so chart area is wider
+                  width={120}
                   tick={{
                     fill: "rgba(148,163,184,0.9)",
                     fontSize: 11,
@@ -330,7 +341,9 @@ export default function DashboardClient() {
                   axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
                 />
                 <Tooltip
-                  formatter={(v: any) => [`${v}%`, "Share"]}
+                  formatter={(v: any) =>
+                    [`${v}%`, "Share"] as [string, string]
+                  }
                   contentStyle={{
                     backgroundColor: "#020617",
                     borderColor: "rgba(148,163,184,0.45)",

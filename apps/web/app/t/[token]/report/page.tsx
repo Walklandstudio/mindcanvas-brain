@@ -1,11 +1,12 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { getOrgFramework } from "@/lib/report/getOrgFramework";
 
-type Search = {
-  tid?: string;
-  debug?: string;
-};
+type FrequencyCode = "A" | "B" | "C" | "D";
 
-type FrequencyLabel = { code: "A" | "B" | "C" | "D"; name: string };
+type FrequencyLabel = { code: FrequencyCode; name: string };
 type ProfileLabel = { code: string; name: string };
 
 type PublicResultData = {
@@ -13,10 +14,10 @@ type PublicResultData = {
   test_name: string;
   taker: { id: string };
   frequency_labels: FrequencyLabel[];
-  frequency_percentages: Record<"A" | "B" | "C" | "D", number>;
+  frequency_percentages: Record<FrequencyCode, number>;
   profile_labels: ProfileLabel[];
   profile_percentages: Record<string, number>;
-  top_freq: "A" | "B" | "C" | "D";
+  top_freq: FrequencyCode;
   top_profile_code: string; // "PROFILE_3"
   top_profile_name: string; // "Motivator"
 };
@@ -37,6 +38,12 @@ type PortalReportData = {
 };
 
 type ApiEnvelope<T> = { ok: boolean; data: T; error?: string };
+
+type FetchState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string; debug?: any }
+  | { status: "ready"; result: PublicResultData; portal: PortalReportData; debug?: any };
 
 async function fetchJson(url: string) {
   try {
@@ -76,17 +83,69 @@ function Bar({ pct }: { pct: number }) {
   );
 }
 
-export default async function ReportPage({
-  params,
-  searchParams,
-}: {
-  params: { token: string };
-  searchParams: Search;
-}) {
+export default function ReportPage({ params }: { params: { token: string } }) {
   const token = params.token;
-  const tid = searchParams.tid;
-  const debug = searchParams.debug === "1";
+  const searchParams = useSearchParams();
 
+  const tid = searchParams?.get("tid") ?? "";
+  const debugFlag = searchParams?.get("debug") === "1";
+
+  const [state, setState] = useState<FetchState>({ status: "idle" });
+
+  useEffect(() => {
+    if (!tid) return;
+
+    let alive = true;
+
+    (async () => {
+      setState({ status: "loading" });
+
+      const resultUrl = `/api/public/test/${encodeURIComponent(
+        token
+      )}/result?tid=${encodeURIComponent(tid)}`;
+      const portalUrl = `/api/portal/reports/${encodeURIComponent(tid)}?json=1`;
+
+      const [resultRes, portalRes] = await Promise.all([
+        fetchJson(resultUrl),
+        fetchJson(portalUrl),
+      ]);
+
+      const debugPayload = {
+        resultUrl,
+        portalUrl,
+        resultRes,
+        portalRes,
+      };
+
+      if (!alive) return;
+
+      if (!resultRes.ok || !portalRes.ok) {
+        const msg =
+          (!resultRes.ok && resultRes.error) ||
+          (!portalRes.ok && portalRes.error) ||
+          "Unknown error";
+
+        setState({ status: "error", message: msg, debug: debugPayload });
+        return;
+      }
+
+      const resultEnvelope = resultRes.data as ApiEnvelope<PublicResultData>;
+      const portalEnvelope = portalRes.data as ApiEnvelope<PortalReportData>;
+
+      setState({
+        status: "ready",
+        result: (resultEnvelope.data as any) as PublicResultData,
+        portal: (portalEnvelope.data as any) as PortalReportData,
+        debug: debugPayload,
+      });
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [token, tid]);
+
+  // Handle missing tid
   if (!tid) {
     return (
       <div className="mx-auto max-w-3xl p-6">
@@ -98,37 +157,36 @@ export default async function ReportPage({
     );
   }
 
-  // Use *relative* URLs so we stay inside the same deployment and avoid
-  // any external auth / bot-protection behaviour.
-  const resultUrl = `/api/public/test/${encodeURIComponent(
-    token
-  )}/result?tid=${encodeURIComponent(tid)}`;
-  const portalUrl = `/api/portal/reports/${encodeURIComponent(tid)}?json=1`;
-
-  const [resultRes, portalRes] = await Promise.all([fetchJson(resultUrl), fetchJson(portalUrl)]);
-
-  const debugPayload = {
-    resultUrl,
-    portalUrl,
-    resultRes,
-    portalRes,
-  };
-
-  if (debug) {
+  // Debug view
+  if (debugFlag && (state.status === "error" || state.status === "ready")) {
     return (
       <div className="mx-auto max-w-4xl p-6 space-y-4">
         <h1 className="text-2xl font-semibold mb-2">Report Debug</h1>
         <pre className="rounded-lg border bg-slate-950 text-slate-50 text-xs p-4 overflow-x-auto">
-          {JSON.stringify(debugPayload, null, 2)}
+          {JSON.stringify(
+            {
+              status: state.status,
+              error: state.status === "error" ? state.message : undefined,
+              debug: state.debug,
+            },
+            null,
+            2
+          )}
         </pre>
       </div>
     );
   }
 
-  if (!resultRes.ok || !portalRes.ok) {
-    const errorMsg =
-      (!resultRes.ok && resultRes.error) || (!portalRes.ok && portalRes.error) || "Unknown error";
+  if (state.status === "loading" || state.status === "idle") {
+    return (
+      <div className="mx-auto max-w-3xl p-6">
+        <h1 className="text-2xl font-semibold">Personalised report</h1>
+        <p className="mt-4 text-sm text-muted-foreground">Loading your report…</p>
+      </div>
+    );
+  }
 
+  if (state.status === "error") {
     return (
       <div className="mx-auto max-w-3xl p-6">
         <h1 className="text-2xl font-semibold">Personalised report</h1>
@@ -136,17 +194,14 @@ export default async function ReportPage({
           Could not load your report. Please refresh or contact support.
         </p>
         <pre className="mt-4 rounded bg-slate-950 text-slate-50 text-xs p-3 whitespace-pre-wrap">
-          {errorMsg}
+          {state.message}
         </pre>
       </div>
     );
   }
 
-  const resultEnvelope = resultRes.data as ApiEnvelope<PublicResultData>;
-  const portalEnvelope = portalRes.data as ApiEnvelope<PortalReportData>;
-
-  const result = (resultEnvelope.data as any) as PublicResultData;
-  const portal = (portalEnvelope.data as any) as PortalReportData;
+  // Ready state
+  const { result, portal } = state;
 
   const orgSlug = portal.org?.slug || result.org_slug;
   const orgName = portal.org?.name || result.org_slug || "Your organisation";
@@ -154,8 +209,9 @@ export default async function ReportPage({
   const framework = getOrgFramework(orgSlug);
 
   const topFreqCode = result.top_freq;
-  const freqLabelsByCode = Object.fromEntries(
-    result.frequency_labels.map((f) => [f.code, f.name] as const)
+  const freqLabelsByCode = useMemo(
+    () => Object.fromEntries(result.frequency_labels.map((f) => [f.code, f.name] as const)),
+    [result.frequency_labels]
   );
   const topFreqName = freqLabelsByCode[topFreqCode] ?? topFreqCode;
 
@@ -164,9 +220,10 @@ export default async function ReportPage({
     freqDef?.summary ||
     `Your strongest overall frequency is ${topFreqName}, which represents how you naturally direct your energy at work.`;
 
-  const topProfileCode = result.top_profile_code; // e.g. "PROFILE_3"
+  const topProfileCode = result.top_profile_code;
   const topProfileLabel =
-    result.profile_labels.find((p) => p.code === topProfileCode)?.name || result.top_profile_name;
+    result.profile_labels.find((p) => p.code === topProfileCode)?.name ||
+    result.top_profile_name;
 
   const profileNumericCode = topProfileCode?.startsWith("PROFILE_")
     ? topProfileCode.replace("PROFILE_", "")
@@ -178,7 +235,6 @@ export default async function ReportPage({
     profileDef?.summary ||
     `This profile reflects how you prefer to contribute, collaborate, and create momentum in your work.`;
 
-  // Optional bullet lists from framework JSON
   const traits: string[] =
     (profileDef && (profileDef as any).traits) ||
     (profileDef && (profileDef as any).strengths) ||
@@ -190,7 +246,9 @@ export default async function ReportPage({
   const blindSpots: string[] =
     (profileDef && ((profileDef as any).blind_spots || (profileDef as any).risks)) || [];
 
-  const takerName = `${portal.taker?.first_name ?? ""} ${portal.taker?.last_name ?? ""}`.trim();
+  const takerName = `${portal.taker?.first_name ?? ""} ${
+    portal.taker?.last_name ?? ""
+  }`.trim();
 
   const freqPct = result.frequency_percentages;
   const profilePct = result.profile_percentages;
@@ -362,7 +420,9 @@ export default async function ReportPage({
                   )}
                   {blindSpots.length > 0 && (
                     <div>
-                      <h4 className="font-semibold text-slate-900 text-sm">Potential blind spots</h4>
+                      <h4 className="font-semibold text-slate-900 text-sm">
+                        Potential blind spots
+                      </h4>
                       <ul className="mt-1 list-disc list-inside space-y-1">
                         {blindSpots.map((b, i) => (
                           <li key={i}>{b}</li>
