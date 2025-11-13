@@ -41,9 +41,6 @@ const PieChart = dynamic(
 const Pie = dynamic(async () => (await import("recharts")).Pie, {
   ssr: false,
 });
-const Cell = dynamic(async () => (await import("recharts")).Cell, {
-  ssr: false,
-});
 
 type KV = { key: string; value: number; percent?: string };
 type Payload = {
@@ -59,17 +56,6 @@ const COLORS = {
   prof: "#64bae2",
   tileBg: "rgba(15,23,42,0.9)",
 };
-
-const PIE_COLORS = [
-  "#64bae2",
-  "#2d8fc4",
-  "#0ea5e9",
-  "#0369a1",
-  "#38bdf8",
-  "#22c1c3",
-  "#818cf8",
-  "#4f46e5",
-];
 
 function toCSV(rows: Array<Record<string, any>>): string {
   if (!rows?.length) return "";
@@ -142,6 +128,7 @@ export default function DashboardClient() {
   const bottom3 = data?.bottom3 ?? [];
   const overall = data?.overall;
 
+  // Frequencies → pie
   const freqChartData = useMemo(
     () =>
       freq.map((f) => {
@@ -152,6 +139,7 @@ export default function DashboardClient() {
     [freq]
   );
 
+  // Profiles → bar chart
   const profChartData = useMemo(
     () =>
       prof.map((p) => {
@@ -166,13 +154,8 @@ export default function DashboardClient() {
 
   return (
     <div className="space-y-6 text-slate-100">
-      {/* HEADER – remove big second “Dashboard” heading, just show scope */}
-      <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-sm text-slate-300">
-            {slug ? `Scope: ${slug}` : "Signature Profile Test dashboard"}
-          </p>
-        </div>
+      {/* HEADER – only the button now */}
+      <header className="flex justify-end">
         <Link
           href={basePath ? `${basePath}/tests` : "#"}
           className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition disabled:opacity-40"
@@ -235,14 +218,8 @@ export default function DashboardClient() {
                     outerRadius="80%"
                     innerRadius="45%"
                     paddingAngle={2}
-                  >
-                    {freqChartData.map((entry, index) => (
-                      <Cell
-                        key={entry.name}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
+                    fill={COLORS.freq} // teal instead of grey
+                  />
                   <Tooltip
                     formatter={(v: any, _name: any, props: any) => [
                       `${v}%`,
@@ -262,19 +239,13 @@ export default function DashboardClient() {
 
             {/* Frequencies legend */}
             <ul className="flex-1 space-y-1 text-xs">
-              {freqChartData.map((f, index) => (
+              {freqChartData.map((f) => (
                 <li
                   key={f.name}
                   className="flex items-center justify-between gap-2"
                 >
                   <span className="flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{
-                        backgroundColor:
-                          PIE_COLORS[index % PIE_COLORS.length],
-                      }}
-                    />
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#2d8fc4]" />
                     <span className="text-slate-200">{f.name}</span>
                   </span>
                   <span className="font-semibold text-slate-50">
@@ -308,7 +279,7 @@ export default function DashboardClient() {
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                margin={{ left: 160, right: 24, top: 8, bottom: 8 }}
+                margin={{ left: 120, right: 24, top: 8, bottom: 8 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -316,7 +287,7 @@ export default function DashboardClient() {
                 />
                 <XAxis
                   type="number"
-                  domain={[0, 100]}
+                  domain={[0, "dataMax"]} // let bars use full width
                   tickFormatter={(v: number) => `${v}%`}
                   tick={{
                     fill: "rgba(226,232,240,0.9)",

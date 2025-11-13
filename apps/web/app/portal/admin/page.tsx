@@ -12,14 +12,14 @@ export default async function AdminOrgsPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen mc-bg text-red-400 flex items-center justify-center px-6">
+      <div className="fixed inset-0 mc-bg text-red-400 flex items-center justify-center px-6">
         <div>Load error: {error.message}</div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen mc-bg text-white">
+    <div className="fixed inset-0 mc-bg text-white overflow-auto">
       <div className="mx-auto max-w-6xl px-6 py-10 space-y-6">
         <header className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Organizations</h1>
@@ -51,6 +51,6 @@ export default async function AdminOrgsPage() {
           ))}
         </ul>
       </div>
-    </main>
+    </div>
   );
 }
