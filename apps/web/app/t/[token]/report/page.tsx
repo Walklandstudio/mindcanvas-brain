@@ -1,4 +1,3 @@
-import { headers } from "next/headers";
 import { getOrgFramework } from "@/lib/report/getOrgFramework";
 
 type Search = {
@@ -65,18 +64,6 @@ async function fetchJson(url: string) {
   }
 }
 
-/**
- * Build base URL from the incoming request host/proto so we always
- * hit the *current* deployment (preview / staging / prod) and avoid
- * any protected APP_ORIGIN domain.
- */
-async function buildBaseUrl() {
-  const hdrs = await headers();
-  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
-  const proto = hdrs.get("x-forwarded-proto") ?? "https";
-  return `${proto}://${host}`;
-}
-
 function Bar({ pct }: { pct: number }) {
   const value = Number.isFinite(pct) ? pct : 0;
   const clamped = Math.max(0, Math.min(1, value));
@@ -111,13 +98,12 @@ export default async function ReportPage({
     );
   }
 
-  // Use header-based base (current deployment), not APP_ORIGIN
-  const base = await buildBaseUrl();
-
-  const resultUrl = `${base}/api/public/test/${encodeURIComponent(
+  // Use *relative* URLs so we stay inside the same deployment and avoid
+  // any external auth / bot-protection behaviour.
+  const resultUrl = `/api/public/test/${encodeURIComponent(
     token
   )}/result?tid=${encodeURIComponent(tid)}`;
-  const portalUrl = `${base}/api/portal/reports/${encodeURIComponent(tid)}?json=1`;
+  const portalUrl = `/api/portal/reports/${encodeURIComponent(tid)}?json=1`;
 
   const [resultRes, portalRes] = await Promise.all([fetchJson(resultUrl), fetchJson(portalUrl)]);
 
@@ -403,5 +389,6 @@ export default async function ReportPage({
     </div>
   );
 }
+
 
 
