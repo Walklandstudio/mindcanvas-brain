@@ -18,8 +18,8 @@ type PublicResultData = {
   profile_labels: ProfileLabel[];
   profile_percentages: Record<string, number>;
   top_freq: "A" | "B" | "C" | "D";
-  top_profile_code: string;   // "PROFILE_3"
-  top_profile_name: string;   // "Motivator"
+  top_profile_code: string; // "PROFILE_3"
+  top_profile_name: string; // "Motivator"
 };
 
 type PortalReportData = {
@@ -107,7 +107,7 @@ export default async function ReportPage({
     );
   }
 
-  // ✅ Use header-based base (current deployment), not APP_ORIGIN
+  // Use header-based base (current deployment), not APP_ORIGIN
   const base = await buildBaseUrl();
 
   const resultUrl = `${base}/api/public/test/${encodeURIComponent(
@@ -208,7 +208,11 @@ export default async function ReportPage({
                 {orgName ?? "Your report"}
               </h1>
               <p className="mt-1 text-sm text-slate-600">
-                {takerName && <>For <span className="font-medium">{takerName}</span></>}{" "}
+                {takerName && (
+                  <>
+                    For <span className="font-medium">{takerName}</span>
+                  </>
+                )}{" "}
                 {topProfileLabel && (
                   <>
                     &middot; Top profile:{" "}
@@ -217,36 +221,28 @@ export default async function ReportPage({
                 )}
               </p>
             </div>
-            <div className="flex gap-3">
-              <a
-                href={portalReportDownloadUrl}
-                className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50"
-              >
-                Download PDF
-              </a>
-            </div>
           </div>
         </header>
 
-        {/* Introduction */}
+        {/* About the test / system – org-branded */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
-          <h2 className="text-xl font-semibold text-slate-900">Introduction</h2>
+          <h2 className="text-xl font-semibold text-slate-900">About this profiling system</h2>
           <p className="text-sm leading-relaxed text-slate-700">
-            This report gives you a personalised view of your natural working style using the
-            MindCanvas Profiling System. It combines four Frequencies and eight Profiles to describe
-            how you prefer to think, decide, and collaborate with others.
+            This report is based on <span className="font-medium">{orgName}</span>&apos;s profiling
+            framework. It is designed to give you language for your natural working style, the
+            patterns you lean on most often, and the areas that may require more conscious effort.
           </p>
           <p className="text-sm leading-relaxed text-slate-700">
-            The goal is not to label you, but to provide language for the preferences you already
-            use every day. Use this report as a starting point for reflection, coaching
-            conversations, and better collaboration with your team.
+            You can use this report to reflect on how you make decisions, how you collaborate with
+            others, and which environments bring out your best work. It is not a verdict on who you
+            are, but a starting point for conversations about strengths, stretch areas, and growth.
           </p>
 
           <div className="grid gap-6 md:grid-cols-2 text-sm">
             <div>
-              <h3 className="font-semibold text-slate-900 mb-2">Frequencies (A–D)</h3>
+              <h3 className="font-semibold text-slate-900 mb-2">Frequencies</h3>
               <p className="text-slate-700">
-                Each frequency captures the energy you bring to work:
+                The framework uses four Frequencies to describe the energy you bring to your work:
               </p>
               <ul className="mt-2 space-y-1 text-slate-700">
                 <li>
@@ -258,8 +254,8 @@ export default async function ReportPage({
                   motivation, and activation.
                 </li>
                 <li>
-                  <span className="font-medium">Implementation</span>: Rhythm, process, and
-                  reliable delivery.
+                  <span className="font-medium">Implementation</span>: Rhythm, process, and reliable
+                  delivery.
                 </li>
                 <li>
                   <span className="font-medium">Insight</span>: Pattern recognition, analysis, and
@@ -268,11 +264,11 @@ export default async function ReportPage({
               </ul>
             </div>
             <div>
-              <h3 className="font-semibold text-slate-900 mb-2">Profiles (P1–P8)</h3>
+              <h3 className="font-semibold text-slate-900 mb-2">Profiles</h3>
               <p className="text-slate-700">
-                Each profile blends the frequencies into a pattern of strengths, motivations, and
-                potential blind spots. Your mix across the profiles shows how you naturally
-                contribute to a team.
+                The eight Profiles blend these Frequencies into distinct patterns of strengths,
+                motivations, and potential blind spots. Your mix across the profiles shows how you
+                naturally contribute to your team and clients.
               </p>
             </div>
           </div>
@@ -337,11 +333,20 @@ export default async function ReportPage({
                 {topProfileLabel || "Your strongest pattern"}
               </p>
               <p className="mt-3 text-sm text-slate-700">{topProfileSummary}</p>
+              {/* TODO: later – add bullet list (traits / motivators / blind spots) from framework */}
             </div>
           </div>
         </section>
 
-        {/* Later: strengths / development / next steps sections go here */}
+        {/* Footer actions — Download button bottom-right */}
+        <footer className="flex items-center justify-end pt-2 pb-6">
+          <a
+            href={portalReportDownloadUrl}
+            className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50"
+          >
+            Download PDF
+          </a>
+        </footer>
       </div>
     </div>
   );
