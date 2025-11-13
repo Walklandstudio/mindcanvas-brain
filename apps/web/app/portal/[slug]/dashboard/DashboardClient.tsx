@@ -2,16 +2,37 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 
-const ResponsiveContainer = dynamic(async () => (await import("recharts")).ResponsiveContainer, { ssr: false });
-const BarChart           = dynamic(async () => (await import("recharts")).BarChart, { ssr: false });
-const Bar                = dynamic(async () => (await import("recharts")).Bar, { ssr: false });
-const XAxis              = dynamic(async () => (await import("recharts")).XAxis, { ssr: false });
-const YAxis              = dynamic(async () => (await import("recharts")).YAxis, { ssr: false });
-const Tooltip            = dynamic(async () => (await import("recharts")).Tooltip, { ssr: false });
-const CartesianGrid      = dynamic(async () => (await import("recharts")).CartesianGrid, { ssr: false });
-const LabelList          = dynamic(async () => (await import("recharts")).LabelList, { ssr: false });
+const ResponsiveContainer = dynamic(
+  async () => (await import("recharts")).ResponsiveContainer,
+  { ssr: false }
+);
+const BarChart = dynamic(async () => (await import("recharts")).BarChart, {
+  ssr: false,
+});
+const Bar = dynamic(async () => (await import("recharts")).Bar, {
+  ssr: false,
+});
+const XAxis = dynamic(async () => (await import("recharts")).XAxis, {
+  ssr: false,
+});
+const YAxis = dynamic(async () => (await import("recharts")).YAxis, {
+  ssr: false,
+});
+const Tooltip = dynamic(
+  async () => (await import("recharts")).Tooltip,
+  { ssr: false }
+);
+const CartesianGrid = dynamic(
+  async () => (await import("recharts")).CartesianGrid,
+  { ssr: false }
+);
+const LabelList = dynamic(
+  async () => (await import("recharts")).LabelList,
+  { ssr: false }
+);
 
 type KV = { key: string; value: number; percent?: string };
 type Payload = {
@@ -25,7 +46,7 @@ type Payload = {
 const COLORS = {
   freq: "#2d8fc4",
   prof: "#64bae2",
-  tileBg: "rgba(15,23,42,0.9)", // slate-900 with a bit of transparency
+  tileBg: "rgba(15,23,42,0.9)",
 };
 
 function toCSV(rows: Array<Record<string, any>>): string {
@@ -35,11 +56,16 @@ function toCSV(rows: Array<Record<string, any>>): string {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  return [headers.join(","), ...rows.map((r) => headers.map((h) => escape(r[h])).join(","))].join("\n");
+  return [
+    headers.join(","),
+    ...rows.map((r) => headers.map((h) => escape(r[h])).join(",")),
+  ].join("\n");
 }
 
 function downloadCSV(filename: string, rows: KV[]) {
-  const csv = toCSV(rows.map((r) => ({ name: r.key, value: r.value, percent: r.percent ?? "" })));
+  const csv = toCSV(
+    rows.map((r) => ({ name: r.key, value: r.value, percent: r.percent ?? "" }))
+  );
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -51,6 +77,7 @@ function downloadCSV(filename: string, rows: KV[]) {
 
 export default function DashboardClient() {
   const pathname = usePathname();
+
   const slug = useMemo(() => {
     const segs = (pathname || "").split("/").filter(Boolean);
     const i = segs.indexOf("portal");
@@ -68,7 +95,10 @@ export default function DashboardClient() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/portal-dashboard?org=${encodeURIComponent(slug)}`, { cache: "no-store" });
+        const res = await fetch(
+          `/api/portal-dashboard?org=${encodeURIComponent(slug)}`,
+          { cache: "no-store" }
+        );
         const json = await res.json();
         if (!active) return;
         if (!json?.ok) setError(json?.error || "Unknown error");
@@ -91,17 +121,89 @@ export default function DashboardClient() {
   const overall = data?.overall;
 
   const freqChartData = useMemo(
-    () => freq.map((f) => ({ name: f.key, percentNum: Number((f.percent || "0%").replace("%", "")) })),
+    () =>
+      freq.map((f) => ({
+        name: f.key,
+        percentNum: Number((f.percent || "0%").replace("%", "")),
+      })),
     [freq]
   );
   const profChartData = useMemo(
-    () => prof.map((p) => ({ name: p.key, percentNum: Number((p.percent || "0%").replace("%", "")) })),
+    () =>
+      prof.map((p) => ({
+        name: p.key,
+        percentNum: Number((p.percent || "0%").replace("%", "")),
+      })),
     [prof]
   );
 
+  const basePath = slug ? `/portal/${slug}` : "";
+
   return (
     <div className="space-y-6 text-slate-100">
-      {/* Header tiles */}
+      {/* HERO CARD */}
+      <section className="rounded-3xl border border-white/10 bg-white/5 p-6 md:p-7 shadow-xl">
+        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <div className="max-w-xl">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-300">
+              Signature Profile Test
+            </p>
+            <h2 className="mt-3 text-2xl md:text-3xl font-semibold">
+              {slug ? `${slug} dashboard` : "Team dashboard"}
+            </h2>
+            <p className="mt-2 text-sm text-slate-300">
+              View participation, frequency mix, and profile distribution for
+              this organisation’s Signature Profile Test. Use the tabs below to
+              switch between analytics, raw data, tests, and profile settings.
+            </p>
+          </div>
+
+          <div className="flex flex-col items-start md:items-end gap-3">
+            <div className="text-xs text-slate-300">
+              Overall participants
+            </div>
+            <div className="text-3xl font-semibold text-[#64bae2] leading-none">
+              {overall?.count ?? "—"}
+            </div>
+            <Link
+              href={basePath ? `${basePath}/tests` : "#"}
+              className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition disabled:opacity-40"
+            >
+              Manage Test
+            </Link>
+          </div>
+        </div>
+
+        {/* LOCAL TABS ROW */}
+        <div className="mt-6 flex flex-wrap gap-2 text-xs">
+          <Link
+            href={basePath ? `${basePath}/dashboard` : "#"}
+            className="rounded-full bg-[#2d8fc4] px-4 py-1.5 font-medium text-white shadow"
+          >
+            Dashboard
+          </Link>
+          <Link
+            href={basePath ? `${basePath}/database` : "#"}
+            className="rounded-full border border-white/15 bg-white/5 px-4 py-1.5 font-medium text-slate-100 hover:bg-white/10 transition"
+          >
+            Database
+          </Link>
+          <Link
+            href={basePath ? `${basePath}/tests` : "#"}
+            className="rounded-full border border-white/15 bg-white/5 px-4 py-1.5 font-medium text-slate-100 hover:bg-white/10 transition"
+          >
+            Tests
+          </Link>
+          <Link
+            href={basePath ? `${basePath}/profile-settings` : "#"}
+            className="rounded-full border border-white/15 bg-white/5 px-4 py-1.5 font-medium text-slate-100 hover:bg-white/10 transition"
+          >
+            Profile Settings
+          </Link>
+        </div>
+      </section>
+
+      {/* HEADER TILES */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
           <div className="text-xs text-slate-300">Overall Average</div>
@@ -126,12 +228,14 @@ export default function DashboardClient() {
       {loading && <div className="text-sm text-slate-300">Loading data…</div>}
       {error && <div className="text-sm text-red-400">Error: {error}</div>}
 
-      {/* Frequencies */}
+      {/* FREQUENCIES */}
       <section className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-white">Frequencies (% of total)</h2>
+          <h2 className="text-sm font-semibold text-white">
+            Frequencies (% of total)
+          </h2>
           <button
-            className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition"
+            className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition disabled:opacity-40"
             disabled={!slug || !freq.length}
             onClick={() => downloadCSV(`frequencies_${slug}.csv`, freq)}
           >
@@ -145,19 +249,28 @@ export default function DashboardClient() {
               layout="vertical"
               margin={{ left: 80, right: 24, top: 8, bottom: 8 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="rgba(148,163,184,0.35)"
+              />
               <XAxis
                 type="number"
                 domain={[0, 100]}
                 tickFormatter={(v: number) => `${v}%`}
-                tick={{ fill: "rgba(226,232,240,0.9)", fontSize: 11 }}
+                tick={{
+                  fill: "rgba(226,232,240,0.9)",
+                  fontSize: 11,
+                }}
                 axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
               />
               <YAxis
                 type="category"
                 dataKey="name"
                 width={100}
-                tick={{ fill: "rgba(148,163,184,0.9)", fontSize: 11 }}
+                tick={{
+                  fill: "rgba(148,163,184,0.9)",
+                  fontSize: 11,
+                }}
                 axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
               />
               <Tooltip
@@ -171,19 +284,25 @@ export default function DashboardClient() {
                 }}
               />
               <Bar dataKey="percentNum" fill={COLORS.freq} radius={[6, 6, 6, 6]}>
-                <LabelList dataKey="percentNum" position="right" formatter={(v: any) => `${v}%`} />
+                <LabelList
+                  dataKey="percentNum"
+                  position="right"
+                  formatter={(v: any) => `${v}%`}
+                />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </section>
 
-      {/* Profiles */}
+      {/* PROFILES */}
       <section className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-white">Profiles (% of total)</h2>
+          <h2 className="text-sm font-semibold text-white">
+            Profiles (% of total)
+          </h2>
           <button
-            className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition"
+            className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition disabled:opacity-40"
             disabled={!slug || !prof.length}
             onClick={() => downloadCSV(`profiles_${slug}.csv`, prof)}
           >
@@ -197,19 +316,28 @@ export default function DashboardClient() {
               layout="vertical"
               margin={{ left: 160, right: 24, top: 8, bottom: 8 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="rgba(148,163,184,0.35)"
+              />
               <XAxis
                 type="number"
                 domain={[0, 100]}
                 tickFormatter={(v: number) => `${v}%`}
-                tick={{ fill: "rgba(226,232,240,0.9)", fontSize: 11 }}
+                tick={{
+                  fill: "rgba(226,232,240,0.9)",
+                  fontSize: 11,
+                }}
                 axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
               />
               <YAxis
                 type="category"
                 dataKey="name"
                 width={180}
-                tick={{ fill: "rgba(148,163,184,0.9)", fontSize: 11 }}
+                tick={{
+                  fill: "rgba(148,163,184,0.9)",
+                  fontSize: 11,
+                }}
                 axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
               />
               <Tooltip
@@ -223,24 +351,33 @@ export default function DashboardClient() {
                 }}
               />
               <Bar dataKey="percentNum" fill={COLORS.prof} radius={[6, 6, 6, 6]}>
-                <LabelList dataKey="percentNum" position="right" formatter={(v: any) => `${v}%`} />
+                <LabelList
+                  dataKey="percentNum"
+                  position="right"
+                  formatter={(v: any) => `${v}%`}
+                />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </section>
 
-      {/* Top / Bottom */}
+      {/* TOP / BOTTOM */}
       {(top3.length || bottom3.length) && (
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div
             className="rounded-2xl border border-white/10 p-4 shadow-lg"
             style={{ backgroundColor: COLORS.tileBg }}
           >
-            <h3 className="mb-2 text-sm font-semibold text-white">Top 3 Profiles</h3>
+            <h3 className="mb-2 text-sm font-semibold text-white">
+              Top 3 Profiles
+            </h3>
             <ul className="space-y-1 text-sm">
               {top3.map((t) => (
-                <li key={t.key} className="flex items-center justify-between">
+                <li
+                  key={t.key}
+                  className="flex items-center justify-between"
+                >
                   <span className="text-slate-200">{t.key}</span>
                   <span className="font-semibold text-slate-50">
                     {t.percent ?? `${t.value}`}
@@ -253,10 +390,15 @@ export default function DashboardClient() {
             className="rounded-2xl border border-white/10 p-4 shadow-lg"
             style={{ backgroundColor: COLORS.tileBg }}
           >
-            <h3 className="mb-2 text-sm font-semibold text-white">Bottom 3 Profiles</h3>
+            <h3 className="mb-2 text-sm font-semibold text-white">
+              Bottom 3 Profiles
+            </h3>
             <ul className="space-y-1 text-sm">
               {bottom3.map((b) => (
-                <li key={b.key} className="flex items-center justify-between">
+                <li
+                  key={b.key}
+                  className="flex items-center justify-between"
+                >
                   <span className="text-slate-200">{b.key}</span>
                   <span className="font-semibold text-slate-50">
                     {b.percent ?? `${b.value}`}
