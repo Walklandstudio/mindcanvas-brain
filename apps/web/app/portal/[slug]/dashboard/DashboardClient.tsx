@@ -25,7 +25,7 @@ type Payload = {
 const COLORS = {
   freq: "#2d8fc4",
   prof: "#64bae2",
-  tileBg: "rgba(45,143,196,0.05)",
+  tileBg: "rgba(15,23,42,0.9)", // slate-900 with a bit of transparency
 };
 
 function toCSV(rows: Array<Record<string, any>>): string {
@@ -79,7 +79,9 @@ export default function DashboardClient() {
         if (active) setLoading(false);
       }
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [slug]);
 
   const freq = data?.frequencies ?? [];
@@ -98,45 +100,76 @@ export default function DashboardClient() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-100">
       {/* Header tiles */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
-          <div className="text-xs opacity-70">Overall Average</div>
-          <div className="text-2xl font-semibold text-[#2d8fc4]">{overall?.average ?? "—"}</div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
+          <div className="text-xs text-slate-300">Overall Average</div>
+          <div className="mt-1 text-2xl font-semibold text-[#64bae2]">
+            {overall?.average ?? "—"}
+          </div>
         </div>
-        <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
-          <div className="text-xs opacity-70">Total Responses</div>
-          <div className="text-2xl font-semibold text-[#2d8fc4]">{overall?.count ?? "—"}</div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
+          <div className="text-xs text-slate-300">Total Responses</div>
+          <div className="mt-1 text-2xl font-semibold text-[#64bae2]">
+            {overall?.count ?? "—"}
+          </div>
         </div>
-        <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
-          <div className="text-xs opacity-70">Scope</div>
-          <div className="text-2xl font-semibold text-[#2d8fc4]">{slug || "—"}</div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
+          <div className="text-xs text-slate-300">Scope</div>
+          <div className="mt-1 text-2xl font-semibold text-[#64bae2]">
+            {slug || "—"}
+          </div>
         </div>
       </div>
 
-      {loading && <div className="text-sm opacity-70">Loading data…</div>}
-      {error && <div className="text-sm text-red-600">Error: {error}</div>}
+      {loading && <div className="text-sm text-slate-300">Loading data…</div>}
+      {error && <div className="text-sm text-red-400">Error: {error}</div>}
 
       {/* Frequencies */}
-      <section className="rounded-2xl border p-4 shadow-sm">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-medium text-[#2d8fc4]">Frequencies (% of total)</h2>
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-white">Frequencies (% of total)</h2>
           <button
-            className="rounded-md border border-[#2d8fc4] px-3 py-1 text-sm text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition"
+            className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition"
             disabled={!slug || !freq.length}
             onClick={() => downloadCSV(`frequencies_${slug}.csv`, freq)}
           >
             Download CSV
           </button>
         </div>
-        <div className="h-52 w-full">
+        <div className="h-56 w-full">
           <ResponsiveContainer>
-            <BarChart data={freqChartData} layout="vertical" margin={{ left: 80, right: 24, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} />
-              <YAxis type="category" dataKey="name" width={100} fontSize={12} />
-              <Tooltip formatter={(v: any) => [`${v}%`, "Share"]} />
+            <BarChart
+              data={freqChartData}
+              layout="vertical"
+              margin={{ left: 80, right: 24, top: 8, bottom: 8 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+              <XAxis
+                type="number"
+                domain={[0, 100]}
+                tickFormatter={(v: number) => `${v}%`}
+                tick={{ fill: "rgba(226,232,240,0.9)", fontSize: 11 }}
+                axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={100}
+                tick={{ fill: "rgba(148,163,184,0.9)", fontSize: 11 }}
+                axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
+              />
+              <Tooltip
+                formatter={(v: any) => [`${v}%`, "Share"]}
+                contentStyle={{
+                  backgroundColor: "#020617",
+                  borderColor: "rgba(148,163,184,0.45)",
+                  borderRadius: 8,
+                  color: "#e5e7eb",
+                  fontSize: 12,
+                }}
+              />
               <Bar dataKey="percentNum" fill={COLORS.freq} radius={[6, 6, 6, 6]}>
                 <LabelList dataKey="percentNum" position="right" formatter={(v: any) => `${v}%`} />
               </Bar>
@@ -146,11 +179,11 @@ export default function DashboardClient() {
       </section>
 
       {/* Profiles */}
-      <section className="rounded-2xl border p-4 shadow-sm">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-medium text-[#2d8fc4]">Profiles (% of total)</h2>
+      <section className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-white">Profiles (% of total)</h2>
           <button
-            className="rounded-md border border-[#2d8fc4] px-3 py-1 text-sm text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition"
+            className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition"
             disabled={!slug || !prof.length}
             onClick={() => downloadCSV(`profiles_${slug}.csv`, prof)}
           >
@@ -159,11 +192,36 @@ export default function DashboardClient() {
         </div>
         <div className="h-72 w-full">
           <ResponsiveContainer>
-            <BarChart data={profChartData} layout="vertical" margin={{ left: 160, right: 24, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} />
-              <YAxis type="category" dataKey="name" width={180} fontSize={12} />
-              <Tooltip formatter={(v: any) => [`${v}%`, "Share"]} />
+            <BarChart
+              data={profChartData}
+              layout="vertical"
+              margin={{ left: 160, right: 24, top: 8, bottom: 8 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+              <XAxis
+                type="number"
+                domain={[0, 100]}
+                tickFormatter={(v: number) => `${v}%`}
+                tick={{ fill: "rgba(226,232,240,0.9)", fontSize: 11 }}
+                axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={180}
+                tick={{ fill: "rgba(148,163,184,0.9)", fontSize: 11 }}
+                axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
+              />
+              <Tooltip
+                formatter={(v: any) => [`${v}%`, "Share"]}
+                contentStyle={{
+                  backgroundColor: "#020617",
+                  borderColor: "rgba(148,163,184,0.45)",
+                  borderRadius: 8,
+                  color: "#e5e7eb",
+                  fontSize: 12,
+                }}
+              />
               <Bar dataKey="percentNum" fill={COLORS.prof} radius={[6, 6, 6, 6]}>
                 <LabelList dataKey="percentNum" position="right" formatter={(v: any) => `${v}%`} />
               </Bar>
@@ -175,24 +233,34 @@ export default function DashboardClient() {
       {/* Top / Bottom */}
       {(top3.length || bottom3.length) && (
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
-            <h3 className="mb-1 text-base font-medium text-[#2d8fc4]">Top 3 Profiles</h3>
+          <div
+            className="rounded-2xl border border-white/10 p-4 shadow-lg"
+            style={{ backgroundColor: COLORS.tileBg }}
+          >
+            <h3 className="mb-2 text-sm font-semibold text-white">Top 3 Profiles</h3>
             <ul className="space-y-1 text-sm">
               {top3.map((t) => (
                 <li key={t.key} className="flex items-center justify-between">
-                  <span>{t.key}</span>
-                  <span className="font-semibold">{t.percent ?? `${t.value}`}</span>
+                  <span className="text-slate-200">{t.key}</span>
+                  <span className="font-semibold text-slate-50">
+                    {t.percent ?? `${t.value}`}
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
-          <div className="rounded-2xl border p-4 shadow-sm" style={{ backgroundColor: COLORS.tileBg }}>
-            <h3 className="mb-1 text-base font-medium text-[#2d8fc4]">Bottom 3 Profiles</h3>
+          <div
+            className="rounded-2xl border border-white/10 p-4 shadow-lg"
+            style={{ backgroundColor: COLORS.tileBg }}
+          >
+            <h3 className="mb-2 text-sm font-semibold text-white">Bottom 3 Profiles</h3>
             <ul className="space-y-1 text-sm">
               {bottom3.map((b) => (
                 <li key={b.key} className="flex items-center justify-between">
-                  <span>{b.key}</span>
-                  <span className="font-semibold">{b.percent ?? `${b.value}`}</span>
+                  <span className="text-slate-200">{b.key}</span>
+                  <span className="font-semibold text-slate-50">
+                    {b.percent ?? `${b.value}`}
+                  </span>
                 </li>
               ))}
             </ul>
