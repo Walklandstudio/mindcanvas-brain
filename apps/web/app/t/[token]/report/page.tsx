@@ -1,6 +1,6 @@
 // app/t/[token]/report/page.tsx
 
-import { getBaseUrl } from "@/lib/server-url";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -61,7 +61,13 @@ export default async function ReportPage({
     );
   }
 
-  const base = await getBaseUrl();
+  // Derive the correct origin from the current request
+  const hdrs = await headers();
+  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host");
+  const proto =
+    hdrs.get("x-forwarded-proto") ??
+    (host && host.includes("localhost") ? "http" : "https");
+  const base = `${proto}://${host}`;
 
   const resultUrl = `${base}/api/public/test/${encodeURIComponent(
     token
@@ -105,7 +111,6 @@ export default async function ReportPage({
     }
   }
 
-  // If either fetch misbehaved, show a detailed debug block
   if (resultErr || portalErr) {
     return (
       <div className="mx-auto max-w-3xl p-6 space-y-4">
@@ -142,7 +147,6 @@ export default async function ReportPage({
     );
   }
 
-  // At this point both responses are OK & JSON
   const resultJson = (await resultRes.json()) as ResultAPI | any;
   const portalJson = (await portalRes.json()) as PortalAPI | any;
 
@@ -235,7 +239,7 @@ export default async function ReportPage({
       </header>
 
       <main className="max-w-5xl mx-auto mt-8 space-y-10">
-        {/* Frequency mix block (reused structure from result page) */}
+        {/* Frequency mix */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
           <div className="grid gap-3">
@@ -256,7 +260,7 @@ export default async function ReportPage({
           </div>
         </section>
 
-        {/* Profile mix block (reused structure from result page) */}
+        {/* Profile mix */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
           <div className="grid gap-3">
@@ -279,7 +283,7 @@ export default async function ReportPage({
           </div>
         </section>
 
-        {/* Portal / narrative section */}
+        {/* Narrative / raw sections */}
         {sections ? (
           <section className="rounded-2xl border p-6 text-sm space-y-4 bg-white shadow-sm">
             <div>
