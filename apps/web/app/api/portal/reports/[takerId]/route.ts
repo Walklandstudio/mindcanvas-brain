@@ -16,9 +16,10 @@ type Params = { takerId: string };
 
 export async function GET(req: Request, { params }: { params: Params }) {
   try {
-    const url   = new URL(req.url);
+    const url = new URL(req.url);
     const debug = url.searchParams.get("debug") === "1";
-    const mini  = url.searchParams.get("mini") === "1";
+    const mini = url.searchParams.get("mini") === "1";
+    const wantsJson = url.searchParams.get("json") === "1";
 
     // Use the existing server Supabase client, scoped to the portal schema
     const portal = getServerSupabase().schema("portal");
@@ -68,8 +69,40 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const colors = {
       primary: org.brand_primary || "#2d8fc4",
-      text:    org.brand_text    || "#111827",
+      text: org.brand_text || "#111827",
     };
+
+    // NEW: pure JSON path for HTML reports (no React-PDF)
+    if (wantsJson) {
+      const totals: any = latestResult?.totals ?? {};
+      const profileTotals: Record<string, number> = totals.profiles ?? {};
+      const freqTotals: Record<string, number> = totals.frequencies ?? {};
+
+      const topProfileEntry = Object.entries(profileTotals).sort(
+        (a, b) => (b[1] as number) - (a[1] as number)
+      )[0];
+      const top_profile_name = topProfileEntry?.[0] ?? null;
+
+      return NextResponse.json(
+        {
+          ok: true,
+          data: {
+            title: org.name,
+            org,
+            taker,
+            latestResult,
+            colors,
+            top_profile_name,
+            sections: {
+              profiles: profileTotals,
+              frequencies: freqTotals,
+              summary_text: null,
+            },
+          },
+        },
+        { status: 200 }
+      );
+    }
 
     // MINI sanity-PDF using @react-pdf/renderer *namespace* (no JSX)
     if (mini) {
@@ -124,9 +157,9 @@ export async function GET(req: Request, { params }: { params: Params }) {
       org,
       taker: {
         first_name: taker.first_name ?? null,
-        last_name:  taker.last_name  ?? null,
-        email:      taker.email      ?? null,
-        role:       taker.role_title ?? null,
+        last_name: taker.last_name ?? null,
+        email: taker.email ?? null,
+        role: taker.role_title ?? null,
       },
       test: null,
       latestResult,

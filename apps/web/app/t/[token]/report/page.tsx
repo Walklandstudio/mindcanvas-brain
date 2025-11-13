@@ -1,4 +1,5 @@
 // app/t/[token]/report/page.tsx
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -11,11 +12,23 @@ export default async function ReportPage({
   params: { token: string };
   searchParams: { tid?: string };
 }) {
-  const token = params.token;
   const tid = searchParams?.tid || "";
 
+  // If we don't have a takerId, tell the user clearly
+  if (!tid) {
+    return (
+      <div className="mx-auto max-w-3xl p-6">
+        <h1 className="text-2xl font-semibold">Personalised Report</h1>
+        <p className="text-destructive mt-4">
+          Missing test taker ID. This page expects a <code>?tid=&lt;takerId&gt;</code> query
+          parameter.
+        </p>
+      </div>
+    );
+  }
+
   const res = await fetch(
-    `/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`,
+    `/api/portal/reports/${encodeURIComponent(tid)}?json=1`,
     { cache: "no-store" }
   );
 
@@ -23,7 +36,9 @@ export default async function ReportPage({
     return (
       <div className="mx-auto max-w-3xl p-6">
         <h1 className="text-2xl font-semibold">Personalised Report</h1>
-        <p className="text-destructive mt-4">Could not load your report. Please refresh.</p>
+        <p className="text-destructive mt-4">
+          Could not load your report. Please refresh or contact support.
+        </p>
       </div>
     );
   }
@@ -75,9 +90,26 @@ export default async function ReportPage({
       </section>
 
       {sections ? (
-        <pre className="rounded-2xl border p-6 text-sm whitespace-pre-wrap">
-          {JSON.stringify(sections, null, 2)}
-        </pre>
+        <section className="rounded-2xl border p-6 text-sm space-y-4">
+          <div>
+            <h3 className="font-semibold mb-1">Frequencies</h3>
+            <pre className="whitespace-pre-wrap">
+              {JSON.stringify(sections.frequencies ?? {}, null, 2)}
+            </pre>
+          </div>
+          <div>
+            <h3 className="font-semibold mb-1">Profiles</h3>
+            <pre className="whitespace-pre-wrap">
+              {JSON.stringify(sections.profiles ?? {}, null, 2)}
+            </pre>
+          </div>
+          {sections.summary_text ? (
+            <div>
+              <h3 className="font-semibold mb-1">Summary</h3>
+              <p className="leading-6">{sections.summary_text}</p>
+            </div>
+          ) : null}
+        </section>
       ) : (
         <section className="rounded-2xl border p-6">
           <p className="text-sm text-muted-foreground">
