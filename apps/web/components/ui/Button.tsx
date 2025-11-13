@@ -1,24 +1,28 @@
-/**
- * Button — primary / ghost variants, brand-aligned
- */
-import type { ButtonHTMLAttributes } from 'react';
-import clsx from 'clsx';
+import * as React from "react";
 
-type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'primary' | 'ghost';
-  size?: 'sm' | 'md';
+type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: "primary" | "ghost";
 };
 
-export function Button({ variant = 'primary', size = 'md', className, ...props }: Props) {
+export function Button({ children, className = "", variant = "primary", ...props }: ButtonProps) {
+  if (variant === "ghost") {
+    return (
+      <button
+        {...props}
+        className={`rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-white/90 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)]/40 ${className}`}
+      >
+        {children}
+      </button>
+    );
+  }
   return (
     <button
       {...props}
-      className={clsx(
-        'mc-btn',
-        variant === 'primary' ? 'mc-btn--primary' : 'mc-btn--ghost',
-        size === 'sm' ? 'text-sm px-3 py-2' : 'text-base px-4 py-2.5',
-        className
-      )}
-    />
+      className={`rounded-xl px-4 py-2 font-medium shadow
+        bg-gradient-to-b from-[var(--brand-blue-light)] to-[var(--brand-blue)]
+        hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue-light)]/50 ${className}`}
+    >
+      {children}
+    </button>
   );
 }

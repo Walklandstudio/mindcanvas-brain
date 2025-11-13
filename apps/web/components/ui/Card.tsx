@@ -1,37 +1,26 @@
-/**
- * Card — neutral, brand-aligned container + simple wrappers
- */
-import type { HTMLAttributes, ReactNode } from "react";
-import clsx from "clsx";
+import * as React from "react";
 
-type DivProps = HTMLAttributes<HTMLDivElement>;
-type HProps = HTMLAttributes<HTMLHeadingElement>;
+type Props = {
+  children: React.ReactNode;
+  className?: string;
+};
 
-export function Card({
-  className,
-  ...props
-}: DivProps & { children: ReactNode }) {
-  return <div className={clsx("mc-card", className)} {...props} />;
+export function Card({ children, className = "" }: Props) {
+  return (
+    <div className={`rounded-2xl bg-[var(--panel)] border border-white/10 shadow-glass ${className}`}>
+      {children}
+    </div>
+  );
 }
 
-/** Optional header area (padding, border handled by CSS .mc-card-header) */
-export function CardHeader({ className, ...props }: DivProps) {
-  return <div className={clsx("mc-card-header", className)} {...props} />;
+export function CardHeader({ children, className = "" }: Props) {
+  return <div className={`px-5 pt-5 ${className}`}>{children}</div>;
 }
 
-/** Title styling (size/weight handled by CSS .mc-card-title) */
-export function CardTitle({ className, ...props }: HProps) {
-  return <h3 className={clsx("mc-card-title", className)} {...props} />;
+export function CardBody({ children, className = "" }: Props) {
+  return <div className={`p-5 ${className}`}>{children}</div>;
 }
 
-/** Content area (spacing handled by CSS .mc-card-content) */
-export function CardContent({ className, ...props }: DivProps) {
-  return <div className={clsx("mc-card-content", className)} {...props} />;
+export function CardFooter({ children, className = "" }: Props) {
+  return <div className={`px-5 pb-5 ${className}`}>{children}</div>;
 }
-
-/** Optional footer if you need it later */
-export function CardFooter({ className, ...props }: DivProps) {
-  return <div className={clsx("mc-card-footer", className)} {...props} />;
-}
-
-export default Card;
