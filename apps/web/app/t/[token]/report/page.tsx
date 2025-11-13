@@ -1,4 +1,4 @@
-import { getBaseUrl } from "@/lib/server-url";
+import { headers } from "next/headers";
 import { getOrgFramework } from "@/lib/report/getOrgFramework";
 
 type Search = {
@@ -61,6 +61,18 @@ async function fetchJson(url: string) {
   }
 }
 
+/**
+ * Build base URL from the incoming request host/proto so we always
+ * hit the *current* deployment (preview / staging / prod) and avoid
+ * any protected APP_ORIGIN domain.
+ */
+async function buildBaseUrl() {
+  const hdrs = await headers();
+  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
+  const proto = hdrs.get("x-forwarded-proto") ?? "https";
+  return `${proto}://${host}`;
+}
+
 function Bar({ pct }: { pct: number }) {
   const value = Number.isFinite(pct) ? pct : 0;
   const clamped = Math.max(0, Math.min(1, value));
@@ -95,8 +107,8 @@ export default async function ReportPage({
     );
   }
 
-  // ✅ Use your existing helper again
-  const base = await getBaseUrl();
+  // ✅ Use header-based base (current deployment), not APP_ORIGIN
+  const base = await buildBaseUrl();
 
   const resultUrl = `${base}/api/public/test/${encodeURIComponent(
     token
