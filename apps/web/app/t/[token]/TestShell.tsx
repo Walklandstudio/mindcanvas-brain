@@ -41,7 +41,10 @@ export default function TestShell({
 
       <footer className="mc-container py-8 text-sm mc-muted flex items-center justify-between">
         <span>© {new Date().getFullYear()} MindCanvas — Profiletest.ai</span>
-        <Button variant="ghost" size="sm" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+        <Button
+          variant="ghost"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        >
           Back to top ↑
         </Button>
       </footer>

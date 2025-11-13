@@ -27,6 +27,14 @@ type ResultData = {
 type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
 type PortalAPI = { ok: boolean; data?: any; error?: string };
 
+// Simple descriptive text for each frequency (A–D).
+const FREQUENCY_DESCRIPTIONS: Record<AB, string> = {
+  A: "Innovation energy – spotting possibilities, generating ideas and challenging the status quo.",
+  B: "Influence energy – connecting with people, communicating, persuading and bringing others with you.",
+  C: "Implementation energy – planning, organising and driving things through to completion.",
+  D: "Insight energy – slowing down, analysing patterns and making sense of what is really going on.",
+};
+
 function Bar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(1, Number(pct) || 0));
   const width = `${(clamped * 100).toFixed(0)}%`;
@@ -366,19 +374,24 @@ export default function ReportPage({ params }: { params: { token: string } }) {
               <h3 className="text-sm font-semibold text-gray-800">
                 Frequencies (A–D)
               </h3>
-              <ul className="mt-2 text-sm text-gray-700 space-y-1">
+              <ul className="mt-2 text-sm text-gray-700 space-y-2">
                 {resultData.frequency_labels.map((f) => (
                   <li key={f.code}>
-                    <span className="font-medium">
+                    <span className="font-semibold">
                       {f.name} ({f.code})
                     </span>
                     {": "}
                     <span className="text-gray-600">
-                      Your relative energy in this way of thinking.
+                      {FREQUENCY_DESCRIPTIONS[f.code] ??
+                        "Your relative energy in this way of thinking."}
                     </span>
                   </li>
                 ))}
               </ul>
+              <p className="mt-3 text-xs text-gray-500">
+                Each frequency can later be shown with its own icon or image in
+                this space to make the concepts even more visual.
+              </p>
             </div>
             <div>
               <h3 className="text-sm font-semibold text-gray-800">
@@ -388,6 +401,11 @@ export default function ReportPage({ params }: { params: { token: string } }) {
                 Each profile blends the frequencies into a pattern of strengths,
                 motivations, and potential blind spots. Your mix across the
                 profiles shows how you naturally contribute to a team.
+              </p>
+              <p className="mt-3 text-sm text-gray-700">
+                In later iterations, this section can include a visual grid or
+                profile images for each of the eight profiles so that test
+                takers can quickly recognise their style.
               </p>
             </div>
           </div>
@@ -425,12 +443,30 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
 
           {topFreqLabel && (
-            <p className="text-sm text-gray-700">
-              With {topFreqLabel.name.toLowerCase()} as a dominant pattern, you
-              are likely to feel most confident when you can lean into this way
-              of thinking, while the lowest frequency may represent a useful
-              stretch or development area.
-            </p>
+            <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50 p-4">
+              <h3 className="text-sm font-semibold text-sky-900">
+                Your dominant frequency: {topFreqLabel.name} (
+                {topFreqLabel.code})
+              </h3>
+              <ul className="mt-2 text-sm text-sky-900/80 space-y-1">
+                <li>
+                  • <span className="font-medium">Key traits:</span>{" "}
+                  {FREQUENCY_DESCRIPTIONS[topFreqLabel.code] ??
+                    "This pattern represents where you naturally invest energy and attention."}
+                </li>
+                <li>
+                  • <span className="font-medium">Motivators:</span> You tend to
+                  feel energised when you can lean into this way of thinking and
+                  be recognised for it.
+                </li>
+                <li>
+                  • <span className="font-medium">Blind spots:</span> When this
+                  frequency is overused, it can crowd out other perspectives,
+                  such as moving too fast, over-analysing, or focusing on your
+                  preferred style at the expense of the team&apos;s needs.
+                </li>
+              </ul>
+            </div>
           )}
         </section>
 
@@ -457,7 +493,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* 5. PROFILE OVERVIEW – TOP 3 */}
+        {/* 5. PROFILE OVERVIEW – TOP 3 WITH BULLETS */}
         <section className="grid gap-4 md:grid-cols-3">
           {topProfiles.map((p, idx) => (
             <div
@@ -478,10 +514,25 @@ export default function ReportPage({ params }: { params: { token: string } }) {
               <div className="mt-1 text-sm text-gray-700">
                 {Math.round((p.pct || 0) * 100)}% match
               </div>
-              <p className="mt-2 text-xs text-gray-600">
-                This profile represents a key way you show up at work, combining
-                your natural energy, decision style, and contribution to others.
-              </p>
+
+              <ul className="mt-2 text-xs text-gray-700 space-y-1">
+                <li>
+                  • <span className="font-semibold">Key traits:</span> Tends to
+                  bring a {p.name.toLowerCase()} flavour to how work gets done
+                  and how decisions are made.
+                </li>
+                <li>
+                  • <span className="font-semibold">Motivators:</span> Often
+                  feels most engaged when asked to contribute in{" "}
+                  {p.name.toLowerCase()}-type work and is recognised for this
+                  value.
+                </li>
+                <li>
+                  • <span className="font-semibold">Watch-outs:</span> When this
+                  style is overused, it can become a default setting and may
+                  overlook other valuable perspectives in the team.
+                </li>
+              </ul>
             </div>
           ))}
         </section>
@@ -611,5 +662,4 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     </div>
   );
 }
-
 
