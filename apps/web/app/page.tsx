@@ -51,13 +51,10 @@ export default function Landing() {
             <span className="text-base font-semibold tracking-tight">MindCanvas</span>
           </div>
 
-          {/* Quick links in header */}
+          {/* Only Login in header now */}
           <nav className="hidden md:flex items-center gap-3 text-sm">
-            <Link href="/portal" className="text-slate-300 hover:text-white">
-              Portals
-            </Link>
-            <Link href="/portal/admin" className="text-slate-300 hover:text-white">
-              Admin login
+            <Link href="/login" className="text-slate-300 hover:text-white">
+              Login
             </Link>
           </nav>
         </div>
@@ -90,22 +87,8 @@ export default function Landing() {
               className="group inline-flex items-center justify-center rounded-2xl px-6 py-3 text-[15px] font-medium transition-transform hover:scale-[1.02] active:scale-100 shine"
               style={{ background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})` }}
             >
-              Create an Account
+              Create Account
               <span className="ml-2 block h-[1px] w-4 translate-y-[1px] bg-white/70 group-hover:w-6 transition-all" />
-            </Link>
-
-            <Link
-              href="/portal"
-              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
-            >
-              Portals
-            </Link>
-
-            <Link
-              href="/portal/admin"
-              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
-            >
-              Admin login
             </Link>
 
             <Link

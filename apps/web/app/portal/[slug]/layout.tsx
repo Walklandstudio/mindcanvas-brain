@@ -1,9 +1,11 @@
+// apps/web/app/portal/[slug]/layout.tsx
 import { ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
 import PortalChrome from "@/components/portal/PortalChrome";
+import AppBackground from "@/components/ui/AppBackground";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type Org = {
@@ -34,8 +36,11 @@ async function loadOrg(slug: string): Promise<Org | null> {
 
 export default async function OrgLayout({
   children,
-  params
-}: { children: ReactNode; params: { slug: string } }) {
+  params,
+}: {
+  children: ReactNode;
+  params: { slug: string };
+}) {
   const org = await loadOrg(params.slug);
 
   const vars: Record<string, string> = {
@@ -47,17 +52,22 @@ export default async function OrgLayout({
     "--report-font-size": org?.report_font_size ?? "14px",
   };
 
-   return (
-   <html style={vars as any}>
-     <body
-       style={{ fontFamily: "var(--report-font-family)" }}
-       className="mc-bg min-h-screen text-white"
-    >
-      <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
-        {children}
-      </PortalChrome>
-    </body>
-  </html>
-);
+  return (
+    <html style={vars as any}>
+      <body
+        style={{ fontFamily: "var(--report-font-family)" }}
+        className="relative min-h-screen bg-[#050914] text-white overflow-hidden"
+      >
+        {/* shared MindCanvas background (same as landing) */}
+        <AppBackground />
 
+        {/* existing portal chrome/nav + content */}
+        <div className="relative z-10">
+          <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
+            {children}
+          </PortalChrome>
+        </div>
+      </body>
+    </html>
+  );
 }

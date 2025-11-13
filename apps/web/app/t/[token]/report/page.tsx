@@ -27,12 +27,131 @@ type ResultData = {
 type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
 type PortalAPI = { ok: boolean; data?: any; error?: string };
 
-// Simple descriptive text for each frequency (A–D).
+// Descriptions for each frequency (A–D)
 const FREQUENCY_DESCRIPTIONS: Record<AB, string> = {
   A: "Innovation energy – spotting possibilities, generating ideas and challenging the status quo.",
   B: "Influence energy – connecting with people, communicating, persuading and bringing others with you.",
   C: "Implementation energy – planning, organising and driving things through to completion.",
   D: "Insight energy – slowing down, analysing patterns and making sense of what is really going on.",
+};
+
+// Template bullets per profile (P1–P8)
+const PROFILE_TEMPLATES: Record<
+  string,
+  { traits: string[]; motivators: string[]; blindspots: string[] }
+> = {
+  PROFILE_1: {
+    traits: [
+      "Sees possibilities and ideas early and can quickly sketch a vision of where things could go.",
+      "Comfortable with ambiguity and change, especially in the early stages of a project.",
+    ],
+    motivators: [
+      "Being given room to explore new concepts, options or improvements.",
+      "Working with people who are open to experimentation and future thinking.",
+    ],
+    blindspots: [
+      "May lose energy when work becomes repetitive or overly detailed.",
+      "Can move on too quickly from an idea before others have fully understood it.",
+    ],
+  },
+  PROFILE_2: {
+    traits: [
+      "Brings enthusiasm and energy that helps get others engaged and moving.",
+      "Comfortably connects people, ideas and opportunities across the organisation.",
+    ],
+    motivators: [
+      "Being around people and having a sense of momentum and buzz.",
+      "Opportunities to champion ideas or initiatives they believe in.",
+    ],
+    blindspots: [
+      "May over-commit when excited, making it harder to follow through on everything.",
+      "Can overlook quieter voices or detailed risks when the pace is high.",
+    ],
+  },
+  PROFILE_3: {
+    traits: [
+      "Creates energy and encouragement for others, often acting as a natural motivator.",
+      "Focuses on what is possible and helps people see the upside in challenging situations.",
+    ],
+    motivators: [
+      "Being able to support others and see them succeed.",
+      "Roles where they can encourage, coach or mobilise people around a goal.",
+    ],
+    blindspots: [
+      "May avoid difficult conversations in order to protect harmony.",
+      "Can carry too much emotional load for the team if boundaries are not clear.",
+    ],
+  },
+  PROFILE_4: {
+    traits: [
+      "Builds and sustains relationships across different groups and functions.",
+      "Good at drawing people together and creating a sense of belonging.",
+    ],
+    motivators: [
+      "Feeling connected to the people they work with.",
+      "Opportunities to collaborate and work through others rather than alone.",
+    ],
+    blindspots: [
+      "May say 'yes' to too many requests to keep relationships smooth.",
+      "Can struggle to step back and make tough trade-off decisions.",
+    ],
+  },
+  PROFILE_5: {
+    traits: [
+      "Brings steadiness, patience and support into teams and projects.",
+      "Good at listening and making sure people feel heard and included.",
+    ],
+    motivators: [
+      "Predictability, stability and a clear sense of role and expectations.",
+      "Environments where thoughtful, considered input is valued.",
+    ],
+    blindspots: [
+      "May delay action while gathering more perspectives.",
+      "Can find sudden change or unclear direction draining.",
+    ],
+  },
+  PROFILE_6: {
+    traits: [
+      "Naturally plans, organises and keeps track of details and moving parts.",
+      "Helps teams follow through and close the loop on commitments.",
+    ],
+    motivators: [
+      "Clear goals, timelines and structures.",
+      "Being trusted to make things run reliably and efficiently.",
+    ],
+    blindspots: [
+      "May become frustrated when others do not follow agreed processes.",
+      "Can over-focus on detail and lose sight of the bigger picture.",
+    ],
+  },
+  PROFILE_7: {
+    traits: [
+      "Applies logic, analysis and structure to complex information.",
+      "Comfortable asking challenging questions and testing assumptions.",
+    ],
+    motivators: [
+      "Time to think deeply and solve complex or technical problems.",
+      "Access to accurate data and clear information.",
+    ],
+    blindspots: [
+      "May appear critical or detached when focused on accuracy.",
+      "Can delay decisions while searching for more data or certainty.",
+    ],
+  },
+  PROFILE_8: {
+    traits: [
+      "Constantly looks for ways to refine, improve and optimise systems.",
+      "Enjoys making processes leaner, smarter and more effective.",
+    ],
+    motivators: [
+      "Improvement projects with clear before-and-after impact.",
+      "Autonomy to adjust processes and tools for better results.",
+    ],
+    blindspots: [
+      "May become impatient with slower progress or resistance to change.",
+      "Can push for efficiency at the expense of relationships if not balanced.",
+    ],
+  },
 };
 
 function Bar({ pct }: { pct: number }) {
@@ -179,7 +298,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     [resultData]
   );
 
-  // Map profile code -> name for nicer display
+  // Map profile code -> name
   const profileNameMap = useMemo(() => {
     const map: Record<string, string> = {};
     if (resultData?.profile_labels) {
@@ -201,9 +320,31 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     }));
   }, [prof, profileNameMap]);
 
+  const topFreqCode: AB | null = resultData?.top_freq ?? null;
+  const topFreqLabel =
+    topFreqCode && resultData?.frequency_labels
+      ? resultData.frequency_labels.find((f) => f.code === topFreqCode)
+      : null;
+
+  // Computed narrative summary if backend hasn't supplied one
+  const computedSummary = useMemo(() => {
+    if (!topProfiles.length || !topFreqLabel) return null;
+
+    const primary = topProfiles[0];
+    const primaryProfileText =
+      PROFILE_TEMPLATES[primary.code]?.traits?.[0] ??
+      `${primary.name} reflects a key way you like to contribute at work.`;
+
+    return [
+      `Your results show a strong ${primary.name} pattern, combined with a dominant ${topFreqLabel.name.toLowerCase()} frequency.`,
+      primaryProfileText,
+      "Together these suggest the situations where you are likely to feel most energised, and where your contribution will be most visible to others.",
+    ].join(" ");
+  }, [topProfiles, topFreqLabel]);
+
   const sections = portalData?.sections ?? null;
 
-  // Try to get org + taker nicely
+  // Org + taker display
   const orgName: string =
     (typeof portalData?.org === "string"
       ? portalData.org
@@ -238,12 +379,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     resultData?.top_profile_name ||
     portalData?.top_profile_name ||
     "—";
-
-  const topFreqCode: AB | null = resultData?.top_freq ?? null;
-  const topFreqLabel =
-    topFreqCode && resultData?.frequency_labels
-      ? resultData.frequency_labels.find((f) => f.code === topFreqCode)
-      : null;
 
   if (!tid) {
     return (
@@ -318,7 +453,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
         }
       `}</style>
 
-      {/* 1. COVER / HERO */}
+      {/* COVER / HERO */}
       <header className="max-w-5xl mx-auto flex flex-col gap-6 md:flex-row md:items-center">
         <div className="flex-1">
           <p className="text-sm text-gray-500">• Personalised report</p>
@@ -353,7 +488,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
       </header>
 
       <main className="max-w-5xl mx-auto mt-10 space-y-10">
-        {/* 2. INTRODUCTION */}
+        {/* INTRODUCTION */}
         <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
           <h2 className="text-xl font-semibold">Introduction</h2>
           <p className="text-sm leading-6 text-gray-700">
@@ -411,7 +546,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* 3. FREQUENCY SUMMARY */}
+        {/* FREQUENCY SUMMARY */}
         <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-4">
           <h2 className="text-xl font-semibold">Frequency summary</h2>
           <p className="text-sm text-gray-700">
@@ -470,7 +605,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           )}
         </section>
 
-        {/* 4. PROFILE MIX */}
+        {/* PROFILE MIX */}
         <section className="rounded-2xl border bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
           <div className="grid gap-3">
@@ -493,51 +628,63 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* 5. PROFILE OVERVIEW – TOP 3 WITH BULLETS */}
+        {/* TOP PROFILES – WITH BULLETS */}
         <section className="grid gap-4 md:grid-cols-3">
-          {topProfiles.map((p, idx) => (
-            <div
-              key={p.code}
-              className="rounded-2xl border bg-white p-4 shadow-sm flex flex-col gap-2"
-            >
-              <div className="text-xs uppercase text-gray-500">
-                {idx === 0
-                  ? "Primary profile"
-                  : idx === 1
-                  ? "Secondary"
-                  : "Tertiary"}
-              </div>
-              <div className="text-lg font-semibold">{p.name}</div>
-              <div className="text-sm text-gray-500">
-                ({p.code.replace("PROFILE_", "P")})
-              </div>
-              <div className="mt-1 text-sm text-gray-700">
-                {Math.round((p.pct || 0) * 100)}% match
-              </div>
+          {topProfiles.map((p, idx) => {
+            const tmpl =
+              PROFILE_TEMPLATES[p.code] ??
+              ({
+                traits: [
+                  `Brings a ${p.name.toLowerCase()} style to how work gets done.`,
+                ],
+                motivators: [
+                  "Feels energised when this style is noticed and valued.",
+                ],
+                blindspots: [
+                  "When overused, this style can crowd out other perspectives.",
+                ],
+              } as const);
 
-              <ul className="mt-2 text-xs text-gray-700 space-y-1">
-                <li>
-                  • <span className="font-semibold">Key traits:</span> Tends to
-                  bring a {p.name.toLowerCase()} flavour to how work gets done
-                  and how decisions are made.
-                </li>
-                <li>
-                  • <span className="font-semibold">Motivators:</span> Often
-                  feels most engaged when asked to contribute in{" "}
-                  {p.name.toLowerCase()}-type work and is recognised for this
-                  value.
-                </li>
-                <li>
-                  • <span className="font-semibold">Watch-outs:</span> When this
-                  style is overused, it can become a default setting and may
-                  overlook other valuable perspectives in the team.
-                </li>
-              </ul>
-            </div>
-          ))}
+            return (
+              <div
+                key={p.code}
+                className="rounded-2xl border bg-white p-4 shadow-sm flex flex-col gap-2"
+              >
+                <div className="text-xs uppercase text-gray-500">
+                  {idx === 0
+                    ? "Primary profile"
+                    : idx === 1
+                    ? "Secondary"
+                    : "Tertiary"}
+                </div>
+                <div className="text-lg font-semibold">{p.name}</div>
+                <div className="text-sm text-gray-500">
+                  ({p.code.replace("PROFILE_", "P")})
+                </div>
+                <div className="mt-1 text-sm text-gray-700">
+                  {Math.round((p.pct || 0) * 100)}% match
+                </div>
+
+                <ul className="mt-2 text-xs text-gray-700 space-y-1">
+                  <li>
+                    • <span className="font-semibold">Key traits:</span>{" "}
+                    {tmpl.traits[0]}
+                  </li>
+                  <li>
+                    • <span className="font-semibold">Motivators:</span>{" "}
+                    {tmpl.motivators[0]}
+                  </li>
+                  <li>
+                    • <span className="font-semibold">Blind spots:</span>{" "}
+                    {tmpl.blindspots[0]}
+                  </li>
+                </ul>
+              </div>
+            );
+          })}
         </section>
 
-        {/* 6. STRENGTHS & DEVELOPMENT AREAS */}
+        {/* STRENGTHS & DEVELOPMENT AREAS */}
         <section className="rounded-2xl border bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold mb-2">
             Strengths & development areas
@@ -561,9 +708,9 @@ export default function ReportPage({ params }: { params: { token: string } }) {
                 {topFreqLabel && (
                   <li>
                     Your emphasis on{" "}
-                    <span className="font-semibold">
-                      {topFreqLabel.name.toLowerCase()}
-                    </span>{" "}
+                      <span className="font-semibold">
+                        {topFreqLabel.name.toLowerCase()}
+                      </span>{" "}
                     supports decisions and behaviour that align with that
                     pattern.
                   </li>
@@ -598,12 +745,16 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* 7. SUMMARY / NARRATIVE */}
+        {/* SUMMARY / NARRATIVE */}
         <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
           <h2 className="text-xl font-semibold">Summary</h2>
           {sections?.summary_text ? (
             <p className="text-sm leading-6 text-gray-700">
               {sections.summary_text}
+            </p>
+          ) : computedSummary ? (
+            <p className="text-sm leading-6 text-gray-700">
+              {computedSummary}
             </p>
           ) : (
             <p className="text-sm leading-6 text-gray-600">
@@ -616,7 +767,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           )}
         </section>
 
-        {/* 8. TEAM FIT / COLLABORATION – placeholder for future team data */}
+        {/* TEAM FIT / COLLABORATION – placeholder */}
         <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
           <h2 className="text-xl font-semibold">Team fit & collaboration</h2>
           <p className="text-sm text-gray-700">
@@ -631,7 +782,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </p>
         </section>
 
-        {/* 9. NEXT STEPS / ACTION PLAN */}
+        {/* NEXT STEPS / ACTION PLAN */}
         <section className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
           <h2 className="text-xl font-semibold">Next steps</h2>
           <p className="text-sm text-gray-700">
