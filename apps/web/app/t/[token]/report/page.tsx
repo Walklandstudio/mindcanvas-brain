@@ -1,7 +1,6 @@
-// Minimal, API-only report page. No Supabase calls, no .catch chains.
-// Fixes: (1) PostgrestBuilder `.catch` type error, (2) "null used as index" guards.
-
-import { getBaseUrl } from "@/lib/server-url";
+// app/t/[token]/report/page.tsx
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type ReportAPI = { ok: boolean; data: any };
 
@@ -14,10 +13,9 @@ export default async function ReportPage({
 }) {
   const token = params.token;
   const tid = searchParams?.tid || "";
-  const base = await getBaseUrl();
 
   const res = await fetch(
-    `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`,
+    `/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`,
     { cache: "no-store" }
   );
 
@@ -38,7 +36,6 @@ export default async function ReportPage({
     (typeof data?.org === "string" ? data.org : data?.org?.name) ||
     "Your Personalised Report";
 
-  // Prefer explicit top_profile_name from API; fall back to taker snapshot; else placeholder
   const topName: string =
     data?.top_profile_name ||
     data?.taker?.top_profile_name ||
@@ -49,12 +46,28 @@ export default async function ReportPage({
 
   return (
     <div className="mx-auto max-w-4xl p-6 space-y-8">
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          @page { size: A4; margin: 16mm; }
+        }
+      `}</style>
+
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold">{title}</h1>
         <p className="text-muted-foreground">
           {data?.taker?.first_name ?? ""} {data?.taker?.last_name ?? ""}
         </p>
       </header>
+
+      <div className="no-print">
+        <button
+          onClick={() => window.print()}
+          className="rounded-md border px-3 py-1.5 text-sm"
+        >
+          Download PDF
+        </button>
+      </div>
 
       <section className="rounded-2xl border p-6">
         <h2 className="text-xl font-medium">Top profile</h2>
