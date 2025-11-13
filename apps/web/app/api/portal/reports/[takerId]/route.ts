@@ -1,3 +1,5 @@
+// app/api/portal/reports/[takerId]/route.ts
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -6,7 +8,7 @@ import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import * as React from "react";
 import * as PDF from "@react-pdf/renderer";
-import { supabaseAdmin } from "@/lib/server/supabaseAdmin";
+import { getServerSupabase } from "@/lib/supabase/server";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
 
@@ -14,10 +16,12 @@ type Params = { takerId: string };
 
 export async function GET(req: Request, { params }: { params: Params }) {
   try {
-    const portal = supabaseAdmin.schema("portal");
     const url   = new URL(req.url);
     const debug = url.searchParams.get("debug") === "1";
     const mini  = url.searchParams.get("mini") === "1";
+
+    // Use the existing server Supabase client, scoped to the portal schema
+    const portal = getServerSupabase().schema("portal");
 
     // 1) Taker (authoritative org_id)
     const takerQ = await portal
@@ -57,6 +61,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const latestResult = latestResultQ.data ?? null;
 
+    // Existing debug output: JSON only, no PDF
     if (debug) {
       return NextResponse.json({ ok: true, taker, org, latestResult }, { status: 200 });
     }
@@ -90,7 +95,11 @@ export async function GET(req: Request, { params }: { params: Params }) {
               { style: styles.p },
               `Taker: ${`${taker.first_name ?? ""} ${taker.last_name ?? ""}`.trim()}`
             ),
-            React.createElement(PDF.Text, { style: styles.p }, `Has result: ${latestResult ? "yes" : "no"}`)
+            React.createElement(
+              PDF.Text,
+              { style: styles.p },
+              `Has result: ${latestResult ? "yes" : "no"}`
+            )
           )
         )
       );
