@@ -100,7 +100,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
         }
 
         if (!resultRes.ok || !portalRes.ok) {
-          // Try to read JSON error if present
           let message = "Failed to load report data.";
           try {
             const maybeJson: any = JSON.parse(
@@ -108,7 +107,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
             );
             if (maybeJson?.error) message = String(maybeJson.error);
           } catch {
-            // ignore JSON parse errors, keep generic message
+            // ignore
           }
           throw new Error(message);
         }
@@ -212,6 +211,8 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     portal.title ||
     "Your Organisation";
 
+  const orgSlug = portal.org?.slug || result.org_slug || "";
+
   const takerName = [
     portal.taker?.first_name || "",
     portal.taker?.last_name || "",
@@ -241,6 +242,25 @@ export default function ReportPage({ params }: { params: { token: string } }) {
       window.print();
     }
   };
+
+  // --- Welcome letter content (per org) ---
+
+  const teamPuzzleWelcome = `Welcome to your Team Puzzle Discovery Report. I’m so excited to be part of your journey as you uncover your natural strengths, communication style, and best-fit contribution in the workplace and getting the most out of yourself. This report is designed to give you deep insight into how you work best, where you thrive in a team, and how to align your role with your energy.
+
+At Life Puzzle, I’ve worked with leaders, executives, and business owners for over two decades, helping them break through performance barriers, improve communication, and unlock their true potential. One consistent truth I’ve seen across every organisation? When people understand themselves and each other more deeply, the entire culture shifts, results improve, engagement increases, and people are genuinely more fulfilled.
+
+Team Puzzle was created with that in mind. It’s not just a tool for insight, it’s a system for practical action. It maps the puzzle pieces of your team in a way that helps you fit together more effectively, reducing friction and increasing flow.
+
+Whether you’re reading this report as part of a leadership team, a coaching session, or a personal development journey, I invite you to treat this insight not as an ending, but a starting point, a map for growth, alignment, and leadership that truly reflects your natural style.
+
+Warm regards,
+Chandell Labbozzetta
+Founder, Life Puzzle & Team Puzzle Discovery Assessment`;
+
+  const welcomeBody =
+    orgSlug === "team-puzzle"
+      ? teamPuzzleWelcome
+      : `Welcome to your ${orgName} report. This report is designed to give you language for your natural strengths, working style, and contribution at work. Use it as a starting point for reflection, coaching conversations, and better collaboration with your team.`;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
@@ -293,13 +313,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
               A note from the creator of this framework.
             </p>
             <p className="text-sm leading-relaxed whitespace-pre-line text-slate-700">
-              {orgName === "Team Puzzle"
-                ? `Welcome to your Team Puzzle Discovery Report. I’m excited to be part of your journey as you uncover your natural strengths, communication style, and best-fit contribution in the workplace. This report is designed to give you deep insight into how you work best, where you thrive in a team, and how to align your role with your energy.
-
-Team Puzzle was created as a practical system for understanding how different people fit together. When individuals understand their own style – and the styles of others – communication improves, performance lifts, and work feels more meaningful.
-
-Use this report as a starting point for conversation, coaching, and practical action. The goal isn’t to label you, but to give you language for patterns that already exist, so you can make more conscious choices about how you lead, collaborate, and grow.`
-                : `Welcome to your ${orgName} report. This report is designed to give you language for your natural strengths, working style, and contribution at work. Use it as a starting point for reflection, coaching conversations, and better collaboration with your team.`}
+              {welcomeBody}
             </p>
           </div>
 
@@ -307,8 +321,8 @@ Use this report as a starting point for conversation, coaching, and practical ac
           <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
             <h3 className="text-lg font-semibold mb-3">How to use this report</h3>
             <p className="text-sm text-slate-700 mb-3">
-              This report combines your responses with {orgName}&apos;s profiling
-              framework. It is designed to help you:
+              This report combines your responses with {orgName}
+              &apos;s profiling framework. It is designed to help you:
             </p>
             <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
               <li>Put clear language to your natural working style.</li>
@@ -338,7 +352,7 @@ Use this report as a starting point for conversation, coaching, and practical ac
               The {orgName} framework
             </h3>
             <p className="text-sm text-slate-700 whitespace-pre-line">
-              {orgName === "Team Puzzle"
+              {orgSlug === "team-puzzle"
                 ? `High-performing teams don’t happen by accident – they’re built with intention, structure, and insight. The Team Puzzle Framework was developed to bridge the gap between untapped human potential and practical business results. It’s a top-down, ground-up approach to unlocking the genius that already exists in your people.
 
 At its core, Team Puzzle helps organisations answer one fundamental question: “How do we get the best from each individual, and even better results from the team as a whole?”
@@ -350,76 +364,81 @@ The Team Puzzle approach isn’t about “fixing” people – it’s about fitt
             </p>
           </div>
 
-          {/* Frequencies & Profiles explanation */}
+          {/* Understanding the four Frequencies */}
           <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
             <h3 className="text-base font-semibold mb-3">
-              Understanding the four Frequencies & eight Profiles
+              Understanding the Four Frequencies
             </h3>
-            <div className="grid gap-6 md:grid-cols-2 text-sm text-slate-700">
-              <div className="space-y-2">
-                <p>
-                  Frequencies describe the way you naturally think, decide, and
-                  take action.
-                </p>
-                <p className="font-semibold mt-2">Frequencies (A–D)</p>
-                <p>
-                  <span className="font-semibold">Innovation</span> – Ideas,
-                  creation, momentum, and challenging the status quo.
-                </p>
-                <p>
-                  <span className="font-semibold">Influence</span> – People,
-                  communication, motivation, and activation.
-                </p>
-                <p>
-                  <span className="font-semibold">Implementation</span> –
-                  Rhythm, process, and reliable delivery.
-                </p>
-                <p>
-                  <span className="font-semibold">Insight</span> – Pattern
-                  recognition, analysis, and perspective.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <p>
-                  Profiles blend these Frequencies into distinct patterns of
-                  contribution. Together, they show how you naturally create
-                  value in a team.
-                </p>
-                <p className="font-semibold mt-2">Profiles (P1–P8)</p>
-                <p>
-                  <span className="font-semibold">Visionary</span> – Future-
-                  focused, ideas-driven, sees possibilities.
-                </p>
-                <p>
-                  <span className="font-semibold">Catalyst</span> – Energetic,
-                  action-oriented, drives momentum.
-                </p>
-                <p>
-                  <span className="font-semibold">Motivator</span> – Encourages
-                  others, builds energy and engagement.
-                </p>
-                <p>
-                  <span className="font-semibold">Connector</span> – Builds
-                  relationships, joins the dots between people and ideas.
-                </p>
-                <p>
-                  <span className="font-semibold">Facilitator</span> – Creates
-                  space for others, guides process and participation.
-                </p>
-                <p>
-                  <span className="font-semibold">Coordinator</span> – Organised
-                  and practical, keeps plans moving.
-                </p>
-                <p>
-                  <span className="font-semibold">Controller</span> –
-                  Analytical, detail-focused, ensures accuracy.
-                </p>
-                <p>
-                  <span className="font-semibold">Optimiser</span> – Refines
-                  systems, improves efficiency and outcomes.
-                </p>
-              </div>
-            </div>
+            <p className="text-sm text-slate-700 mb-2">
+              Frequencies describe the way you naturally think, decide, and take
+              action.
+            </p>
+            <p className="text-sm font-semibold text-slate-800 mb-1">
+              Frequencies (A–D)
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Innovation</span> – Ideas,
+              creation, momentum, and challenging the status quo.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Influence</span> – People,
+              communication, motivation, and activation.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Implementation</span> – Rhythm,
+              process, and reliable delivery.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Insight</span> – Pattern
+              recognition, analysis, and perspective.
+            </p>
+          </div>
+
+          {/* Understanding the Eight Profiles */}
+          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
+            <h3 className="text-base font-semibold mb-3">
+              Understanding the Eight Profiles
+            </h3>
+            <p className="text-sm text-slate-700 mb-2">
+              Profiles blend these Frequencies into distinct patterns of
+              contribution. Together, they show how you naturally create value
+              in a team.
+            </p>
+            <p className="text-sm font-semibold text-slate-800 mb-1">
+              Profiles (P1–P8)
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Visionary</span> – Future-focused,
+              ideas-driven, sees possibilities.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Catalyst</span> – Energetic,
+              action-oriented, drives momentum.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Motivator</span> – Encourages
+              others, builds energy and engagement.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Connector</span> – Builds
+              relationships, joins the dots between people and ideas.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Facilitator</span> – Creates space
+              for others, guides process and participation.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Coordinator</span> – Organised and
+              practical, keeps plans moving.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Controller</span> – Analytical,
+              detail-focused, ensures accuracy.
+            </p>
+            <p className="text-sm text-slate-700">
+              <span className="font-semibold">Optimiser</span> – Refines
+              systems, improves efficiency and outcomes.
+            </p>
           </div>
         </section>
 
@@ -667,7 +686,6 @@ The Team Puzzle approach isn’t about “fixing” people – it’s about fitt
             <button
               type="button"
               onClick={() => {
-                // Placeholder action – can later deep-link to booking page / portal etc.
                 if (typeof window !== "undefined") {
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }
@@ -687,3 +705,4 @@ The Team Puzzle approach isn’t about “fixing” people – it’s about fitt
     </div>
   );
 }
+
