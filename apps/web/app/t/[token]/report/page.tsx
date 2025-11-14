@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getOrgFramework } from "@/lib/report/getOrgFramework";
 
@@ -81,6 +81,18 @@ function Bar({ pct }: { pct: number }) {
       <div className="h-2 rounded bg-sky-600" style={{ width }} />
     </div>
   );
+}
+
+// Never throw from framework lookup
+function safeGetOrgFramework(slug: string | null | undefined) {
+  try {
+    if (!slug) return null;
+    return getOrgFramework(slug);
+  } catch (e) {
+    // In browser this just logs to console; we don't surface it to the user
+    console.error("getOrgFramework error", e);
+    return null;
+  }
 }
 
 export default function ReportPage({ params }: { params: { token: string } }) {
@@ -200,24 +212,28 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     );
   }
 
-  // Ready state
+  // ----- Ready state -----
   const { result, portal } = state;
 
-  const orgSlug = portal.org?.slug || result.org_slug;
+  const orgSlug = (portal.org?.slug || result.org_slug || "").toLowerCase();
   const orgName = portal.org?.name || result.org_slug || "Your organisation";
 
-  const framework = getOrgFramework(orgSlug);
+  const framework = safeGetOrgFramework(orgSlug);
 
   const topFreqCode = result.top_freq;
-  const freqLabelsByCode = useMemo(
-    () => Object.fromEntries(result.frequency_labels.map((f) => [f.code, f.name] as const)),
-    [result.frequency_labels]
-  );
+  const freqLabelsByCode = (() => {
+    const map: Record<string, string> = {};
+    for (const f of result.frequency_labels) {
+      map[f.code] = f.name;
+    }
+    return map;
+  })();
   const topFreqName = freqLabelsByCode[topFreqCode] ?? topFreqCode;
 
-  const freqDef = framework?.frequencies?.find((f) => f.code === topFreqCode);
+  const freqDef =
+    framework?.frequencies?.find((f: any) => f.code === topFreqCode) ?? null;
   const dominantFreqSummary =
-    freqDef?.summary ||
+    (freqDef && (freqDef.summary as string)) ||
     `Your strongest overall frequency is ${topFreqName}, which represents how you naturally direct your energy at work.`;
 
   const topProfileCode = result.top_profile_code;
@@ -229,20 +245,17 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     ? topProfileCode.replace("PROFILE_", "")
     : topProfileCode;
 
-  const profileDef = framework?.profiles?.find((p) => p.code === profileNumericCode);
+  const profileDef =
+    framework?.profiles?.find((p: any) => p.code === profileNumericCode) ?? null;
 
   const topProfileSummary =
-    profileDef?.summary ||
+    (profileDef && (profileDef.summary as string)) ||
     `This profile reflects how you prefer to contribute, collaborate, and create momentum in your work.`;
 
   const traits: string[] =
-    (profileDef && (profileDef as any).traits) ||
-    (profileDef && (profileDef as any).strengths) ||
-    [];
+    (profileDef && ((profileDef as any).traits || (profileDef as any).strengths)) || [];
   const motivators: string[] =
-    (profileDef && (profileDef as any).motivators) ||
-    (profileDef && (profileDef as any).drivers) ||
-    [];
+    (profileDef && ((profileDef as any).motivators || (profileDef as any).drivers)) || [];
   const blindSpots: string[] =
     (profileDef && ((profileDef as any).blind_spots || (profileDef as any).risks)) || [];
 
