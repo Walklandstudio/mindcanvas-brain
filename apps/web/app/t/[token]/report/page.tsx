@@ -18,8 +18,8 @@ type PublicResultData = {
   profile_labels: ProfileLabel[];
   profile_percentages: Record<string, number>;
   top_freq: FrequencyCode;
-  top_profile_code: string; // "PROFILE_3"
-  top_profile_name: string; // "Motivator"
+  top_profile_code: string; // e.g. "PROFILE_3"
+  top_profile_name: string; // e.g. "Motivator"
 };
 
 type PortalReportData = {
@@ -45,6 +45,7 @@ type FetchState =
   | { status: "error"; message: string; debug?: any }
   | { status: "ready"; result: PublicResultData; portal: PortalReportData; debug?: any };
 
+// Simple helper for defensive JSON fetches
 async function fetchJson(url: string) {
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -83,16 +84,69 @@ function Bar({ pct }: { pct: number }) {
   );
 }
 
-// Never throw from framework lookup
+// Safely resolve framework JSON so errors never break the page
 function safeGetOrgFramework(slug: string | null | undefined) {
   try {
     if (!slug) return null;
     return getOrgFramework(slug);
   } catch (e) {
-    // In browser this just logs to console; we don't surface it to the user
     console.error("getOrgFramework error", e);
     return null;
   }
+}
+
+// Try to pull “flows / frequencies / profiles / copy” in a generic way
+function extractFrameworkPieces(framework: any) {
+  if (!framework) {
+    return {
+      introParagraphs: [] as string[],
+      expectBullets: [] as string[],
+      frequencies: [] as { code: string; name: string; summary?: string }[],
+      profiles: [] as { code: string; name: string; summary?: string }[],
+    };
+  }
+
+  const fw = framework.framework ?? framework;
+
+  const introParagraphs: string[] = [];
+  if (fw.intro && typeof fw.intro === "string") introParagraphs.push(fw.intro);
+  if (fw.overview && typeof fw.overview === "string") introParagraphs.push(fw.overview);
+
+  const expectBullets: string[] = Array.isArray(fw.expect_bullets) ? fw.expect_bullets : [];
+
+  const frequencies: { code: string; name: string; summary?: string }[] = [];
+  const profiles: { code: string; name: string; summary?: string }[] = [];
+
+  // For frameworks that store “flows” instead of “frequencies”
+  if (Array.isArray(fw.frequencies)) {
+    for (const f of fw.frequencies) {
+      frequencies.push({
+        code: String(f.code ?? f.id ?? ""),
+        name: String(f.name ?? f.label ?? f.code ?? ""),
+        summary: f.summary ?? f.description,
+      });
+    }
+  } else if (Array.isArray(fw.flows)) {
+    for (const fl of fw.flows) {
+      frequencies.push({
+        code: String(fl.code ?? fl.id ?? ""),
+        name: String(fl.name ?? fl.label ?? fl.code ?? ""),
+        summary: fl.summary ?? fl.description,
+      });
+    }
+  }
+
+  if (Array.isArray(fw.profiles)) {
+    for (const p of fw.profiles) {
+      profiles.push({
+        code: String(p.code ?? ""),
+        name: String(p.name ?? p.label ?? ""),
+        summary: p.summary ?? p.description,
+      });
+    }
+  }
+
+  return { introParagraphs, expectBullets, frequencies, profiles };
 }
 
 export default function ReportPage({ params }: { params: { token: string } }) {
@@ -157,7 +211,8 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     };
   }, [token, tid]);
 
-  // Handle missing tid
+  // ---- Basic guardrails ----
+
   if (!tid) {
     return (
       <div className="mx-auto max-w-3xl p-6">
@@ -169,7 +224,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     );
   }
 
-  // Debug view
   if (debugFlag && (state.status === "error" || state.status === "ready")) {
     return (
       <div className="mx-auto max-w-4xl p-6 space-y-4">
@@ -212,29 +266,27 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     );
   }
 
-  // ----- Ready state -----
+  // ---- Ready state ----
+
   const { result, portal } = state;
 
   const orgSlug = (portal.org?.slug || result.org_slug || "").toLowerCase();
   const orgName = portal.org?.name || result.org_slug || "Your organisation";
 
   const framework = safeGetOrgFramework(orgSlug);
+  const { introParagraphs, expectBullets, frequencies, profiles } =
+    extractFrameworkPieces(framework);
+
+  const freqLabelsByCode: Record<string, string> = {};
+  for (const f of result.frequency_labels) {
+    freqLabelsByCode[f.code] = f.name;
+  }
 
   const topFreqCode = result.top_freq;
-  const freqLabelsByCode = (() => {
-    const map: Record<string, string> = {};
-    for (const f of result.frequency_labels) {
-      map[f.code] = f.name;
-    }
-    return map;
-  })();
   const topFreqName = freqLabelsByCode[topFreqCode] ?? topFreqCode;
+  const freqPct = result.frequency_percentages;
 
-  const freqDef =
-    framework?.frequencies?.find((f: any) => f.code === topFreqCode) ?? null;
-  const dominantFreqSummary =
-    (freqDef && (freqDef.summary as string)) ||
-    `Your strongest overall frequency is ${topFreqName}, which represents how you naturally direct your energy at work.`;
+  const profilePct = result.profile_percentages;
 
   const topProfileCode = result.top_profile_code;
   const topProfileLabel =
@@ -245,38 +297,53 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     ? topProfileCode.replace("PROFILE_", "")
     : topProfileCode;
 
+  // Try to match profile definitions by numeric code or name
   const profileDef =
-    framework?.profiles?.find((p: any) => p.code === profileNumericCode) ?? null;
+    profiles.find((p) => p.code === profileNumericCode) ||
+    profiles.find((p) => p.name === topProfileLabel) ||
+    null;
+
+  // Pull richer detail fields if they exist in the JSON
+  const rawProfile =
+    (framework?.framework?.profiles ?? framework?.profiles ?? []).find(
+      (p: any) =>
+        p.code === profileNumericCode ||
+        p.name === topProfileLabel ||
+        p.label === topProfileLabel
+    ) ?? {};
+
+  const traits: string[] = rawProfile.traits || rawProfile.strengths || [];
+  const motivators: string[] = rawProfile.motivators || rawProfile.drivers || [];
+  const blindSpots: string[] = rawProfile.blind_spots || rawProfile.risks || [];
+
+  const dominantFreqDefinition =
+    frequencies.find((f) => f.code === topFreqCode || f.name === topFreqName) ?? null;
+
+  const dominantFreqSummary =
+    (dominantFreqDefinition && dominantFreqDefinition.summary) ||
+    `Your strongest overall frequency is ${topFreqName}, which represents the way you most naturally approach your work and decision-making.`;
 
   const topProfileSummary =
-    (profileDef && (profileDef.summary as string)) ||
-    `This profile reflects how you prefer to contribute, collaborate, and create momentum in your work.`;
-
-  const traits: string[] =
-    (profileDef && ((profileDef as any).traits || (profileDef as any).strengths)) || [];
-  const motivators: string[] =
-    (profileDef && ((profileDef as any).motivators || (profileDef as any).drivers)) || [];
-  const blindSpots: string[] =
-    (profileDef && ((profileDef as any).blind_spots || (profileDef as any).risks)) || [];
+    (profileDef && profileDef.summary) ||
+    `This profile describes how you prefer to contribute, collaborate, and create momentum in your work.`;
 
   const takerName = `${portal.taker?.first_name ?? ""} ${
     portal.taker?.last_name ?? ""
   }`.trim();
 
-  const freqPct = result.frequency_percentages;
-  const profilePct = result.profile_percentages;
-
   const portalReportDownloadUrl = `/api/portal/reports/${encodeURIComponent(tid)}`;
+
+  const currentYear = new Date().getFullYear();
 
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-5xl px-4 py-8 md:py-10 space-y-6 md:space-y-8">
-        {/* Header */}
+        {/* ===== HEADER / COVER ===== */}
         <header className="space-y-2">
           <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
             Personalised report
           </p>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-3">
             <div>
               <h1 className="text-3xl md:text-4xl font-semibold text-slate-900">
                 {orgName ?? "Your report"}
@@ -298,26 +365,41 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </header>
 
-        {/* About the test / system – org-branded */}
+        {/* ===== PART 1 — ABOUT THE TEST / ORGANISATION ===== */}
+
+        {/* 1. Organisation introduction */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
           <h2 className="text-xl font-semibold text-slate-900">About this profiling system</h2>
-          <p className="text-sm leading-relaxed text-slate-700">
-            This report is based on{" "}
-            <span className="font-medium">{orgName}</span>&apos;s profiling framework. It is
-            designed to give you language for your natural working style, the patterns you lean on
-            most often, and the areas that may require more conscious effort.
-          </p>
-          <p className="text-sm leading-relaxed text-slate-700">
-            You can use this report to reflect on how you make decisions, how you collaborate with
-            others, and which environments bring out your best work. It is not a verdict on who you
-            are, but a starting point for conversations about strengths, stretch areas, and growth.
-          </p>
+
+          {introParagraphs.length > 0 ? (
+            introParagraphs.map((para, idx) => (
+              <p key={idx} className="text-sm leading-relaxed text-slate-700">
+                {para}
+              </p>
+            ))
+          ) : (
+            <>
+              <p className="text-sm leading-relaxed text-slate-700">
+                This report is based on{" "}
+                <span className="font-medium">{orgName}</span>&apos;s profiling framework. It is
+                designed to give you language for your natural working style, the patterns you lean
+                on most often, and the areas that may require more conscious effort.
+              </p>
+              <p className="text-sm leading-relaxed text-slate-700">
+                You can use these insights to reflect on how you make decisions, how you
+                collaborate with others, and which environments bring out your best work. It is not
+                a verdict on who you are, but a starting point for conversations about strengths,
+                stretch areas, and growth.
+              </p>
+            </>
+          )}
 
           <div className="grid gap-6 md:grid-cols-2 text-sm">
             <div>
               <h3 className="font-semibold text-slate-900 mb-2">Frequencies</h3>
               <p className="text-slate-700">
-                The framework uses four Frequencies to describe the energy you bring to your work:
+                The framework uses core Frequencies to describe the energy you bring to your work.
+                Each frequency highlights a different way of thinking, deciding, and adding value.
               </p>
               <ul className="mt-2 space-y-1 text-slate-700">
                 <li>
@@ -338,16 +420,50 @@ export default function ReportPage({ params }: { params: { token: string } }) {
                 </li>
               </ul>
             </div>
+
             <div>
               <h3 className="font-semibold text-slate-900 mb-2">Profiles</h3>
               <p className="text-slate-700">
-                The eight Profiles blend these Frequencies into distinct patterns of strengths,
-                motivations, and potential blind spots. Your mix across the profiles shows how you
-                naturally contribute to your team and clients.
+                The Profiles combine these Frequencies into distinct patterns of strengths,
+                motivations, and potential blind spots. Your profile mix shows how you naturally
+                contribute to your team, clients, and projects.
               </p>
+              {expectBullets.length > 0 && (
+                <>
+                  <p className="mt-3 text-slate-700 font-semibold">In this report you will:</p>
+                  <ul className="mt-1 space-y-1 list-disc list-inside text-slate-700">
+                    {expectBullets.map((b, i) => (
+                      <li key={i}>{b}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </div>
           </div>
         </section>
+
+        {/* Optional: quick overview of all profiles for this org */}
+        {profiles.length > 0 && (
+          <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
+            <h2 className="text-xl font-semibold text-slate-900">The profiles in this framework</h2>
+            <p className="text-sm text-slate-700">
+              Each profile blends the Frequencies into a different working style. Together they
+              give a shared language for how people think, decide, and collaborate.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2 text-sm">
+              {profiles.map((p) => (
+                <div key={p.code} className="border border-slate-200 rounded-xl p-3">
+                  <div className="font-semibold text-slate-900">{p.name}</div>
+                  {p.summary && (
+                    <p className="mt-1 text-slate-700 leading-snug">{p.summary}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ===== PART 2 — PERSONAL PROFILE ===== */}
 
         {/* Frequency summary */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
@@ -378,9 +494,10 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Profile mix + overview */}
+        {/* Profile mix + top profile overview */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-6">
           <div className="grid gap-6 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)]">
+            {/* Profile mix */}
             <div>
               <h2 className="text-xl font-semibold text-slate-900 mb-4">Profile mix</h2>
               <div className="grid gap-3">
@@ -400,6 +517,7 @@ export default function ReportPage({ params }: { params: { token: string } }) {
               </div>
             </div>
 
+            {/* Top profile narrative */}
             <div className="border-t md:border-t-0 md:border-l border-slate-200 pt-6 md:pt-0 md:pl-6">
               <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-[0.16em]">
                 Top profile
@@ -449,8 +567,82 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Footer actions — Download button bottom-right */}
-        <footer className="flex items-center justify-end pt-2 pb-6">
+        {/* Strengths & development areas (generic but personalised) */}
+        <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
+          <h2 className="text-xl font-semibold text-slate-900">
+            Strengths and development areas
+          </h2>
+          <p className="text-sm text-slate-700">
+            The combination of your frequencies and top profile highlights both the strengths you
+            can lean on and the areas that may benefit from more conscious focus.
+          </p>
+
+          <div className="grid gap-6 md:grid-cols-2 text-sm">
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">Where you add the most value</h3>
+              <ul className="space-y-1 list-disc list-inside text-slate-700">
+                <li>
+                  You show your strongest energy through{" "}
+                  <span className="font-medium">{topFreqName}</span>, which is the pattern others
+                  are most likely to experience.
+                </li>
+                <li>
+                  Your <span className="font-medium">{topProfileLabel}</span> profile gives you a
+                  natural way of building momentum and contributing to outcomes.
+                </li>
+                {traits.slice(0, 3).map((t, i) => (
+                  <li key={i}>{t}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">Stretch and watch-outs</h3>
+              <ul className="space-y-1 list-disc list-inside text-slate-700">
+                <li>
+                  Lower-scoring frequencies may feel less instinctive; they are often where more
+                  preparation or collaboration is helpful.
+                </li>
+                {blindSpots.slice(0, 3).map((b, i) => (
+                  <li key={i}>{b}</li>
+                ))}
+                {blindSpots.length === 0 && (
+                  <li>
+                    Pay attention to situations where your strengths are overused – the same
+                    patterns that help you succeed can become limiting when pushed too far.
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        {/* Next steps / action plan */}
+        <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
+          <h2 className="text-xl font-semibold text-slate-900">Next steps</h2>
+          <p className="text-sm text-slate-700">
+            This report is most powerful when it becomes part of an ongoing conversation. Use it as
+            a reference point in coaching sessions, one-to-ones, and team discussions.
+          </p>
+          <ul className="list-disc list-inside text-sm text-slate-700 space-y-1">
+            <li>Highlight the sections that resonate most strongly with your day-to-day work.</li>
+            <li>
+              Choose one strength you want to lean into more deliberately over the next month.
+            </li>
+            <li>
+              Choose one stretch area where you will ask for support, feedback, or a different way
+              of working.
+            </li>
+            <li>
+              Share your top profile and frequency mix with your manager, coach, or team and discuss
+              how to make the most of it.
+            </li>
+          </ul>
+        </section>
+
+        {/* Footer: copyright + PDF button bottom-right */}
+        <footer className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-2 pb-6 text-sm text-slate-500">
+          <div>© {currentYear} {orgName}</div>
           <a
             href={portalReportDownloadUrl}
             className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50"

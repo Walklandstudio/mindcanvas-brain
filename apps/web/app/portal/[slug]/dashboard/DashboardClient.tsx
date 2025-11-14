@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 
 const ResponsiveContainer = dynamic(
@@ -21,10 +20,9 @@ const XAxis = dynamic(async () => (await import("recharts")).XAxis, {
 const YAxis = dynamic(async () => (await import("recharts")).YAxis, {
   ssr: false,
 });
-const Tooltip = dynamic(
-  async () => (await import("recharts")).Tooltip,
-  { ssr: false }
-);
+const Tooltip = dynamic(async () => (await import("recharts")).Tooltip, {
+  ssr: false,
+});
 const CartesianGrid = dynamic(
   async () => (await import("recharts")).CartesianGrid,
   { ssr: false }
@@ -33,11 +31,9 @@ const LabelList = dynamic(
   async () => (await import("recharts")).LabelList,
   { ssr: false }
 );
-
-const PieChart = dynamic(
-  async () => (await import("recharts")).PieChart,
-  { ssr: false }
-);
+const PieChart = dynamic(async () => (await import("recharts")).PieChart, {
+  ssr: false,
+});
 const Pie = dynamic(async () => (await import("recharts")).Pie, {
   ssr: false,
 });
@@ -55,17 +51,19 @@ type Payload = {
 };
 
 const COLORS = {
-  freq: "#2d8fc4",
-  prof: "#64bae2",
-  tileBg: "rgba(15,23,42,0.9)",
+  freqTile: "rgba(45,143,196,0.05)",
+  primary: "#2d8fc4",
+  accent: "#64bae2",
 };
 
-const PIE_COLOR_MAP: Record<string, string> = {
-  Innovation: "#64bae2",      // light blue
-  Influence: "#2d8fc4",       // mid blue
-  Implementation: "#0ea5e9",  // bright blue
-  Insight: "#0369a1",         // deep blue
-};
+const FREQ_SEGMENT_COLORS = [
+  "#64bae2", // light blue
+  "#2d8fc4", // mid blue
+  "#0ea5e9", // cyan-ish
+  "#0369a1", // deep blue
+];
+
+// --- helpers ---------------------------------------------------------
 
 function toCSV(rows: Array<Record<string, any>>): string {
   if (!rows?.length) return "";
@@ -82,7 +80,11 @@ function toCSV(rows: Array<Record<string, any>>): string {
 
 function downloadCSV(filename: string, rows: KV[]) {
   const csv = toCSV(
-    rows.map((r) => ({ name: r.key, value: r.value, percent: r.percent ?? "" }))
+    rows.map((r) => ({
+      name: r.key,
+      value: r.value,
+      percent: r.percent ?? "",
+    }))
   );
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -93,9 +95,10 @@ function downloadCSV(filename: string, rows: KV[]) {
   URL.revokeObjectURL(url);
 }
 
+// --- main component --------------------------------------------------
+
 export default function DashboardClient() {
   const pathname = usePathname();
-
   const slug = useMemo(() => {
     const segs = (pathname || "").split("/").filter(Boolean);
     const i = segs.indexOf("portal");
@@ -140,170 +143,169 @@ export default function DashboardClient() {
 
   const freqChartData = useMemo(
     () =>
-      freq.map((f) => {
-        const raw = f.percent || "0%";
-        const num = Number(raw.replace("%", ""));
-        return { name: f.key, percentNum: num, percent: raw };
-      }),
+      freq.map((f) => ({
+        name: f.key,
+        percentNum: Number((f.percent || "0%").replace("%", "")),
+      })),
     [freq]
   );
 
   const profChartData = useMemo(
     () =>
-      prof.map((p) => {
-        const raw = p.percent || "0%";
-        const num = Number(raw.replace("%", ""));
-        return { name: p.key, percentNum: num, percent: raw };
-      }),
+      prof.map((p) => ({
+        name: p.key,
+        percentNum: Number((p.percent || "0%").replace("%", "")),
+      })),
     [prof]
   );
 
-  const basePath = slug ? `/portal/${slug}` : "";
-
   return (
-    <div className="space-y-6 text-slate-100">
-      {/* HEADER – only Manage Test button */}
-      <header className="flex justify-end">
-        <Link
-          href={basePath ? `${basePath}/tests` : "#"}
-          className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition disabled:opacity-40"
+    <div className="space-y-6">
+      {/* page heading */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <p className="text-sm text-slate-300 mt-1">
+            Overview of frequency mix and profile distribution for this
+            organisation.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-sky-500 transition"
+          disabled
         >
           Manage Test
-        </Link>
-      </header>
+        </button>
+      </div>
 
-      {/* KPI TILES */}
+      {/* metric tiles */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
-          <div className="text-xs text-slate-300">Overall Average</div>
-          <div className="mt-1 text-2xl font-semibold text-[#64bae2]">
+        <div
+          className="rounded-2xl border border-white/10 p-4 shadow-sm"
+          style={{ backgroundColor: COLORS.freqTile }}
+        >
+          <div className="text-xs opacity-70 mb-2">Overall Average</div>
+          <div className="text-2xl font-semibold text-sky-400">
             {overall?.average ?? "—"}
           </div>
         </div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
-          <div className="text-xs text-slate-300">Total Responses</div>
-          <div className="mt-1 text-2xl font-semibold text-[#64bae2]">
+        <div
+          className="rounded-2xl border border-white/10 p-4 shadow-sm"
+          style={{ backgroundColor: COLORS.freqTile }}
+        >
+          <div className="text-xs opacity-70 mb-2">Total Responses</div>
+          <div className="text-2xl font-semibold text-sky-400">
             {overall?.count ?? "—"}
           </div>
         </div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
-          <div className="text-xs text-slate-300">Scope</div>
-          <div className="mt-1 text-2xl font-semibold text-[#64bae2]">
+        <div
+          className="rounded-2xl border border-white/10 p-4 shadow-sm"
+          style={{ backgroundColor: COLORS.freqTile }}
+        >
+          <div className="text-xs opacity-70 mb-2">Scope</div>
+          <div className="text-2xl font-semibold text-sky-400">
             {slug || "—"}
           </div>
         </div>
       </div>
 
-      {loading && <div className="text-sm text-slate-300">Loading data…</div>}
+      {loading && <div className="text-sm opacity-70">Loading data…</div>}
       {error && <div className="text-sm text-red-400">Error: {error}</div>}
 
-      {/* FREQUENCIES (DONUT) + PROFILES (BAR) */}
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
-        {/* Frequencies pie chart */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg flex flex-col">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-white">
-              Frequencies (% of total)
-            </h2>
+      {/* charts row */}
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {/* Frequencies – donut */}
+        <div className="rounded-2xl border border-white/10 p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-medium">Frequencies (% of total)</h2>
             <button
-              className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition disabled:opacity-40"
+              className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500 hover:text-white transition"
               disabled={!slug || !freq.length}
               onClick={() => downloadCSV(`frequencies_${slug}.csv`, freq)}
             >
               Download CSV
             </button>
           </div>
-
-          <div className="flex-1 flex flex-col md:flex-row md:items-center gap-4">
-            <div className="h-52 w-full md:w-1/2">
+          <div className="h-60 w-full flex items-center gap-4">
+            <div className="h-full w-1/2 min-w-[220px]">
               <ResponsiveContainer>
                 <PieChart>
                   <Pie
                     data={freqChartData}
                     dataKey="percentNum"
                     nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius="80%"
-                    innerRadius="45%"
-                    paddingAngle={2}
-                    isAnimationActive={false}
-                    stroke="#020617"
-                    strokeWidth={1.5}
+                    innerRadius="60%"
+                    outerRadius="90%"
+                    stroke="#0f172a"
+                    strokeWidth={2}
                   >
-                    {freqChartData.map((entry) => (
+                    {freqChartData.map((entry, index) => (
                       <Cell
-                        key={entry.name}
-                        fill={PIE_COLOR_MAP[entry.name] || "#2d8fc4"}
+                        key={`freq-slice-${entry.name}-${index}`}
+                        fill={
+                          FREQ_SEGMENT_COLORS[
+                            index % FREQ_SEGMENT_COLORS.length
+                          ]
+                        }
                       />
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value: any, _name: any, props: any) => {
-                      const label =
-                        (props?.payload as { name?: string })?.name ??
-                        "Frequency";
-                      return [`${value}%`, label] as [string, string];
-                    }}
                     contentStyle={{
-                      backgroundColor: "rgba(15,23,42,0.95)",
-                      borderColor: "rgba(148,163,184,0.35)",
+                      backgroundColor: "#020617",
+                      border: "1px solid rgba(148,163,184,0.6)",
                       borderRadius: 8,
-                      color: "#f1f5f9",
-                      fontSize: 13,
+                      color: "#e5e7eb",
+                      fontSize: 12,
                     }}
-                    itemStyle={{ color: "#f1f5f9" }}
-                    labelStyle={{ color: "#f1f5f9" }}
+                    formatter={((value: any) => [`${value}%`, "Share"]) as any}
                   />
                 </PieChart>
               </ResponsiveContainer>
             </div>
 
-            {/* Legend */}
-            <ul className="flex-1 space-y-1 text-xs">
-              {freqChartData.map(
-                (
-                  f: { name: string; percent?: string; percentNum: number },
-                  index: number
-                ) => (
+            {/* custom legend to the right */}
+            <div className="flex-1">
+              <ul className="space-y-1 text-sm">
+                {freqChartData.map((f, idx) => (
                   <li
                     key={f.name}
                     className="flex items-center justify-between gap-2"
                   >
                     <span className="flex items-center gap-2">
                       <span
-                        className="h-2.5 w-2.5 rounded-full"
+                        className="inline-block h-2.5 w-2.5 rounded-full"
                         style={{
                           backgroundColor:
-                            PIE_COLOR_MAP[f.name] ||
-                            Object.values(PIE_COLOR_MAP)[
-                              index % Object.values(PIE_COLOR_MAP).length
+                            FREQ_SEGMENT_COLORS[
+                              idx % FREQ_SEGMENT_COLORS.length
                             ],
                         }}
                       />
-                      <span className="text-slate-100">{f.name}</span>
+                      <span>{f.name}</span>
                     </span>
-                    <span className="font-semibold text-slate-50">
-                      {f.percent ?? `${f.percentNum}%`}
+                    <span className="font-medium">
+                      {f.percentNum.toFixed(1)}%
                     </span>
                   </li>
-                )
-              )}
-              {!freqChartData.length && (
-                <li className="text-slate-400">No frequency data yet.</li>
-              )}
-            </ul>
+                ))}
+                {!freqChartData.length && (
+                  <li className="text-xs text-slate-400">
+                    No frequency data available yet.
+                  </li>
+                )}
+              </ul>
+            </div>
           </div>
         </div>
 
-        {/* Profiles bar chart */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-white">
-              Profiles (% of total)
-            </h2>
+        {/* Profiles – horizontal bar chart */}
+        <div className="rounded-2xl border border-white/10 p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-medium">Profiles (% of total)</h2>
             <button
-              className="rounded-lg border border-[#2d8fc4] px-3 py-1 text-xs font-medium text-[#2d8fc4] hover:bg-[#2d8fc4] hover:text-white transition disabled:opacity-40"
+              className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500 hover:text-white transition"
               disabled={!slug || !prof.length}
               onClick={() => downloadCSV(`profiles_${slug}.csv`, prof)}
             >
@@ -315,56 +317,42 @@ export default function DashboardClient() {
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                margin={{ left: 80, right: 16, top: 8, bottom: 8 }}
+                margin={{ left: 120, right: 32, top: 12, bottom: 12 }}
               >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(148,163,184,0.35)"
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis
                   type="number"
-                  domain={[
-                    0,
-                    (dataMax: number) => Math.max(10, dataMax * 1.15),
-                  ]}
+                  domain={[0, 100]}
                   tickFormatter={(v: number) => `${v}%`}
-                  tick={{
-                    fill: "rgba(226,232,240,0.9)",
-                    fontSize: 11,
-                  }}
-                  axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
+                  stroke="#64748b"
+                  tick={{ fontSize: 11 }}
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={140}
-                  tick={{
-                    fill: "rgba(148,163,184,0.9)",
-                    fontSize: 11,
-                  }}
-                  axisLine={{ stroke: "rgba(148,163,184,0.35)" }}
+                  width={110}
+                  stroke="#64748b"
+                  tick={{ fontSize: 11 }}
                 />
                 <Tooltip
-                  formatter={(v: any) =>
-                    [`${v}%`, "Share"] as [string, string]
-                  }
                   contentStyle={{
                     backgroundColor: "#020617",
-                    borderColor: "rgba(148,163,184,0.45)",
+                    border: "1px solid rgba(148,163,184,0.6)",
                     borderRadius: 8,
                     color: "#e5e7eb",
                     fontSize: 12,
                   }}
+                  formatter={((value: any) => `${value}%`) as any}
                 />
                 <Bar
                   dataKey="percentNum"
-                  fill={COLORS.prof}
                   radius={[6, 6, 6, 6]}
+                  fill={COLORS.accent}
                 >
                   <LabelList
                     dataKey="percentNum"
                     position="right"
-                    formatter={(v: any) => `${v}%`}
+                    className="fill-slate-100"
                   />
                 </Bar>
               </BarChart>
@@ -373,49 +361,60 @@ export default function DashboardClient() {
         </div>
       </section>
 
-      {/* TOP / BOTTOM PROFILES */}
+      {/* Top / Bottom 3 profiles */}
       {(top3.length || bottom3.length) && (
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div
-            className="rounded-2xl border border-white/10 p-4 shadow-lg"
-            style={{ backgroundColor: COLORS.tileBg }}
+            className="rounded-2xl border border-white/10 p-4 shadow-sm"
+            style={{ backgroundColor: COLORS.freqTile }}
           >
-            <h3 className="mb-2 text-sm font-semibold text-white">
+            <h3 className="mb-2 text-base font-medium text-sky-300">
               Top 3 Profiles
             </h3>
             <ul className="space-y-1 text-sm">
               {top3.map((t) => (
                 <li
                   key={t.key}
-                  className="flex items-center justify-between"
+                  className="flex items-center justify-between gap-2"
                 >
-                  <span className="text-slate-200">{t.key}</span>
-                  <span className="font-semibold text-slate-50">
+                  <span>{t.key}</span>
+                  <span className="font-semibold">
                     {t.percent ?? `${t.value}`}
                   </span>
                 </li>
               ))}
+              {!top3.length && (
+                <li className="text-xs text-slate-400">
+                  No profile data available yet.
+                </li>
+              )}
             </ul>
           </div>
+
           <div
-            className="rounded-2xl border border-white/10 p-4 shadow-lg"
-            style={{ backgroundColor: COLORS.tileBg }}
+            className="rounded-2xl border border-white/10 p-4 shadow-sm"
+            style={{ backgroundColor: COLORS.freqTile }}
           >
-            <h3 className="mb-2 text-sm font-semibold text-white">
+            <h3 className="mb-2 text-base font-medium text-sky-300">
               Bottom 3 Profiles
             </h3>
             <ul className="space-y-1 text-sm">
               {bottom3.map((b) => (
                 <li
                   key={b.key}
-                  className="flex items-center justify-between"
+                  className="flex items-center justify-between gap-2"
                 >
-                  <span className="text-slate-200">{b.key}</span>
-                  <span className="font-semibold text-slate-50">
+                  <span>{b.key}</span>
+                  <span className="font-semibold">
                     {b.percent ?? `${b.value}`}
                   </span>
                 </li>
               ))}
+              {!bottom3.length && (
+                <li className="text-xs text-slate-400">
+                  No profile data available yet.
+                </li>
+              )}
             </ul>
           </div>
         </section>
