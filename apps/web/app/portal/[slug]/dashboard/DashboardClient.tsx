@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Cell } from "recharts"; // <- direct import so slice colours work
+import { Cell } from "recharts"; // direct import so slice colours work
 
 const ResponsiveContainer = dynamic(
   async () => (await import("recharts")).ResponsiveContainer,
@@ -262,7 +262,11 @@ export default function DashboardClient() {
                       color: "#e5e7eb",
                       fontSize: 12,
                     }}
-                    formatter={((value: any) => [`${value}%`, "Share"]) as any}
+                    labelStyle={{ color: "#e5e7eb" }} // <- ensure tooltip text is readable
+                    formatter={((value: any) => [
+                      `${value}%`,
+                      "Share",
+                    ]) as any}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -321,12 +325,13 @@ export default function DashboardClient() {
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                margin={{ left: 110, right: 32, top: 12, bottom: 12 }}
+                // less left margin + narrower Y-axis = bars use more of the card
+                margin={{ left: 80, right: 32, top: 12, bottom: 12 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis
                   type="number"
-                  domain={[0, profMax || 100]} // <- stretch bars to full width
+                  domain={[0, profMax || 100]}
                   tickFormatter={(v: number) => `${v}%`}
                   stroke="#64748b"
                   tick={{ fontSize: 11 }}
@@ -334,7 +339,7 @@ export default function DashboardClient() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={110}
+                  width={90}
                   stroke="#64748b"
                   tick={{ fontSize: 11 }}
                 />
@@ -346,6 +351,7 @@ export default function DashboardClient() {
                     color: "#e5e7eb",
                     fontSize: 12,
                   }}
+                  labelStyle={{ color: "#e5e7eb" }}
                   formatter={((value: any) => `${value}%`) as any}
                 />
                 <Bar
