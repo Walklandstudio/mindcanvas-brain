@@ -60,7 +60,12 @@ const COLORS = {
   tileBg: "rgba(15,23,42,0.9)",
 };
 
-const PIE_COLORS = ["#64bae2", "#2d8fc4", "#0ea5e9", "#0369a1"];
+const PIE_COLOR_MAP: Record<string, string> = {
+  Innovation: "#64bae2",      // light blue
+  Influence: "#2d8fc4",       // mid blue
+  Implementation: "#0ea5e9",  // bright blue
+  Insight: "#0369a1",         // deep blue
+};
 
 function toCSV(rows: Array<Record<string, any>>): string {
   if (!rows?.length) return "";
@@ -133,7 +138,6 @@ export default function DashboardClient() {
   const bottom3 = data?.bottom3 ?? [];
   const overall = data?.overall;
 
-  // Frequencies → pie data
   const freqChartData = useMemo(
     () =>
       freq.map((f) => {
@@ -144,7 +148,6 @@ export default function DashboardClient() {
     [freq]
   );
 
-  // Profiles → bar chart data
   const profChartData = useMemo(
     () =>
       prof.map((p) => {
@@ -194,7 +197,7 @@ export default function DashboardClient() {
       {loading && <div className="text-sm text-slate-300">Loading data…</div>}
       {error && <div className="text-sm text-red-400">Error: {error}</div>}
 
-      {/* PIE for FREQUENCIES, BAR for PROFILES */}
+      {/* FREQUENCIES (DONUT) + PROFILES (BAR) */}
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
         {/* Frequencies pie chart */}
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-lg flex flex-col">
@@ -228,14 +231,12 @@ export default function DashboardClient() {
                     stroke="#020617"
                     strokeWidth={1.5}
                   >
-                    {freqChartData.map(
-                      (entry: { name: string }, index: number) => (
-                        <Cell
-                          key={entry.name}
-                          fill={PIE_COLORS[index % PIE_COLORS.length]}
-                        />
-                      )
-                    )}
+                    {freqChartData.map((entry) => (
+                      <Cell
+                        key={entry.name}
+                        fill={PIE_COLOR_MAP[entry.name] || "#2d8fc4"}
+                      />
+                    ))}
                   </Pie>
                   <Tooltip
                     formatter={(value: any, _name: any, props: any) => {
@@ -258,7 +259,7 @@ export default function DashboardClient() {
               </ResponsiveContainer>
             </div>
 
-            {/* Frequencies legend */}
+            {/* Legend */}
             <ul className="flex-1 space-y-1 text-xs">
               {freqChartData.map(
                 (
@@ -274,7 +275,10 @@ export default function DashboardClient() {
                         className="h-2.5 w-2.5 rounded-full"
                         style={{
                           backgroundColor:
-                            PIE_COLORS[index % PIE_COLORS.length],
+                            PIE_COLOR_MAP[f.name] ||
+                            Object.values(PIE_COLOR_MAP)[
+                              index % Object.values(PIE_COLOR_MAP).length
+                            ],
                         }}
                       />
                       <span className="text-slate-100">{f.name}</span>
@@ -311,7 +315,7 @@ export default function DashboardClient() {
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                margin={{ left: 70, right: 8, top: 8, bottom: 8 }}
+                margin={{ left: 80, right: 16, top: 8, bottom: 8 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -333,7 +337,7 @@ export default function DashboardClient() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={120}
+                  width={140}
                   tick={{
                     fill: "rgba(148,163,184,0.9)",
                     fontSize: 11,
@@ -419,3 +423,4 @@ export default function DashboardClient() {
     </div>
   );
 }
+
