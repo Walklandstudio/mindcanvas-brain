@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
+import { Cell } from "recharts"; // <- direct import so slice colours work
 
 const ResponsiveContainer = dynamic(
   async () => (await import("recharts")).ResponsiveContainer,
@@ -37,9 +38,6 @@ const PieChart = dynamic(async () => (await import("recharts")).PieChart, {
 const Pie = dynamic(async () => (await import("recharts")).Pie, {
   ssr: false,
 });
-const Cell = dynamic(async () => (await import("recharts")).Cell, {
-  ssr: false,
-});
 
 type KV = { key: string; value: number; percent?: string };
 type Payload = {
@@ -51,7 +49,7 @@ type Payload = {
 };
 
 const COLORS = {
-  freqTile: "rgba(45,143,196,0.05)",
+  tileBg: "rgba(45,143,196,0.05)",
   primary: "#2d8fc4",
   accent: "#64bae2",
 };
@@ -62,8 +60,6 @@ const FREQ_SEGMENT_COLORS = [
   "#0ea5e9", // cyan-ish
   "#0369a1", // deep blue
 ];
-
-// --- helpers ---------------------------------------------------------
 
 function toCSV(rows: Array<Record<string, any>>): string {
   if (!rows?.length) return "";
@@ -94,8 +90,6 @@ function downloadCSV(filename: string, rows: KV[]) {
   a.click();
   URL.revokeObjectURL(url);
 }
-
-// --- main component --------------------------------------------------
 
 export default function DashboardClient() {
   const pathname = usePathname();
@@ -159,15 +153,22 @@ export default function DashboardClient() {
     [prof]
   );
 
+  const profMax = useMemo(
+    () =>
+      profChartData.length
+        ? Math.max(...profChartData.map((p) => p.percentNum)) || 0
+        : 0,
+    [profChartData]
+  );
+
   return (
     <div className="space-y-6">
-      {/* page heading */}
+      {/* Page heading */}
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="text-sm text-slate-300 mt-1">
-            Overview of frequency mix and profile distribution for this
-            organisation.
+            Overview of frequency mix and profile distribution.
           </p>
         </div>
         <button
@@ -179,11 +180,11 @@ export default function DashboardClient() {
         </button>
       </div>
 
-      {/* metric tiles */}
+      {/* Metric tiles */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div
           className="rounded-2xl border border-white/10 p-4 shadow-sm"
-          style={{ backgroundColor: COLORS.freqTile }}
+          style={{ backgroundColor: COLORS.tileBg }}
         >
           <div className="text-xs opacity-70 mb-2">Overall Average</div>
           <div className="text-2xl font-semibold text-sky-400">
@@ -192,7 +193,7 @@ export default function DashboardClient() {
         </div>
         <div
           className="rounded-2xl border border-white/10 p-4 shadow-sm"
-          style={{ backgroundColor: COLORS.freqTile }}
+          style={{ backgroundColor: COLORS.tileBg }}
         >
           <div className="text-xs opacity-70 mb-2">Total Responses</div>
           <div className="text-2xl font-semibold text-sky-400">
@@ -201,7 +202,7 @@ export default function DashboardClient() {
         </div>
         <div
           className="rounded-2xl border border-white/10 p-4 shadow-sm"
-          style={{ backgroundColor: COLORS.freqTile }}
+          style={{ backgroundColor: COLORS.tileBg }}
         >
           <div className="text-xs opacity-70 mb-2">Scope</div>
           <div className="text-2xl font-semibold text-sky-400">
@@ -213,7 +214,7 @@ export default function DashboardClient() {
       {loading && <div className="text-sm opacity-70">Loading data…</div>}
       {error && <div className="text-sm text-red-400">Error: {error}</div>}
 
-      {/* charts row */}
+      {/* Charts row */}
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {/* Frequencies – donut */}
         <div className="rounded-2xl border border-white/10 p-4 shadow-sm">
@@ -227,6 +228,7 @@ export default function DashboardClient() {
               Download CSV
             </button>
           </div>
+
           <div className="h-60 w-full flex items-center gap-4">
             <div className="h-full w-1/2 min-w-[220px]">
               <ResponsiveContainer>
@@ -239,6 +241,7 @@ export default function DashboardClient() {
                     outerRadius="90%"
                     stroke="#0f172a"
                     strokeWidth={2}
+                    fill={COLORS.accent}
                   >
                     {freqChartData.map((entry, index) => (
                       <Cell
@@ -265,7 +268,7 @@ export default function DashboardClient() {
               </ResponsiveContainer>
             </div>
 
-            {/* custom legend to the right */}
+            {/* Legend */}
             <div className="flex-1">
               <ul className="space-y-1 text-sm">
                 {freqChartData.map((f, idx) => (
@@ -300,7 +303,7 @@ export default function DashboardClient() {
           </div>
         </div>
 
-        {/* Profiles – horizontal bar chart */}
+        {/* Profiles – bar chart */}
         <div className="rounded-2xl border border-white/10 p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
             <h2 className="text-lg font-medium">Profiles (% of total)</h2>
@@ -312,17 +315,18 @@ export default function DashboardClient() {
               Download CSV
             </button>
           </div>
+
           <div className="h-72 w-full">
             <ResponsiveContainer>
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                margin={{ left: 120, right: 32, top: 12, bottom: 12 }}
+                margin={{ left: 110, right: 32, top: 12, bottom: 12 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis
                   type="number"
-                  domain={[0, 100]}
+                  domain={[0, profMax || 100]} // <- stretch bars to full width
                   tickFormatter={(v: number) => `${v}%`}
                   stroke="#64748b"
                   tick={{ fontSize: 11 }}
@@ -361,12 +365,12 @@ export default function DashboardClient() {
         </div>
       </section>
 
-      {/* Top / Bottom 3 profiles */}
+      {/* Top / Bottom 3 */}
       {(top3.length || bottom3.length) && (
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div
             className="rounded-2xl border border-white/10 p-4 shadow-sm"
-            style={{ backgroundColor: COLORS.freqTile }}
+            style={{ backgroundColor: COLORS.tileBg }}
           >
             <h3 className="mb-2 text-base font-medium text-sky-300">
               Top 3 Profiles
@@ -393,7 +397,7 @@ export default function DashboardClient() {
 
           <div
             className="rounded-2xl border border-white/10 p-4 shadow-sm"
-            style={{ backgroundColor: COLORS.freqTile }}
+            style={{ backgroundColor: COLORS.tileBg }}
           >
             <h3 className="mb-2 text-base font-medium text-sky-300">
               Bottom 3 Profiles
