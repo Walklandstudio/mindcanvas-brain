@@ -18,8 +18,8 @@ type PublicResultData = {
   profile_labels: ProfileLabel[];
   profile_percentages: Record<string, number>;
   top_freq: FrequencyCode;
-  top_profile_code: string; // e.g. "PROFILE_3"
-  top_profile_name: string; // e.g. "Motivator"
+  top_profile_code: string;
+  top_profile_name: string;
 };
 
 type PortalReportData = {
@@ -45,7 +45,6 @@ type FetchState =
   | { status: "error"; message: string; debug?: any }
   | { status: "ready"; result: PublicResultData; portal: PortalReportData; debug?: any };
 
-// Simple helper for defensive JSON fetches
 async function fetchJson(url: string) {
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -84,7 +83,6 @@ function Bar({ pct }: { pct: number }) {
   );
 }
 
-// Safely resolve framework JSON so errors never break the page
 function safeGetOrgFramework(slug: string | null | undefined) {
   try {
     if (!slug) return null;
@@ -95,7 +93,6 @@ function safeGetOrgFramework(slug: string | null | undefined) {
   }
 }
 
-// Try to pull “flows / frequencies / profiles / copy” in a generic way
 function extractFrameworkPieces(framework: any) {
   if (!framework) {
     return {
@@ -106,7 +103,7 @@ function extractFrameworkPieces(framework: any) {
     };
   }
 
-  const fw = framework.framework ?? framework;
+  const fw = (framework as any).framework ?? framework;
 
   const introParagraphs: string[] = [];
   if (fw.intro && typeof fw.intro === "string") introParagraphs.push(fw.intro);
@@ -117,7 +114,6 @@ function extractFrameworkPieces(framework: any) {
   const frequencies: { code: string; name: string; summary?: string }[] = [];
   const profiles: { code: string; name: string; summary?: string }[] = [];
 
-  // For frameworks that store “flows” instead of “frequencies”
   if (Array.isArray(fw.frequencies)) {
     for (const f of fw.frequencies) {
       frequencies.push({
@@ -211,8 +207,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     };
   }, [token, tid]);
 
-  // ---- Basic guardrails ----
-
   if (!tid) {
     return (
       <div className="mx-auto max-w-3xl p-6">
@@ -266,8 +260,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     );
   }
 
-  // ---- Ready state ----
-
   const { result, portal } = state;
 
   const orgSlug = (portal.org?.slug || result.org_slug || "").toLowerCase();
@@ -297,15 +289,18 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     ? topProfileCode.replace("PROFILE_", "")
     : topProfileCode;
 
-  // Try to match profile definitions by numeric code or name
   const profileDef =
     profiles.find((p) => p.code === profileNumericCode) ||
     profiles.find((p) => p.name === topProfileLabel) ||
     null;
 
-  // Pull richer detail fields if they exist in the JSON
+  // Pull richer detail fields if they exist in the JSON (supports both wrapped + unwrapped)
+  const allProfiles: any[] =
+    (framework as any)?.profiles ??
+    ((framework as any)?.framework?.profiles ?? []);
+
   const rawProfile =
-    (framework?.framework?.profiles ?? framework?.profiles ?? []).find(
+    allProfiles.find(
       (p: any) =>
         p.code === profileNumericCode ||
         p.name === topProfileLabel ||
@@ -332,13 +327,12 @@ export default function ReportPage({ params }: { params: { token: string } }) {
   }`.trim();
 
   const portalReportDownloadUrl = `/api/portal/reports/${encodeURIComponent(tid)}`;
-
   const currentYear = new Date().getFullYear();
 
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-5xl px-4 py-8 md:py-10 space-y-6 md:space-y-8">
-        {/* ===== HEADER / COVER ===== */}
+        {/* HEADER */}
         <header className="space-y-2">
           <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
             Personalised report
@@ -365,9 +359,8 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </header>
 
-        {/* ===== PART 1 — ABOUT THE TEST / ORGANISATION ===== */}
+        {/* PART 1 — ABOUT THE TEST / ORG */}
 
-        {/* 1. Organisation introduction */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
           <h2 className="text-xl font-semibold text-slate-900">About this profiling system</h2>
 
@@ -442,10 +435,11 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Optional: quick overview of all profiles for this org */}
         {profiles.length > 0 && (
           <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
-            <h2 className="text-xl font-semibold text-slate-900">The profiles in this framework</h2>
+            <h2 className="text-xl font-semibold text-slate-900">
+              The profiles in this framework
+            </h2>
             <p className="text-sm text-slate-700">
               Each profile blends the Frequencies into a different working style. Together they
               give a shared language for how people think, decide, and collaborate.
@@ -463,9 +457,8 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </section>
         )}
 
-        {/* ===== PART 2 — PERSONAL PROFILE ===== */}
+        {/* PART 2 — PERSONAL PROFILE */}
 
-        {/* Frequency summary */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
           <h2 className="text-xl font-semibold text-slate-900">Frequency summary</h2>
           <p className="text-sm text-slate-700">
@@ -494,10 +487,8 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Profile mix + top profile overview */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-6">
           <div className="grid gap-6 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)]">
-            {/* Profile mix */}
             <div>
               <h2 className="text-xl font-semibold text-slate-900 mb-4">Profile mix</h2>
               <div className="grid gap-3">
@@ -517,7 +508,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
               </div>
             </div>
 
-            {/* Top profile narrative */}
             <div className="border-t md:border-t-0 md:border-l border-slate-200 pt-6 md:pt-0 md:pl-6">
               <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-[0.16em]">
                 Top profile
@@ -567,7 +557,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Strengths & development areas (generic but personalised) */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
           <h2 className="text-xl font-semibold text-slate-900">
             Strengths and development areas
@@ -617,7 +606,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </div>
         </section>
 
-        {/* Next steps / action plan */}
         <section className="rounded-2xl border bg-white p-6 md:p-7 space-y-4">
           <h2 className="text-xl font-semibold text-slate-900">Next steps</h2>
           <p className="text-sm text-slate-700">
@@ -640,7 +628,6 @@ export default function ReportPage({ params }: { params: { token: string } }) {
           </ul>
         </section>
 
-        {/* Footer: copyright + PDF button bottom-right */}
         <footer className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-2 pb-6 text-sm text-slate-500">
           <div>© {currentYear} {orgName}</div>
           <a
@@ -654,6 +641,4 @@ export default function ReportPage({ params }: { params: { token: string } }) {
     </div>
   );
 }
-
-
 
