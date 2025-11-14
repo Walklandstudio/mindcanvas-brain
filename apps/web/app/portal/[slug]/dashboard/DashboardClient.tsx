@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Cell } from "recharts"; // direct import so slice colours work
+import { Cell } from "recharts";
 
 const ResponsiveContainer = dynamic(
   async () => (await import("recharts")).ResponsiveContainer,
@@ -153,24 +153,13 @@ export default function DashboardClient() {
     [prof]
   );
 
-  const profMax = useMemo(
-    () =>
-      profChartData.length
-        ? Math.max(...profChartData.map((p) => p.percentNum)) || 0
-        : 0,
-    [profChartData]
-  );
-
   return (
     <div className="space-y-6">
-      {/* Page heading */}
+      {/* Description + CTA (no extra heading) */}
       <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-slate-300 mt-1">
-            Overview of frequency mix and profile distribution.
-          </p>
-        </div>
+        <p className="text-sm text-slate-300">
+          Overview of frequency mix and profile distribution.
+        </p>
         <button
           type="button"
           className="rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-sky-500 transition"
@@ -262,7 +251,7 @@ export default function DashboardClient() {
                       color: "#e5e7eb",
                       fontSize: 12,
                     }}
-                    labelStyle={{ color: "#e5e7eb" }} // <- ensure tooltip text is readable
+                    labelStyle={{ color: "#e5e7eb" }}
                     formatter={((value: any) => [
                       `${value}%`,
                       "Share",
@@ -325,13 +314,12 @@ export default function DashboardClient() {
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                // less left margin + narrower Y-axis = bars use more of the card
                 margin={{ left: 80, right: 32, top: 12, bottom: 12 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis
                   type="number"
-                  domain={[0, profMax || 100]}
+                  domain={[0, 100]} // always show 0–100%
                   tickFormatter={(v: number) => `${v}%`}
                   stroke="#64748b"
                   tick={{ fontSize: 11 }}
