@@ -1,675 +1,703 @@
-"use client";
+import Link from "next/link";
+import { getBaseUrl } from "@/lib/server-url";
+import { getOrgFramework } from "@/lib/report/getOrgFramework";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+export const dynamic = "force-dynamic";
 
-type AB = "A" | "B" | "C" | "D";
+type FrequencyCode = "A" | "B" | "C" | "D";
 
-type FrequencyLabel = { code: AB; name: string };
+type FrequencyLabel = { code: FrequencyCode; name: string };
 type ProfileLabel = { code: string; name: string };
 
 type ResultData = {
-  org_slug?: string;
-  test_name?: string;
-  taker?: { id: string };
+  org_slug: string;
+  org_name?: string | null;
+  test_name: string;
+  taker: {
+    id: string;
+    first_name?: string | null;
+    last_name?: string | null;
+  };
   frequency_labels: FrequencyLabel[];
-  frequency_percentages: Record<AB, number>;
+  frequency_percentages: Record<FrequencyCode, number>;
   profile_labels: ProfileLabel[];
   profile_percentages: Record<string, number>;
-  top_freq: AB;
+  top_freq: FrequencyCode;
   top_profile_code: string;
   top_profile_name: string;
 };
 
-type PortalReportData = {
-  title?: string;
-  org?: { slug?: string; name?: string };
-  taker?: { first_name?: string | null; last_name?: string | null };
-  top_profile_name?: string;
-};
+type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
 
-type ResultAPI = { ok: boolean; data: ResultData; error?: string };
-type PortalAPI = { ok: boolean; data: PortalReportData; error?: string };
-
-type Combined = {
-  result: ResultData;
-  portal: PortalReportData;
-};
-
-function Bar({ pct }: { pct: number }) {
-  const clamped = Math.max(0, Math.min(1, Number(pct) || 0));
-  const width = `${(clamped * 100).toFixed(0)}%`;
-  return (
-    <div className="w-full h-2 rounded bg-slate-200/80">
-      <div className="h-2 rounded bg-sky-600" style={{ width }} />
-    </div>
-  );
+function formatPercent(v: number | undefined): string {
+  if (!v || Number.isNaN(v)) return "0%";
+  return `${Math.round(v * 100)}%`;
 }
 
-export default function ReportPage({ params }: { params: { token: string } }) {
+function getFullName(taker: ResultData["taker"]): string {
+  const first = taker.first_name?.trim() ?? "";
+  const last = taker.last_name?.trim() ?? "";
+  const full = `${first} ${last}`.trim();
+  return full || "Participant";
+}
+
+// Generic fallbacks – work for *any* org
+function getDefaultWelcome(orgName: string): { title: string; body: string[] } {
+  return {
+    title: "Welcome",
+    body: [
+      `Welcome to your ${orgName} report.`,
+      "This report is designed to give you language for your natural strengths, working style, and contribution at work. Use it as a starting point for reflection, coaching conversations, and better collaboration with your team.",
+    ],
+  };
+}
+
+function getDefaultFrameworkIntro(orgName: string): string[] {
+  return [
+    `The ${orgName} framework uses four core Frequencies to describe the energy you bring to your work, and eight Profiles which blend those Frequencies into recognisable patterns of contribution.`,
+    "Together, they give you a simple way to talk about how you like to think, decide, and collaborate — without putting you in a box.",
+  ];
+}
+
+export default async function ReportPage({
+  params,
+  searchParams,
+}: {
+  params: { token: string };
+  searchParams: { tid?: string };
+}) {
   const token = params.token;
-  const searchParams = useSearchParams();
-  const tid = searchParams?.get("tid") ?? "";
-
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-  const [data, setData] = useState<Combined | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      if (!tid) {
-        setErr("Missing taker ID (?tid=)");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setErr(null);
-
-        const resultUrl = `/api/public/test/${encodeURIComponent(
-          token
-        )}/result?tid=${encodeURIComponent(tid)}`;
-        const portalUrl = `/api/portal/reports/${encodeURIComponent(
-          tid
-        )}?json=1`;
-
-        const [resultRes, portalRes] = await Promise.all([
-          fetch(resultUrl, { cache: "no-store" }),
-          fetch(portalUrl, { cache: "no-store" }),
-        ]);
-
-        const resultText = await resultRes.text();
-        const portalText = await portalRes.text();
-
-        const debugLines = [
-          "Result API",
-          `URL: ${resultUrl}`,
-          `Status: ${resultRes.status}`,
-          "",
-          "Portal report API",
-          `URL: ${portalUrl}`,
-          `Status: ${portalRes.status}`,
-        ].join("\n");
-
-        if (!cancelled) {
-          setDebugInfo(debugLines);
-        }
-
-        if (!resultRes.ok || !portalRes.ok) {
-          let message = "Failed to load report data.";
-          try {
-            const maybeJson: any = JSON.parse(
-              !resultRes.ok ? resultText : portalText
-            );
-            if (maybeJson?.error) message = String(maybeJson.error);
-          } catch {
-            // ignore
-          }
-          throw new Error(message);
-        }
-
-        const resultJson = JSON.parse(resultText) as ResultAPI;
-        const portalJson = JSON.parse(portalText) as PortalAPI;
-
-        if (!resultJson.ok || !portalJson.ok) {
-          throw new Error(
-            resultJson.error ||
-              portalJson.error ||
-              "Unexpected response from API."
-          );
-        }
-
-        if (!cancelled) {
-          setData({
-            result: resultJson.data,
-            portal: portalJson.data,
-          });
-        }
-      } catch (e: any) {
-        if (!cancelled) {
-          setErr(String(e?.message || e));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, tid]);
-
-  const freqPercentages = useMemo(
-    () =>
-      data?.result?.frequency_percentages ?? {
-        A: 0,
-        B: 0,
-        C: 0,
-        D: 0,
-      },
-    [data]
-  );
-
-  const sortedProfiles = useMemo(() => {
-    if (!data?.result) return [];
-    const { profile_labels, profile_percentages } = data.result;
-    return profile_labels
-      .map((p) => ({
-        code: p.code,
-        name: p.name,
-        pct: (profile_percentages || {})[p.code] || 0,
-      }))
-      .sort((a, b) => b.pct - a.pct);
-  }, [data]);
+  const tid = searchParams?.tid || "";
 
   if (!tid) {
     return (
-      <div className="min-h-screen p-6 md:p-10">
-        <h1 className="text-2xl font-semibold">Missing taker ID</h1>
-        <p className="mt-2 text-slate-600">
-          This page expects a <code>?tid=</code> query parameter.
+      <div className="mx-auto max-w-4xl p-6">
+        <h1 className="text-2xl font-semibold">Personalised report</h1>
+        <p className="mt-4 text-sm text-muted-foreground">
+          This page expects a <code>?tid=</code> parameter so we know which test
+          taker’s report to load.
         </p>
       </div>
     );
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen p-6 md:p-10">
-        <h1 className="text-2xl font-semibold">Loading report…</h1>
-      </div>
-    );
+  const base = await getBaseUrl();
+
+  // ---- Fetch result data (public API) --------------------------------------
+  const resultUrl = `${base}/api/public/test/${encodeURIComponent(
+    token
+  )}/result?tid=${encodeURIComponent(tid)}`;
+
+  let resultData: ResultData | null = null;
+  let loadError: string | null = null;
+
+  try {
+    const res = await fetch(resultUrl, { cache: "no-store" });
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) {
+      const text = await res.text();
+      throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 300)}`);
+    }
+    const json = (await res.json()) as ResultAPI;
+    if (!res.ok || json.ok === false || !json.data) {
+      throw new Error(json.error || `HTTP ${res.status}`);
+    }
+    resultData = json.data;
+  } catch (e: any) {
+    loadError = String(e?.message || e);
   }
 
-  if (err || !data) {
+  if (!resultData || loadError) {
     return (
-      <div className="min-h-screen p-6 md:p-10">
+      <div className="mx-auto max-w-4xl p-6 space-y-4">
         <h1 className="text-2xl font-semibold">Personalised report</h1>
-        <p className="mt-3 text-slate-700">
+        <p className="text-sm text-destructive">
           Could not load your report. Please refresh or contact support.
         </p>
-        <div className="mt-4 rounded-lg bg-slate-900 text-slate-100 p-4 text-xs whitespace-pre-wrap">
-          {`Debug information (for developer):\n\n${err || "Unknown error."}\n\n${
-            debugInfo || ""
-          }`}
-        </div>
+
+        <details className="mt-4 rounded-lg border bg-slate-950 p-4 text-xs text-slate-50">
+          <summary className="cursor-pointer font-medium">
+            Debug information (for developer)
+          </summary>
+          <div className="mt-2 space-y-2">
+            <div>
+              <div className="font-semibold">Result API</div>
+              <div className="break-all">URL: {resultUrl}</div>
+              <div>Error: {loadError ?? "Unknown"}</div>
+            </div>
+          </div>
+        </details>
       </div>
     );
   }
 
-  const { result, portal } = data;
+  const data = resultData;
+  const orgSlug = data.org_slug;
+  const orgName = data.org_name || data.test_name || "Your Organisation";
+  const participantName = getFullName(data.taker);
 
-  const orgName =
-    portal.org?.name ||
-    result.org_slug ||
-    portal.title ||
-    "Your Organisation";
+  // ---- Load org framework JSON (for welcome + framework copy) -------------
+  let orgFw: any = null;
+  try {
+    orgFw = await getOrgFramework(orgSlug);
+  } catch {
+    orgFw = null;
+  }
 
-  const orgSlug = portal.org?.slug || result.org_slug || "";
+  const welcomeTitle: string =
+    orgFw?.welcome_title || "Welcome";
+  const welcomeBody: string[] =
+    orgFw?.welcome_body && Array.isArray(orgFw.welcome_body)
+      ? orgFw.welcome_body
+      : getDefaultWelcome(orgName).body;
 
-  const takerName = [
-    portal.taker?.first_name || "",
-    portal.taker?.last_name || "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const frameworkTitle: string =
+    orgFw?.framework_title || `The ${orgName} framework`;
+  const frameworkIntro: string[] =
+    orgFw?.framework_intro && Array.isArray(orgFw.framework_intro)
+      ? orgFw.framework_intro
+      : getDefaultFrameworkIntro(orgName);
 
-  const topProfileName =
-    result.top_profile_name || portal.top_profile_name || "—";
+  const freq = data.frequency_percentages;
+  const prof = data.profile_percentages;
 
-  const topFreqCode = result.top_freq;
-  const topFreqLabel =
-    result.frequency_labels.find((f) => f.code === topFreqCode)?.name ||
-    topFreqCode;
+  const primaryProfile = data.profile_labels.find(
+    (p) => p.code === data.top_profile_code
+  );
+  // Secondary & tertiary: take next two highest percentages
+  const sortedProfiles = [...data.profile_labels]
+    .map((p) => ({
+      ...p,
+      pct: prof[p.code] ?? 0,
+    }))
+    .sort((a, b) => (b.pct || 0) - (a.pct || 0));
 
   const primary = sortedProfiles[0];
   const secondary = sortedProfiles[1];
   const tertiary = sortedProfiles[2];
 
-  const profilePct = (code: string) =>
-    (result.profile_percentages || {})[code] || 0;
+  const downloadPdfHref = `/api/portal/reports/${encodeURIComponent(
+    data.taker.id
+  )}`;
 
-  const currentYear = new Date().getFullYear();
-
-  const handleDownloadPdf = () => {
-    if (typeof window !== "undefined") {
-      window.print();
-    }
-  };
-
-  // --- Welcome letter content (per org) ---
-
-  const teamPuzzleWelcome = `Welcome to your Team Puzzle Discovery Report. I’m so excited to be part of your journey as you uncover your natural strengths, communication style, and best-fit contribution in the workplace and getting the most out of yourself. This report is designed to give you deep insight into how you work best, where you thrive in a team, and how to align your role with your energy.
-
-At Life Puzzle, I’ve worked with leaders, executives, and business owners for over two decades, helping them break through performance barriers, improve communication, and unlock their true potential. One consistent truth I’ve seen across every organisation? When people understand themselves and each other more deeply, the entire culture shifts, results improve, engagement increases, and people are genuinely more fulfilled.
-
-Team Puzzle was created with that in mind. It’s not just a tool for insight, it’s a system for practical action. It maps the puzzle pieces of your team in a way that helps you fit together more effectively, reducing friction and increasing flow.
-
-Whether you’re reading this report as part of a leadership team, a coaching session, or a personal development journey, I invite you to treat this insight not as an ending, but a starting point, a map for growth, alignment, and leadership that truly reflects your natural style.
-
-Warm regards,
-Chandell Labbozzetta
-Founder, Life Puzzle & Team Puzzle Discovery Assessment`;
-
-  const welcomeBody =
-    orgSlug === "team-puzzle"
-      ? teamPuzzleWelcome
-      : `Welcome to your ${orgName} report. This report is designed to give you language for your natural strengths, working style, and contribution at work. Use it as a starting point for reflection, coaching conversations, and better collaboration with your team.`;
+  // Small helper to make the first sentence more human for primary profile
+  const primaryExample =
+    orgFw?.profiles?.[primary?.code || ""]?.example ||
+    `For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.`;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-16">
-      <div className="mx-auto max-w-5xl px-4 pt-8 md:px-6">
-        {/* Header */}
-        <header className="mb-6">
-          <p className="text-xs tracking-[0.2em] uppercase text-slate-500">
-            Personalised report
-          </p>
-          <div className="mt-1 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-                {orgName} Discovery Assessment
-              </h1>
-              <p className="mt-1 text-sm text-slate-700">
-                {takerName && (
-                  <>
-                    For <span className="font-medium">{takerName}</span>
-                  </>
-                )}
-                {takerName && topProfileName && " · "}
-                {topProfileName && (
-                  <>
-                    Top profile:{" "}
-                    <span className="font-semibold">{topProfileName}</span>
-                  </>
-                )}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleDownloadPdf}
-              className="inline-flex items-center justify-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50 bg-white"
+    <div className="bg-slate-50 min-h-screen">
+      <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-12 pt-8 md:px-6">
+        {/* HEADER */}
+        <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-medium tracking-[0.2em] text-slate-500">
+              PERSONALISED REPORT
+            </p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
+              {orgName}
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              For {participantName} · Top profile:{" "}
+              <span className="font-semibold">{data.top_profile_name}</span>
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href={downloadPdfHref}
+              prefetch={false}
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-100"
             >
               Download PDF
-            </button>
+            </Link>
           </div>
         </header>
 
-        {/* PART 1 – ABOUT THIS ASSESSMENT */}
-        <section className="space-y-6 mt-4">
-          <h2 className="text-xs font-semibold tracking-[0.2em] uppercase text-slate-500">
+        {/* PART 1 ------------------------------------------------------------ */}
+        <section className="space-y-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
             Part 1 · About this assessment
-          </h2>
+          </p>
 
-          {/* Welcome / intro letter */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-lg font-semibold mb-2">Welcome</h3>
-            <p className="text-sm text-slate-600 mb-2">
+          {/* Welcome */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <h2 className="text-lg font-semibold text-slate-900">
+              {welcomeTitle}
+            </h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
               A note from the creator of this framework.
             </p>
-            <p className="text-sm leading-relaxed whitespace-pre-line text-slate-700">
-              {welcomeBody}
-            </p>
+            <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-700">
+              {welcomeBody.map((p, idx) => (
+                <p key={idx}>{p}</p>
+              ))}
+            </div>
           </div>
 
-          {/* How to use this report */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-lg font-semibold mb-3">How to use this report</h3>
-            <p className="text-sm text-slate-700 mb-3">
-              This report combines your responses with {orgName}
-              &apos;s profiling framework. It is designed to help you:
-            </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
-              <li>Put clear language to your natural working style.</li>
-              <li>
-                Spot where your strengths are most valuable to your team and
-                organisation.
-              </li>
-              <li>
-                Identify stretch and development areas without labelling or
-                limiting yourself.
-              </li>
-              <li>
-                Have better conversations with leaders, colleagues, or a coach
-                about how you work best.
-              </li>
-            </ul>
-            <p className="mt-3 text-sm text-slate-500">
-              Use this as a starting point, not a verdict. The most useful
-              insights come from reflection, real-world experimentation, and the
-              conversations it sparks.
-            </p>
+          {/* How to use + Framework (stacked) */}
+          <div className="space-y-4">
+            {/* How to use */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+              <h3 className="text-base font-semibold text-slate-900">
+                How to use this report
+              </h3>
+              <p className="mt-2 text-sm text-slate-700">
+                This report is a snapshot of how you naturally like to work, not
+                a label. Use it as a guide, not a rule book.
+              </p>
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                <li>Find simple words for how you like to work.</li>
+                <li>
+                  Spot where your strengths add the most value to your team and
+                  organisation.
+                </li>
+                <li>
+                  Notice growth areas without labelling or limiting yourself.
+                </li>
+                <li>
+                  Have better conversations with leaders, colleagues, or a coach
+                  about how you work best.
+                </li>
+              </ul>
+              <p className="mt-3 text-xs text-slate-500">
+                Use this as a starting point, not a verdict. The most useful
+                insights come from reflecting, asking questions, and applying
+                what feels true in your day-to-day work.
+              </p>
+            </div>
+
+            {/* Org framework */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+              <h3 className="text-base font-semibold text-slate-900">
+                {frameworkTitle}
+              </h3>
+              <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
+                {frameworkIntro.map((p, idx) => (
+                  <p key={idx}>{p}</p>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Framework story */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-lg font-semibold mb-3">
-              The {orgName} framework
+          {/* Understanding Frequencies */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <h3 className="text-base font-semibold text-slate-900">
+              Understanding the four Frequencies
             </h3>
-            <p className="text-sm text-slate-700 whitespace-pre-line">
-              {orgSlug === "team-puzzle"
-                ? `High-performing teams don’t happen by accident – they’re built with intention, structure, and insight. The Team Puzzle Framework was developed to bridge the gap between untapped human potential and practical business results. It’s a top-down, ground-up approach to unlocking the genius that already exists in your people.
-
-At its core, Team Puzzle helps organisations answer one fundamental question: “How do we get the best from each individual, and even better results from the team as a whole?”
-
-When people are placed in roles that energise them, when teams communicate in a shared language, and when leadership knows where and how each person adds value, the entire culture transforms. Productivity rises, engagement increases, and trust becomes a business asset.
-
-The Team Puzzle approach isn’t about “fixing” people – it’s about fitting people together. Just like a real puzzle, each person has a unique shape and contribution. This report is a practical tool to help you see how those pieces connect, so you can operate with more clarity, more confidence, and better results.`
-                : `The framework behind this report uses four core Frequencies to describe the energy you bring to your work, and eight Profiles which blend those frequencies into recognisable patterns of contribution. It gives your organisation a clear, structured way to talk about strengths, collaboration, and the conditions where people do their best work.`}
-            </p>
-          </div>
-
-          {/* Understanding the four Frequencies */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-base font-semibold mb-3">
-              Understanding the Four Frequencies
-            </h3>
-            <p className="text-sm text-slate-700 mb-2">
+            <p className="mt-2 text-sm text-slate-700">
               Frequencies describe the way you naturally think, decide, and take
-              action.
+              action. You can think of them as four types of work energy that
+              show where you feel most at home.
             </p>
-            <p className="text-sm font-semibold text-slate-800 mb-1">
-              Frequencies (A–D)
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Innovation</span> – Ideas,
-              creation, momentum, and challenging the status quo.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Influence</span> – People,
-              communication, motivation, and activation.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Implementation</span> – Rhythm,
-              process, and reliable delivery.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Insight</span> – Pattern
-              recognition, analysis, and perspective.
-            </p>
+            <dl className="mt-4 space-y-2 text-sm text-slate-800">
+              <div>
+                <dt className="font-semibold">Innovation (A)</dt>
+                <dd className="text-slate-700">
+                  Ideas, creation, momentum, and challenging the status quo.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold">Influence (B)</dt>
+                <dd className="text-slate-700">
+                  People, communication, motivation, and activation.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold">Implementation (C)</dt>
+                <dd className="text-slate-700">
+                  Rhythm, process, and reliable delivery.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold">Insight (D)</dt>
+                <dd className="text-slate-700">
+                  Pattern recognition, analysis, and perspective.
+                </dd>
+              </div>
+            </dl>
           </div>
 
-          {/* Understanding the Eight Profiles */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-base font-semibold mb-3">
-              Understanding the Eight Profiles
+          {/* Understanding Profiles */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <h3 className="text-base font-semibold text-slate-900">
+              Understanding the eight Profiles
             </h3>
-            <p className="text-sm text-slate-700 mb-2">
+            <p className="mt-2 text-sm text-slate-700">
               Profiles blend these Frequencies into distinct patterns of
-              contribution. Together, they show how you naturally create value
-              in a team.
+              contribution. A profile is simply a pattern that shows how you
+              like to contribute in a team.
             </p>
-            <p className="text-sm font-semibold text-slate-800 mb-1">
-              Profiles (P1–P8)
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Visionary</span> – Future-focused,
-              ideas-driven, sees possibilities.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Catalyst</span> – Energetic,
-              action-oriented, drives momentum.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Motivator</span> – Encourages
-              others, builds energy and engagement.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Connector</span> – Builds
-              relationships, joins the dots between people and ideas.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Facilitator</span> – Creates space
-              for others, guides process and participation.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Coordinator</span> – Organised and
-              practical, keeps plans moving.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Controller</span> – Analytical,
-              detail-focused, ensures accuracy.
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Optimiser</span> – Refines
-              systems, improves efficiency and outcomes.
-            </p>
+            <dl className="mt-4 grid gap-2 text-sm text-slate-800 md:grid-cols-2">
+              {data.profile_labels.map((p) => (
+                <div key={p.code}>
+                  <dt className="font-semibold">{p.name}</dt>
+                  <dd className="text-slate-700">
+                    {/* Short generic one-liners – orgs can override via JSON later */}
+                    {orgFw?.profiles?.[p.code]?.one_liner ||
+                      "A distinct way of contributing, combining the four Frequencies into a recognisable working style."}
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </section>
 
-        {/* PART 2 – PERSONAL PROFILE */}
-        <section className="mt-10 space-y-8">
-          <h2 className="text-xs font-semibold tracking-[0.2em] uppercase text-slate-500">
-            Part 2 · Your profile in depth
-          </h2>
+        {/* PART 2 ------------------------------------------------------------ */}
+        <section className="space-y-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Part 2 · Your personal profile
+          </p>
 
           {/* Frequency summary */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-lg font-semibold mb-2">Frequency summary</h3>
-            <p className="text-sm text-slate-700 mb-4">
-              Your strongest overall frequency is{" "}
-              <span className="font-semibold">{topFreqLabel}</span>, which shapes
-              how you approach problems and make decisions. Higher percentages
-              indicate where you naturally spend more energy; lower percentages
-              highlight areas that may feel less comfortable or more draining.
-            </p>
-
-            {result.frequency_labels.map((f) => (
-              <div
-                key={f.code}
-                className="grid grid-cols-12 items-center gap-3 mb-2"
-              >
-                <div className="col-span-3 md:col-span-2 text-sm text-slate-700">
-                  {f.name}
-                </div>
-                <div className="col-span-9 md:col-span-10">
-                  <Bar pct={freqPercentages[f.code]} />
-                  <div className="text-xs text-slate-500 mt-1">
-                    {Math.round((freqPercentages[f.code] || 0) * 100)}%
-                  </div>
-                </div>
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Frequency summary
+                </h2>
+                <p className="mt-1 text-sm text-slate-700">
+                  Your strongest overall frequency is{" "}
+                  <span className="font-semibold">
+                    {
+                      data.frequency_labels.find(
+                        (f) => f.code === data.top_freq
+                      )?.name
+                    }
+                    {" ("}
+                    {data.top_freq}
+                    {")"}
+                  </span>
+                  , which shapes how you approach problems and make decisions.
+                  Higher percentages indicate where you naturally spend more
+                  energy; lower percentages highlight areas that may feel less
+                  comfortable or more draining.
+                </p>
               </div>
-            ))}
+              <div className="rounded-xl bg-sky-50 px-4 py-3 text-xs text-sky-900">
+                <p className="font-semibold">How to read these scores</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  <li>Higher percentages show patterns you use a lot.</li>
+                  <li>
+                    Lower percentages show styles you can use, but they may cost
+                    more energy.
+                  </li>
+                  <li>
+                    Anything above about 30% will usually feel very natural to
+                    you.
+                  </li>
+                </ul>
+              </div>
+            </div>
 
-            <div className="mt-4 rounded-xl bg-sky-50 px-4 py-3 text-sm text-slate-800">
-              <p className="font-semibold mb-1">
-                Your dominant frequency: {topFreqLabel}
+            <div className="mt-2 grid gap-3">
+              {data.frequency_labels.map((f) => {
+                const val = freq[f.code] || 0;
+                const pct = (val || 0) * 100;
+                return (
+                  <div
+                    key={f.code}
+                    className="grid grid-cols-12 items-center gap-3"
+                  >
+                    <div className="col-span-3 md:col-span-2 text-sm text-slate-800">
+                      <span className="font-medium">{f.name}</span>
+                    </div>
+                    <div className="col-span-9 md:col-span-10">
+                      <div className="h-2 w-full rounded-full bg-slate-200">
+                        <div
+                          className="h-2 rounded-full bg-sky-600"
+                          style={{ width: `${pct.toFixed(0)}%` }}
+                        />
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {pct.toFixed(0)}%
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 rounded-xl bg-sky-50 p-4 text-sm text-sky-900">
+              <p className="font-semibold">
+                Your dominant frequency:{" "}
+                {
+                  data.frequency_labels.find(
+                    (f) => f.code === data.top_freq
+                  )?.name
+                }{" "}
+                ({data.top_freq})
               </p>
-              <ul className="list-disc pl-5 space-y-1">
+              <ul className="mt-2 list-disc space-y-1 pl-4">
                 <li>
-                  <span className="font-semibold">Key traits:</span> Connecting
-                  with people, communicating ideas, and bringing energy to
-                  collaboration.
+                  <span className="font-semibold">Key traits:</span> The energy
+                  you rely on most when you need to move things forward.
                 </li>
                 <li>
-                  <span className="font-semibold">Motivators:</span> Feeling
-                  engaged with others, being part of momentum, and seeing
-                  progress.
+                  <span className="font-semibold">Motivators:</span> Conditions
+                  that help this way of working feel energising and sustainable.
                 </li>
                 <li>
-                  <span className="font-semibold">Blind spots:</span> When this
-                  energy is overused, it can crowd out other perspectives or
-                  make it harder to slow down, reflect, or finish details.
+                  <span className="font-semibold">Blind spots:</span> Things to
+                  watch out for when this frequency is over-used, such as
+                  ignoring other perspectives or pushing your preferred style
+                  too hard.
                 </li>
               </ul>
             </div>
           </div>
 
           {/* Profile mix */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-lg font-semibold mb-2">Profile mix</h3>
-            <p className="text-sm text-slate-700 mb-4">
-              Your profile mix shows how your energy is distributed across the
-              eight Profiles. Higher percentages highlight the styles you’re
-              most likely to use day-to-day; lower percentages point to stretch
-              or backup styles.
-            </p>
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-lg font-semibold text-slate-900">
+                Profile mix
+              </h2>
+              <p className="text-sm text-slate-700">
+                Your profile mix shows how strongly you match each of the eight
+                Profiles. Higher percentages show patterns you use often; lower
+                ones are backup styles you can lean on when needed.
+              </p>
+            </div>
 
-            {result.profile_labels.map((p) => (
-              <div
-                key={p.code}
-                className="grid grid-cols-12 items-center gap-3 mb-2"
-              >
-                <div className="col-span-4 md:col-span-3 text-sm text-slate-700">
-                  {p.name}
-                </div>
-                <div className="col-span-8 md:col-span-9">
-                  <Bar pct={profilePct(p.code)} />
-                  <div className="text-xs text-slate-500 mt-1">
-                    {Math.round(profilePct(p.code) * 100)}% match
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Primary / Secondary / Tertiary cards */}
-          {primary && (
-            <div className="grid gap-4 md:grid-cols-3">
-              {[primary, secondary, tertiary].filter(Boolean).map((p, idx) => {
-                const label =
-                  idx === 0
-                    ? "Primary profile"
-                    : idx === 1
-                    ? "Secondary"
-                    : "Tertiary";
+            <div className="mt-2 grid gap-3">
+              {data.profile_labels.map((p) => {
+                const val = prof[p.code] || 0;
+                const pct = (val || 0) * 100;
                 return (
                   <div
-                    key={p!.code}
-                    className="rounded-2xl border bg-white p-5 shadow-sm flex flex-col"
+                    key={p.code}
+                    className="grid grid-cols-12 items-center gap-3"
                   >
-                    <p className="text-xs font-semibold tracking-[0.16em] uppercase text-slate-500">
-                      {label}
-                    </p>
-                    <h3 className="mt-1 text-lg font-semibold">
-                      {p!.name || "—"}
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1">{p!.code}</p>
-                    <p className="mt-2 text-sm text-slate-700">
-                      {Math.round(p!.pct * 100)}% match
-                    </p>
-                    <div className="mt-3 text-sm text-slate-700 space-y-1">
-                      <p>
-                        <span className="font-semibold">Key traits:</span>{" "}
-                        Creates value by leaning into the natural strengths of
-                        this profile.
-                      </p>
-                      <p>
-                        <span className="font-semibold">Motivators:</span>{" "}
-                        Feels energised when working in situations that match
-                        this style.
-                      </p>
-                      <p>
-                        <span className="font-semibold">Blind spots:</span> May
-                        overuse this pattern when under pressure, missing other
-                        options.
-                      </p>
+                    <div className="col-span-3 md:col-span-2 text-sm text-slate-800">
+                      <span className="font-medium">{p.name}</span>
+                    </div>
+                    <div className="col-span-9 md:col-span-10">
+                      <div className="h-2 w-full rounded-full bg-slate-200">
+                        <div
+                          className="h-2 rounded-full bg-sky-600"
+                          style={{ width: `${pct.toFixed(0)}%` }}
+                        />
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {pct.toFixed(0)}% match
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
-          )}
 
-          {/* Energy matrix */}
-          {primary && secondary && tertiary && (
-            <div className="rounded-2xl border bg-sky-50 p-6 md:p-7">
-              <h3 className="text-base font-semibold mb-2">Your energy matrix</h3>
-              <p className="text-sm text-slate-700 mb-2">
-                Your three strongest profiles – {primary.name}, {secondary.name}{" "}
-                and {tertiary.name} – work together to shape how you think, act,
-                and collaborate.
-              </p>
-              <p className="text-sm text-slate-700">
-                When you lean into this combination intentionally, you’re more
-                likely to feel energised and effective. The key is to notice
-                when to stay in your natural strengths and when to borrow from
-                other styles – for example, slowing down for more analysis, or
-                asking for support on detailed follow-through.
-              </p>
-            </div>
-          )}
-
-          {/* Strengths & development areas as two cards */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-              <h3 className="text-base font-semibold mb-2">Strengths</h3>
-              <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
-                <li>
-                  Brings energy and movement into conversations and projects.
-                </li>
-                <li>
-                  Builds relationships that help ideas gain traction and
-                  support.
-                </li>
-                <li>
-                  Is willing to engage with others to solve problems and keep
-                  things moving.
-                </li>
-              </ul>
-            </div>
-            <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-              <h3 className="text-base font-semibold mb-2">
-                Development areas
-              </h3>
-              <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
-                <li>
-                  Leaving enough time for reflection and detailed planning
-                  before acting.
-                </li>
-                <li>
-                  Balancing enthusiasm with clear boundaries and realistic
-                  commitments.
-                </li>
-                <li>
-                  Inviting input from different styles, especially when making
-                  complex or long-term decisions.
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Collaboration (real world examples) */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-base font-semibold mb-2">Collaboration</h3>
-            <p className="text-sm text-slate-700">
-              In a team context, your style is especially valuable when people
-              need energy, connection, and practical follow-through. You’re
-              likely to thrive in roles where you can bring people together,
-              translate ideas into action, or keep communication flowing between
-              different groups. Look for opportunities to pair with profiles
-              that bring complementary strengths – for example, more detailed
-              planning, deep analysis, or strategic long-range thinking.
+            <p className="mt-3 text-sm text-slate-700">
+              Overall, your strongest profile pattern is{" "}
+              <span className="font-semibold">
+                {primary?.name} ({primary?.code})
+              </span>
+              , supported by{" "}
+              <span className="font-semibold">
+                {secondary?.name} ({secondary?.code})
+              </span>{" "}
+              and{" "}
+              <span className="font-semibold">
+                {tertiary?.name} ({tertiary?.code})
+              </span>
+              .
             </p>
           </div>
 
+          {/* Primary / Secondary / Tertiary cards */}
+          <div className="grid gap-4 md:grid-cols-3">
+            {[primary, secondary, tertiary].map((p, idx) => {
+              if (!p) return null;
+              const pct = (p.pct || 0) * 100;
+              const label =
+                idx === 0
+                  ? "Primary profile"
+                  : idx === 1
+                  ? "Secondary"
+                  : "Tertiary";
+
+              return (
+                <div
+                  key={p.code}
+                  className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {label}
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                    {p.name}
+                  </h3>
+                  <p className="text-xs text-slate-500">{p.code}</p>
+                  <p className="mt-2 text-sm font-medium text-slate-800">
+                    {pct.toFixed(0)}% match
+                  </p>
+                  <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs text-slate-700">
+                    <li>
+                      <span className="font-semibold">Key traits:</span>{" "}
+                      {orgFw?.profiles?.[p.code]?.traits ||
+                        "How this profile most naturally contributes when things are going well."}
+                    </li>
+                    <li>
+                      <span className="font-semibold">Motivators:</span>{" "}
+                      {orgFw?.profiles?.[p.code]?.motivators ||
+                        "Conditions that help this style feel energising and sustainable."}
+                    </li>
+                    <li>
+                      <span className="font-semibold">Blind spots:</span>{" "}
+                      {orgFw?.profiles?.[p.code]?.blind_spots ||
+                        "Things to watch out for when this style is over-used or under pressure."}
+                    </li>
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Energy mix */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Energy mix – how your profiles work together
+            </h2>
+            <p className="mt-2 text-sm text-slate-700">
+              Your top three profiles form an energy mix that shapes how you
+              show up day to day. Your primary profile,{" "}
+              <span className="font-semibold">{primary?.name}</span>, is the
+              style you’re most likely to default to under pressure. Your
+              secondary profile,{" "}
+              <span className="font-semibold">{secondary?.name}</span>, adds a
+              supporting pattern you can lean on. Your tertiary profile,{" "}
+              <span className="font-semibold">{tertiary?.name}</span>, is a
+              backup style you can draw on when needed.
+            </p>
+            <p className="mt-3 text-sm text-slate-700">
+              {primaryExample}
+            </p>
+          </div>
+
+          {/* Strengths + Development */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6">
+              <h2 className="text-lg font-semibold text-slate-900">
+                Strengths
+              </h2>
+              <p className="mt-2 text-sm text-slate-700">
+                These are areas where your natural energy is most likely to add
+                value when your work and environment are a good fit.
+              </p>
+              <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
+                <li>
+                  Leaning into your{" "}
+                  <span className="font-semibold">{data.top_freq}</span> energy
+                  when decisions need to be made or momentum is required.
+                </li>
+                <li>
+                  Using your{" "}
+                  <span className="font-semibold">{primary?.name}</span> profile
+                  to bring something that others may not – whether that’s
+                  ideas, people focus, structure, or depth.
+                </li>
+                <li>
+                  Combining your top three profiles to adapt to different people
+                  and contexts without losing your authenticity.
+                </li>
+              </ul>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-6">
+              <h2 className="text-lg font-semibold text-slate-900">
+                Development areas
+              </h2>
+              <p className="mt-2 text-sm text-slate-700">
+                Development areas are not weaknesses. They’re places where a
+                small shift in awareness or behaviour can unlock more ease and
+                impact.
+              </p>
+              <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
+                <li>
+                  Noticing when your dominant frequency is over-used and
+                  crowding out other perspectives.
+                </li>
+                <li>
+                  Experimenting with lower-percentage frequencies in low-risk
+                  situations so they become more available when you need them.
+                </li>
+                <li>
+                  Asking for support or partnership in areas that drain your
+                  energy, rather than trying to do everything alone.
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Collaboration (ex real-world examples) */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Collaboration
+            </h2>
+            <p className="mt-2 text-sm text-slate-700">
+              Your profile doesn’t exist in isolation – it plays out in
+              relationship with other people and profiles on your team.
+            </p>
+            <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
+              <li>
+                Look for partners whose strengths sit in lower-frequency areas
+                for you. They can help you see risks and opportunities you might
+                otherwise miss.
+              </li>
+              <li>
+                Share this report with your manager or coach and talk about how
+                your role can make the most of your natural energy.
+              </li>
+              <li>
+                When conflict shows up, ask: “Is this about style rather than
+                intent?” Often, different profiles are reaching for the same
+                outcome in different ways.
+              </li>
+            </ul>
+          </div>
+
           {/* Overall summary */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-base font-semibold mb-2">Overall summary</h3>
-            <p className="text-sm text-slate-700">
-              Overall, this report suggests that you bring{" "}
-              {topProfileName.toLowerCase()}-style strengths into your work,
-              powered by a dominant {topFreqLabel} frequency. When you focus on
-              the environments and tasks that match this pattern – and stay
-              aware of the potential blind spots – you are likely to feel more
-              confident, effective, and fulfilled in your role.
+          <div className="rounded-2xl border border-slate-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Overall summary
+            </h2>
+            <p className="mt-2 text-sm text-slate-700">
+              In summary, your strongest contribution comes from your{" "}
+              <span className="font-semibold">{primary?.name}</span> profile,
+              supported by{" "}
+              <span className="font-semibold">{secondary?.name}</span> and{" "}
+              <span className="font-semibold">{tertiary?.name}</span>. Your{" "}
+              <span className="font-semibold">
+                {
+                  data.frequency_labels.find(
+                    (f) => f.code === data.top_freq
+                  )?.name
+                }{" "}
+                ({data.top_freq})
+              </span>{" "}
+              frequency shapes how you naturally approach decisions, problems,
+              and collaboration.
+            </p>
+            <p className="mt-3 text-sm text-slate-700">
+              No profile is better than another. The aim is not to change who
+              you are, but to understand how you work best, and how to create
+              environments where you and your team can do your best thinking and
+              contribution.
             </p>
           </div>
 
           {/* Next steps */}
-          <div className="rounded-2xl border bg-white p-6 md:p-7 shadow-sm">
-            <h3 className="text-base font-semibold mb-2">Next steps</h3>
-            <p className="text-sm text-slate-700 mb-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Next steps
+            </h2>
+            <p className="mt-2 text-sm text-slate-700">
               A profile report is most powerful when it turns into conversation
               and action. Use these suggestions to decide what you want to do
               with your insights:
             </p>
-            <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1 mb-4">
+            <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
               <li>
                 Highlight 2–3 sentences in this report that feel most true for
                 you.
@@ -679,27 +707,31 @@ The Team Puzzle approach isn’t about “fixing” people – it’s about fitt
                 the next month.
               </li>
               <li>
-                Note one development area you would like to experiment with and
-                get feedback on.
+                Note one development area you would like to experiment with.
+              </li>
+              <li>
+                If you are a leader, bring this report into your 1-to-1s and
+                discuss where your role matches your strengths.
+              </li>
+              <li>
+                If you are working with a coach, choose one strength and one
+                development area to explore in your next session.
               </li>
             </ul>
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }
-              }}
-              className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
-            >
-              Continue
-            </button>
+            <div className="mt-4">
+              <Link
+                href="#"
+                className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-sky-700"
+              >
+                Continue
+              </Link>
+            </div>
           </div>
         </section>
 
-        {/* Footer */}
-        <footer className="mt-12 py-4 text-sm text-slate-500">
-          © {currentYear} MindCanvas — Profiletest.ai
+        <footer className="mt-4 border-t border-slate-200 pt-4 text-xs text-slate-500">
+          © {new Date().getFullYear()} MindCanvas — this report is generated
+          based on the {orgName} profiling framework.
         </footer>
       </div>
     </div>
