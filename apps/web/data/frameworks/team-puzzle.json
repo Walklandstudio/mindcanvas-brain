@@ -106,6 +106,134 @@
     ],
     "questions": [],
     "reports": {
+  "report_title": "Team Puzzle Discovery Assessment",
+
+  "welcome_title": "Welcome from Chandell",
+
+  "welcome_body": [
+    "Welcome to your Team Puzzle Discovery Report. I’m so excited to be part of your journey as you uncover your natural strengths, communication style, and best-fit contribution in the workplace.",
+    "This report is designed to give you deep insight into how you work best, where you thrive in a team, and how to align your role with your energy.",
+    "At Life Puzzle, I’ve worked with leaders, executives, and business owners for over two decades, helping them break through performance barriers, improve communication, and unlock their true potential. One consistent truth I’ve seen across every organisation? When people understand themselves and each other more deeply, the entire culture shifts – results improve, engagement increases, and people are genuinely more fulfilled.",
+    "Team Puzzle was created with that in mind. It’s not just a tool for insight; it’s a system for practical action. It maps the puzzle pieces of your team in a way that helps you fit together more effectively, reducing friction and increasing flow.",
+    "Whether you’re reading this report as part of a leadership team, a coaching session, or a personal development journey, treat this insight not as an ending but a starting point – a map for growth, alignment, and leadership that reflects your natural style.",
+    "Warm regards,\nChandell Labbozzetta\nFounder, Life Puzzle & Team Puzzle Discovery Assessment"
+  ],
+
+  "framework_title": "The Team Puzzle framework",
+
+  "framework_intro": [
+    "High-performing teams don’t happen by accident; they’re built with intention, structure, and insight. The Team Puzzle framework was developed to bridge the gap between untapped human potential and practical business results.",
+    "At its core, Team Puzzle helps organisations answer one fundamental question: “How do we get the best from each individual, and even better results from the team as a whole?”",
+    "When people are placed in roles that energise them, when teams communicate in a shared language, and when leadership knows where and how each person adds value, the entire culture transforms. Productivity rises, engagement increases, and trust becomes a business asset.",
+    "This framework gives you:\n• A clear, structured way to identify natural strengths and working energy.\n• A common language that simplifies collaboration and reduces misunderstanding.\n• A strategic map to help leaders make better decisions about people, partnerships, and priorities.\n• Ideas for charting a course to results following a path of least resistance.",
+    "The Team Puzzle approach isn’t about fixing people; it’s about fitting people together. Just like a real puzzle, each person has a unique shape and contribution. Our role is to help teams see how those pieces connect, so they can operate with more clarity, more confidence, and far better results.",
+    "This isn’t theory; it’s a tool for action. Once you see how the pieces fit together, you’ll never look at team performance the same way again."
+  ],
+
+  "how_to_use": {
+    "summary": "This report is a snapshot of how you naturally like to work, not a label. Use it as a guide, not a rule book.",
+    "bullets": [
+      "Find simple words for how you like to work.",
+      "Notice growth areas without labelling yourself.",
+      "Have better conversations with leaders, colleagues, or a coach about how you work best.",
+      "Use the ‘Next steps’ section to choose one small action to experiment with."
+    ]
+  },
+
+  "how_to_read_scores": {
+    "title": "How to read these scores",
+    "bullets": [
+      "Higher percentages show patterns you use a lot.",
+      "Lower percentages show styles you can use when needed, but they may cost more energy.",
+      "Anything above about 30% will usually feel very natural to you.",
+      "Your primary profile is your most natural pattern; secondary and tertiary profiles show helpful backup styles."
+    ]
+  },
+
+  "profile_language": {
+    "blind_spots_label": "Watch outs",
+    "blind_spots_description": "Things to watch out for when this energy is over-used, or when you are under pressure."
+  },
+
+  "images": {
+    "framework_banner": "/images/team-puzzle/report-header.png",
+    "frequency_diagram": "/images/team-puzzle/frequency-wheel.png",
+    "profile_grid": "/images/team-puzzle/profile-grid.png"
+  },
+
+  "profiles": {
+    "PROFILE_3": {
+      "one_liner": "Motivator – Encourages others, builds energy and engagement.",
+      "traits": [
+        "Brings warmth, encouragement and emotional support to the team.",
+        "Naturally notices how others are feeling and responds with care.",
+        "Helps people feel included, valued and part of something meaningful."
+      ],
+      "motivators": [
+        "Seeing people grow and succeed.",
+        "Working in environments where appreciation and connection matter.",
+        "Being able to support and uplift others directly."
+      ],
+      "blind_spots": [
+        "May avoid difficult conversations in order to protect harmony.",
+        "Can overextend themselves trying to keep everyone happy.",
+        "Might take on others’ emotions and feel responsible for how everyone is doing."
+      ],
+      "example": "You’re often the person who checks in on how people are feeling, lifts energy in meetings, and helps others feel seen and included."
+    },
+
+    "PROFILE_4": {
+      "one_liner": "Connector – Builds relationships and joins the dots between people and ideas.",
+      "traits": [
+        "Creates bridges across teams, clients and stakeholders.",
+        "Spots useful connections between people, projects and opportunities.",
+        "Enjoys informal conversations where ideas and relationships can grow."
+      ],
+      "motivators": [
+        "Collaborative work with plenty of interaction.",
+        "Space to network, introduce people and share information.",
+        "Being trusted to represent the team or organisation in conversations."
+      ],
+      "blind_spots": [
+        "May say 'yes' to too many requests to keep relationships smooth.",
+        "Can struggle to set clear boundaries around time and availability.",
+        "Might prioritise relationships over necessary conflict or tough decisions."
+      ],
+      "example": "You may be the person who knows who to talk to, who can bring the right voices into the room, and who keeps information flowing between people."
+    },
+
+    "PROFILE_7": {
+      "one_liner": "Controller – Analytical, detail-focused and quality driven.",
+      "traits": [
+        "Brings structure, accuracy and risk-awareness to decisions.",
+        "Spots gaps, inconsistencies and potential problems early.",
+        "Prefers clarity, evidence and well-thought-through plans."
+      ],
+      "motivators": [
+        "Clear standards and expectations.",
+        "Time to analyse information properly before deciding.",
+        "Opportunities to improve quality, reduce risk and tighten systems."
+      ],
+      "blind_spots": [
+        "May appear critical or detached when focused on accuracy.",
+        "Can get stuck in analysis when speed or experimentation is needed.",
+        "Might be slower to trust ideas that feel vague or unproven."
+      ],
+      "example": "You may be the one who spots the risks, asks tough questions, and makes sure numbers and details add up before the team moves forward."
+    }
+
+  },
+
+  "energy_matrix": {
+    "title": "Your Energy Matrix",
+    "body": [
+      "Understanding your Energy Matrix means identifying the conditions under which your strengths can truly shine. It’s not just about how you work; it’s about how you thrive.",
+      "Your primary profile shows where your energy is most natural. Your secondary and tertiary profiles show the patterns that support and shape how you show up day-to-day.",
+      "The aim is not to become someone else, but to use this insight to work more often in your 'zone of contribution' and to collaborate with others where they are strongest."
+    ]
+  }
+},
+
       "insight-frequency-team-puzzle-frequency-report": {
         "title": "Insight Frequency _ Team Puzzle Frequency Report",
         "source_file": "extracted/zip1/Insight Frequency _ Team Puzzle Frequency Report.pdf",
@@ -1567,4 +1695,3 @@
       }
     }
   }
-}

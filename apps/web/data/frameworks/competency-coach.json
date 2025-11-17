@@ -106,6 +106,110 @@
     ],
     "questions": [],
     "reports": {
+  "report_title": "Competency Coach DNA Blueprint",
+
+  "welcome_title": "Welcome to your DNA Blueprint",
+
+  "welcome_body": [
+    "Welcome to your Competency Coach DNA Blueprint. This report is designed to give you a clear, practical view of how you naturally like to work, lead and contribute.",
+    "As a coach, leader or professional, your impact comes from the way you think, decide and show up in real situations. This blueprint highlights your core patterns so that you can work more in your strengths, manage your energy and make more intentional choices.",
+    "The goal is not to label or limit you. Instead, see this as a starting point – a shared language you can use with colleagues, clients and collaborators to design your best way of working.",
+    "Use this report to reflect, have better conversations and build a development path that matches who you are at your best."
+  ],
+
+  "framework_title": "The Competency Coach framework",
+
+  "framework_intro": [
+    "The Competency Coach framework brings structure and clarity to the human side of performance. It combines clear behavioural patterns with practical coaching tools so that insight leads to real change.",
+    "Rather than focusing only on problems or gaps, the framework starts from strengths – what already works for you – and then maps the stretch areas that will support your next stage of growth.",
+    "By understanding your natural energy, your decision-making style and the roles where you add the most value, you can make better choices about how you design your work, your team and your coaching focus.",
+    "You can use this blueprint on your own, with a coach, or with your leader to create a development plan that is honest, sustainable and aligned with your goals."
+  ],
+
+  "how_to_use": {
+    "summary": "This report is a snapshot of your natural patterns, not a fixed label. Use it as a guide for reflection and conversation.",
+    "bullets": [
+      "Highlight 2–3 sentences that feel most true for you.",
+      "Notice one strength you want to use more consciously.",
+      "Notice one development area that feels most relevant right now.",
+      "Bring this report into your next coaching or one-to-one conversation."
+    ]
+  },
+
+  "how_to_read_scores": {
+    "title": "How to read these scores",
+    "bullets": [
+      "Higher percentages highlight patterns you use frequently and with ease.",
+      "Lower percentages highlight backup styles you can use when needed, but they may require more effort.",
+      "Your primary profile is where you will usually feel most natural and effective.",
+      "Your secondary and tertiary profiles show helpful supporting patterns around your core style."
+    ]
+  },
+
+  "profile_language": {
+    "blind_spots_label": "Watch outs",
+    "blind_spots_description": "Patterns to watch out for when you are under pressure or over-using a strength."
+  },
+
+  "images": {
+    "framework_banner": "/images/competency-coach/report-header.png",
+    "frequency_diagram": "/images/competency-coach/frequency-wheel.png",
+    "profile_grid": "/images/competency-coach/profile-grid.png"
+  },
+
+  "profiles": {
+    "PROFILE_1": {
+      "one_liner": "Innovator – Generates ideas, challenges assumptions and pushes for better ways.",
+      "traits": [
+        "Sees possibilities and alternative approaches others may miss.",
+        "Enjoys exploring options, models and new methods.",
+        "Comfortable experimenting and iterating to find a better solution."
+      ],
+      "motivators": [
+        "Freedom to explore ideas and possibilities.",
+        "Time and space to think ahead and challenge the status quo.",
+        "Opportunities to design, re-design or improve how things are done."
+      ],
+      "blind_spots": [
+        "May move on too quickly from execution if a new idea appears.",
+        "Can feel frustrated by routine or repetitive work.",
+        "Might underestimate how much structure or detail others need."
+      ],
+      "example": "You may be the person who asks 'what if we tried this instead?', who challenges assumptions and brings creative options into the room."
+    },
+
+    "PROFILE_8": {
+      "one_liner": "Change Agent – Drives transformation, improvement and momentum.",
+      "traits": [
+        "Spots where change is needed and is willing to push for it.",
+        "Balances big-picture thinking with action and follow-through.",
+        "Brings urgency, focus and direction when things need to shift."
+      ],
+      "motivators": [
+        "Challenges that feel meaningful and worth the effort.",
+        "Clear goals and the authority to act on them.",
+        "Environments where continuous improvement is valued."
+      ],
+      "blind_spots": [
+        "May be impatient with slower-paced colleagues or processes.",
+        "Can push change faster than some stakeholders are ready for.",
+        "Might under-communicate the emotional impact of change on others."
+      ],
+      "example": "You may be the one who says 'we can’t keep doing it this way', who sets a clear direction and helps drive the change through."
+    }
+
+  },
+
+  "energy_matrix": {
+    "title": "Your Energy Matrix",
+    "body": [
+      "Your Energy Matrix shows how your primary, secondary and tertiary profiles work together in real situations.",
+      "When you understand this pattern, you can design your work so that you spend more time in your best energy and less time fighting against yourself.",
+      "Use this insight to choose where to lean in, where to set boundaries and where to collaborate with others who balance your style."
+    ]
+  }
+},
+
       "catalyst-a-coaching-flow-report-competency-coach-dna-blueprint": {
         "title": "Catalyst A Coaching Flow Report _ Competency Coach DNA Blueprint",
         "source_file": "extracted/zip2/Catalyst A Coaching Flow Report _ Competency Coach DNA Blueprint.pdf",
@@ -383,4 +487,3 @@
       }
     }
   }
-}
