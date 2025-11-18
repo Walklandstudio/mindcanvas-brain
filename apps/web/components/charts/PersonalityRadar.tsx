@@ -22,10 +22,10 @@ ChartJS.register(
 
 type PersonalityRadarProps = {
   frequencies: {
-    innovationA: number;      // Frequency A (%)
-    influenceB: number;       // Frequency B (%)
-    implementationC: number;  // Frequency C (%)
-    insightD: number;         // Frequency D (%)
+    innovationA: number; // 0–1 or 0–100
+    influenceB: number;
+    implementationC: number;
+    insightD: number;
   };
   profiles: {
     p1: number;
@@ -54,41 +54,33 @@ const labels = [
   'P8',
 ];
 
-export function PersonalityRadar({ frequencies, profiles }: PersonalityRadarProps) {
-  const {
-    innovationA,
-    influenceB,
-    implementationC,
-    insightD,
-  } = frequencies;
+// Normalise values: if they look like 0–1, convert to 0–100
+function toPercent(v: number | undefined | null): number {
+  if (!v || Number.isNaN(v)) return 0;
+  if (v <= 1) return Math.round(v * 100);
+  return Math.round(v);
+}
 
-  const {
-    p1,
-    p2,
-    p3,
-    p4,
-    p5,
-    p6,
-    p7,
-    p8,
-  } = profiles;
-
+export default function PersonalityRadar({
+  frequencies,
+  profiles,
+}: PersonalityRadarProps) {
   const data = {
     labels,
     datasets: [
       {
         label: 'Frequencies',
         data: [
-          innovationA,
+          toPercent(frequencies.innovationA),
           null,
           null,
-          influenceB,
+          toPercent(frequencies.influenceB),
           null,
           null,
-          implementationC,
+          toPercent(frequencies.implementationC),
           null,
           null,
-          insightD,
+          toPercent(frequencies.insightD),
           null,
           null,
         ],
@@ -104,17 +96,17 @@ export function PersonalityRadar({ frequencies, profiles }: PersonalityRadarProp
         label: 'Profiles',
         data: [
           null,
-          p1,
-          p2,
+          toPercent(profiles.p1),
+          toPercent(profiles.p2),
           null,
-          p3,
-          p4,
+          toPercent(profiles.p3),
+          toPercent(profiles.p4),
           null,
-          p5,
-          p6,
+          toPercent(profiles.p5),
+          toPercent(profiles.p6),
           null,
-          p7,
-          p8,
+          toPercent(profiles.p7),
+          toPercent(profiles.p8),
         ],
         borderColor: '#0FB9B1',
         backgroundColor: 'rgba(15, 185, 177, 0.18)',
@@ -133,7 +125,7 @@ export function PersonalityRadar({ frequencies, profiles }: PersonalityRadarProp
     plugins: {
       legend: {
         display: true,
-        position: 'bottom',
+        position: 'bottom' as const,
         labels: {
           boxWidth: 18,
           font: {
@@ -146,7 +138,7 @@ export function PersonalityRadar({ frequencies, profiles }: PersonalityRadarProp
         callbacks: {
           label: (ctx: any) => {
             const label = ctx.dataset.label || '';
-            const value = ctx.formattedValue || '0';
+            const value = ctx.parsed.r ?? 0;
             return `${label}: ${value}%`;
           },
         },
@@ -160,8 +152,8 @@ export function PersonalityRadar({ frequencies, profiles }: PersonalityRadarProp
         grid: {
           color: '#E4E7EB',
         },
-        suggestedMin: 0,
-        suggestedMax: 40, // or 100 later if you want full scale
+        min: 0,
+        max: 100,
         ticks: {
           showLabelBackdrop: false,
           stepSize: 10,
@@ -193,5 +185,3 @@ export function PersonalityRadar({ frequencies, profiles }: PersonalityRadarProp
     </div>
   );
 }
-
-export default PersonalityRadar;
