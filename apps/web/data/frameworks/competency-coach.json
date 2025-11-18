@@ -105,50 +105,110 @@
       }
     ],
     "questions": [],
-    "reports": {
+   "report": {
   "report_title": "Competency Coach DNA Blueprint",
 
   "welcome_title": "Welcome to your DNA Blueprint",
-
   "welcome_body": [
-    "Welcome to your Competency Coach DNA Blueprint. This report is designed to give you a clear, practical view of how you naturally like to work, lead and contribute.",
-    "As a coach, leader or professional, your impact comes from the way you think, decide and show up in real situations. This blueprint highlights your core patterns so that you can work more in your strengths, manage your energy and make more intentional choices.",
-    "The goal is not to label or limit you. Instead, see this as a starting point – a shared language you can use with colleagues, clients and collaborators to design your best way of working.",
-    "Use this report to reflect, have better conversations and build a development path that matches who you are at your best."
-  ],
-
-  "framework_title": "The Competency Coach framework",
-
-  "framework_intro": [
-    "The Competency Coach framework brings structure and clarity to the human side of performance. It combines clear behavioural patterns with practical coaching tools so that insight leads to real change.",
-    "Rather than focusing only on problems or gaps, the framework starts from strengths – what already works for you – and then maps the stretch areas that will support your next stage of growth.",
-    "By understanding your natural energy, your decision-making style and the roles where you add the most value, you can make better choices about how you design your work, your team and your coaching focus.",
-    "You can use this blueprint on your own, with a coach, or with your leader to create a development plan that is honest, sustainable and aligned with your goals."
+    "Welcome to your Competency Coach DNA Blueprint. This report gives you a clear and practical view of how you naturally think, communicate and create impact as a coach or leader.",
+    "Your ability to help others transform starts with understanding your own instincts, patterns and strengths. This blueprint highlights how your natural energy shows up in real situations so you can work more intentionally and sustainably.",
+    "This is not a label or a judgement. Instead, see it as a working document – a shared language you can use with clients, colleagues or mentors to clarify your strengths, stretch areas and coaching focus.",
+    "Use this report to reflect on what energises you, where you create the most impact and how you can continue developing your coaching mastery."
   ],
 
   "how_to_use": {
-    "summary": "This report is a snapshot of your natural patterns, not a fixed label. Use it as a guide for reflection and conversation.",
+    "summary": "This report is a snapshot of your natural patterns, not a fixed identity. Use it as a starting point for reflection, coaching and conversation.",
     "bullets": [
       "Highlight 2–3 sentences that feel most true for you.",
-      "Notice one strength you want to use more consciously.",
-      "Notice one development area that feels most relevant right now.",
-      "Bring this report into your next coaching or one-to-one conversation."
+      "Notice one strength you want to bring forward more deliberately.",
+      "Identify one development area you would like to work on in the next month.",
+      "Discuss this blueprint with a coach, supervisor or trusted peer."
     ]
+  },
+
+  "framework_title": "The Competency Coach framework",
+  "framework_intro": [
+    "The Competency Coach framework brings structure and clarity to the human side of performance. It blends behavioural patterns with practical coaching tools so that insight leads to meaningful change.",
+    "Rather than starting with gaps or problems, this framework begins with strengths – what already works for you – and then highlights the stretch areas that support your next level of growth.",
+    "By understanding your natural energy, how you make decisions and the environments where you thrive, you can design your coaching practice in a way that feels authentic, effective and sustainable.",
+    "You can use this blueprint on your own, with clients or with a mentor to create a development path that aligns with who you are at your best."
+  ],
+
+  "frequencies_copy": {
+    "title": "Understanding the four Frequencies",
+    "intro": "Frequencies describe the way you naturally think, decide and take action – your coaching energy.",
+    "items": {
+      "A": {
+        "name": "Innovation",
+        "description": "Ideas, models, frameworks and new ways of approaching problems."
+      },
+      "B": {
+        "name": "Influence",
+        "description": "Connection, communication, motivation and facilitation."
+      },
+      "C": {
+        "name": "Implementation",
+        "description": "Structure, process, rhythm and consistent follow-through."
+      },
+      "D": {
+        "name": "Insight",
+        "description": "Observation, reflection, analysis and deeper understanding."
+      }
+    }
+  },
+
+  "profiles_copy": {
+    "title": "Understanding the eight Profiles",
+    "intro": "Profiles blend the Frequencies into distinct coaching patterns. Your profile mix shows how you naturally create value in sessions, relationships and results.",
+    "items": {
+      "PROFILE_1": {
+        "name": "Innovator",
+        "one_liner": "Generates ideas, sees possibilities and designs new ways forward."
+      },
+      "PROFILE_2": {
+        "name": "Storyteller",
+        "one_liner": "Uses stories, language and narrative to unlock insight and action."
+      },
+      "PROFILE_3": {
+        "name": "Heart-Centred Coach",
+        "one_liner": "Holds space with care, empathy and deep presence."
+      },
+      "PROFILE_4": {
+        "name": "Negotiator",
+        "one_liner": "Finds common ground, balances needs and helps resolve tension."
+      },
+      "PROFILE_5": {
+        "name": "Grounded Guide",
+        "one_liner": "Brings steadiness, structure and practical next steps."
+      },
+      "PROFILE_6": {
+        "name": "Thinker",
+        "one_liner": "Asks thoughtful questions and helps clients see patterns clearly."
+      },
+      "PROFILE_7": {
+        "name": "Mastermind",
+        "one_liner": "Connects strategy, systems and long-term direction."
+      },
+      "PROFILE_8": {
+        "name": "Change Agent",
+        "one_liner": "Supports transformation, challenge and meaningful shifts."
+      }
+    }
   },
 
   "how_to_read_scores": {
     "title": "How to read these scores",
     "bullets": [
-      "Higher percentages highlight patterns you use frequently and with ease.",
-      "Lower percentages highlight backup styles you can use when needed, but they may require more effort.",
-      "Your primary profile is where you will usually feel most natural and effective.",
-      "Your secondary and tertiary profiles show helpful supporting patterns around your core style."
+      "Higher percentages highlight patterns you use naturally and with ease.",
+      "Lower percentages highlight styles you can use when needed, but which may take more energy.",
+      "Your primary profile is your natural centre of gravity in coaching.",
+      "Your secondary and tertiary profiles show useful complementary strengths."
     ]
   },
 
   "profile_language": {
-    "blind_spots_label": "Watch outs",
-    "blind_spots_description": "Patterns to watch out for when you are under pressure or over-using a strength."
+    "blind_spots_label": "Watch-outs",
+    "blind_spots_description": "Patterns to be aware of when your strengths are over-used or when you are under pressure."
   },
 
   "images": {
@@ -159,53 +219,149 @@
 
   "profiles": {
     "PROFILE_1": {
-      "one_liner": "Innovator – Generates ideas, challenges assumptions and pushes for better ways.",
+      "one_liner": "Innovator – generates ideas, sees possibilities and designs new ways forward.",
       "traits": [
-        "Sees possibilities and alternative approaches others may miss.",
-        "Enjoys exploring options, models and new methods.",
-        "Comfortable experimenting and iterating to find a better solution."
+        "Spots new angles, models or tools that could help clients shift.",
+        "Enjoys exploring options and crafting creative approaches.",
+        "Brings energy through experimentation and fresh thinking."
       ],
       "motivators": [
-        "Freedom to explore ideas and possibilities.",
-        "Time and space to think ahead and challenge the status quo.",
-        "Opportunities to design, re-design or improve how things are done."
+        "Freedom to design and adapt coaching approaches.",
+        "Opportunities to introduce new frameworks or methods."
       ],
       "blind_spots": [
-        "May move on too quickly from execution if a new idea appears.",
-        "Can feel frustrated by routine or repetitive work.",
-        "Might underestimate how much structure or detail others need."
+        "May move on too quickly from one idea to the next.",
+        "Can underestimate clients’ need for repetition and grounding."
       ],
-      "example": "You may be the person who asks 'what if we tried this instead?', who challenges assumptions and brings creative options into the room."
+      "example": "You may be the coach who says ‘what if we tried looking at it this way?’ and opens up a new path forward."
     },
-
-    "PROFILE_8": {
-      "one_liner": "Change Agent – Drives transformation, improvement and momentum.",
+    "PROFILE_2": {
+      "one_liner": "Storyteller – uses stories, language and narrative to unlock insight and action.",
       "traits": [
-        "Spots where change is needed and is willing to push for it.",
-        "Balances big-picture thinking with action and follow-through.",
-        "Brings urgency, focus and direction when things need to shift."
+        "Helps clients make sense of their experience through metaphor and story.",
+        "Uses examples, re-frames and language shifts to create change.",
+        "Keeps conversations engaging, human and emotionally connected."
       ],
       "motivators": [
-        "Challenges that feel meaningful and worth the effort.",
-        "Clear goals and the authority to act on them.",
-        "Environments where continuous improvement is valued."
+        "Hearing client stories and finding the thread that matters.",
+        "Environments where communication and expression are valued."
       ],
       "blind_spots": [
-        "May be impatient with slower-paced colleagues or processes.",
-        "Can push change faster than some stakeholders are ready for.",
-        "Might under-communicate the emotional impact of change on others."
+        "May spend too long in the story and not enough in concrete action.",
+        "Can assume clients understand more than they are ready to act on."
       ],
-      "example": "You may be the one who says 'we can’t keep doing it this way', who sets a clear direction and helps drive the change through."
+      "example": "You may be the coach who finds the ‘one sentence’ or image that suddenly makes everything click for a client."
+    },
+    "PROFILE_3": {
+      "one_liner": "Heart-Centred Coach – holds space with care, empathy and deep presence.",
+      "traits": [
+        "Creates a safe, trusting environment where clients can be honest.",
+        "Tunes into emotional cues and unspoken signals.",
+        "Helps clients feel seen, heard and supported."
+      ],
+      "motivators": [
+        "Meaningful, honest conversations.",
+        "Seeing clients grow in confidence and self-trust."
+      ],
+      "blind_spots": [
+        "May avoid challenge in order to protect the relationship.",
+        "Can take on too much emotional load from clients."
+      ],
+      "example": "You may be the coach clients come back to when they need to feel grounded, understood and not judged."
+    },
+    "PROFILE_4": {
+      "one_liner": "Negotiator – finds common ground, balances needs and helps resolve tension.",
+      "traits": [
+        "Listens to multiple perspectives and looks for workable agreements.",
+        "Helps clients navigate conflict, trade-offs and competing demands.",
+        "Keeps an eye on relationships as well as outcomes."
+      ],
+      "motivators": [
+        "Helping people move through stuck, tense or complex situations.",
+        "Being a bridge between different stakeholders or viewpoints."
+      ],
+      "blind_spots": [
+        "May over-compromise to keep peace.",
+        "Can find it hard to say no or set boundaries when needed."
+      ],
+      "example": "You may be the coach who helps leaders see all sides of a situation and move toward a solution everyone can live with."
+    },
+    "PROFILE_5": {
+      "one_liner": "Grounded Guide – brings steadiness, structure and practical next steps.",
+      "traits": [
+        "Helps clients move from insight into clear actions.",
+        "Breaks big goals into manageable, realistic steps.",
+        "Offers calm, steady support even when clients feel overwhelmed."
+      ],
+      "motivators": [
+        "Seeing clients follow through and make tangible progress.",
+        "Working with clear goals, plans and milestones."
+      ],
+      "blind_spots": [
+        "May become too focused on plans and lose emotional nuance.",
+        "Can feel frustrated when clients do not implement agreed actions."
+      ],
+      "example": "You may be the coach who says ‘let’s turn this into a simple next step’ and helps clients keep moving."
+    },
+    "PROFILE_6": {
+      "one_liner": "Thinker – asks thoughtful questions and helps clients see patterns clearly.",
+      "traits": [
+        "Listens deeply and reflects back key themes and patterns.",
+        "Asks precise questions that shift how clients think.",
+        "Helps clients slow down and make considered decisions."
+      ],
+      "motivators": [
+        "Time to explore issues in depth.",
+        "Working with complex, layered topics that need careful thought."
+      ],
+      "blind_spots": [
+        "May over-analyse and delay moving into action.",
+        "Can come across as detached if emotional support is also needed."
+      ],
+      "example": "You may be the coach who helps clients say ‘I’ve never seen it that way before’ and gain a new level of clarity."
+    },
+    "PROFILE_7": {
+      "one_liner": "Mastermind – connects strategy, systems and long-term direction.",
+      "traits": [
+        "Sees how different pieces of a client’s life or business fit together.",
+        "Helps clients align daily choices with bigger goals and strategy.",
+        "Enjoys building frameworks, roadmaps and long-term plans."
+      ],
+      "motivators": [
+        "Working with ambitious goals and complex systems.",
+        "Helping clients design sustainable paths, not just quick fixes."
+      ],
+      "blind_spots": [
+        "May overlook small emotional cues while focusing on the big picture.",
+        "Can push for structured plans before clients feel ready."
+      ],
+      "example": "You may be the coach who maps out the ‘bigger game’ and helps clients organise their energy around what really matters."
+    },
+    "PROFILE_8": {
+      "one_liner": "Change Agent – supports transformation, challenge and meaningful shifts.",
+      "traits": [
+        "Comfortable inviting clients to stretch, experiment and change.",
+        "Helps clients let go of unhelpful patterns and adopt new ones.",
+        "Brings courage, directness and a focus on what will really move the dial."
+      ],
+      "motivators": [
+        "Working with clients who are ready for real change.",
+        "Seeing tangible shifts in behaviour, mindset or results."
+      ],
+      "blind_spots": [
+        "May push change faster than some clients can integrate.",
+        "Can underestimate how much emotional safety some clients need."
+      ],
+      "example": "You may be the coach who says ‘let’s be honest about what needs to change’ and stands alongside clients as they do that work."
     }
-
   },
 
   "energy_matrix": {
     "title": "Your Energy Matrix",
     "body": [
-      "Your Energy Matrix shows how your primary, secondary and tertiary profiles work together in real situations.",
-      "When you understand this pattern, you can design your work so that you spend more time in your best energy and less time fighting against yourself.",
-      "Use this insight to choose where to lean in, where to set boundaries and where to collaborate with others who balance your style."
+      "Your Energy Matrix shows how your primary, secondary and tertiary profiles work together in your coaching and leadership.",
+      "When you understand this pattern you can design your work so that you spend more time in your best energy and less time fighting against yourself.",
+      "Use this insight to choose where to lean in personally, where to set boundaries and where to collaborate with others who balance your style."
     ]
   }
 },
