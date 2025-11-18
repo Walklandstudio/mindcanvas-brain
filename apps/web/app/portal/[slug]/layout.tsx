@@ -1,31 +1,73 @@
-import Link from "next/link";
+// apps/web/app/portal/[slug]/layout.tsx
+import { ReactNode } from "react";
+import { createClient } from "@supabase/supabase-js";
+import PortalChrome from "@/components/portal/PortalChrome";
+import AppBackground from "@/components/ui/AppBackground";
 
-export default function OrgLayout({ children, params }: any) {
-  const { slug } = params;
-  const tabs = [
-    { href: `/portal/${slug}`, label: "Dashboard" },
-    { href: `/portal/${slug}/database`, label: "Database" },
-    { href: `/portal/${slug}/tests`, label: "Tests" },
-    { href: `/portal/${slug}/settings`, label: "Profile Settings" },
-  ];
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type Org = {
+  slug: string;
+  name: string;
+  brand_name?: string | null;
+  brand_primary?: string | null;
+  brand_secondary?: string | null;
+  brand_accent?: string | null;
+  brand_text?: string | null;
+  report_font_family?: string | null;
+  report_font_size?: string | null;
+  logo_url?: string | null;
+};
+
+async function loadOrg(slug: string): Promise<Org | null> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  const supabase = createClient(url, key);
+  const { data } = await supabase
+    .from("portal.orgs")
+    .select("*")
+    .eq("slug", slug)
+    .maybeSingle();
+  return (data as Org) ?? null;
+}
+
+export default async function OrgLayout({
+  children,
+  params,
+}: {
+  children: ReactNode;
+  params: { slug: string };
+}) {
+  const org = await loadOrg(params.slug);
+
+  const vars: Record<string, string> = {
+    "--brand-primary": org?.brand_primary ?? "#2d8fc4",
+    "--brand-secondary": org?.brand_secondary ?? "#015a8b",
+    "--brand-accent": org?.brand_accent ?? "#64bae2",
+    "--brand-text": org?.brand_text ?? "#111827",
+    "--report-font-family": org?.report_font_family ?? "Inter, sans-serif",
+    "--report-font-size": org?.report_font_size ?? "14px",
+  };
+
   return (
-    <div className="p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{slug}</h1>
-        <Link href="/portal/admin" className="text-sm underline">Back to admin</Link>
-      </header>
-      <nav className="flex gap-3">
-        {tabs.map((t) => (
-          <Link
-            key={t.href}
-            href={t.href}
-            className="px-3 py-2 rounded-lg border hover:bg-gray-50"
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
-      <section>{children}</section>
-    </div>
+    <html style={vars as any}>
+      <body
+        style={{ fontFamily: "var(--report-font-family)" }}
+        className="relative min-h-screen bg-[#050914] text-white overflow-hidden"
+      >
+        {/* shared MindCanvas background (same as landing) */}
+        <AppBackground />
+
+        {/* existing portal chrome/nav + content */}
+        <div className="relative z-10">
+          <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
+            {children}
+          </PortalChrome>
+        </div>
+      </body>
+    </html>
   );
 }

@@ -105,7 +105,269 @@
       }
     ],
     "questions": [],
-    "reports": {
+    "report": {
+  "report_title": "Team Puzzle Discovery Assessment",
+
+  "welcome_title": "Welcome to your Team Puzzle Discovery Report",
+  "welcome_body": [
+    "Welcome to your Team Puzzle Discovery Report. I’m excited to be part of your journey as you uncover your natural strengths, communication style and best-fit contribution at work.",
+    "This report is designed to give you deep insight into how you work best, where you thrive in a team and how to align your role with your natural energy. When people understand themselves and each other more deeply, culture shifts, communication improves and performance becomes more sustainable.",
+    "Team Puzzle was created with that in mind. It’s not just a tool for insight – it is a practical system for action. It maps the puzzle pieces of your team so that you can fit together more effectively, reduce friction and increase flow.",
+    "Whether you are reading this as part of a leadership program, a coaching session or your own development, treat this as a starting point, not an ending. Use what you discover here to guide conversations, make better choices and design the way you want to work going forward.",
+    "Warm regards,",
+    "Chandell Labbozzetta, Founder – Life Puzzle & Team Puzzle Discovery Assessment"
+  ],
+
+  "how_to_use": {
+    "summary": "This report is a snapshot of how you naturally like to work – it is a guide for reflection and conversation, not a label.",
+    "bullets": [
+      "Highlight 2–3 sentences in this report that feel most true for you.",
+      "Notice one strength you would like to lean into more deliberately.",
+      "Notice one development area you would like to experiment with over the next month.",
+      "Bring this report into your next one-to-one or coaching conversation and talk about where your role matches your strengths."
+    ]
+  },
+
+  "framework_title": "The Team Puzzle framework",
+  "framework_intro": [
+    "The Team Puzzle framework was created to help organisations get the best from each individual and even better results from the team as a whole.",
+    "High-performing teams do not happen by accident. They are built with intention, structure and insight. This framework gives leaders and team members a clear, shared language for strengths, energy and contribution.",
+    "When people are placed in roles that energise them, when teams communicate in a way that fits their natural style and when leaders understand how each person adds value, culture shifts. Engagement increases, trust grows and results improve.",
+    "Rather than trying to ‘fix’ people, the Team Puzzle approach is about fitting people together. Just like a real puzzle, each person has a unique shape. This report helps you see how your piece fits so you can work with more clarity, confidence and impact."
+  ],
+
+  "frequencies_copy": {
+    "title": "Understanding the four Frequencies",
+    "intro": "Frequencies describe the way you naturally think, decide and take action – your working energy.",
+    "items": {
+      "A": {
+        "name": "Innovation",
+        "description": "Ideas, creation, momentum and challenging the status quo."
+      },
+      "B": {
+        "name": "Influence",
+        "description": "People, communication, motivation and activation."
+      },
+      "C": {
+        "name": "Implementation",
+        "description": "Rhythm, process, structure and reliable delivery."
+      },
+      "D": {
+        "name": "Insight",
+        "description": "Pattern recognition, analysis and perspective."
+      }
+    }
+  },
+
+  "profiles_copy": {
+    "title": "Understanding the eight Profiles",
+    "intro": "Profiles blend the Frequencies into distinct patterns of contribution. Your profile mix shows how you naturally create value in a team.",
+    "items": {
+      "PROFILE_1": {
+        "name": "Visionary",
+        "one_liner": "Future-focused, idea-driven and sees possibilities before others."
+      },
+      "PROFILE_2": {
+        "name": "Catalyst",
+        "one_liner": "Energetic, action-oriented and drives momentum and change."
+      },
+      "PROFILE_3": {
+        "name": "Motivator",
+        "one_liner": "Encourages others, builds energy and engagement in the team."
+      },
+      "PROFILE_4": {
+        "name": "Connector",
+        "one_liner": "Builds relationships, joins the dots between people, ideas and opportunities."
+      },
+      "PROFILE_5": {
+        "name": "Facilitator",
+        "one_liner": "Creates space for others, guides process and keeps collaboration moving."
+      },
+      "PROFILE_6": {
+        "name": "Coordinator",
+        "one_liner": "Organised and practical, keeps plans moving and details on track."
+      },
+      "PROFILE_7": {
+        "name": "Controller",
+        "one_liner": "Analytical and detail-focused, ensures accuracy and quality."
+      },
+      "PROFILE_8": {
+        "name": "Optimiser",
+        "one_liner": "Refines systems and processes, improves efficiency and outcomes."
+      }
+    }
+  },
+
+  "how_to_read_scores": {
+    "title": "How to read these scores",
+    "bullets": [
+      "Higher percentages highlight patterns you use frequently and with ease.",
+      "Lower percentages highlight backup styles you can use when needed, but they may cost more energy.",
+      "Anything above roughly 30% will usually feel very natural for you.",
+      "Your primary profile is your strongest pattern. Your secondary and tertiary profiles show helpful support patterns around your core style."
+    ]
+  },
+
+  "profile_language": {
+    "blind_spots_label": "Watch-outs",
+    "blind_spots_description": "Things to watch out for when this energy is over-used, or when you are under pressure."
+  },
+
+  "images": {
+    "framework_banner": "/images/team-puzzle/report-header.png",
+    "frequency_diagram": "/images/team-puzzle/frequency-wheel.png",
+    "profile_grid": "/images/team-puzzle/profile-grid.png"
+  },
+
+  "profiles": {
+    "PROFILE_1": {
+      "one_liner": "Visionary – future-focused, idea-driven and sees possibilities before others.",
+      "traits": [
+        "Spots opportunities and patterns early and enjoys thinking ahead.",
+        "Comfortable with ambiguity and exploring different options.",
+        "Brings energy through big-picture thinking and new ideas."
+      ],
+      "motivators": [
+        "Space to imagine, design and re-design how things could work.",
+        "Freedom to pursue possibilities rather than only following existing paths."
+      ],
+      "blind_spots": [
+        "May lose interest once the excitement of the idea phase passes.",
+        "Can overlook practical constraints or underestimate delivery effort."
+      ],
+      "example": "You may be the person who asks ‘what could this become?’ and pulls the team toward a bigger vision or future possibility."
+    },
+    "PROFILE_2": {
+      "one_liner": "Catalyst – energetic, action-oriented and drives momentum and change.",
+      "traits": [
+        "Moves quickly from idea into action and likes to see progress.",
+        "Comfortable taking the lead to get things started.",
+        "Brings enthusiasm and urgency when energy is low."
+      ],
+      "motivators": [
+        "Visible progress, clear wins and fast feedback.",
+        "Opportunities to kick off initiatives or inject energy into projects."
+      ],
+      "blind_spots": [
+        "May move so fast that others feel rushed or left behind.",
+        "Can become impatient with long discussions or slow decisions."
+      ],
+      "example": "You may be the one who says ‘let’s get this moving’ and rallies others to take the first step."
+    },
+    "PROFILE_3": {
+      "one_liner": "Motivator – encourages others and builds energy and engagement in the team.",
+      "traits": [
+        "Naturally checks in on how people are feeling and creates a sense of inclusion.",
+        "Helps keep morale high during busy or challenging periods.",
+        "Enjoys recognising effort and celebrating progress."
+      ],
+      "motivators": [
+        "Working closely with people and seeing others grow or succeed.",
+        "Environments where relationships and contribution are recognised."
+      ],
+      "blind_spots": [
+        "May avoid difficult conversations to protect harmony.",
+        "Can take on too much emotional responsibility for the team."
+      ],
+      "example": "You may be the ‘heart of the team’ – the person who notices when someone is flat and helps bring them back into the conversation."
+    },
+    "PROFILE_4": {
+      "one_liner": "Connector – builds relationships and joins the dots between people, ideas and opportunities.",
+      "traits": [
+        "Sees links between people and spots useful introductions.",
+        "Enjoys cross-functional collaboration and bringing groups together.",
+        "Helps information, context and opportunities flow across the organisation."
+      ],
+      "motivators": [
+        "Working with diverse people and teams.",
+        "Opportunities to broker connections or coordinate across boundaries."
+      ],
+      "blind_spots": [
+        "May say ‘yes’ to too many requests to keep relationships smooth.",
+        "Can feel stretched if expected to be across every detail for everyone."
+      ],
+      "example": "You may be the person who thinks ‘you two should talk’ and naturally builds the web of relationships that helps work get done."
+    },
+    "PROFILE_5": {
+      "one_liner": "Facilitator – creates space for others, guides process and keeps collaboration moving.",
+      "traits": [
+        "Helps groups have structured, productive conversations.",
+        "Listens for different views and brings them together.",
+        "Keeps people focused on the shared outcome and next steps."
+      ],
+      "motivators": [
+        "Balanced, well-run meetings and workshops.",
+        "Helping others feel heard and moving discussions to a clear outcome."
+      ],
+      "blind_spots": [
+        "May hold back their own views in order to stay neutral.",
+        "Can feel stuck if the group will not engage or share responsibility."
+      ],
+      "example": "You may be the person who says ‘let’s slow down and hear from everyone’ and then turns the discussion into a clear plan."
+    },
+    "PROFILE_6": {
+      "one_liner": "Coordinator – organised and practical, keeps plans moving and details on track.",
+      "traits": [
+        "Builds clear plans, checklists and timelines.",
+        "Keeps track of who is doing what and by when.",
+        "Spots gaps, overlaps or risks in the plan early."
+      ],
+      "motivators": [
+        "Clarity about priorities and deliverables.",
+        "Being trusted to manage the detail that keeps things running smoothly."
+      ],
+      "blind_spots": [
+        "May become frustrated when others change direction late.",
+        "Can over-focus on the plan and lose sight of bigger shifts in context."
+      ],
+      "example": "You may be the one who keeps the project board up to date and quietly makes sure nothing important is missed."
+    },
+    "PROFILE_7": {
+      "one_liner": "Controller – analytical and detail-focused, ensures accuracy and quality.",
+      "traits": [
+        "Looks for data, evidence and clear logic before deciding.",
+        "Spots errors, inconsistencies or risks others may miss.",
+        "Brings structure and order to complex information."
+      ],
+      "motivators": [
+        "Time to analyse information properly before acting.",
+        "Clear standards of quality and well-defined processes."
+      ],
+      "blind_spots": [
+        "May come across as critical when pointing out gaps or issues.",
+        "Can delay decisions while searching for more certainty."
+      ],
+      "example": "You may be the person who says ‘let’s double-check that’ and helps the team avoid expensive mistakes."
+    },
+    "PROFILE_8": {
+      "one_liner": "Optimiser – refines systems and processes, improves efficiency and outcomes.",
+      "traits": [
+        "Sees how systems and processes could run more smoothly.",
+        "Enjoys simplifying, standardising or automating where possible.",
+        "Looks for continuous improvement rather than one-off fixes."
+      ],
+      "motivators": [
+        "Opportunities to streamline, refine or upgrade how work gets done.",
+        "Clear measures that show improvement over time."
+      ],
+      "blind_spots": [
+        "May focus on optimisation when people first need clarity or support.",
+        "Can become frustrated when others resist process changes."
+      ],
+      "example": "You may be the one who quietly redesigns a clunky process so that everyone can get better results with less effort."
+    }
+  },
+
+  "energy_matrix": {
+    "title": "Your Energy Matrix",
+    "body": [
+      "Your Energy Matrix shows how your primary, secondary and tertiary profiles work together in real situations.",
+      "When you understand this pattern you can design your work so that you spend more time in your best energy and less time fighting against yourself.",
+      "Use this insight to decide where to lean in personally, where to set boundaries and where to collaborate with people whose energy balances yours."
+    ]
+  }
+},
+
       "insight-frequency-team-puzzle-frequency-report": {
         "title": "Insight Frequency _ Team Puzzle Frequency Report",
         "source_file": "extracted/zip1/Insight Frequency _ Team Puzzle Frequency Report.pdf",
@@ -1567,4 +1829,3 @@
       }
     }
   }
-}

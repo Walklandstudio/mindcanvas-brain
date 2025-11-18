@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "lib": [
-      "DOM",
-      "DOM.Iterable",
-      "ESNext"
-    ],
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -20,20 +16,23 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"]
     },
     "allowSyntheticDefaultImports": true,
     "strictNullChecks": true,
-    "types": ["node", "next"],
+
+    /* ✅ Add React and ReactDOM typings here */
+    "types": ["node", "next", "react", "react-dom"],
+
     "typeRoots": ["./types", "./node_modules/@types"],
+
     "plugins": [
       {
         "name": "next"
       }
     ]
   },
+
   "include": [
     "**/*.ts",
     "**/*.tsx",
@@ -45,10 +44,6 @@
     "types",
     ".next/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules",
-    ".next",
-    "dist",
-    "out"
-  ]
+
+  "exclude": ["node_modules", ".next", "dist", "out"]
 }

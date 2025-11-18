@@ -45,3 +45,12 @@
 .mc-btn-ghost { @apply mc-btn bg-white/10 hover:bg-white/20 text-white; }
 .mc-input { @apply w-full rounded-xl bg-white text-black px-3 py-2 outline-none; }
 .mc-select { @apply w-full rounded-xl bg-white text-black px-3 py-2 outline-none; }
+
+/* ---------- NEW: Ensure dark text on light cards ---------- */
+
+/* Any element on a white / very light background should default
+   to dark text so the test-taker “Contact” + results blocks are readable. */
+.bg-white,
+.bg-slate-50 {
+  color: #020617; /* near-black */
+}

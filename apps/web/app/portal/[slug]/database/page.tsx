@@ -1,4 +1,4 @@
-// Server component — bulletproof Database list for /portal/[slug]/database
+// Server component — Database list for /portal/[slug]/database
 // Uses only portal.orgs + portal.test_takers (no views). Always renders.
 
 import Link from "next/link";
@@ -30,7 +30,7 @@ export default async function DatabasePage({
 
   if (orgErr || !org) {
     return (
-      <div className="p-6 text-red-600">
+      <div className="p-6 text-red-400">
         {orgErr?.message || "Organisation not found"}
       </div>
     );
@@ -42,17 +42,16 @@ export default async function DatabasePage({
   const pageSize = 25;
   const from = (page - 1) * pageSize;
 
-  // Overfetch by one to detect "hasNext"
   const { data: takers, error: tkErr } = await sb
     .from("test_takers")
     .select("id, first_name, last_name, email")
     .eq("org_id", org.id)
     .order("id", { ascending: false })
-    .range(from, from + pageSize); // +1 for hasNext
+    .range(from, from + pageSize);
 
   if (tkErr) {
     return (
-      <div className="p-6 text-red-600">
+      <div className="p-6 text-red-400">
         {tkErr.message || "Failed to load test takers."}
       </div>
     );
@@ -81,46 +80,71 @@ export default async function DatabasePage({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5 text-slate-100">
+      {/* Header row: title + CSV */}
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Database</h1>
         <form action={`/api/portal/takers-export`} method="GET">
           <input type="hidden" name="org" value={slug} />
           <input type="hidden" name="q" value={q} />
-          <button className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50" type="submit">
+          <button
+            type="submit"
+            className="rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-slate-100 hover:bg-white/10 transition"
+          >
             Download CSV
           </button>
         </form>
       </header>
 
-      <form className="grid gap-3 md:grid-cols-4">
+      {/* Search */}
+      <form className="grid gap-3 md:grid-cols-[minmax(0,2fr)_auto]">
         <input
           name="q"
           defaultValue={searchParams.q || ""}
           placeholder="Search name or email…"
-          className="rounded-md border px-3 py-2 text-sm"
+          className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
         />
-        <button className="rounded-md border px-3 py-2 text-sm" type="submit">
+        <button
+          className="rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-sm text-slate-100 hover:bg-white/10 transition"
+          type="submit"
+        >
           Apply
         </button>
       </form>
 
-      <div className="overflow-auto rounded-xl border">
+      {/* White data card */}
+      <div className="rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-lg overflow-hidden">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-slate-100">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Name</th>
-              <th className="px-3 py-2 text-left font-medium">Email</th>
-              <th className="px-3 py-2 text-left font-medium">Actions</th>
+              <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Name
+              </th>
+              <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Email
+              </th>
+              <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r: any) => (
-              <tr key={r.id} className="border-t hover:bg-gray-50">
-                <td className="px-3 py-2">{r.name}</td>
-                <td className="px-3 py-2">{r.email}</td>
-                <td className="px-3 py-2">
-                  <Link className="underline" href={`/portal/${slug}/database/${r.id}`}>
+            {rows.map((r: any, idx: number) => (
+              <tr
+                key={r.id}
+                className={
+                  "border-t border-slate-100" +
+                  (idx % 2 === 1 ? " bg-slate-50" : "") +
+                  " hover:bg-slate-100/80"
+                }
+              >
+                <td className="px-4 py-2">{r.name}</td>
+                <td className="px-4 py-2">{r.email}</td>
+                <td className="px-4 py-2">
+                  <Link
+                    className="text-sky-700 hover:text-sky-900 underline"
+                    href={`/portal/${slug}/database/${r.id}`}
+                  >
                     View
                   </Link>
                 </td>
@@ -128,7 +152,7 @@ export default async function DatabasePage({
             ))}
             {rows.length === 0 && (
               <tr>
-                <td className="px-3 py-6 text-center text-gray-500" colSpan={3}>
+                <td className="px-4 py-6 text-center text-slate-500" colSpan={3}>
                   No test takers found.
                 </td>
               </tr>
@@ -137,13 +161,20 @@ export default async function DatabasePage({
         </table>
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-gray-500">Page {page}</span>
+      {/* Pagination */}
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-slate-300">Page {page}</span>
         <div className="flex gap-2">
-          <Link href={gotoPage(Math.max(1, page - 1))} className="rounded-md border px-3 py-1 text-sm">
+          <Link
+            href={gotoPage(Math.max(1, page - 1))}
+            className="rounded-xl border border-white/20 bg-white/5 px-3 py-1 hover:bg-white/10 transition"
+          >
             Prev
           </Link>
-          <Link href={gotoPage(hasNext ? page + 1 : page)} className="rounded-md border px-3 py-1 text-sm">
+          <Link
+            href={gotoPage(hasNext ? page + 1 : page)}
+            className="rounded-xl border border-white/20 bg-white/5 px-3 py-1 hover:bg-white/10 transition"
+          >
             Next
           </Link>
         </div>
