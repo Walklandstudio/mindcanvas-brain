@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 
-type Test = { id: string; name: string; test_type?: string | null; is_active?: boolean | null };
+type Test = {
+  id: string;
+  name: string;
+  test_type?: string | null;
+  is_active?: boolean | null;
+};
+
 type LinkRow = {
   token: string;
   created_at: string | null;
@@ -14,7 +20,11 @@ type LinkRow = {
   email_report: boolean;
 };
 
-export default function LinksClient(props: { orgId: string; orgSlug: string; orgName: string }) {
+export default function LinksClient(props: {
+  orgId: string;
+  orgSlug: string;
+  orgName: string;
+}) {
   const { orgId, orgSlug, orgName } = props;
 
   const [tests, setTests] = useState<Test[]>([]);
@@ -26,9 +36,12 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
   const [emailReport, setEmailReport] = useState(true);
   const [expiresAt, setExpiresAt] = useState<string>("");
 
-  // NEW: email sending
+  // Email via OneSignal (optional)
   const [recipientEmail, setRecipientEmail] = useState("");
   const [sendEmail, setSendEmail] = useState(false);
+
+  // NEW: custom message when results are hidden
+  const [hiddenResultsMessage, setHiddenResultsMessage] = useState("");
 
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -106,6 +119,14 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
     }
 
     try {
+      // Only send a hidden message if results are off (and user wrote something)
+      const messageToSave =
+        !showResults &&
+        !emailReport &&
+        hiddenResultsMessage.trim().length > 0
+          ? hiddenResultsMessage.trim()
+          : null;
+
       const res = await fetch("/api/admin/create-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -116,7 +137,10 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
           contactOwner,
           showResults,
           emailReport,
+          hiddenResultsMessage: messageToSave,
+          redirectUrl: null,
           expiresAt: expiresAt || null,
+          // NOTE: we’re handling OneSignal separately below, so no recipientEmail here.
         }),
       });
 
@@ -125,20 +149,15 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
         throw new Error(data?.error || `HTTP ${res.status}`);
       }
 
-      // Default status: link created
       let message = "Link created!";
-
-      // If configured, send the link via OneSignal email
       const token: string | undefined = data?.token;
+
+      // Optional OneSignal email
       const shouldSendEmail =
-        sendEmail &&
-        !!recipientEmail &&
-        !!token;
+        sendEmail && !!recipientEmail && !!token;
 
       if (shouldSendEmail) {
         const url = fullLink(token!);
-
-        // Try to derive a reasonable test name for the email
         const selectedTest =
           tests.find((t) => t.id === testId) || null;
         const emailTestName =
@@ -174,7 +193,6 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
             message =
               "Link created, but sending the email failed.";
           } else if (emailJson?.skipped) {
-            // Env missing – don’t scare the user, just mention link is made.
             message =
               "Link created (email skipped — OneSignal not configured).";
           } else {
@@ -199,6 +217,8 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
       setLoading(false);
     }
   };
+
+  const showHiddenMessageField = !showResults && !emailReport;
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
@@ -256,7 +276,7 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
             />
           </label>
 
-          {/* NEW: recipient email + toggle */}
+          {/* Recipient email + toggle */}
           <label className="block text-sm">
             <span className="block mb-1">
               Recipient email (optional)
@@ -302,6 +322,25 @@ export default function LinksClient(props: { orgId: string; orgSlug: string; org
             />
             Email the report
           </label>
+
+          {/* NEW: Only show when BOTH toggles are off */}
+          {showHiddenMessageField && (
+            <label className="block text-sm">
+              <span className="block mb-1">
+                Message to show instead of results
+              </span>
+              <textarea
+                className="w-full rounded border p-2 min-h-[80px]"
+                placeholder="e.g. Thank you for completing this assessment. Your facilitator will share your insights during the upcoming workshop."
+                value={hiddenResultsMessage}
+                onChange={(e) => setHiddenResultsMessage(e.target.value)}
+              />
+              <span className="text-xs text-gray-500">
+                This message will be shown to the test taker when they
+                complete the test instead of their results.
+              </span>
+            </label>
+          )}
 
           <label className="block text-sm">
             <span className="block mb-1">Expiry (optional)</span>
