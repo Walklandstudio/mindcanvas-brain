@@ -153,7 +153,7 @@ export default function PersonalityRadar({
           color: '#E4E7EB',
         },
         min: 0,
-        max: 100,
+        max: 60,
         ticks: {
           showLabelBackdrop: false,
           stepSize: 10,
