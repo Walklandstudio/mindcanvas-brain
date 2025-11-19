@@ -1,3 +1,5 @@
+// apps/web/lib/report/buildCoachSummary.ts
+
 export type CoachSummaryInput = {
   participant: {
     firstName?: string;
@@ -26,6 +28,10 @@ function percentToText(value: number | undefined): string {
   return `${Math.round(value * 100)}%`;
 }
 
+/**
+ * Build a short, coach-ready narrative summary from the test data.
+ * Returns a single string with paragraphs separated by blank lines.
+ */
 export function buildCoachSummary(input: CoachSummaryInput): string {
   const { participant, organisation, frequencies, profiles } = input;
 
@@ -67,16 +73,22 @@ export function buildCoachSummary(input: CoachSummaryInput): string {
   if (primaryName) {
     const parts: string[] = [];
     parts.push(
-      `The primary profile is ${primaryName}${primaryPct != null ? ` (${percentToText(primaryPct)})` : ''}`
+      `The primary profile is ${primaryName}${
+        primaryPct != null ? ` (${percentToText(primaryPct)})` : ''
+      }`
     );
     if (secondaryName) {
       parts.push(
-        `supported by ${secondaryName}${secondaryPct != null ? ` (${percentToText(secondaryPct)})` : ''}`
+        `supported by ${secondaryName}${
+          secondaryPct != null ? ` (${percentToText(secondaryPct)})` : ''
+        }`
       );
     }
     if (tertiaryName) {
       parts.push(
-        `and a tertiary pattern of ${tertiaryName}${tertiaryPct != null ? ` (${percentToText(tertiaryPct)})` : ''}`
+        `and a tertiary pattern of ${tertiaryName}${
+          tertiaryPct != null ? ` (${percentToText(tertiaryPct)})` : ''
+        }`
       );
     }
     lines.push(parts.join(', ') + '.');

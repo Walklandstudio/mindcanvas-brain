@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import PersonalityMapSection from './PersonalityMapSection';
+import CoachSummarySection from './CoachSummarySection';
 
 import { getBaseUrl } from '@/lib/server-url';
 import { getOrgFramework, type OrgFramework } from '@/lib/report/getOrgFramework';
 import { buildCoachSummary } from '@/lib/report/buildCoachSummary';
-import { CoachSummarySection } from '@/components/report/CoachSummarySection';
 
 export const dynamic = 'force-dynamic';
 
