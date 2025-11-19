@@ -34,42 +34,7 @@ type ResultData = {
 
 type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
 
-// ---------------------------------------------------------------------------
-// Team Puzzle-specific helpers (images + mapping)
-// ---------------------------------------------------------------------------
-
-// Adjust these filenames if needed to match your actual files under /public/profile-cards
-const TEAM_PUZZLE_ASSETS = {
-  logo: "/profile-cards/tp-logo.png",
-  chandell: "/profile-cards/tp-chandell.png",
-  frequencies: "/profile-cards/tp-frequencies.png",
-  mainGraphic: "/profile-cards/tp-main-graphic.png",
-} as const;
-
-// Map profile codes to the short keys used in your tp-*.png files
-const PROFILE_CODE_TO_KEY: Record<string, string> = {
-  P1: "visionary",
-  P2: "catalyst",
-  P3: "motivator",
-  P4: "connector",
-  P5: "facilitator",
-  P6: "coordinator",
-  P7: "controller",
-  P8: "optimiser",
-};
-
-function getTeamPuzzleProfileImage(profileCode?: string | null) {
-  if (!profileCode) return null;
-  const normalised = profileCode.toUpperCase().replace(/^PROFILE_/, "P");
-  const key = PROFILE_CODE_TO_KEY[normalised];
-  if (!key) return null;
-
-  const src = `/profile-cards/tp-${key}.png`;
-  const alt = key.charAt(0).toUpperCase() + key.slice(1);
-  return { src, alt };
-}
-
-// --- Generic helpers -------------------------------------------------------
+// --- Helpers ---------------------------------------------------------------
 
 function formatPercent(v: number | undefined): string {
   if (!v || Number.isNaN(v)) return "0%";
@@ -153,6 +118,39 @@ type OrgReportCopy = OrgFramework["framework"]["report"] & {
   >;
 };
 
+// Team-specific images for Team Puzzle
+function getOrgAssets(orgSlug: string | undefined) {
+  if (orgSlug === "team-puzzle") {
+    return {
+      logoSrc: "/orgs/team-puzzle-logo.png",
+      frequenciesSrc: "/orgs/team-puzzle-frequencies.png",
+      profilesDiagramSrc: "/orgs/team-puzzle-profiles.png",
+      founderPhotoSrc: "/orgs/team-puzzle-chandell.png",
+      founderCaption:
+        "Chandell Labbozzetta, Founder – Life Puzzle & Team Puzzle Discovery Assessment",
+    };
+  }
+  return null;
+}
+
+// Map Team Puzzle profile name -> card image in /public/profile-cards
+function getTeamPuzzleProfileCard(profileName: string | undefined): string | null {
+  if (!profileName) return null;
+  const key = profileName.toLowerCase();
+
+  if (key.includes("visionary")) return "/profile-cards/tp-visionary.png";
+  if (key.includes("catalyst")) return "/profile-cards/tp-catalyst.png";
+  if (key.includes("motivator")) return "/profile-cards/tp-motivator.png";
+  if (key.includes("connector")) return "/profile-cards/tp-connector.png";
+  if (key.includes("facilitator")) return "/profile-cards/tp-facilitator.png";
+  if (key.includes("coordinator")) return "/profile-cards/tp-coordinator.png";
+  if (key.includes("controller")) return "/profile-cards/tp-controller.png";
+  if (key.includes("optimiser") || key.includes("optimizer"))
+    return "/profile-cards/tp-optimiser.png";
+
+  return null;
+}
+
 // --- Page ------------------------------------------------------------------
 
 export default async function ReportPage({
@@ -167,14 +165,12 @@ export default async function ReportPage({
 
   if (!tid) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-        <div className="mx-auto max-w-4xl p-6">
-          <h1 className="text-2xl font-semibold">Personalised report</h1>
-          <p className="mt-4 text-sm text-slate-300">
-            This page expects a <code>?tid=</code> parameter so we know which
-            test taker&apos;s report to load.
-          </p>
-        </div>
+      <div className="mx-auto max-w-4xl p-6">
+        <h1 className="text-2xl font-semibold">Personalised report</h1>
+        <p className="mt-4 text-sm text-muted-foreground">
+          This page expects a <code>?tid=</code> parameter so we know which test taker’s report to
+          load.
+        </p>
       </div>
     );
   }
@@ -183,7 +179,7 @@ export default async function ReportPage({
 
   // ---- Fetch result data (public API) ------------------------------------
   const resultUrl = `${base}/api/public/test/${encodeURIComponent(
-    token
+    token,
   )}/result?tid=${encodeURIComponent(tid)}`;
 
   let resultData: ResultData | null = null;
@@ -194,9 +190,7 @@ export default async function ReportPage({
     const ct = res.headers.get("content-type") ?? "";
     if (!ct.includes("application/json")) {
       const text = await res.text();
-      throw new Error(
-        `Non-JSON response (${res.status}): ${text.slice(0, 300)}`
-      );
+      throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 300)}`);
     }
     const json = (await res.json()) as ResultAPI;
     if (!res.ok || json.ok === false || !json.data) {
@@ -209,36 +203,36 @@ export default async function ReportPage({
 
   if (!resultData || loadError) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-        <div className="mx-auto max-w-4xl p-6 space-y-4">
-          <h1 className="text-2xl font-semibold">Personalised report</h1>
-          <p className="text-sm text-red-400">
-            Could not load your report. Please refresh or contact support.
-          </p>
+      <div className="mx-auto max-w-4xl p-6 space-y-4">
+        <h1 className="text-2xl font-semibold">Personalised report</h1>
+        <p className="text-sm text-destructive">
+          Could not load your report. Please refresh or contact support.
+        </p>
 
-          <details className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-4 text-xs text-slate-50">
-            <summary className="cursor-pointer font-medium">
-              Debug information (for developer)
-            </summary>
-            <div className="mt-2 space-y-2">
-              <div>
-                <div className="font-semibold">Result API</div>
-                <div className="break-all">URL: {resultUrl}</div>
-                <div>Error: {loadError ?? "Unknown"}</div>
-              </div>
+        <details className="mt-4 rounded-lg border bg-slate-950 p-4 text-xs text-slate-50">
+          <summary className="cursor-pointer font-medium">
+            Debug information (for developer)
+          </summary>
+          <div className="mt-2 space-y-2">
+            <div>
+              <div className="font-semibold">Result API</div>
+              <div className="break-all">URL: {resultUrl}</div>
+              <div>Error: {loadError ?? "Unknown"}</div>
             </div>
-          </details>
-        </div>
+          </div>
+        </details>
       </div>
     );
   }
 
   const data = resultData;
   const orgSlug = data.org_slug;
-  const isTeamPuzzle = orgSlug === "team-puzzle";
-
   const orgName = data.org_name || data.test_name || "Your Organisation";
   const participantName = getFullName(data.taker);
+
+  const orgAssets = getOrgAssets(orgSlug);
+  const headerProfileCardSrc =
+    orgSlug === "team-puzzle" ? getTeamPuzzleProfileCard(data.top_profile_name) : null;
 
   // ---- Load org framework JSON (for copy) --------------------------------
   let orgFw: OrgFramework | null = null;
@@ -251,31 +245,27 @@ export default async function ReportPage({
   const fw = orgFw?.framework;
   const reportCopy: OrgReportCopy | null = fw?.report ?? null;
 
-  // Base copies from JSON / defaults
-  let reportTitle =
-    reportCopy?.report_title || `${orgName} Profile Assessment`;
+  const reportTitle = reportCopy?.report_title || `${orgName} Profile Assessment`;
 
-  let welcomeTitle: string =
+  const welcomeTitle: string =
     reportCopy?.welcome_title || getDefaultWelcome(orgName).title;
 
-  let welcomeBody: string[] =
+  const welcomeBody: string[] =
     reportCopy?.welcome_body && Array.isArray(reportCopy.welcome_body)
       ? reportCopy.welcome_body
       : getDefaultWelcome(orgName).body;
 
-  let frameworkTitle: string =
+  const frameworkTitle: string =
     reportCopy?.framework_title || `The ${orgName} framework`;
-  let frameworkIntro: string[] =
+  const frameworkIntro: string[] =
     reportCopy?.framework_intro && Array.isArray(reportCopy.framework_intro)
       ? reportCopy.framework_intro
       : getDefaultFrameworkIntro(orgName);
 
-  let howToUse = reportCopy?.how_to_use || defaultHowToUse();
-  let howToRead =
-    reportCopy?.how_to_read_scores || defaultHowToReadScores();
+  const howToUse = reportCopy?.how_to_use || defaultHowToUse();
+  const howToRead = reportCopy?.how_to_read_scores || defaultHowToReadScores();
 
-  const profileCopy =
-    (reportCopy?.profiles as OrgReportCopy["profiles"]) || {};
+  const profileCopy = (reportCopy?.profiles as OrgReportCopy["profiles"]) || {};
 
   const freq = data.frequency_percentages;
   const prof = data.profile_percentages;
@@ -291,154 +281,61 @@ export default async function ReportPage({
   const secondary = sortedProfiles[1];
   const tertiary = sortedProfiles[2];
 
-  const downloadPdfHref = `/api/portal/reports/${encodeURIComponent(
-    data.taker.id
-  )}`;
+  const downloadPdfHref = `/api/portal/reports/${encodeURIComponent(data.taker.id)}`;
 
   const primaryExample =
     profileCopy?.[primary?.code || ""]?.example ||
     "For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.";
 
-  // Personality map data (0–100) for chart
-  const personalityMapResult = {
-    frequencies: {
-      innovationA: (freq.A ?? 0) * 100,
-      influenceB: (freq.B ?? 0) * 100,
-      implementationC: (freq.C ?? 0) * 100,
-      insightD: (freq.D ?? 0) * 100,
-    },
-    profiles: {
-      p1: data.profile_labels[0]
-        ? (prof[data.profile_labels[0].code] ?? 0) * 100
-        : 0,
-      p2: data.profile_labels[1]
-        ? (prof[data.profile_labels[1].code] ?? 0) * 100
-        : 0,
-      p3: data.profile_labels[2]
-        ? (prof[data.profile_labels[2].code] ?? 0) * 100
-        : 0,
-      p4: data.profile_labels[3]
-        ? (prof[data.profile_labels[3].code] ?? 0) * 100
-        : 0,
-      p5: data.profile_labels[4]
-        ? (prof[data.profile_labels[4].code] ?? 0) * 100
-        : 0,
-      p6: data.profile_labels[5]
-        ? (prof[data.profile_labels[5].code] ?? 0) * 100
-        : 0,
-      p7: data.profile_labels[6]
-        ? (prof[data.profile_labels[6].code] ?? 0) * 100
-        : 0,
-      p8: data.profile_labels[7]
-        ? (prof[data.profile_labels[7].code] ?? 0) * 100
-        : 0,
-    },
+  // Personality map data still flows exactly as before
+  const personalityMapProps = {
+    frequencyPercentages: data.frequency_percentages,
+    profilePercentages: data.profile_percentages,
   };
 
-  // -------------------------------------------------------------------------
-  // Team Puzzle overrides (copy only)
-  // -------------------------------------------------------------------------
-  if (isTeamPuzzle) {
-    reportTitle = "Team Puzzle Discovery Assessment";
-
-    welcomeTitle = "Welcome to your Team Puzzle Discovery Report";
-    welcomeBody = [
-      "Welcome to your Team Puzzle Discovery Report. I’m excited to be part of your journey as you uncover your natural strengths, communication style and best-fit contribution at work.",
-      "This report is designed to give you deep insight into how you work best, where you thrive in a team and how to align your role with your natural energy. When people understand themselves and each other more deeply, culture shifts, communication improves and performance becomes more sustainable.",
-      "Team Puzzle was created with that in mind. It’s not just a tool for insight – it is a practical system for action. It maps the puzzle pieces of your team so that you can fit together more effectively, reduce friction and increase flow.",
-      "Whether you are reading this as part of a leadership program, a coaching session or your own development, treat this as a starting point, not an ending. Use what you discover here to guide conversations, make better choices and design the way you want to work going forward.",
-      "Warm regards,",
-    ];
-
-    howToUse = {
-      summary:
-        "This report is a snapshot of how you naturally like to work – it is a guide for reflection and conversation, not a label.",
-      bullets: [
-        "Highlight 2–3 sentences in this report that feel most true for you.",
-        "Notice one strength you would like to lean into more deliberately.",
-        "Notice one development area you would like to experiment with over the next month.",
-        "Bring this report into your next one-to-one or coaching conversation and talk about where your role matches your strengths.",
-        "Use this as a starting point, not a verdict. The most useful insights come from reflecting, asking questions, and applying what feels true in your day-to-day work.",
-      ],
-    };
-
-    frameworkTitle = "The Team Puzzle framework";
-    frameworkIntro = [
-      "The Team Puzzle framework was created to help organisations get the best from each individual and even better results from the team as a whole.",
-      "High-performing teams do not happen by accident. They are built with intention, structure and insight. This framework gives leaders and team members a clear, shared language for strengths, energy and contribution.",
-      "When people are placed in roles that energise them, when teams communicate in a way that fits their natural style and when leaders understand how each person adds value, culture shifts. Engagement increases, trust grows and results improve.",
-      "Rather than trying to ‘fix’ people, the Team Puzzle approach is about fitting people together. Just like a real puzzle, each person has a unique shape. This report helps you see how your piece fits so you can work with more clarity, confidence and impact.",
-    ];
-
-    howToRead = {
-      title: "How to read these scores",
-      bullets: [
-        "Higher percentages highlight patterns you use frequently and with ease.",
-        "Lower percentages highlight backup styles you can use when needed, but they may cost more energy.",
-        "Anything above roughly 30% will usually feel very natural for you.",
-        "Your primary profile is your strongest pattern. Your secondary and tertiary profiles show helpful support patterns around your core style.",
-      ],
-    };
-  }
-
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+    <div className="min-h-screen bg-[#050914] text-slate-50">
       <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-12 pt-8 md:px-6">
         {/* HEADER */}
-        <header className="flex flex-col gap-6 border-b border-slate-800 pb-6 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-3">
-            <p className="text-xs font-medium tracking-[0.2em] text-sky-300/80">
-              PERSONALISED REPORT
-            </p>
-
-            <div className="flex items-center gap-3">
-              {isTeamPuzzle && (
-                <div className="h-10 w-10 overflow-hidden rounded-xl bg-white/5 border border-slate-700 flex items-center justify-center">
-                  <img
-                    src={TEAM_PUZZLE_ASSETS.logo}
-                    alt="Team Puzzle"
-                    className="h-8 w-8 object-contain"
-                  />
-                </div>
-              )}
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight text-slate-50">
-                  {reportTitle}
-                </h1>
-                <p className="mt-1 text-sm text-slate-200">
-                  For {participantName} · Top profile:{" "}
-                  <span className="font-semibold">
-                    {data.top_profile_name}
-                  </span>
-                </p>
-              </div>
+        <header className="border-b border-slate-800 pb-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-semibold tracking-[0.2em] text-sky-300">
+                PERSONALISED REPORT
+              </p>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white md:text-4xl">
+                {reportTitle}
+              </h1>
+              <p className="mt-1 text-sm text-slate-300">
+                For {participantName} · Top profile:{" "}
+                <span className="font-semibold">{data.top_profile_name}</span>
+              </p>
             </div>
-          </div>
 
-          <div className="flex flex-col items-end gap-3 md:flex-row md:items-center">
-            {/* Top profile image (Team Puzzle only) */}
-            {isTeamPuzzle && (
-              <div className="w-[120px] h-[120px] rounded-3xl bg-sky-500/10 border border-sky-400/50 shadow-lg shadow-sky-900/60 overflow-hidden flex items-center justify-center">
-                {primary && (
-                  <img
-                    src={
-                      getTeamPuzzleProfileImage(primary.code)?.src ??
-                      "/profile-cards/tp-motivator.png"
-                    }
-                    alt={
-                      getTeamPuzzleProfileImage(primary.code)?.alt ??
-                      data.top_profile_name
-                    }
-                    className="h-full w-full object-contain"
-                  />
-                )}
+            {orgAssets?.logoSrc && (
+              <div className="flex justify-start md:justify-end">
+                <img
+                  src={orgAssets.logoSrc}
+                  alt={orgName}
+                  className="h-10 w-auto rounded-md bg-white/5 p-2"
+                />
               </div>
             )}
+          </div>
 
+          {headerProfileCardSrc && (
+            <div className="mt-6 flex justify-center">
+              <div className="rounded-3xl bg-sky-50 p-4 shadow-lg">
+                <img
+                  src={headerProfileCardSrc}
+                  alt={data.top_profile_name}
+                  className="h-40 w-40 object-contain"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 flex items-center justify-end">
             <Link
               href={downloadPdfHref}
               prefetch={false}
@@ -457,55 +354,59 @@ export default async function ReportPage({
 
           {/* Welcome */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-            <h2 className="text-lg font-semibold">{welcomeTitle}</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              {welcomeTitle}
+            </h2>
             <p className="mt-1 text-sm font-medium text-slate-500">
               A note from the creator of this framework.
             </p>
-            <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-start">
-              <div className="space-y-3 text-sm leading-relaxed text-slate-700">
-                {welcomeBody.map((p, idx) => (
-                  <p key={idx}>{p}</p>
-                ))}
-              </div>
-
-              {isTeamPuzzle && (
-                <div className="mt-4 md:mt-0 flex flex-col items-center justify-center gap-3">
-                  <div className="h-24 w-24 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                    <img
-                      src={TEAM_PUZZLE_ASSETS.chandell}
-                      alt="Chandell Labbozzetta"
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                  <div className="text-center text-xs text-slate-700">
-                    <div className="font-semibold">
-                      Chandell Labbozzetta
-                    </div>
-                    <div>Founder – Life Puzzle &amp; Team Puzzle Discovery Assessment</div>
-                  </div>
-                </div>
-              )}
+            <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-700">
+              {welcomeBody.map((p, idx) => (
+                <p key={idx}>{p}</p>
+              ))}
             </div>
+
+            {orgAssets?.founderPhotoSrc && (
+              <div className="mt-6 flex items-center gap-3">
+                <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
+                  <img
+                    src={orgAssets.founderPhotoSrc}
+                    alt="Chandell Labbozzetta"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <p className="text-xs text-slate-600">
+                  {orgAssets.founderCaption}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* How to use + Framework (stacked) */}
           <div className="space-y-4">
             {/* How to use */}
             <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-              <h3 className="text-base font-semibold">How to use this report</h3>
-              <p className="mt-2 text-sm text-slate-700">
-                {howToUse.summary}
-              </p>
+              <h3 className="text-base font-semibold text-slate-900">
+                How to use this report
+              </h3>
+              <p className="mt-2 text-sm text-slate-700">{howToUse.summary}</p>
               <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
                 {howToUse.bullets.map((b: string, i: number) => (
                   <li key={i}>{b}</li>
                 ))}
               </ul>
+              <p className="mt-3 text-xs text-slate-500">
+                Use this as a starting point, not a verdict. The most useful
+                insights come from reflecting, asking questions, and applying
+                what feels true in your day-to-day work.
+              </p>
             </div>
 
             {/* Org framework */}
             <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-              <h3 className="text-base font-semibold">{frameworkTitle}</h3>
+              <h3 className="text-base font-semibold text-slate-900">
+                {frameworkTitle}
+              </h3>
               <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
                 {frameworkIntro.map((p, idx) => (
                   <p key={idx}>{p}</p>
@@ -516,21 +417,21 @@ export default async function ReportPage({
 
           {/* Understanding Frequencies */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-            <h3 className="text-base font-semibold">
+            <h3 className="text-base font-semibold text-slate-900">
               Understanding the four Frequencies
             </h3>
             <p className="mt-2 text-sm text-slate-700">
-              Frequencies describe the way you naturally think, decide, and
-              take action. You can think of them as four types of work energy
-              that show where you feel most at home.
+              Frequencies describe the way you naturally think, decide, and take
+              action. You can think of them as four types of work energy that
+              show where you feel most at home.
             </p>
 
-            {isTeamPuzzle && (
+            {orgAssets?.frequenciesSrc && (
               <div className="mt-4 flex justify-center">
                 <img
-                  src={TEAM_PUZZLE_ASSETS.frequencies}
-                  alt="Team Puzzle four Frequencies"
-                  className="max-h-48 w-auto object-contain"
+                  src={orgAssets.frequenciesSrc}
+                  alt={`${orgName} frequencies`}
+                  className="max-h-56 w-auto object-contain"
                 />
               </div>
             )}
@@ -565,7 +466,7 @@ export default async function ReportPage({
 
           {/* Understanding Profiles */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-            <h3 className="text-base font-semibold">
+            <h3 className="text-base font-semibold text-slate-900">
               Understanding the eight Profiles
             </h3>
             <p className="mt-2 text-sm text-slate-700">
@@ -574,12 +475,12 @@ export default async function ReportPage({
               like to contribute in a team.
             </p>
 
-            {isTeamPuzzle && (
+            {orgAssets?.profilesDiagramSrc && (
               <div className="mt-4 flex justify-center">
                 <img
-                  src={TEAM_PUZZLE_ASSETS.mainGraphic}
-                  alt="Team Puzzle profiles graphic"
-                  className="max-h-56 w-auto object-contain"
+                  src={orgAssets.profilesDiagramSrc}
+                  alt={`${orgName} profiles`}
+                  className="max-h-64 w-auto object-contain"
                 />
               </div>
             )}
@@ -603,10 +504,10 @@ export default async function ReportPage({
 
         {/* Personality map --------------------------------------------------- */}
         <section className="space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
             Your personality map
           </p>
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
             <h2 className="text-lg font-semibold text-slate-900">
               Your Personality Map
             </h2>
@@ -617,8 +518,8 @@ export default async function ReportPage({
             </p>
             <div className="mt-6">
               <PersonalityMapSection
-                frequencyPercentages={data.frequency_percentages}
-                profilePercentages={data.profile_percentages}
+                frequencyPercentages={personalityMapProps.frequencyPercentages}
+                profilePercentages={personalityMapProps.profilePercentages}
               />
             </div>
           </div>
@@ -634,18 +535,18 @@ export default async function ReportPage({
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="text-lg font-semibold">Frequency summary</h2>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Frequency summary
+                </h2>
                 <p className="mt-1 text-sm text-slate-700">
                   Your strongest overall frequency is{" "}
                   <span className="font-semibold">
                     {
                       data.frequency_labels.find(
-                        (f) => f.code === data.top_freq
+                        (f) => f.code === data.top_freq,
                       )?.name
-                    }
-                    {" ("}
-                    {data.top_freq}
-                    {")"}
+                    }{" "}
+                    ({data.top_freq})
                   </span>
                   , which shapes how you approach problems and make decisions.
                   Higher percentages indicate where you naturally spend more
@@ -696,7 +597,7 @@ export default async function ReportPage({
                 Your dominant frequency:{" "}
                 {
                   data.frequency_labels.find(
-                    (f) => f.code === data.top_freq
+                    (f) => f.code === data.top_freq,
                   )?.name
                 }{" "}
                 ({data.top_freq})
@@ -722,7 +623,9 @@ export default async function ReportPage({
           {/* Profile mix */}
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
             <div className="flex flex-col gap-1">
-              <h2 className="text-lg font-semibold">Profile mix</h2>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Profile mix
+              </h2>
               <p className="text-sm text-slate-700">
                 Your profile mix shows how strongly you match each of the eight
                 Profiles. Higher percentages show patterns you use often; lower
@@ -787,9 +690,10 @@ export default async function ReportPage({
                   ? "Secondary"
                   : "Tertiary";
               const copy = profileCopy?.[p.code];
-
-              const tpImage =
-                isTeamPuzzle && getTeamPuzzleProfileImage(p.code);
+              const cardImageSrc =
+                orgSlug === "team-puzzle"
+                  ? getTeamPuzzleProfileCard(p.name)
+                  : null;
 
               return (
                 <div
@@ -799,22 +703,24 @@ export default async function ReportPage({
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                     {label}
                   </p>
-                  {tpImage && (
-                    <div className="mt-3 mb-3 flex justify-center">
-                      <div className="h-24 w-24 rounded-2xl bg-sky-50 border border-slate-200 overflow-hidden flex items-center justify-center">
+                  <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                    {p.name}
+                  </h3>
+                  <p className="text-xs text-slate-500">{p.code}</p>
+
+                  {cardImageSrc && (
+                    <div className="mt-3 mb-2 flex justify-center">
+                      <div className="flex h-32 w-32 items-center justify-center rounded-2xl bg-slate-50">
                         <img
-                          src={tpImage.src}
-                          alt={tpImage.alt}
-                          className="h-full w-full object-contain"
+                          src={cardImageSrc}
+                          alt={p.name}
+                          className="max-h-28 max-w-[7rem] object-contain"
                         />
                       </div>
                     </div>
                   )}
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {p.name}
-                  </h3>
-                  <p className="text-xs text-slate-500">{p.code}</p>
-                  <p className="mt-2 text-sm font-medium text-slate-800">
+
+                  <p className="mt-1 text-sm font-medium text-slate-800">
                     {pct.toFixed(0)}% match
                   </p>
                   <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs text-slate-700">
@@ -841,7 +747,7 @@ export default async function ReportPage({
 
           {/* Energy mix */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-            <h2 className="text-lg font-semibold">
+            <h2 className="text-lg font-semibold text-slate-900">
               Energy mix – how your profiles work together
             </h2>
             <p className="mt-2 text-sm text-slate-700">
@@ -861,7 +767,9 @@ export default async function ReportPage({
           {/* Strengths + Development */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
-              <h2 className="text-lg font-semibold">Strengths</h2>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Strengths
+              </h2>
               <p className="mt-2 text-sm text-slate-700">
                 These are areas where your natural energy is most likely to add
                 value when your work and environment are a good fit.
@@ -886,7 +794,7 @@ export default async function ReportPage({
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
-              <h2 className="text-lg font-semibold">
+              <h2 className="text-lg font-semibold text-slate-900">
                 Development areas
               </h2>
               <p className="mt-2 text-sm text-slate-700">
@@ -913,7 +821,9 @@ export default async function ReportPage({
 
           {/* Collaboration */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-            <h2 className="text-lg font-semibold">Collaboration</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Collaboration
+            </h2>
             <p className="mt-2 text-sm text-slate-700">
               Your profile doesn’t exist in isolation – it plays out in
               relationship with other people and profiles on your team.
@@ -938,7 +848,9 @@ export default async function ReportPage({
 
           {/* Overall summary */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
-            <h2 className="text-lg font-semibold">Overall summary</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Overall summary
+            </h2>
             <p className="mt-2 text-sm text-slate-700">
               In summary, your strongest contribution comes from your{" "}
               <span className="font-semibold">{primary?.name}</span> profile,
@@ -948,7 +860,7 @@ export default async function ReportPage({
               <span className="font-semibold">
                 {
                   data.frequency_labels.find(
-                    (f) => f.code === data.top_freq
+                    (f) => f.code === data.top_freq,
                   )?.name
                 }{" "}
                 ({data.top_freq})
@@ -966,7 +878,9 @@ export default async function ReportPage({
 
           {/* Next steps */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-            <h2 className="text-lg font-semibold">Next steps</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Next steps
+            </h2>
             <p className="mt-2 text-sm text-slate-700">
               A profile report is most powerful when it turns into conversation
               and action. Use these suggestions to decide what you want to do
@@ -1012,3 +926,4 @@ export default async function ReportPage({
     </div>
   );
 }
+
