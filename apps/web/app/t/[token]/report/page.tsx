@@ -122,10 +122,18 @@ type OrgReportCopy = OrgFramework["framework"]["report"] & {
 function getOrgAssets(orgSlug: string | undefined) {
   if (orgSlug === "team-puzzle") {
     return {
-      logoSrc: "/orgs/team-puzzle-logo.png",
-      frequenciesSrc: "/orgs/team-puzzle-frequencies.png",
-      profilesDiagramSrc: "/orgs/team-puzzle-profiles.png",
-      founderPhotoSrc: "/orgs/team-puzzle-chandell.png",
+      // matches: /apps/web/public/org-graphics/tp-logo.png
+      logoSrc: "/org-graphics/tp-logo.png",
+
+      // matches: /apps/web/public/org-graphics/tp-4frequencies.png
+      frequenciesSrc: "/org-graphics/tp-4frequencies.png",
+
+      // matches: /apps/web/public/org-graphics/tp-main-graphic.png
+      profilesDiagramSrc: "/org-graphics/tp-main-graphic.png",
+
+      // add this file when you’re ready: /apps/web/public/org-graphics/tp-chandell.png
+      founderPhotoSrc: "/org-graphics/tp-chandell.png",
+
       founderCaption:
         "Chandell Labbozzetta, Founder – Life Puzzle & Team Puzzle Discovery Assessment",
     };
