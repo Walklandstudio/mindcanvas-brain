@@ -3,6 +3,8 @@ import PersonalityMapSection from './PersonalityMapSection';
 
 import { getBaseUrl } from '@/lib/server-url';
 import { getOrgFramework, type OrgFramework } from '@/lib/report/getOrgFramework';
+import { buildCoachSummary } from '@/lib/report/buildCoachSummary';
+import { CoachSummarySection } from '@/components/report/CoachSummarySection';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,9 +21,12 @@ type ResultData = {
     id: string;
     first_name?: string | null;
     last_name?: string | null;
-    // in case the API uses camelCase instead
+    // allow for camelCase variants / extra fields
     firstName?: string | null;
     lastName?: string | null;
+    role_title?: string | null;
+    role?: string | null;
+    company?: string | null;
   };
   frequency_labels: FrequencyLabel[];
   frequency_percentages: Record<FrequencyCode, number>;
@@ -267,7 +272,7 @@ export default async function ReportPage({
       implementationC: (freq.C ?? 0) * 100,
       insightD: (freq.D ?? 0) * 100,
     },
-    // Map the *actual* profile codes into the 8 radar slots
+    // Map the actual profile codes into the 8 radar slots (order based on labels)
     profiles: {
       p1: data.profile_labels[0]
         ? (prof[data.profile_labels[0].code] ?? 0) * 100
@@ -295,6 +300,33 @@ export default async function ReportPage({
         : 0,
     },
   };
+
+  // Coach summary – generated on the fly for now (we’ll later also save to DB)
+  const coachSummary = buildCoachSummary({
+    participant: {
+      firstName: participantName === 'Participant' ? '' : participantName,
+      role:
+        data.taker.role_title ||
+        data.taker.role ||
+        undefined,
+      company: data.taker.company || undefined,
+    },
+    organisation: {
+      name: orgName,
+    },
+    frequencies: {
+      labels: data.frequency_labels,
+      percentages: freq,
+      topCode: data.top_freq,
+    },
+    profiles: {
+      labels: data.profile_labels,
+      percentages: prof,
+      primary,
+      secondary,
+      tertiary,
+    },
+  });
 
   return (
     <div className="bg-slate-50 min-h-screen">
@@ -619,52 +651,6 @@ export default async function ReportPage({
             </p>
           </div>
 
-          {/* Primary / Secondary / Tertiary cards */}
-          <div className="grid gap-4 md:grid-cols-3">
-            {[primary, secondary, tertiary].map((p, idx) => {
-              if (!p) return null;
-              const pct = (p.pct || 0) * 100;
-              const label =
-                idx === 0 ? 'Primary profile' : idx === 1 ? 'Secondary' : 'Tertiary';
-              const copy = profileCopy?.[p.code];
-
-              return (
-                <div
-                  key={p.code}
-                  className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    {label}
-                  </p>
-                  <h3 className="mt-1 text-lg font-semibold text-slate-900">
-                    {p.name}
-                  </h3>
-                  <p className="text-xs text-slate-500">{p.code}</p>
-                  <p className="mt-2 text-sm font-medium text-slate-800">
-                    {pct.toFixed(0)}% match
-                  </p>
-                  <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs text-slate-700">
-                    <li>
-                      <span className="font-semibold">Key traits:</span>{' '}
-                      {asText(copy?.traits) ||
-                        'How this profile most naturally contributes when things are going well.'}
-                    </li>
-                    <li>
-                      <span className="font-semibold">Motivators:</span>{' '}
-                      {asText(copy?.motivators) ||
-                        'Conditions that help this style feel energising and sustainable.'}
-                    </li>
-                    <li>
-                      <span className="font-semibold">Watch outs:</span>{' '}
-                      {asText(copy?.blind_spots) ||
-                        'Things to watch out for when this style is over-used or under pressure.'}
-                    </li>
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
-
           {/* Energy mix */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
             <h2 className="text-lg font-semibold text-slate-900">
@@ -683,6 +669,11 @@ export default async function ReportPage({
             </p>
             <p className="mt-3 text-sm text-slate-700">{primaryExample}</p>
           </div>
+
+          {/* Coach summary */}
+          {coachSummary && (
+            <CoachSummarySection summary={coachSummary} />
+          )}
 
           {/* Strengths + Development */}
           <div className="grid gap-4 md:grid-cols-2">
