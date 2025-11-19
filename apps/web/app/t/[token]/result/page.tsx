@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image"; // 🔹 NEW
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -32,6 +33,15 @@ type LinkMeta = {
   email_report?: boolean | null;
   hidden_results_message?: string | null;
   redirect_url?: string | null;
+};
+
+// 🔹 NEW: map profile names → image paths in /public
+const PROFILE_IMAGE_BY_NAME: Record<string, string> = {
+  // Adjust keys to match your actual top_profile_name values exactly
+  Controller: "/profile-cards/controller.png",
+  // e.g.
+  // "Visionary": "/profile-cards/visionary.png",
+  // "Optimiser": "/profile-cards/optimiser.png",
 };
 
 function Bar({ pct }: { pct: number }) {
@@ -139,6 +149,13 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   const orgName = meta?.org_name || data?.org_slug || "your organisation";
   const testName = meta?.name || data?.test_name || "Profile Test";
 
+  // 🔹 NEW: compute image for the top profile (safe fallback)
+  const topProfileName = data?.top_profile_name || "";
+  const topProfileImageSrc =
+    topProfileName && PROFILE_IMAGE_BY_NAME[topProfileName]
+      ? PROFILE_IMAGE_BY_NAME[topProfileName]
+      : null;
+
   if (!tid) {
     return (
       <div className="min-h-screen p-6">
@@ -156,9 +173,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
       <div className="min-h-screen p-6 md:p-10 bg-gradient-to-b from-white to-slate-50">
         <main className="max-w-3xl mx-auto space-y-6">
           <header>
-            <p className="text-sm text-gray-500">
-              {orgName}
-            </p>
+            <p className="text-sm text-gray-500">{orgName}</p>
             <h1 className="text-3xl md:text-4xl font-bold mt-1">
               {testName}
             </h1>
@@ -238,7 +253,22 @@ export default function ResultPage({ params }: { params: { token: string } }) {
           </span>
         </p>
 
-        <div className="mt-4">
+        {/* 🔹 NEW: top profile image */}
+        {topProfileImageSrc && (
+          <div className="mt-4">
+            <div className="inline-flex items-center rounded-2xl bg-sky-50 px-4 py-3 shadow-sm border border-sky-100">
+              <Image
+                src={topProfileImageSrc}
+                alt={topProfileName}
+                width={160}
+                height={160}
+                className="h-32 w-32 object-contain"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6">
           <Link
             href={`/t/${encodeURIComponent(
               token
@@ -253,9 +283,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
       <main className="max-w-5xl mx-auto mt-8 space-y-10">
         {/* Frequency mix */}
         <section>
-          <h2 className="text-xl font-semibold mb-4">
-            Frequency mix
-          </h2>
+          <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
           <div className="grid gap-3">
             {data.frequency_labels.map((f) => (
               <div
@@ -281,9 +309,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
 
         {/* Profile mix */}
         <section>
-          <h2 className="text-xl font-semibold mb-4">
-            Profile mix
-          </h2>
+          <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
           <div className="grid gap-3">
             {data.profile_labels.map((p) => (
               <div
@@ -316,4 +342,5 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     </div>
   );
 }
+
 
