@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import Image from 'next/image';
 import PersonalityMapSection from './PersonalityMapSection';
 
 import { getBaseUrl } from '@/lib/server-url';
@@ -20,6 +19,9 @@ type ResultData = {
     id: string;
     first_name?: string | null;
     last_name?: string | null;
+    // in case the API uses camelCase instead
+    firstName?: string | null;
+    lastName?: string | null;
   };
   frequency_labels: FrequencyLabel[];
   frequency_percentages: Record<FrequencyCode, number>;
@@ -40,8 +42,19 @@ function formatPercent(v: number | undefined): string {
 }
 
 function getFullName(taker: ResultData['taker']): string {
-  const first = taker.first_name?.trim() ?? '';
-  const last = taker.last_name?.trim() ?? '';
+  const anyTaker = taker as any;
+
+  const rawFirst =
+    (typeof taker.first_name === 'string' && taker.first_name) ||
+    (typeof anyTaker.firstName === 'string' && anyTaker.firstName) ||
+    '';
+  const rawLast =
+    (typeof taker.last_name === 'string' && taker.last_name) ||
+    (typeof anyTaker.lastName === 'string' && anyTaker.lastName) ||
+    '';
+
+  const first = rawFirst.trim();
+  const last = rawLast.trim();
   const full = `${first} ${last}`.trim();
   return full || 'Participant';
 }
@@ -105,28 +118,6 @@ type OrgReportCopy = OrgFramework['framework']['report'] & {
     }
   >;
 };
-
-type OrgImages = {
-  framework_banner?: string;
-  frequency_diagram?: string;
-  profile_grid?: string;
-};
-
-function ReportImage(props: { src?: string; alt: string; className?: string }) {
-  const { src, alt, className } = props;
-  if (!src) return null;
-  return (
-    <div className={className}>
-      <Image
-        src={src}
-        alt={alt}
-        width={1600}
-        height={400}
-        className="h-auto w-full rounded-xl object-cover"
-      />
-    </div>
-  );
-}
 
 // --- Page ------------------------------------------------------------------
 
@@ -217,7 +208,6 @@ export default async function ReportPage({
 
   const fw = orgFw?.framework;
   const reportCopy: OrgReportCopy | null = fw?.report ?? null;
-  const images: OrgImages = (fw && (fw as any).images) || {};
 
   const reportTitle =
     reportCopy?.report_title || `${orgName} Profile Assessment`;
@@ -277,15 +267,32 @@ export default async function ReportPage({
       implementationC: (freq.C ?? 0) * 100,
       insightD: (freq.D ?? 0) * 100,
     },
+    // Map the *actual* profile codes into the 8 radar slots
     profiles: {
-      p1: (prof['P1'] ?? 0) * 100,
-      p2: (prof['P2'] ?? 0) * 100,
-      p3: (prof['P3'] ?? 0) * 100,
-      p4: (prof['P4'] ?? 0) * 100,
-      p5: (prof['P5'] ?? 0) * 100,
-      p6: (prof['P6'] ?? 0) * 100,
-      p7: (prof['P7'] ?? 0) * 100,
-      p8: (prof['P8'] ?? 0) * 100,
+      p1: data.profile_labels[0]
+        ? (prof[data.profile_labels[0].code] ?? 0) * 100
+        : 0,
+      p2: data.profile_labels[1]
+        ? (prof[data.profile_labels[1].code] ?? 0) * 100
+        : 0,
+      p3: data.profile_labels[2]
+        ? (prof[data.profile_labels[2].code] ?? 0) * 100
+        : 0,
+      p4: data.profile_labels[3]
+        ? (prof[data.profile_labels[3].code] ?? 0) * 100
+        : 0,
+      p5: data.profile_labels[4]
+        ? (prof[data.profile_labels[4].code] ?? 0) * 100
+        : 0,
+      p6: data.profile_labels[5]
+        ? (prof[data.profile_labels[5].code] ?? 0) * 100
+        : 0,
+      p7: data.profile_labels[6]
+        ? (prof[data.profile_labels[6].code] ?? 0) * 100
+        : 0,
+      p8: data.profile_labels[7]
+        ? (prof[data.profile_labels[7].code] ?? 0) * 100
+        : 0,
     },
   };
 
@@ -317,13 +324,6 @@ export default async function ReportPage({
             </Link>
           </div>
         </header>
-
-        {/* Header image (org-specific) */}
-        <ReportImage
-          src={images.framework_banner}
-          alt={`${orgName} report banner`}
-          className="mt-2"
-        />
 
         {/* PART 1 ------------------------------------------------------------ */}
         <section className="space-y-6">
@@ -415,12 +415,6 @@ export default async function ReportPage({
                 </dd>
               </div>
             </dl>
-
-            <ReportImage
-              src={images.frequency_diagram}
-              alt="Frequency diagram"
-              className="mt-6"
-            />
           </div>
 
           {/* Understanding Profiles */}
@@ -447,12 +441,6 @@ export default async function ReportPage({
                 );
               })}
             </dl>
-
-            <ReportImage
-              src={images.profile_grid}
-              alt="Profile grid"
-              className="mt-6"
-            />
           </div>
         </section>
 
@@ -856,5 +844,6 @@ export default async function ReportPage({
     </div>
   );
 }
+
 
 
