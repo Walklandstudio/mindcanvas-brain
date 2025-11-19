@@ -1,10 +1,8 @@
 import Link from 'next/link';
 import PersonalityMapSection from './PersonalityMapSection';
-import CoachSummarySection from './CoachSummarySection';
 
 import { getBaseUrl } from '@/lib/server-url';
 import { getOrgFramework, type OrgFramework } from '@/lib/report/getOrgFramework';
-import { buildCoachSummary } from '@/lib/report/buildCoachSummary';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +19,6 @@ type ResultData = {
     id: string;
     first_name?: string | null;
     last_name?: string | null;
-    // allow for camelCase variants / extra fields
     firstName?: string | null;
     lastName?: string | null;
     role_title?: string | null;
@@ -272,7 +269,6 @@ export default async function ReportPage({
       implementationC: (freq.C ?? 0) * 100,
       insightD: (freq.D ?? 0) * 100,
     },
-    // Map the actual profile codes into the 8 radar slots (order based on labels)
     profiles: {
       p1: data.profile_labels[0]
         ? (prof[data.profile_labels[0].code] ?? 0) * 100
@@ -300,33 +296,6 @@ export default async function ReportPage({
         : 0,
     },
   };
-
-  // Coach summary – generated on the fly for now (we’ll later also save to DB)
-  const coachSummary = buildCoachSummary({
-    participant: {
-      firstName: participantName === 'Participant' ? '' : participantName,
-      role:
-        data.taker.role_title ||
-        data.taker.role ||
-        undefined,
-      company: data.taker.company || undefined,
-    },
-    organisation: {
-      name: orgName,
-    },
-    frequencies: {
-      labels: data.frequency_labels,
-      percentages: freq,
-      topCode: data.top_freq,
-    },
-    profiles: {
-      labels: data.profile_labels,
-      percentages: prof,
-      primary,
-      secondary,
-      tertiary,
-    },
-  });
 
   return (
     <div className="bg-slate-50 min-h-screen">
@@ -670,11 +639,6 @@ export default async function ReportPage({
             <p className="mt-3 text-sm text-slate-700">{primaryExample}</p>
           </div>
 
-          {/* Coach summary */}
-          {coachSummary && (
-            <CoachSummarySection summary={coachSummary} />
-          )}
-
           {/* Strengths + Development */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -835,6 +799,3 @@ export default async function ReportPage({
     </div>
   );
 }
-
-
-

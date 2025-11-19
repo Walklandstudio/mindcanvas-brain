@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image"; // 🔹 NEW
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -35,21 +35,21 @@ type LinkMeta = {
   redirect_url?: string | null;
 };
 
-// 🔹 NEW: map profile names → image paths in /public
+// Map profile *names* to static image paths in /public
 const PROFILE_IMAGE_BY_NAME: Record<string, string> = {
-  // Adjust keys to match your actual top_profile_name values exactly
+  // make sure this key matches data.top_profile_name exactly
   Controller: "/profile-cards/controller.png",
-  // e.g.
+  // e.g.:
   // "Visionary": "/profile-cards/visionary.png",
-  // "Optimiser": "/profile-cards/optimiser.png",
+  // "Connector": "/profile-cards/connector.png",
 };
 
 function Bar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(1, Number(pct) || 0));
   const width = `${(clamped * 100).toFixed(0)}%`;
   return (
-    <div className="w-full h-2 rounded bg-black/10">
-      <div className="h-2 rounded bg-sky-600" style={{ width }} />
+    <div className="w-full h-2 rounded-full bg-slate-800">
+      <div className="h-2 rounded-full bg-sky-500" style={{ width }} />
     </div>
   );
 }
@@ -62,7 +62,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
   const [data, setData] = useState<ReportData | null>(null);
-
   const [meta, setMeta] = useState<LinkMeta | null>(null);
 
   // Load result data
@@ -146,10 +145,12 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     (meta.hidden_results_message ?? "").trim().length > 0;
 
   const hiddenMessage = (meta?.hidden_results_message ?? "").trim();
-  const orgName = meta?.org_name || data?.org_slug || "your organisation";
-  const testName = meta?.name || data?.test_name || "Profile Test";
 
-  // 🔹 NEW: compute image for the top profile (safe fallback)
+  // Org/test naming + title like "Team Puzzle Results"
+  const orgOrTestName =
+    meta?.org_name || meta?.name || data?.test_name || "Profile Test";
+  const displayTitle = `${orgOrTestName} Results`;
+
   const topProfileName = data?.top_profile_name || "";
   const topProfileImageSrc =
     topProfileName && PROFILE_IMAGE_BY_NAME[topProfileName]
@@ -158,9 +159,9 @@ export default function ResultPage({ params }: { params: { token: string } }) {
 
   if (!tid) {
     return (
-      <div className="min-h-screen p-6">
+      <div className="min-h-screen mc-bg text-white p-6">
         <h1 className="text-2xl font-semibold">Missing taker ID</h1>
-        <p className="text-gray-600 mt-2">
+        <p className="mt-2 text-sm text-slate-200">
           This page expects a <code>?tid=</code> query parameter.
         </p>
       </div>
@@ -170,20 +171,22 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   // 🔒 If this link is configured to hide results, show the custom message instead
   if (shouldHideResults) {
     return (
-      <div className="min-h-screen p-6 md:p-10 bg-gradient-to-b from-white to-slate-50">
-        <main className="max-w-3xl mx-auto space-y-6">
-          <header>
-            <p className="text-sm text-gray-500">{orgName}</p>
-            <h1 className="text-3xl md:text-4xl font-bold mt-1">
-              {testName}
+      <div className="min-h-screen mc-bg text-white p-6 md:p-10">
+        <main className="mx-auto max-w-3xl space-y-6">
+          <header className="border-b border-white/10 pb-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-300">
+              RESULT
+            </p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight">
+              {displayTitle}
             </h1>
           </header>
 
-          <section className="rounded-2xl bg-white border border-gray-200 p-6 md:p-8">
+          <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 md:p-8 shadow-xl shadow-sky-950/40">
             <h2 className="text-xl font-semibold mb-3">
               Thank you for completing this assessment
             </h2>
-            <p className="text-sm text-gray-700 whitespace-pre-line">
+            <p className="text-sm text-slate-100 whitespace-pre-line">
               {hiddenMessage}
             </p>
           </section>
@@ -192,14 +195,14 @@ export default function ResultPage({ params }: { params: { token: string } }) {
             <div>
               <a
                 href={meta.redirect_url}
-                className="inline-flex items-center px-4 py-2 rounded-lg bg-sky-600 text-white text-sm font-medium hover:bg-sky-700"
+                className="inline-flex items-center px-4 py-2 rounded-lg bg-sky-500 text-sm font-medium text-white hover:bg-sky-400"
               >
                 Continue
               </a>
             </div>
           )}
 
-          <footer className="pt-8 text-xs text-gray-500">
+          <footer className="pt-8 text-xs text-slate-400">
             © {new Date().getFullYear()} MindCanvas — Profiletest.ai
           </footer>
         </main>
@@ -209,7 +212,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen p-6">
+      <div className="min-h-screen mc-bg text-white p-6">
         <h1 className="text-2xl font-semibold">Loading result…</h1>
       </div>
     );
@@ -217,12 +220,12 @@ export default function ResultPage({ params }: { params: { token: string } }) {
 
   if (err || !data) {
     return (
-      <div className="min-h-screen p-6">
+      <div className="min-h-screen mc-bg text-white p-6">
         <h1 className="text-2xl font-semibold">Couldn’t load result</h1>
-        <pre className="mt-4 p-3 rounded bg-gray-900 text-gray-100 whitespace-pre-wrap">
+        <pre className="mt-4 p-3 rounded bg-slate-900 text-slate-50 whitespace-pre-wrap border border-white/10">
 {err || "No data"}
         </pre>
-        <div className="text-sm text-gray-500 mt-3">
+        <div className="text-sm text-slate-300 mt-3">
           Debug link:{" "}
           <a
             className="underline"
@@ -240,105 +243,108 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   }
 
   return (
-    <div className="min-h-screen p-6 md:p-10 bg-gradient-to-b from-white to-slate-50">
-      <header className="max-w-5xl mx-auto">
-        <p className="text-sm text-gray-500">{data.org_slug} • Result</p>
-        <h1 className="text-3xl md:text-4xl font-bold mt-1">
-          {data.test_name || "Profile Test"}
-        </h1>
-        <p className="text-gray-700 mt-2">
-          Top Profile:{" "}
-          <span className="font-semibold">
-            {data.top_profile_name}
-          </span>
-        </p>
+    <div className="min-h-screen mc-bg text-white p-6 md:p-10">
+      <div className="mx-auto max-w-5xl space-y-10">
+        {/* HEADER */}
+        <header className="border-b border-white/10 pb-6">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-300">
+            RESULT
+          </p>
+          <h1 className="mt-1 text-3xl md:text-4xl font-bold tracking-tight">
+            {displayTitle}
+          </h1>
+          <p className="mt-2 text-sm text-slate-100">
+            Top Profile:{" "}
+            <span className="font-semibold">
+              {data.top_profile_name}
+            </span>
+          </p>
 
-        {/* 🔹 NEW: top profile image */}
-        {topProfileImageSrc && (
-          <div className="mt-4">
-            <div className="inline-flex items-center rounded-2xl bg-sky-50 px-4 py-3 shadow-sm border border-sky-100">
-              <Image
-                src={topProfileImageSrc}
-                alt={topProfileName}
-                width={160}
-                height={160}
-                className="h-32 w-32 object-contain"
-              />
+          {/* Top profile image card */}
+          {topProfileImageSrc && (
+            <div className="mt-4">
+              <div className="inline-flex items-center rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg shadow-sky-950/40">
+                <Image
+                  src={topProfileImageSrc}
+                  alt={topProfileName}
+                  width={192}
+                  height={192}
+                  className="h-40 w-40 object-contain"
+                />
+              </div>
             </div>
+          )}
+
+          <div className="mt-6">
+            <Link
+              href={`/t/${encodeURIComponent(
+                token
+              )}/report?tid=${encodeURIComponent(tid)}`}
+              className="inline-flex items-center rounded-lg border border-white/20 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-50 hover:bg-slate-900"
+            >
+              View your personalised report →
+            </Link>
           </div>
-        )}
+        </header>
 
-        <div className="mt-6">
-          <Link
-            href={`/t/${encodeURIComponent(
-              token
-            )}/report?tid=${encodeURIComponent(tid)}`}
-            className="inline-flex items-center px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 text-gray-900"
-          >
-            View your personalised report →
-          </Link>
-        </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto mt-8 space-y-10">
-        {/* Frequency mix */}
-        <section>
-          <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
-          <div className="grid gap-3">
-            {data.frequency_labels.map((f) => (
-              <div
-                key={f.code}
-                className="grid grid-cols-12 items-center gap-3"
-              >
-                <div className="col-span-3 md:col-span-2 text-sm text-gray-700">
-                  <span className="font-medium">{f.name}</span>
-                  <span className="text-gray-500 ml-2">
-                    ({f.code})
-                  </span>
-                </div>
-                <div className="col-span-9 md:col-span-10">
-                  <Bar pct={freq[f.code]} />
-                  <div className="text-xs text-gray-500 mt-1">
-                    {Math.round((freq[f.code] || 0) * 100)}%
+        <main className="space-y-8">
+          {/* Frequency mix */}
+          <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 md:p-7 shadow-xl shadow-sky-950/40">
+            <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
+            <div className="grid gap-3">
+              {data.frequency_labels.map((f) => (
+                <div
+                  key={f.code}
+                  className="grid grid-cols-12 items-center gap-3"
+                >
+                  <div className="col-span-3 md:col-span-2 text-sm text-slate-100">
+                    <span className="font-medium">{f.name}</span>
+                    <span className="text-slate-400 ml-2">
+                      ({f.code})
+                    </span>
+                  </div>
+                  <div className="col-span-9 md:col-span-10">
+                    <Bar pct={freq[f.code]} />
+                    <div className="text-xs text-slate-400 mt-1">
+                      {Math.round((freq[f.code] || 0) * 100)}%
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
 
-        {/* Profile mix */}
-        <section>
-          <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
-          <div className="grid gap-3">
-            {data.profile_labels.map((p) => (
-              <div
-                key={p.code}
-                className="grid grid-cols-12 items-center gap-3"
-              >
-                <div className="col-span-3 md:col-span-2 text-sm text-gray-700">
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-gray-500 ml-2">
-                    ({p.code.replace("PROFILE_", "P")})
-                  </span>
-                </div>
-                <div className="col-span-9 md:col-span-10">
-                  <Bar pct={prof[p.code] || 0} />
-                  <div className="text-xs text-gray-500 mt-1">
-                    {Math.round((prof[p.code] || 0) * 100)}%
+          {/* Profile mix */}
+          <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 md:p-7 shadow-xl shadow-sky-950/40">
+            <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
+            <div className="grid gap-3">
+              {data.profile_labels.map((p) => (
+                <div
+                  key={p.code}
+                  className="grid grid-cols-12 items-center gap-3"
+                >
+                  <div className="col-span-3 md:col-span-2 text-sm text-slate-100">
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-slate-400 ml-2">
+                      ({p.code.replace("PROFILE_", "P")})
+                    </span>
+                  </div>
+                  <div className="col-span-9 md:col-span-10">
+                    <Bar pct={prof[p.code] || 0} />
+                    <div className="text-xs text-slate-400 mt-1">
+                      {Math.round((prof[p.code] || 0) * 100)}%
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      </main>
+              ))}
+            </div>
+          </section>
+        </main>
 
-      <footer className="max-w-5xl mx-auto py-10 text-sm text-gray-500">
-        <div>
+        <footer className="py-4 text-xs text-slate-400 border-t border-white/10">
           © {new Date().getFullYear()} MindCanvas — Profiletest.ai
-        </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   );
 }
