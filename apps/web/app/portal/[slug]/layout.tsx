@@ -1,4 +1,3 @@
-// apps/web/app/portal/[slug]/layout.tsx
 import { ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
 import PortalChrome from "@/components/portal/PortalChrome";
@@ -56,12 +55,12 @@ export default async function OrgLayout({
     <html style={vars as any}>
       <body
         style={{ fontFamily: "var(--report-font-family)" }}
-        className="relative min-h-screen bg-[#050914] text-white overflow-hidden"
+        className="relative min-h-screen bg-[#050914] text-white overflow-x-hidden"
       >
-        {/* shared MindCanvas background (same as landing) */}
+        {/* Shared MindCanvas background */}
         <AppBackground />
 
-        {/* existing portal chrome/nav + content */}
+        {/* Portal chrome/nav + the page content */}
         <div className="relative z-10">
           <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
             {children}
@@ -71,3 +70,4 @@ export default async function OrgLayout({
     </html>
   );
 }
+
