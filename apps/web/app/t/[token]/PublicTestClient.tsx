@@ -64,7 +64,29 @@ export default function PublicTestClient({ token }: { token: string }) {
 
         const metaRes: any = await fetchJson(`/api/public/test/${token}`);
         if (!alive) return;
-        setTestName(metaRes?.data?.name ?? null);
+
+        const metaData = metaRes?.data ?? {};
+        const nameFromMeta: string | null = metaData?.name ?? null;
+
+        // Try a couple of possible shapes for org name (all safe fallbacks)
+        const orgNameFromMeta: string | null =
+          metaData?.org_name ??
+          metaData?.organisation_name ??
+          metaData?.org?.name ??
+          null;
+
+        setTestName(nameFromMeta);
+
+        // 🔔 Notify TestShell so it can update the hero title
+        if (typeof window !== 'undefined') {
+          const detail = {
+            orgName: orgNameFromMeta,
+            testName: nameFromMeta,
+          };
+          window.dispatchEvent(
+            new CustomEvent('mc_test_meta', { detail })
+          );
+        }
 
         const qRes: any = await fetchJson(`/api/public/test/${token}/questions`);
         if (!alive) return;
@@ -169,7 +191,7 @@ export default function PublicTestClient({ token }: { token: string }) {
 
       if (!takerId) throw new Error('missing taker_id');
 
-      // ✅ FIXED: send { question_id, selected } (0-based index)
+      // ✅ send { question_id, selected } (0-based index)
       const payloadAnswers = Object.entries(answers).map(([question_id, value]) => ({
         question_id,
         selected: Number(value) - 1, // backend expects 0..3
@@ -342,3 +364,4 @@ export default function PublicTestClient({ token }: { token: string }) {
     </div>
   );
 }
+

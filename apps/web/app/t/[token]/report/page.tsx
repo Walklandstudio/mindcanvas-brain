@@ -1,9 +1,8 @@
-// apps/web/app/t/[token]/report/page.tsx
-
 import Link from 'next/link';
-import { getBaseUrl } from '@/lib/server-url';
-import { getOrgFramework, OrgReportCopy } from '@/lib/report/getOrgFramework';
 import PersonalityMapSection from './PersonalityMapSection';
+
+import { getBaseUrl } from '@/lib/server-url';
+import { getOrgFramework, type OrgFramework } from '@/lib/report/getOrgFramework';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +31,13 @@ type ResultData = {
 
 type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
 
+// --- Helpers ---------------------------------------------------------------
+
+function formatPercent(v: number | undefined): string {
+  if (!v || Number.isNaN(v)) return '0%';
+  return `${Math.round(v * 100)}%`;
+}
+
 function getFullName(taker: ResultData['taker']): string {
   const first = taker.first_name?.trim() ?? '';
   const last = taker.last_name?.trim() ?? '';
@@ -57,12 +63,49 @@ function getDefaultFrameworkIntro(orgName: string): string[] {
   ];
 }
 
-// Helper to normalise string | string[] coming from JSON
-function asText(value?: string | string[]): string {
-  if (!value) return '';
-  if (Array.isArray(value)) return value.join(' ');
-  return value;
+function defaultHowToUse() {
+  return {
+    summary:
+      'This report is a snapshot of how you naturally like to work, not a label. Use it as a guide, not a rule book.',
+    bullets: [
+      'Find simple words for how you like to work.',
+      'Spot where your strengths add the most value to your team and organisation.',
+      'Notice growth areas without labelling or limiting yourself.',
+      'Have better conversations with leaders, colleagues, or a coach about how you work best.',
+    ],
+  };
 }
+
+function defaultHowToReadScores() {
+  return {
+    title: 'How to read these scores',
+    bullets: [
+      'Higher percentages show patterns you use a lot.',
+      'Lower percentages show styles you can use, but they may cost more energy.',
+      'Anything above about 30% will usually feel very natural to you.',
+    ],
+  };
+}
+
+function asText(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value.join(' ');
+  return value ?? '';
+}
+
+type OrgReportCopy = OrgFramework['framework']['report'] & {
+  profiles?: Record<
+    string,
+    {
+      one_liner?: string;
+      traits?: string | string[];
+      motivators?: string | string[];
+      blind_spots?: string | string[];
+      example?: string;
+    }
+  >;
+};
+
+// --- Page ------------------------------------------------------------------
 
 export default async function ReportPage({
   params,
@@ -88,7 +131,7 @@ export default async function ReportPage({
 
   const base = await getBaseUrl();
 
-  // ---- Fetch result data (public API) --------------------------------------
+  // ---- Fetch result data (public API) ------------------------------------
   const resultUrl = `${base}/api/public/test/${encodeURIComponent(
     token
   )}/result?tid=${encodeURIComponent(tid)}`;
@@ -138,62 +181,51 @@ export default async function ReportPage({
 
   const data = resultData;
   const orgSlug = data.org_slug;
-  const orgName = data.org_name || 'Your Organisation';
+  const orgName = data.org_name || data.test_name || 'Your Organisation';
   const participantName = getFullName(data.taker);
 
-  // ---- Load org framework JSON (for welcome + framework copy) -------------
-  let orgFw: OrgReportCopy | null = null;
+  // ---- Load org framework JSON (for copy) --------------------------------
+  let orgFw: OrgFramework | null = null;
   try {
-    orgFw = await getOrgFramework(orgSlug);
+    orgFw = getOrgFramework(orgSlug);
   } catch {
     orgFw = null;
   }
 
-  // Title (e.g. “Team Puzzle Discovery Assessment”)
-  const reportTitle: string =
-    orgFw?.report_title || data.test_name || `${orgName} Profile Assessment`;
+  const fw = orgFw?.framework;
+  const reportCopy: OrgReportCopy | null = fw?.report ?? null;
 
-  const defaultWelcome = getDefaultWelcome(orgName);
+  const reportTitle =
+    reportCopy?.report_title || `${orgName} Profile Assessment`;
 
   const welcomeTitle: string =
-    orgFw?.welcome_title || defaultWelcome.title;
+    reportCopy?.welcome_title || getDefaultWelcome(orgName).title;
 
   const welcomeBody: string[] =
-    Array.isArray(orgFw?.welcome_body) && orgFw!.welcome_body!.length > 0
-      ? (orgFw!.welcome_body as string[])
-      : defaultWelcome.body;
+    reportCopy?.welcome_body && Array.isArray(reportCopy.welcome_body)
+      ? reportCopy.welcome_body
+      : getDefaultWelcome(orgName).body;
 
   const frameworkTitle: string =
-    orgFw?.framework_title || `The ${orgName} framework`;
-
+    reportCopy?.framework_title || `The ${orgName} framework`;
   const frameworkIntro: string[] =
-    Array.isArray(orgFw?.framework_intro) && orgFw!.framework_intro!.length > 0
-      ? (orgFw!.framework_intro as string[])
+    reportCopy?.framework_intro && Array.isArray(reportCopy.framework_intro)
+      ? reportCopy.framework_intro
       : getDefaultFrameworkIntro(orgName);
 
-  const howToReadTitle: string =
-    orgFw?.how_to_read_scores?.title || 'How to read these scores';
+  const howToUse = reportCopy?.how_to_use || defaultHowToUse();
+  const howToRead = reportCopy?.how_to_read_scores || defaultHowToReadScores();
 
-  const howToReadBullets: string[] =
-    orgFw?.how_to_read_scores?.bullets || [
-      'Higher percentages show patterns you use a lot.',
-      'Lower percentages show styles you can use, but they may cost more energy.',
-      'Anything above about 30% will usually feel very natural to you.',
-    ];
-
-  const blindSpotsLabel: string =
-    orgFw?.profile_language?.blind_spots_label || 'Blind spots';
-
-  const blindSpotsDescriptionDefault: string =
-    orgFw?.profile_language?.blind_spots_description ||
-    'Things to watch out for when this style is over-used or under pressure.';
-
-  const profileCopy = orgFw?.profiles || {};
+  const profileCopy =
+    (reportCopy?.profiles as OrgReportCopy['profiles']) || {};
 
   const freq = data.frequency_percentages;
   const prof = data.profile_percentages;
 
-  // Sort profiles by percentage
+  const primaryProfile = data.profile_labels.find(
+    (p) => p.code === data.top_profile_code
+  );
+
   const sortedProfiles = [...data.profile_labels]
     .map((p) => ({
       ...p,
@@ -210,7 +242,7 @@ export default async function ReportPage({
   )}`;
 
   const primaryExample =
-    (primary && profileCopy[primary.code]?.example) ||
+    profileCopy?.[primary?.code || '']?.example ||
     'For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.';
 
   return (
@@ -263,40 +295,36 @@ export default async function ReportPage({
             </div>
           </div>
 
-          {/* How to use */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
-            <h3 className="text-base font-semibold text-slate-900">
-              How to use this report
-            </h3>
-            <p className="mt-2 text-sm text-slate-700">
-              This report is a snapshot of how you naturally like to work, not a label. Use it as a guide, not a
-              rule book.
-            </p>
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              <li>Find simple words for how you like to work.</li>
-              <li>
-                Spot where your strengths add the most value to your team and organisation.
-              </li>
-              <li>Notice growth areas without labelling or limiting yourself.</li>
-              <li>
-                Have better conversations with leaders, colleagues, or a coach about how you work best.
-              </li>
-            </ul>
-            <p className="mt-3 text-xs text-slate-500">
-              Use this as a starting point, not a verdict. The most useful insights come from reflecting, asking
-              questions, and applying what feels true in your day-to-day work.
-            </p>
-          </div>
+          {/* How to use + Framework (stacked) */}
+          <div className="space-y-4">
+            {/* How to use */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+              <h3 className="text-base font-semibold text-slate-900">
+                How to use this report
+              </h3>
+              <p className="mt-2 text-sm text-slate-700">{howToUse.summary}</p>
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                {howToUse.bullets.map((b: string, i: number) => (
+                  <li key={i}>{b}</li>
+                ))}
+              </ul>
+              <p className="mt-3 text-xs text-slate-500">
+                Use this as a starting point, not a verdict. The most useful
+                insights come from reflecting, asking questions, and applying
+                what feels true in your day-to-day work.
+              </p>
+            </div>
 
-          {/* Org framework */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
-            <h3 className="text-base font-semibold text-slate-900">
-              {frameworkTitle}
-            </h3>
-            <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
-              {frameworkIntro.map((p, idx) => (
-                <p key={idx}>{p}</p>
-              ))}
+            {/* Org framework */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+              <h3 className="text-base font-semibold text-slate-900">
+                {frameworkTitle}
+              </h3>
+              <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
+                {frameworkIntro.map((p, idx) => (
+                  <p key={idx}>{p}</p>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -306,8 +334,9 @@ export default async function ReportPage({
               Understanding the four Frequencies
             </h3>
             <p className="mt-2 text-sm text-slate-700">
-              Frequencies describe the way you naturally think, decide, and take action. You can think of them as
-              four types of work energy that show where you feel most at home.
+              Frequencies describe the way you naturally think, decide, and take
+              action. You can think of them as four types of work energy that
+              show where you feel most at home.
             </p>
             <dl className="mt-4 space-y-2 text-sm text-slate-800">
               <div>
@@ -343,44 +372,48 @@ export default async function ReportPage({
               Understanding the eight Profiles
             </h3>
             <p className="mt-2 text-sm text-slate-700">
-              Profiles blend these Frequencies into distinct patterns of contribution. A profile is simply a
-              pattern that shows how you like to contribute in a team.
+              Profiles blend these Frequencies into distinct patterns of
+              contribution. A profile is simply a pattern that shows how you
+              like to contribute in a team.
             </p>
             <dl className="mt-4 grid gap-2 text-sm text-slate-800 md:grid-cols-2">
-              {data.profile_labels.map((p) => (
-                <div key={p.code}>
-                  <dt className="font-semibold">{p.name}</dt>
-                  <dd className="text-slate-700">
-                    {asText(profileCopy[p.code]?.one_liner) ||
-                      'A distinct way of contributing, combining the four Frequencies into a recognisable working style.'}
-                  </dd>
-                </div>
-              ))}
+              {data.profile_labels.map((p) => {
+                const copy = profileCopy?.[p.code];
+                return (
+                  <div key={p.code}>
+                    <dt className="font-semibold">{p.name}</dt>
+                    <dd className="text-slate-700">
+                      {copy?.one_liner ||
+                        'A distinct way of contributing, combining the four Frequencies into a recognisable working style.'}
+                    </dd>
+                  </div>
+                );
+              })}
             </dl>
           </div>
         </section>
 
-        {/* PERSONALITY MAP -------------------------------------------------- */}
+        {/* Personality map --------------------------------------------------- */}
         <section className="space-y-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
             Your personality map
           </p>
-          <PersonalityMapSection
-            result={{
-              frequency_a_pct: freq.A ?? 0,
-              frequency_b_pct: freq.B ?? 0,
-              frequency_c_pct: freq.C ?? 0,
-              frequency_d_pct: freq.D ?? 0,
-              profile_1_pct: prof['P1'] ?? 0,
-              profile_2_pct: prof['P2'] ?? 0,
-              profile_3_pct: prof['P3'] ?? 0,
-              profile_4_pct: prof['P4'] ?? 0,
-              profile_5_pct: prof['P5'] ?? 0,
-              profile_6_pct: prof['P6'] ?? 0,
-              profile_7_pct: prof['P7'] ?? 0,
-              profile_8_pct: prof['P8'] ?? 0,
-            }}
-          />
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Your Personality Map
+            </h2>
+            <p className="mt-2 text-sm text-slate-700">
+              This visual map shows how your overall energy (Frequencies) and
+              your more detailed style (Profiles) are distributed across the
+              model. Higher values show patterns you use more often.
+            </p>
+            <div className="mt-6">
+              <PersonalityMapSection
+                frequencyPercentages={data.frequency_percentages}
+                profilePercentages={data.profile_percentages}
+              />
+            </div>
+          </div>
         </section>
 
         {/* PART 2 ------------------------------------------------------------ */}
@@ -415,9 +448,9 @@ export default async function ReportPage({
                 </p>
               </div>
               <div className="rounded-xl bg-sky-50 px-4 py-3 text-xs text-sky-900">
-                <p className="font-semibold">{howToReadTitle}</p>
+                <p className="font-semibold">{howToRead.title}</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                  {howToReadBullets.map((b: string, i: number) => (
+                  {howToRead.bullets.map((b: string, i: number) => (
                     <li key={i}>{b}</li>
                   ))}
                 </ul>
@@ -472,8 +505,9 @@ export default async function ReportPage({
                   that help this way of working feel energising and sustainable.
                 </li>
                 <li>
-                  <span className="font-semibold">{blindSpotsLabel}:</span>{' '}
-                  {blindSpotsDescriptionDefault}
+                  <span className="font-semibold">Watch outs:</span> Things to
+                  notice when this frequency is over-used, such as ignoring
+                  other perspectives or pushing your preferred style too hard.
                 </li>
               </ul>
             </div>
@@ -543,21 +577,8 @@ export default async function ReportPage({
               if (!p) return null;
               const pct = (p.pct || 0) * 100;
               const label =
-                idx === 0
-                  ? 'Primary profile'
-                  : idx === 1
-                  ? 'Secondary'
-                  : 'Tertiary';
-
-              const traits =
-                asText(profileCopy[p.code]?.traits) ||
-                'How this profile most naturally contributes when things are going well.';
-              const motivators =
-                asText(profileCopy[p.code]?.motivators) ||
-                'Conditions that help this style feel energising and sustainable.';
-              const blindSpots =
-                asText(profileCopy[p.code]?.blind_spots) ||
-                blindSpotsDescriptionDefault;
+                idx === 0 ? 'Primary profile' : idx === 1 ? 'Secondary' : 'Tertiary';
+              const copy = profileCopy?.[p.code];
 
               return (
                 <div
@@ -576,15 +597,19 @@ export default async function ReportPage({
                   </p>
                   <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs text-slate-700">
                     <li>
-                      <span className="font-semibold">Key traits:</span> {traits}
+                      <span className="font-semibold">Key traits:</span>{' '}
+                      {asText(copy?.traits) ||
+                        'How this profile most naturally contributes when things are going well.'}
                     </li>
                     <li>
                       <span className="font-semibold">Motivators:</span>{' '}
-                      {motivators}
+                      {asText(copy?.motivators) ||
+                        'Conditions that help this style feel energising and sustainable.'}
                     </li>
                     <li>
-                      <span className="font-semibold">{blindSpotsLabel}:</span>{' '}
-                      {blindSpots}
+                      <span className="font-semibold">Watch outs:</span>{' '}
+                      {asText(copy?.blind_spots) ||
+                        'Things to watch out for when this style is over-used or under pressure.'}
                     </li>
                   </ul>
                 </div>
@@ -614,9 +639,7 @@ export default async function ReportPage({
           {/* Strengths + Development */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-white p-6">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Strengths
-              </h2>
+              <h2 className="text-lg font-semibold text-slate-900">Strengths</h2>
               <p className="mt-2 text-sm text-slate-700">
                 These are areas where your natural energy is most likely to add
                 value when your work and environment are a good fit.
@@ -629,7 +652,7 @@ export default async function ReportPage({
                 </li>
                 <li>
                   Using your{' '}
-                  <span className="font-semibold">{primary?.name}</span> profile
+                    <span className="font-semibold">{primary?.name}</span> profile
                   to bring something that others may not – whether that’s ideas,
                   people focus, structure, or depth.
                 </li>
@@ -773,3 +796,4 @@ export default async function ReportPage({
     </div>
   );
 }
+
