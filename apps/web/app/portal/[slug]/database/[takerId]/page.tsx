@@ -438,11 +438,6 @@ export default async function TakerDetail({
                 <p className="mt-2 text-sm font-medium text-slate-800">
                   {p.pct}% match
                 </p>
-                <p className="mt-2 text-xs text-slate-600">
-                  Summary view for coaches – use this alongside the full
-                  report when talking about strengths, stretch areas and role
-                  fit.
-                </p>
               </div>
             ))}
           </div>
@@ -466,4 +461,5 @@ export default async function TakerDetail({
     </div>
   );
 }
+
 

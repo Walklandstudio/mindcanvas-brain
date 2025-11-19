@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -35,34 +34,42 @@ type LinkMeta = {
   redirect_url?: string | null;
 };
 
-/**
- * Per-org profile images.
- * Right now we only map Team Puzzle (`team-puzzle`),
- * so other orgs (like Competency Coach) won't show any images yet.
- */
-const ORG_PROFILE_IMAGES: Record<string, Record<string, string>> = {
-  "team-puzzle": {
-    Visionary: "/profile-cards/tp-visionary.png",
-    Catalyst: "/profile-cards/tp-catalyst.png",
-    Motivator: "/profile-cards/tp-motivator.png",
-    Connector: "/profile-cards/tp-connector.png",
-    Facilitator: "/profile-cards/tp-facilitator.png",
-    Coordinator: "/profile-cards/tp-coordinator.png",
-    Controller: "/profile-cards/tp-controller.png",
-    Optimiser: "/profile-cards/tp-optimiser.png",
-  },
-  // Later we can add:
-  // "competency-coach": { Visionary: "/profile-cards/cc-visionary.png", ... }
-};
-
 function Bar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(1, Number(pct) || 0));
   const width = `${(clamped * 100).toFixed(0)}%`;
   return (
-    <div className="w-full h-2 rounded-full bg-slate-800">
-      <div className="h-2 rounded-full bg-sky-500" style={{ width }} />
+    <div className="w-full h-2 rounded bg-black/30">
+      <div className="h-2 rounded bg-sky-500" style={{ width }} />
     </div>
   );
+}
+
+// Map profile code -> short key for image filenames
+const PROFILE_CODE_TO_KEY: Record<string, string> = {
+  P1: "visionary",
+  P2: "catalyst",
+  P3: "motivator",
+  P4: "connector",
+  P5: "facilitator",
+  P6: "coordinator",
+  P7: "controller",
+  P8: "optimiser",
+};
+
+function getProfileCardImage(orgSlug?: string, profileCode?: string) {
+  if (!orgSlug || !profileCode) return null;
+
+  // For now we only have cards for Team Puzzle (tp-*.png)
+  if (orgSlug !== "team-puzzle") return null;
+
+  const normalised = profileCode.toUpperCase().replace(/^PROFILE_/, "P");
+  const key = PROFILE_CODE_TO_KEY[normalised];
+  if (!key) return null;
+
+  const src = `/profile-cards/tp-${key}.png`;
+  const alt = key.charAt(0).toUpperCase() + key.slice(1);
+
+  return { src, alt };
 }
 
 export default function ResultPage({ params }: { params: { token: string } }) {
@@ -156,28 +163,34 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     (meta.hidden_results_message ?? "").trim().length > 0;
 
   const hiddenMessage = (meta?.hidden_results_message ?? "").trim();
+  const orgName = meta?.org_name || data?.org_slug || "your organisation";
+  const rawTestName = meta?.name || data?.test_name || "Profile Test";
 
-  // Org/test naming + title like "Team Puzzle Results"
-  const orgOrTestName =
-    meta?.org_name || meta?.name || data?.test_name || "Profile Test";
-  const displayTitle = `${orgOrTestName} Results`;
+  // If the test name is still generic, use a more branded heading
+  const heading =
+    rawTestName && rawTestName !== "Profile Test"
+      ? rawTestName
+      : orgName
+      ? `${orgName} Results`
+      : "Profile Test Results";
 
-  const orgSlug = data?.org_slug || "";
-  const topProfileName = data?.top_profile_name || "";
+  const card = data
+    ? getProfileCardImage(data.org_slug, data.top_profile_code)
+    : null;
 
-  const profileImagesForOrg = ORG_PROFILE_IMAGES[orgSlug] || {};
-  const topProfileImageSrc =
-    topProfileName && profileImagesForOrg[topProfileName]
-      ? profileImagesForOrg[topProfileName]
-      : null;
+  // ---------------------------------------------------------------------------
+  // Early exits
+  // ---------------------------------------------------------------------------
 
   if (!tid) {
     return (
-      <div className="min-h-screen mc-bg text-white p-6">
-        <h1 className="text-2xl font-semibold">Missing taker ID</h1>
-        <p className="mt-2 text-sm text-slate-200">
-          This page expects a <code>?tid=</code> query parameter.
-        </p>
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+        <main className="mx-auto max-w-3xl px-4 py-10">
+          <h1 className="text-2xl font-semibold">Personalised result</h1>
+          <p className="mt-3 text-sm text-slate-300">
+            This page expects a <code>?tid=</code> query parameter.
+          </p>
+        </main>
       </div>
     );
   }
@@ -185,22 +198,23 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   // 🔒 If this link is configured to hide results, show the custom message instead
   if (shouldHideResults) {
     return (
-      <div className="min-h-screen mc-bg text-white p-6 md:p-10">
-        <main className="mx-auto max-w-3xl space-y-6">
-          <header className="border-b border-white/10 pb-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-300">
-              RESULT
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+        <main className="mx-auto max-w-3xl px-4 py-10 space-y-6">
+          <header>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/80">
+              Result
             </p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight">
-              {displayTitle}
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-50">
+              {heading}
             </h1>
+            <p className="mt-1 text-sm text-slate-300">{orgName}</p>
           </header>
 
-          <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 md:p-8 shadow-xl shadow-sky-950/40">
-            <h2 className="text-xl font-semibold mb-3">
+          <section className="rounded-2xl bg-slate-950/70 border border-slate-700/70 p-6 md:p-8 shadow-xl shadow-black/40">
+            <h2 className="text-xl font-semibold mb-3 text-slate-50">
               Thank you for completing this assessment
             </h2>
-            <p className="text-sm text-slate-100 whitespace-pre-line">
+            <p className="text-sm text-slate-200 whitespace-pre-line">
               {hiddenMessage}
             </p>
           </section>
@@ -209,14 +223,14 @@ export default function ResultPage({ params }: { params: { token: string } }) {
             <div>
               <a
                 href={meta.redirect_url}
-                className="inline-flex items-center px-4 py-2 rounded-lg bg-sky-500 text-sm font-medium text-white hover:bg-sky-400"
+                className="inline-flex items-center px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-500 shadow"
               >
                 Continue
               </a>
             </div>
           )}
 
-          <footer className="pt-8 text-xs text-slate-400">
+          <footer className="pt-8 text-xs text-slate-500">
             © {new Date().getFullYear()} MindCanvas — Profiletest.ai
           </footer>
         </main>
@@ -226,98 +240,109 @@ export default function ResultPage({ params }: { params: { token: string } }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen mc-bg text-white p-6">
-        <h1 className="text-2xl font-semibold">Loading result…</h1>
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+        <main className="mx-auto max-w-3xl px-4 py-10">
+          <h1 className="text-2xl font-semibold">Loading result…</h1>
+        </main>
       </div>
     );
   }
 
   if (err || !data) {
     return (
-      <div className="min-h-screen mc-bg text-white p-6">
-        <h1 className="text-2xl font-semibold">Couldn’t load result</h1>
-        <pre className="mt-4 p-3 rounded bg-slate-900 text-slate-50 whitespace-pre-wrap border border-white/10">
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+        <main className="mx-auto max-w-3xl px-4 py-10">
+          <h1 className="text-2xl font-semibold">Couldn’t load result</h1>
+          <pre className="mt-4 p-3 rounded bg-slate-950 text-slate-100 whitespace-pre-wrap border border-slate-700">
 {err || "No data"}
-        </pre>
-        <div className="text-sm text-slate-300 mt-3">
-          Debug link:{" "}
-          <a
-            className="underline"
-            href={`/api/public/test/${token}/result?tid=${encodeURIComponent(
-              tid
-            )}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            /api/public/test/{token}/result?tid=…
-          </a>
-        </div>
+          </pre>
+          <div className="text-sm text-slate-400 mt-3">
+            Debug link:{" "}
+            <a
+              className="underline"
+              href={`/api/public/test/${token}/result?tid=${encodeURIComponent(
+                tid
+              )}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              /api/public/test/{token}/result?tid=…
+            </a>
+          </div>
+        </main>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen mc-bg text-white p-6 md:p-10">
-      <div className="mx-auto max-w-5xl space-y-10">
-        {/* HEADER */}
-        <header className="border-b border-white/10 pb-6">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-300">
-            RESULT
-          </p>
-          <h1 className="mt-1 text-3xl md:text-4xl font-bold tracking-tight">
-            {displayTitle}
-          </h1>
-          <p className="mt-2 text-sm text-slate-100">
-            Top Profile:{" "}
-            <span className="font-semibold">
-              {data.top_profile_name}
-            </span>
-          </p>
+  // ---------------------------------------------------------------------------
+  // Main rendered result
+  // ---------------------------------------------------------------------------
 
-          {/* Top profile image card – Team Puzzle only for now */}
-          {topProfileImageSrc && (
-            <div className="mt-4">
-              <div className="inline-flex items-center rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg shadow-sky-950/40">
-                <Image
-                  src={topProfileImageSrc}
-                  alt={topProfileName}
-                  width={192}
-                  height={192}
-                  className="h-40 w-40 object-contain"
-                />
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+      <div className="mx-auto max-w-5xl px-4 py-8 md:py-10 space-y-10">
+        {/* HEADER + PROFILE CARD */}
+        <header className="border-b border-slate-800 pb-6">
+          <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/80">
+                Result
+              </p>
+              <h1 className="mt-2 text-3xl md:text-4xl font-bold tracking-tight text-slate-50">
+                {heading}
+              </h1>
+              <p className="mt-1 text-sm text-slate-300">{orgName}</p>
+              <p className="mt-3 text-sm text-slate-200">
+                Top Profile:{" "}
+                <span className="font-semibold">
+                  {data.top_profile_name}
+                </span>
+              </p>
+
+              <div className="mt-4">
+                <Link
+                  href={`/t/${encodeURIComponent(
+                    token
+                  )}/report?tid=${encodeURIComponent(tid)}`}
+                  className="inline-flex items-center px-4 py-2 rounded-xl border border-sky-500/60 bg-slate-900/60 text-sm font-medium text-slate-50 hover:bg-sky-600/70 hover:border-sky-400 transition shadow-md shadow-black/40"
+                >
+                  View your personalised report →
+                </Link>
               </div>
             </div>
-          )}
 
-          <div className="mt-6">
-            <Link
-              href={`/t/${encodeURIComponent(
-                token
-              )}/report?tid=${encodeURIComponent(tid)}`}
-              className="inline-flex items-center rounded-lg border border-white/20 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-50 hover:bg-slate-900"
-            >
-              View your personalised report →
-            </Link>
+            {card && (
+              <div className="w-[160px] h-[160px] rounded-3xl bg-sky-500/10 border border-sky-400/40 shadow-xl shadow-sky-900/50 overflow-hidden flex items-center justify-center">
+                <img
+                  src={card.src}
+                  alt={card.alt}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            )}
           </div>
         </header>
 
-        <main className="space-y-8">
+        {/* MAIN CONTENT */}
+        <main className="space-y-10">
           {/* Frequency mix */}
-          <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 md:p-7 shadow-xl shadow-sky-950/40">
-            <h2 className="text-xl font-semibold mb-4">Frequency mix</h2>
+          <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 md:p-7 shadow-lg shadow-black/40">
+            <h2 className="text-xl font-semibold mb-4 text-slate-50">
+              Frequency mix
+            </h2>
             <div className="grid gap-3">
               {data.frequency_labels.map((f) => (
                 <div
                   key={f.code}
                   className="grid grid-cols-12 items-center gap-3"
                 >
-                  <div className="col-span-3 md:col-span-2 text-sm text-slate-100">
+                  <div className="col-span-4 md:col-span-3 text-sm text-slate-100">
                     <span className="font-medium">{f.name}</span>
                     <span className="text-slate-400 ml-2">
                       ({f.code})
                     </span>
                   </div>
-                  <div className="col-span-9 md:col-span-10">
+                  <div className="col-span-8 md:col-span-9">
                     <Bar pct={freq[f.code]} />
                     <div className="text-xs text-slate-400 mt-1">
                       {Math.round((freq[f.code] || 0) * 100)}%
@@ -329,21 +354,23 @@ export default function ResultPage({ params }: { params: { token: string } }) {
           </section>
 
           {/* Profile mix */}
-          <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 md:p-7 shadow-xl shadow-sky-950/40">
-            <h2 className="text-xl font-semibold mb-4">Profile mix</h2>
+          <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 md:p-7 shadow-lg shadow-black/40">
+            <h2 className="text-xl font-semibold mb-4 text-slate-50">
+              Profile mix
+            </h2>
             <div className="grid gap-3">
               {data.profile_labels.map((p) => (
                 <div
                   key={p.code}
                   className="grid grid-cols-12 items-center gap-3"
                 >
-                  <div className="col-span-3 md:col-span-2 text-sm text-slate-100">
+                  <div className="col-span-4 md:col-span-3 text-sm text-slate-100">
                     <span className="font-medium">{p.name}</span>
                     <span className="text-slate-400 ml-2">
                       ({p.code.replace("PROFILE_", "P")})
                     </span>
                   </div>
-                  <div className="col-span-9 md:col-span-10">
+                  <div className="col-span-8 md:col-span-9">
                     <Bar pct={prof[p.code] || 0} />
                     <div className="text-xs text-slate-400 mt-1">
                       {Math.round((prof[p.code] || 0) * 100)}%
@@ -355,7 +382,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
           </section>
         </main>
 
-        <footer className="py-4 text-xs text-slate-400 border-t border-white/10">
+        <footer className="pt-4 text-sm text-slate-500">
           © {new Date().getFullYear()} MindCanvas — Profiletest.ai
         </footer>
       </div>
