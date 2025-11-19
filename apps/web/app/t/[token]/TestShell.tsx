@@ -91,7 +91,7 @@ export default function TestShell({ children, orgName, testTitle }: Props) {
         <header className="border-b border-white/10 bg-gradient-to-r from-[#64bae2] via-sky-500 to-[#015a8b]">
           <div className="mx-auto max-w-5xl px-4 py-5 md:py-6">
             <p className="text-xs uppercase tracking-[0.18em] text-sky-50/80">
-              MindCanvas • Signature Profiling System
+              Signature Profiling System
             </p>
 
             <h1 className="mt-1 text-2xl font-semibold md:text-3xl text-white">

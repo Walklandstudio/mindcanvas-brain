@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import PersonalityMapSection from './PersonalityMapSection';
 
 import { getBaseUrl } from '@/lib/server-url';
@@ -105,6 +106,28 @@ type OrgReportCopy = OrgFramework['framework']['report'] & {
   >;
 };
 
+type OrgImages = {
+  framework_banner?: string;
+  frequency_diagram?: string;
+  profile_grid?: string;
+};
+
+function ReportImage(props: { src?: string; alt: string; className?: string }) {
+  const { src, alt, className } = props;
+  if (!src) return null;
+  return (
+    <div className={className}>
+      <Image
+        src={src}
+        alt={alt}
+        width={1600}
+        height={400}
+        className="h-auto w-full rounded-xl object-cover"
+      />
+    </div>
+  );
+}
+
 // --- Page ------------------------------------------------------------------
 
 export default async function ReportPage({
@@ -194,6 +217,7 @@ export default async function ReportPage({
 
   const fw = orgFw?.framework;
   const reportCopy: OrgReportCopy | null = fw?.report ?? null;
+  const images: OrgImages = (fw && (fw as any).images) || {};
 
   const reportTitle =
     reportCopy?.report_title || `${orgName} Profile Assessment`;
@@ -245,6 +269,26 @@ export default async function ReportPage({
     profileCopy?.[primary?.code || '']?.example ||
     'For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.';
 
+  // Personality map data (0–100) for chart
+  const personalityMapResult = {
+    frequencies: {
+      innovationA: (freq.A ?? 0) * 100,
+      influenceB: (freq.B ?? 0) * 100,
+      implementationC: (freq.C ?? 0) * 100,
+      insightD: (freq.D ?? 0) * 100,
+    },
+    profiles: {
+      p1: (prof['P1'] ?? 0) * 100,
+      p2: (prof['P2'] ?? 0) * 100,
+      p3: (prof['P3'] ?? 0) * 100,
+      p4: (prof['P4'] ?? 0) * 100,
+      p5: (prof['P5'] ?? 0) * 100,
+      p6: (prof['P6'] ?? 0) * 100,
+      p7: (prof['P7'] ?? 0) * 100,
+      p8: (prof['P8'] ?? 0) * 100,
+    },
+  };
+
   return (
     <div className="bg-slate-50 min-h-screen">
       <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-12 pt-8 md:px-6">
@@ -273,6 +317,13 @@ export default async function ReportPage({
             </Link>
           </div>
         </header>
+
+        {/* Header image (org-specific) */}
+        <ReportImage
+          src={images.framework_banner}
+          alt={`${orgName} report banner`}
+          className="mt-2"
+        />
 
         {/* PART 1 ------------------------------------------------------------ */}
         <section className="space-y-6">
@@ -364,6 +415,12 @@ export default async function ReportPage({
                 </dd>
               </div>
             </dl>
+
+            <ReportImage
+              src={images.frequency_diagram}
+              alt="Frequency diagram"
+              className="mt-6"
+            />
           </div>
 
           {/* Understanding Profiles */}
@@ -390,6 +447,12 @@ export default async function ReportPage({
                 );
               })}
             </dl>
+
+            <ReportImage
+              src={images.profile_grid}
+              alt="Profile grid"
+              className="mt-6"
+            />
           </div>
         </section>
 
@@ -408,10 +471,7 @@ export default async function ReportPage({
               model. Higher values show patterns you use more often.
             </p>
             <div className="mt-6">
-              <PersonalityMapSection
-                frequencyPercentages={data.frequency_percentages}
-                profilePercentages={data.profile_percentages}
-              />
+              <PersonalityMapSection result={personalityMapResult} />
             </div>
           </div>
         </section>
@@ -466,7 +526,7 @@ export default async function ReportPage({
                     key={f.code}
                     className="grid grid-cols-12 items-center gap-3"
                   >
-                    <div className="col-span-3 md:col-span-2 text-sm text-slate-800">
+                    <div className="col-span-3 text-sm text-slate-800 md:col-span-2">
                       <span className="font-medium">{f.name}</span>
                     </div>
                     <div className="col-span-9 md:col-span-10">
@@ -535,7 +595,7 @@ export default async function ReportPage({
                     key={p.code}
                     className="grid grid-cols-12 items-center gap-3"
                   >
-                    <div className="col-span-3 md:col-span-2 text-sm text-slate-800">
+                    <div className="col-span-3 text-sm text-slate-800 md:col-span-2">
                       <span className="font-medium">{p.name}</span>
                     </div>
                     <div className="col-span-9 md:col-span-10">
@@ -652,7 +712,7 @@ export default async function ReportPage({
                 </li>
                 <li>
                   Using your{' '}
-                    <span className="font-semibold">{primary?.name}</span> profile
+                  <span className="font-semibold">{primary?.name}</span> profile
                   to bring something that others may not – whether that’s ideas,
                   people focus, structure, or depth.
                 </li>
@@ -796,4 +856,5 @@ export default async function ReportPage({
     </div>
   );
 }
+
 
