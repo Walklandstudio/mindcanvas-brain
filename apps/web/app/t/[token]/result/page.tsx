@@ -35,13 +35,24 @@ type LinkMeta = {
   redirect_url?: string | null;
 };
 
-// Map profile *names* to static image paths in /public
-const PROFILE_IMAGE_BY_NAME: Record<string, string> = {
-  // make sure this key matches data.top_profile_name exactly
-  Controller: "/profile-cards/controller.png",
-  // e.g.:
-  // "Visionary": "/profile-cards/visionary.png",
-  // "Connector": "/profile-cards/connector.png",
+/**
+ * Per-org profile images.
+ * Right now we only map Team Puzzle (`team-puzzle`),
+ * so other orgs (like Competency Coach) won't show any images yet.
+ */
+const ORG_PROFILE_IMAGES: Record<string, Record<string, string>> = {
+  "team-puzzle": {
+    Visionary: "/profile-cards/tp-visionary.png",
+    Catalyst: "/profile-cards/tp-catalyst.png",
+    Motivator: "/profile-cards/tp-motivator.png",
+    Connector: "/profile-cards/tp-connector.png",
+    Facilitator: "/profile-cards/tp-facilitator.png",
+    Coordinator: "/profile-cards/tp-coordinator.png",
+    Controller: "/profile-cards/tp-controller.png",
+    Optimiser: "/profile-cards/tp-optimiser.png",
+  },
+  // Later we can add:
+  // "competency-coach": { Visionary: "/profile-cards/cc-visionary.png", ... }
 };
 
 function Bar({ pct }: { pct: number }) {
@@ -151,10 +162,13 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     meta?.org_name || meta?.name || data?.test_name || "Profile Test";
   const displayTitle = `${orgOrTestName} Results`;
 
+  const orgSlug = data?.org_slug || "";
   const topProfileName = data?.top_profile_name || "";
+
+  const profileImagesForOrg = ORG_PROFILE_IMAGES[orgSlug] || {};
   const topProfileImageSrc =
-    topProfileName && PROFILE_IMAGE_BY_NAME[topProfileName]
-      ? PROFILE_IMAGE_BY_NAME[topProfileName]
+    topProfileName && profileImagesForOrg[topProfileName]
+      ? profileImagesForOrg[topProfileName]
       : null;
 
   if (!tid) {
@@ -260,7 +274,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
             </span>
           </p>
 
-          {/* Top profile image card */}
+          {/* Top profile image card – Team Puzzle only for now */}
           {topProfileImageSrc && (
             <div className="mt-4">
               <div className="inline-flex items-center rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg shadow-sky-950/40">
@@ -348,5 +362,3 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     </div>
   );
 }
-
-

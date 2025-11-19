@@ -19,11 +19,9 @@ type ResultData = {
     id: string;
     first_name?: string | null;
     last_name?: string | null;
+    // safety for older shapes
     firstName?: string | null;
     lastName?: string | null;
-    role_title?: string | null;
-    role?: string | null;
-    company?: string | null;
   };
   frequency_labels: FrequencyLabel[];
   frequency_percentages: Record<FrequencyCode, number>;
@@ -44,15 +42,14 @@ function formatPercent(v: number | undefined): string {
 }
 
 function getFullName(taker: ResultData['taker']): string {
-  const anyTaker = taker as any;
-
+  // Support both snake_case and camelCase just in case
   const rawFirst =
     (typeof taker.first_name === 'string' && taker.first_name) ||
-    (typeof anyTaker.firstName === 'string' && anyTaker.firstName) ||
+    (typeof taker.firstName === 'string' && taker.firstName) ||
     '';
   const rawLast =
     (typeof taker.last_name === 'string' && taker.last_name) ||
-    (typeof anyTaker.lastName === 'string' && anyTaker.lastName) ||
+    (typeof taker.lastName === 'string' && taker.lastName) ||
     '';
 
   const first = rawFirst.trim();
@@ -238,10 +235,6 @@ export default async function ReportPage({
   const freq = data.frequency_percentages;
   const prof = data.profile_percentages;
 
-  const primaryProfile = data.profile_labels.find(
-    (p) => p.code === data.top_profile_code
-  );
-
   const sortedProfiles = [...data.profile_labels]
     .map((p) => ({
       ...p,
@@ -260,42 +253,6 @@ export default async function ReportPage({
   const primaryExample =
     profileCopy?.[primary?.code || '']?.example ||
     'For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.';
-
-  // Personality map data (0–100) for chart
-  const personalityMapResult = {
-    frequencies: {
-      innovationA: (freq.A ?? 0) * 100,
-      influenceB: (freq.B ?? 0) * 100,
-      implementationC: (freq.C ?? 0) * 100,
-      insightD: (freq.D ?? 0) * 100,
-    },
-    profiles: {
-      p1: data.profile_labels[0]
-        ? (prof[data.profile_labels[0].code] ?? 0) * 100
-        : 0,
-      p2: data.profile_labels[1]
-        ? (prof[data.profile_labels[1].code] ?? 0) * 100
-        : 0,
-      p3: data.profile_labels[2]
-        ? (prof[data.profile_labels[2].code] ?? 0) * 100
-        : 0,
-      p4: data.profile_labels[3]
-        ? (prof[data.profile_labels[3].code] ?? 0) * 100
-        : 0,
-      p5: data.profile_labels[4]
-        ? (prof[data.profile_labels[4].code] ?? 0) * 100
-        : 0,
-      p6: data.profile_labels[5]
-        ? (prof[data.profile_labels[5].code] ?? 0) * 100
-        : 0,
-      p7: data.profile_labels[6]
-        ? (prof[data.profile_labels[6].code] ?? 0) * 100
-        : 0,
-      p8: data.profile_labels[7]
-        ? (prof[data.profile_labels[7].code] ?? 0) * 100
-        : 0,
-    },
-  };
 
   return (
     <div className="bg-slate-50 min-h-screen">
@@ -460,7 +417,10 @@ export default async function ReportPage({
               model. Higher values show patterns you use more often.
             </p>
             <div className="mt-6">
-              <PersonalityMapSection result={personalityMapResult} />
+              <PersonalityMapSection
+                frequencyPercentages={data.frequency_percentages}
+                profilePercentages={data.profile_percentages}
+              />
             </div>
           </div>
         </section>
@@ -515,7 +475,7 @@ export default async function ReportPage({
                     key={f.code}
                     className="grid grid-cols-12 items-center gap-3"
                   >
-                    <div className="col-span-3 text-sm text-slate-800 md:col-span-2">
+                    <div className="col-span-3 md:col-span-2 text-sm text-slate-800">
                       <span className="font-medium">{f.name}</span>
                     </div>
                     <div className="col-span-9 md:col-span-10">
@@ -584,7 +544,7 @@ export default async function ReportPage({
                     key={p.code}
                     className="grid grid-cols-12 items-center gap-3"
                   >
-                    <div className="col-span-3 text-sm text-slate-800 md:col-span-2">
+                    <div className="col-span-3 md:col-span-2 text-sm text-slate-800">
                       <span className="font-medium">{p.name}</span>
                     </div>
                     <div className="col-span-9 md:col-span-10">
@@ -618,6 +578,52 @@ export default async function ReportPage({
               </span>
               .
             </p>
+          </div>
+
+          {/* Primary / Secondary / Tertiary cards */}
+          <div className="grid gap-4 md:grid-cols-3">
+            {[primary, secondary, tertiary].map((p, idx) => {
+              if (!p) return null;
+              const pct = (p.pct || 0) * 100;
+              const label =
+                idx === 0 ? 'Primary profile' : idx === 1 ? 'Secondary' : 'Tertiary';
+              const copy = profileCopy?.[p.code];
+
+              return (
+                <div
+                  key={p.code}
+                  className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {label}
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                    {p.name}
+                  </h3>
+                  <p className="text-xs text-slate-500">{p.code}</p>
+                  <p className="mt-2 text-sm font-medium text-slate-800">
+                    {pct.toFixed(0)}% match
+                  </p>
+                  <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs text-slate-700">
+                    <li>
+                      <span className="font-semibold">Key traits:</span>{' '}
+                      {asText(copy?.traits) ||
+                        'How this profile most naturally contributes when things are going well.'}
+                    </li>
+                    <li>
+                      <span className="font-semibold">Motivators:</span>{' '}
+                      {asText(copy?.motivators) ||
+                        'Conditions that help this style feel energising and sustainable.'}
+                    </li>
+                    <li>
+                      <span className="font-semibold">Watch outs:</span>{' '}
+                      {asText(copy?.blind_spots) ||
+                        'Things to watch out for when this style is over-used or under pressure.'}
+                    </li>
+                  </ul>
+                </div>
+              );
+            })}
           </div>
 
           {/* Energy mix */}
