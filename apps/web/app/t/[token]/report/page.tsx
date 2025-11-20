@@ -62,25 +62,40 @@ function getFullName(taker: ResultData["taker"]): string {
   return full || "Participant";
 }
 
-// Normalise org slug so we can match both `team-puzzle` and `team_puzzle`
-function normaliseOrgSlug(slug: string | undefined): string {
-  if (!slug) return "";
-  return slug.toLowerCase().replace(/[_\s]+/g, "-");
+// Normalise org strings so we can match variants like `team-puzzle`, `team_puzzle`, etc.
+function normaliseOrgSlug(value: string | undefined | null): string {
+  if (!value) return "";
+  return value.toLowerCase().replace(/[_\s]+/g, "-");
 }
 
-function getOrgAssets(orgSlug: string | undefined) {
-  const slug = normaliseOrgSlug(orgSlug);
-  if (slug === "team-puzzle") {
-    return {
-      logoSrc: "/org-graphics/tp-logo.png",
-      frequenciesSrc: "/org-graphics/tp-4frequencies.png",
-      profilesDiagramSrc: "/org-graphics/tp-main-graphic.png",
-      founderPhotoSrc: "/org-graphics/tp-chandell.png", // add file when ready
-      founderCaption:
-        "Chandell Labbozzetta, Founder – Life Puzzle & Team Puzzle Discovery Assessment",
-    };
-  }
-  return null;
+// Central place to decide if this report is for Team Puzzle
+function isTeamPuzzleOrg(
+  orgSlug?: string | null,
+  orgName?: string | null
+): boolean {
+  const slugNorm = normaliseOrgSlug(orgSlug);
+  const nameNorm = normaliseOrgSlug(orgName);
+
+  const haystack = `${slugNorm} ${nameNorm}`;
+  // match things like "team-puzzle", "team_puzzle", "team puzzle discovery", etc.
+  return (
+    haystack.includes("team-puzzle") ||
+    (haystack.includes("team") && haystack.includes("puzzle"))
+  );
+}
+
+function getOrgAssets(orgSlug?: string | null, orgName?: string | null) {
+  if (!isTeamPuzzleOrg(orgSlug, orgName)) return null;
+
+  // Team Puzzle assets
+  return {
+    logoSrc: "/org-graphics/tp-logo.png",
+    frequenciesSrc: "/org-graphics/tp-4frequencies.png",
+    profilesDiagramSrc: "/org-graphics/tp-main-graphic.png",
+    founderPhotoSrc: "/org-graphics/tp-chandell.png",
+    founderCaption:
+      "Chandell Labbozzetta, Founder – Life Puzzle & Team Puzzle Discovery Assessment",
+  };
 }
 
 function getTeamPuzzleProfileImage(profileName: string | undefined): string | null {
@@ -243,14 +258,14 @@ export default async function ReportPage({
     );
   }
 
-  const data = resultData;
-  const orgSlug = data.org_slug;
-  const orgName = data.org_name || data.test_name || "Your Organisation";
-  const participantName = getFullName(data.taker);
+const data = resultData;
+const orgSlug = data.org_slug;
+const orgName = data.org_name || data.test_name || "Your Organisation";
+const participantName = getFullName(data.taker);
 
-  // org-specific assets (logo, graphics, founder photo)
-  const orgAssets = getOrgAssets(orgSlug);
-  const isTeamPuzzle = normaliseOrgSlug(orgSlug) === "team-puzzle";
+// org-specific assets (logo, graphics, founder photo)
+const orgAssets = getOrgAssets(orgSlug, orgName);
+const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
 
   // ---- Load org framework JSON (for copy) --------------------------------
   let orgFw: OrgFramework | null = null;
