@@ -1,78 +1,170 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { QscMatrix, PersonalityKey, MindsetKey } from "../QscMatrix";
+import { useEffect, useMemo, useState } from "react";
 
-type QscResult = {
+type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
+type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
+
+type PersonalityPercMap = Partial<Record<PersonalityKey, number>>;
+type MindsetPercMap = Partial<Record<MindsetKey, number>>;
+
+type QscResultsRow = {
   id: string;
   test_id: string;
   token: string;
-  personality_totals: Partial<Record<PersonalityKey, number>>;
-  personality_percentages: Partial<Record<PersonalityKey, number>>;
-  mindset_totals: Partial<Record<MindsetKey, number>>;
-  mindset_percentages: Partial<Record<MindsetKey, number>>;
-  primary_personality: PersonalityKey;
+  personality_totals: Record<string, number> | null;
+  personality_percentages: PersonalityPercMap | null;
+  mindset_totals: Record<string, number> | null;
+  mindset_percentages: MindsetPercMap | null;
+  primary_personality: PersonalityKey | null;
   secondary_personality: PersonalityKey | null;
-  primary_mindset: MindsetKey;
+  primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
-  combined_profile_code: string;
-  qsc_profile_id: string;
+  combined_profile_code: string | null; // e.g. "FIELD_ORBIT"
+  qsc_profile_id: string | null;
   created_at: string;
 };
 
-type QscProfile = {
+type QscProfileRow = {
   id: string;
-  personality_code: string; // A–D
-  mindset_level: number; // 1–5
-  profile_code: string; // e.g. D4
-  profile_label: string; // e.g. "Field Orbit"
-  how_to_communicate: string;
-  decision_style: string;
-  business_challenges: string;
-  trust_signals: string;
-  offer_fit: string;
-  sale_blockers: string;
-  created_at: string;
+  personality_code: string | null;
+  mindset_level: number | null;
+  profile_code: string | null;
+  profile_label: string | null;
+  how_to_communicate: string | null;
+  decision_style: string | null;
+  business_challenges: string | null;
+  trust_signals: string | null;
+  offer_fit: string | null;
+  sale_blockers: string | null;
 };
 
-type ApiResponse = {
-  ok: boolean;
-  results: QscResult;
-  profile: QscProfile;
+type QscPayload = {
+  results: QscResultsRow;
+  profile: QscProfileRow | null;
 };
 
-function pctLabel(value: number | undefined | null): string {
-  if (!value || !Number.isFinite(value)) return "0.0%";
-  return `${value.toFixed(1)}%`;
+type MatrixCell = {
+  personality: PersonalityKey;
+  mindset: MindsetKey;
+  label: string;
+  code: string; // e.g. "F1".."D5"
+};
+
+type CellCategory = "primary" | "secondary" | "related" | "other";
+
+const PERSONALITIES: { key: PersonalityKey; label: string; code: string }[] = [
+  { key: "FIRE", label: "FIRE", code: "A" },
+  { key: "FLOW", label: "FLOW", code: "B" },
+  { key: "FORM", label: "FORM", code: "C" },
+  { key: "FIELD", label: "FIELD", code: "D" },
+];
+
+const MINDSETS: { key: MindsetKey; label: string; level: number }[] = [
+  { key: "ORIGIN", label: "ORIGIN", level: 1 },
+  { key: "MOMENTUM", label: "MOMENTUM", level: 2 },
+  { key: "VECTOR", label: "VECTOR", level: 3 },
+  { key: "ORBIT", label: "ORBIT", level: 4 },
+  { key: "QUANTUM", label: "QUANTUM", level: 5 },
+];
+
+function buildMatrix(): MatrixCell[] {
+  const cells: MatrixCell[] = [];
+  for (const m of MINDSETS) {
+    for (const p of PERSONALITIES) {
+      const code = `${p.code}${m.level}`; // A1..D5 etc – internal helper
+      const label = `${p.label} ${m.label}`;
+      cells.push({ personality: p.key, mindset: m.key, label, code });
+    }
+  }
+  return cells;
 }
 
-export default function QscResultPage({
-  params,
-}: {
-  params: { token: string };
-}) {
+const MATRIX = buildMatrix();
+
+function classifyCell(result: QscResultsRow | null, cell: MatrixCell): CellCategory {
+  if (!result) return "other";
+
+  const combined = (result.combined_profile_code || "").toUpperCase(); // e.g. "FIELD_ORBIT"
+  const primaryP = result.primary_personality;
+  const secondaryP = result.secondary_personality;
+  const primaryM = result.primary_mindset;
+  const secondaryM = result.secondary_mindset;
+
+  const cellCombined = `${cell.personality}_${cell.mindset}`.toUpperCase();
+
+  // 1) Primary = exact combined profile
+  if (combined && cellCombined === combined) return "primary";
+
+  // 2) Secondary = any intersection of primary/secondary personality+mindset
+  const matchesPrimaryCombo =
+    (cell.personality === primaryP && cell.mindset === secondaryM) ||
+    (cell.personality === secondaryP && cell.mindset === primaryM);
+
+  if (matchesPrimaryCombo) return "secondary";
+
+  // 3) Related = shares either personality or mindset with any primary/secondary
+  const matchesPersonality =
+    cell.personality === primaryP || cell.personality === secondaryP;
+  const matchesMindset =
+    cell.mindset === primaryM || cell.mindset === secondaryM;
+
+  if (matchesPersonality || matchesMindset) return "related";
+
+  // 4) Everything else
+  return "other";
+}
+
+function categoryClasses(cat: CellCategory): string {
+  switch (cat) {
+    case "primary":
+      return "border-sky-400 bg-sky-500 text-slate-50 shadow-xl shadow-sky-900/60";
+    case "secondary":
+      return "border-sky-400/80 bg-sky-500/15 text-slate-50 shadow-md shadow-sky-900/40";
+    case "related":
+      return "border-sky-400/40 bg-sky-500/5 text-slate-100";
+    case "other":
+    default:
+      return "border-slate-700/60 bg-slate-900/70 text-slate-400";
+  }
+}
+
+function percentLabel(value: number | undefined | null): string {
+  const v = typeof value === "number" ? value : 0;
+  return `${v.toFixed(1).replace(/\.0$/, "")}%`;
+}
+
+function Bar({ pct }: { pct: number }) {
+  const clamped = Math.max(0, Math.min(100, isFinite(pct) ? pct : 0));
+  const width = `${clamped}%`;
+  return (
+    <div className="w-full h-2 rounded-full bg-slate-800/90 overflow-hidden">
+      <div className="h-2 rounded-full bg-sky-500" style={{ width }} />
+    </div>
+  );
+}
+
+export default function QscResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<QscResult | null>(null);
-  const [profile, setProfile] = useState<QscProfile | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [payload, setPayload] = useState<QscPayload | null>(null);
 
-  // Load QSC result from the public API
   useEffect(() => {
     let alive = true;
 
-    async function load() {
+    (async () => {
       try {
         setLoading(true);
-        setError(null);
+        setErr(null);
 
         const res = await fetch(
           `/api/public/qsc/${encodeURIComponent(token)}/result`,
           { cache: "no-store" }
         );
 
-        const ct = res.headers.get("content-type") ?? "";
+        const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
           throw new Error(
@@ -80,69 +172,75 @@ export default function QscResultPage({
           );
         }
 
-        const json = (await res.json()) as ApiResponse | any;
-
-        if (!res.ok || json?.ok === false) {
-          throw new Error(json?.error || `HTTP ${res.status}`);
+        const j = (await res.json()) as { ok?: boolean; error?: string } & QscPayload;
+        if (!res.ok || j.ok === false) {
+          throw new Error(j.error || `HTTP ${res.status}`);
         }
 
-        if (!json?.results) {
-          throw new Error("No data");
+        if (alive) {
+          setPayload({
+            results: j.results,
+            profile: j.profile ?? null,
+          });
         }
-
-        if (!alive) return;
-        setResult(json.results as QscResult);
-        setProfile(json.profile as QscProfile);
-      } catch (err: any) {
-        if (!alive) return;
-        setError(String(err?.message || err || "Unknown error"));
+      } catch (e: any) {
+        if (alive) setErr(String(e?.message || e || "Unknown error"));
       } finally {
         if (alive) setLoading(false);
       }
-    }
-
-    load();
+    })();
 
     return () => {
       alive = false;
     };
   }, [token]);
 
+  const result = payload?.results ?? null;
+  const profile = payload?.profile ?? null;
+
+  const personalityPerc = useMemo<PersonalityPercMap>(
+    () => result?.personality_percentages || {},
+    [result]
+  );
+  const mindsetPerc = useMemo<MindsetPercMap>(
+    () => result?.mindset_percentages || {},
+    [result]
+  );
+
   // ---------------------------------------------------------------------------
-  // States: loading / error
+  // Early states
   // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
-        <main className="mx-auto max-w-5xl px-4 py-10">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+        <main className="mx-auto max-w-5xl px-4 py-12">
+          <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
           </p>
-          <h1 className="mt-3 text-3xl font-semibold">
-            Loading your Buyer Persona Snapshot…
-          </h1>
+          <h1 className="mt-3 text-3xl font-bold">Loading your results…</h1>
         </main>
       </div>
     );
   }
 
-  if (error || !result) {
+  if (err || !result) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
-        <main className="mx-auto max-w-5xl px-4 py-10 space-y-4">
-          <h1 className="text-2xl md:text-3xl font-semibold">
-            Something went wrong
-          </h1>
+        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
+          <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+            Quantum Source Code
+          </p>
+          <h1 className="text-3xl font-bold">Something went wrong</h1>
           <p className="text-sm text-slate-300">
             We couldn&apos;t load your Quantum Source Code result.
           </p>
-          <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-xs text-slate-100 whitespace-pre-wrap">
-            {error || "No data"}
+          <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+            {err || "No data"}
           </pre>
           <p className="text-xs text-slate-500">
             Debug endpoint:{" "}
-            <code className="font-mono">
+            <code className="break-all">
               /api/public/qsc/{token}/result
             </code>
           </p>
@@ -151,231 +249,201 @@ export default function QscResultPage({
     );
   }
 
-  // Convenience locals
-  const personalityPct = result.personality_percentages || {};
-  const mindsetPct = result.mindset_percentages || {};
-
-  const primaryPersonality = result.primary_personality;
-  const secondaryPersonality = result.secondary_personality ?? null;
-  const primaryMindset = result.primary_mindset;
-  const secondaryMindset = result.secondary_mindset ?? null;
-
-  const createdLabel = (() => {
-    try {
-      return new Date(result.created_at).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
-    } catch {
-      return result.created_at;
-    }
-  })();
-
-  const profileTitle = profile?.profile_label || "Buyer Persona";
-  const profileSubtitle = result.combined_profile_code || "";
+  // Helper labels
+  const primaryPersonaLabel = profile?.profile_label || "Combined profile";
+  const createdAt = new Date(result.created_at);
 
   // ---------------------------------------------------------------------------
-  // Main UI
+  // Main layout
   // ---------------------------------------------------------------------------
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8 md:py-10">
-        {/* Top header */}
-        <header className="space-y-2 border-b border-slate-800 pb-5">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-            Quantum Source Code
-          </p>
-          <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-            Your Buyer Persona Snapshot
-          </h1>
-          <p className="text-sm text-slate-300 max-w-2xl">
-            This view combines your{" "}
-            <span className="font-semibold">Buyer Frequency Type</span> and{" "}
-            <span className="font-semibold">Buyer Mindset Level</span> into one
-            Quantum Source Code profile.
-          </p>
-        </header>
-
-        {/* Snapshot + playbook */}
-        <section className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)]">
-          {/* Combined profile card */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-6 shadow-lg shadow-black/50">
-            <p className="text-[0.7rem] font-semibold tracking-[0.22em] uppercase text-sky-300/80">
-              Combined profile
+      <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
+        {/* ----------------------------------------------------------------- */}
+        {/* Snapshot header                                                       */}
+        {/* ----------------------------------------------------------------- */}
+        <section className="space-y-6">
+          <div>
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+              Quantum Source Code
             </p>
-            <h2 className="mt-2 text-2xl font-semibold">{profileTitle}</h2>
-            <p className="mt-1 text-xs text-slate-400 uppercase tracking-[0.2em]">
-              Code:{" "}
-              <span className="font-mono tracking-wide">
-                {profileSubtitle || "—"}
-              </span>
-            </p>
-
-            <dl className="mt-5 space-y-3 text-sm">
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-400 text-xs uppercase tracking-[0.18em]">
-                  Primary personality
-                </dt>
-                <dd className="font-medium">
-                  {primaryPersonality || "—"}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-400 text-xs uppercase tracking-[0.18em]">
-                  Secondary personality
-                </dt>
-                <dd className="font-medium">
-                  {secondaryPersonality || "—"}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-400 text-xs uppercase tracking-[0.18em]">
-                  Primary mindset
-                </dt>
-                <dd className="font-medium">{primaryMindset || "—"}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-400 text-xs uppercase tracking-[0.18em]">
-                  Secondary mindset
-                </dt>
-                <dd className="font-medium">
-                  {secondaryMindset || "—"}
-                </dd>
-              </div>
-            </dl>
-
-            <p className="mt-5 text-[0.7rem] text-slate-500">
-              Created at {createdLabel}
+            <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
+              Your Buyer Persona Snapshot
+            </h1>
+            <p className="mt-2 text-sm text-slate-300">
+              This view combines your <span className="font-semibold">Buyer Frequency Type</span>{" "}
+              and <span className="font-semibold">Buyer Mindset Level</span> into one
+              Quantum Source Code profile.
             </p>
           </div>
 
-          {/* Sales playbook snapshot */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-6 shadow-lg shadow-black/50">
-            <p className="text-[0.7rem] font-semibold tracking-[0.22em] uppercase text-sky-300/80">
-              Snapshot for your sales playbook
-            </p>
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Combined profile card */}
+            <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 md:p-7 shadow-xl shadow-black/50">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
+                Combined profile
+              </p>
+              <h2 className="mt-3 text-2xl font-semibold">{primaryPersonaLabel}</h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Code:{" "}
+                <span className="font-mono text-slate-100">
+                  {result.combined_profile_code || "—"}
+                </span>
+              </p>
 
-            <dl className="mt-4 grid gap-4 text-sm md:grid-cols-2">
-              <div>
-                <dt className="font-semibold text-slate-100">
-                  How to communicate
-                </dt>
-                <dd className="mt-1 text-slate-300 whitespace-pre-line">
-                  {profile?.how_to_communicate || "[todo: how to communicate]"}
-                </dd>
+              <dl className="mt-5 grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Primary personality
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.primary_personality || "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Secondary personality
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.secondary_personality || "—"}
+                  </dd>
+                </div>
+                <div className="mt-2">
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Primary mindset
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.primary_mindset || "—"}
+                  </dd>
+                </div>
+                <div className="mt-2">
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Secondary mindset
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.secondary_mindset || "—"}
+                  </dd>
+                </div>
+              </dl>
+
+              <p className="mt-5 text-xs text-slate-500">
+                Created at{" "}
+                {createdAt.toLocaleString(undefined, {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+            </div>
+
+            {/* Sales playbook snapshot */}
+            <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40 space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
+                Snapshot for your sales playbook
+              </p>
+
+              <div className="space-y-3 text-sm">
+                <div>
+                  <h3 className="font-semibold text-slate-100">How to communicate</h3>
+                  <p className="mt-1 text-slate-300 whitespace-pre-line">
+                    {profile?.how_to_communicate || "[todo: how to communicate]"}
+                  </p>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-slate-100">Decision style</h3>
+                  <p className="mt-1 text-slate-300 whitespace-pre-line">
+                    {profile?.decision_style || "[todo: decision style]"}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <h3 className="font-semibold text-slate-100">Core challenges</h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile?.business_challenges || "[todo: core business challenges]"}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-100">Trust signals</h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile?.trust_signals || "[todo: trust signals]"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <h3 className="font-semibold text-slate-100">Offer fit</h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile?.offer_fit || "[todo: best offer fit]"}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-100">Sale blockers</h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile?.sale_blockers || "[todo: what blocks the sale]"}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <dt className="font-semibold text-slate-100">
-                  Decision style
-                </dt>
-                <dd className="mt-1 text-slate-300 whitespace-pre-line">
-                  {profile?.decision_style || "[todo: decision style]"}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-slate-100">
-                  Core challenges
-                </dt>
-                <dd className="mt-1 text-slate-300 whitespace-pre-line">
-                  {profile?.business_challenges ||
-                    "[todo: core business challenges]"}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-slate-100">
-                  Trust signals
-                </dt>
-                <dd className="mt-1 text-slate-300 whitespace-pre-line">
-                  {profile?.trust_signals || "[todo: trust signals]"}
-                </dd>
-              </div>
-            </dl>
+            </div>
           </div>
         </section>
 
-        {/* NEW: QSC matrix heatmap */}
-        <QscMatrix
-          primaryPersonality={primaryPersonality}
-          secondaryPersonality={secondaryPersonality}
-          primaryMindset={primaryMindset}
-          secondaryMindset={secondaryMindset}
-          personalityPercentages={personalityPct}
-          mindsetPercentages={mindsetPct}
-        />
-
-        {/* Frequency + Mindset bars */}
+        {/* ----------------------------------------------------------------- */}
+        {/* Frequency + Mindset summaries                                      */}
+        {/* ----------------------------------------------------------------- */}
         <section className="grid gap-6 md:grid-cols-2">
-          {/* Frequency types */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-6 shadow-lg shadow-black/50">
-            <h3 className="text-lg font-semibold">Buyer Frequency Types</h3>
-            <p className="mt-1 text-xs text-slate-300">
+          {/* Buyer Frequency Types */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
+            <h2 className="text-lg font-semibold">Buyer Frequency Types</h2>
+            <p className="mt-1 text-sm text-slate-300">
               How this buyer prefers to think, decide, and buy.
             </p>
 
-            <div className="mt-4 space-y-3 text-sm">
-              {(["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).map(
-                (key) => {
-                  const label = key.charAt(0) + key.slice(1).toLowerCase();
-                  const value = personalityPct[key] ?? 0;
-                  const width = Math.max(0, Math.min(100, value));
-
-                  return (
-                    <div key={key} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{label}</span>
-                        <span className="text-xs text-slate-400">
-                          {pctLabel(value)}
-                        </span>
-                      </div>
-                      <div className="h-2 w-full rounded-full bg-slate-800">
-                        <div
-                          className="h-2 rounded-full bg-sky-500"
-                          style={{ width: `${width}%` }}
-                        />
-                      </div>
+            <div className="mt-5 space-y-3">
+              {PERSONALITIES.map((p) => {
+                const pct = personalityPerc[p.key] ?? 0;
+                return (
+                  <div key={p.key} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-100">{p.key}</span>
+                      <span className="text-slate-400">
+                        {percentLabel(pct)}
+                      </span>
                     </div>
-                  );
-                }
-              )}
+                    <Bar pct={pct} />
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Mindset levels */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-6 shadow-lg shadow-black/50">
-            <h3 className="text-lg font-semibold">Buyer Mindset Levels</h3>
-            <p className="mt-1 text-xs text-slate-300">
+          {/* Buyer Mindset Levels */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
+            <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
+            <p className="mt-1 text-sm text-slate-300">
               Where they are in their current business journey.
             </p>
 
-            <div className="mt-4 space-y-3 text-sm">
-              {(
-                ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
-              ).map((key, index) => {
-                const label =
-                  key.charAt(0) + key.slice(1).toLowerCase();
-                const value = mindsetPct[key] ?? 0;
-                const width = Math.max(0, Math.min(100, value));
-
+            <div className="mt-5 space-y-3">
+              {MINDSETS.map((m) => {
+                const pct = mindsetPerc[m.key] ?? 0;
                 return (
-                  <div key={key} className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">
-                        {label}{" "}
-                        <span className="text-xs text-slate-500">
-                          (Level {index + 1})
-                        </span>
+                  <div key={m.key} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-100">
+                        {m.label}
                       </span>
-                      <span className="text-xs text-slate-400">
-                        {pctLabel(value)}
+                      <span className="text-slate-400">
+                        {percentLabel(pct)}
                       </span>
                     </div>
-                    <div className="h-2 w-full rounded-full bg-slate-800">
-                      <div
-                        className="h-2 rounded-full bg-sky-500"
-                        style={{ width: `${width}%` }}
-                      />
-                    </div>
+                    <Bar pct={pct} />
                   </div>
                 );
               })}
@@ -383,10 +451,127 @@ export default function QscResultPage({
           </div>
         </section>
 
+        {/* ----------------------------------------------------------------- */}
+        {/* Buyer Persona Matrix (heatmap)                                     */}
+        {/* ----------------------------------------------------------------- */}
+        <section className="space-y-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-xl md:text-2xl font-semibold">
+                Buyer Persona Matrix
+              </h2>
+              <p className="mt-1 text-sm text-slate-300 max-w-2xl">
+                This grid maps your{" "}
+                <span className="font-semibold">Buyer Frequency Type</span>{" "}
+                (left to right) against your{" "}
+                <span className="font-semibold">Buyer Mindset Level</span>{" "}
+                (top to bottom). Your combined profile sits at the intersection.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <div className="inline-grid grid-cols-[auto_repeat(4,minmax(140px,1fr))] gap-3 md:gap-4 items-stretch">
+              {/* Empty corner cell */}
+              <div />
+
+              {/* Column headers: personalities */}
+              {PERSONALITIES.map((p) => (
+                <div
+                  key={p.key}
+                  className="px-3 pb-1 pt-0.5 text-center text-xs font-semibold tracking-wide text-slate-300"
+                >
+                  <div>{p.label}</div>
+                  <div className="text-[11px] text-slate-500">
+                    Frequency {p.code}
+                  </div>
+                </div>
+              ))}
+
+              {/* Rows: each mindset + 4 cells */}
+              {MINDSETS.map((m) => (
+                <div key={m.key} className="contents">
+                  {/* Row header */}
+                  <div className="flex flex-col justify-center text-xs font-medium text-slate-300 pr-2">
+                    <span>{m.label}</span>
+                    <span className="text-[11px] text-slate-500">
+                      Mindset {m.level}
+                    </span>
+                  </div>
+
+                  {/* Row cells */}
+                  {PERSONALITIES.map((p) => {
+                    const cell = MATRIX.find(
+                      (c) =>
+                        c.personality === p.key && c.mindset === m.key
+                    )!;
+                    const cat = classifyCell(result, cell);
+
+                    return (
+                      <div
+                        key={`${m.key}_${p.key}`}
+                        className={[
+                          "min-h-[96px] rounded-2xl border px-3 py-3 md:px-4 md:py-4 flex flex-col justify-between text-xs transition-colors",
+                          categoryClasses(cat),
+                        ].join(" ")}
+                      >
+                        <div>
+                          <div className="text-[11px] uppercase tracking-[0.15em] mb-1">
+                            {p.label} {m.label}
+                          </div>
+                          <div className="text-[11px] text-slate-300/90">
+                            Code: <span className="font-mono">{cell.code}</span>
+                          </div>
+                        </div>
+
+                        {cat === "primary" && (
+                          <div className="mt-2 text-[11px] font-medium text-slate-50">
+                            Primary combined profile
+                          </div>
+                        )}
+                        {cat === "secondary" && (
+                          <div className="mt-2 text-[11px] font-medium text-slate-50/90">
+                            Secondary / supporting profile
+                          </div>
+                        )}
+                        {cat === "related" && (
+                          <div className="mt-2 text-[11px] text-slate-200/85">
+                            Related frequency or mindset
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-slate-300">
+            <div className="inline-flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-sky-500" />
+              <span>Primary combined profile</span>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-sky-500/30 border border-sky-400/80" />
+              <span>Secondary profile / supporting mode</span>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-sky-500/10 border border-sky-400/40" />
+              <span>Related frequencies or mindsets</span>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-slate-900 border border-slate-700/60" />
+              <span>Other personas</span>
+            </div>
+          </div>
+        </section>
+
         <footer className="pt-4 text-xs text-slate-500">
           © {new Date().getFullYear()} MindCanvas — Profiletest.ai
         </footer>
-      </div>
+      </main>
     </div>
   );
 }
