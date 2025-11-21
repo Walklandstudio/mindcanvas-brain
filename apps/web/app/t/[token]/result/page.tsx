@@ -1,8 +1,9 @@
+// apps/web/app/t/[token]/result/page.tsx
 "use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 
 type AB = "A" | "B" | "C" | "D";
 
@@ -32,6 +33,9 @@ type LinkMeta = {
   email_report?: boolean | null;
   hidden_results_message?: string | null;
   redirect_url?: string | null;
+  // QSC-specific fields (from test_links.meta)
+  frameworkType?: string | null;
+  frameworkVariant?: string | null;
 };
 
 function Bar({ pct }: { pct: number }) {
@@ -75,6 +79,7 @@ function getProfileCardImage(orgSlug?: string, profileCode?: string) {
 export default function ResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
   const sp = useSearchParams();
+  const router = useRouter();
   const tid = sp?.get("tid") ?? "";
 
   const [loading, setLoading] = useState(true);
@@ -118,7 +123,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     };
   }, [token, tid]);
 
-  // Load link meta (to see if results should be hidden)
+  // Load link meta (to see if results should be hidden, and if this is QSC)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -130,7 +135,9 @@ export default function ResultPage({ params }: { params: { token: string } }) {
         if (!ct.includes("application/json")) return;
         const j = await res.json();
         const metaData = j?.data ?? j ?? null;
+
         if (alive && metaData) {
+          const m = metaData.meta ?? {};
           setMeta({
             name: metaData.name ?? metaData.test_name ?? null,
             org_name: metaData.org_name ?? null,
@@ -138,6 +145,8 @@ export default function ResultPage({ params }: { params: { token: string } }) {
             email_report: metaData.email_report ?? null,
             hidden_results_message: metaData.hidden_results_message ?? null,
             redirect_url: metaData.redirect_url ?? null,
+            frameworkType: m.frameworkType ?? null,
+            frameworkVariant: m.variant ?? null,
           });
         }
       } catch {
@@ -149,14 +158,18 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     };
   }, [token]);
 
+  // If this is a QSC test, redirect to the dedicated QSC results page
+  useEffect(() => {
+    if (meta?.frameworkType === "qsc") {
+      router.replace(`/qsc/${encodeURIComponent(token)}`);
+    }
+  }, [meta?.frameworkType, router, token]);
+
   const freq = useMemo(
     () => data?.frequency_percentages ?? { A: 0, B: 0, C: 0, D: 0 },
     [data]
   );
-  const prof = useMemo(
-    () => data?.profile_percentages ?? {},
-    [data]
-  );
+  const prof = useMemo(() => data?.profile_percentages ?? {}, [data]);
 
   const shouldHideResults =
     meta?.show_results === false &&
@@ -190,6 +203,19 @@ export default function ResultPage({ params }: { params: { token: string } }) {
           <p className="mt-3 text-sm text-slate-300">
             This page expects a <code>?tid=</code> query parameter.
           </p>
+        </main>
+      </div>
+    );
+  }
+
+  // 🔀 If this is a QSC test, show a lightweight shell while redirect happens
+  if (meta?.frameworkType === "qsc") {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+        <main className="mx-auto max-w-3xl px-4 py-10">
+          <h1 className="text-2xl font-semibold">
+            Redirecting to your Quantum Source Code results…
+          </h1>
         </main>
       </div>
     );
@@ -275,7 +301,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   }
 
   // ---------------------------------------------------------------------------
-  // Main rendered result
+  // Main rendered result (non-QSC tests)
   // ---------------------------------------------------------------------------
 
   return (
