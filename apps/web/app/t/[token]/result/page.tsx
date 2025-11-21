@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 type AB = "A" | "B" | "C" | "D";
 
@@ -33,10 +33,9 @@ type LinkMeta = {
   email_report?: boolean | null;
   hidden_results_message?: string | null;
   redirect_url?: string | null;
-  // QSC-specific fields (if present in meta JSON)
-  frameworkType?: string | null;
-  frameworkVariant?: string | null;
 };
+
+type Mode = "checking" | "qsc" | "standard";
 
 function Bar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(1, Number(pct) || 0));
@@ -79,20 +78,61 @@ function getProfileCardImage(orgSlug?: string, profileCode?: string) {
 export default function ResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
   const sp = useSearchParams();
-  const router = useRouter();
   const tid = sp?.get("tid") ?? "";
+
+  const [mode, setMode] = useState<Mode>("checking");
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
   const [data, setData] = useState<ReportData | null>(null);
   const [meta, setMeta] = useState<LinkMeta | null>(null);
 
-  // Load result data (generic engine)
+  // ---------------------------------------------------------------------------
+  // 1) First check: is this a QSC result? If yes, redirect to /qsc/{token}
+  // ---------------------------------------------------------------------------
   useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        // Probe QSC endpoint – if it exists, this is a Quantum Source Code link
+        const res = await fetch(
+          `/api/public/qsc/${encodeURIComponent(token)}/result`,
+          { cache: "no-store" }
+        );
+
+        if (res.ok) {
+          // We have a QSC result – send them to the dedicated QSC page
+          if (typeof window !== "undefined") {
+            window.location.replace(`/qsc/${encodeURIComponent(token)}`);
+          }
+          if (alive) setMode("qsc");
+          return;
+        }
+
+        // Not QSC → fall back to standard logic
+        if (alive) setMode("standard");
+      } catch {
+        // On any error, just treat as standard test
+        if (alive) setMode("standard");
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
+  // ---------------------------------------------------------------------------
+  // 2) Standard test: load result data (only when mode === "standard")
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (mode !== "standard") return;
+    if (!tid) return;
+
     let alive = true;
     (async () => {
       try {
-        if (!tid) throw new Error("Missing taker ID (?tid=)");
         setLoading(true);
         setErr("");
 
@@ -121,10 +161,12 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     return () => {
       alive = false;
     };
-  }, [token, tid]);
+  }, [mode, token, tid]);
 
-  // Load link meta (used for both hiding results AND QSC detection)
+  // 3) Standard test: load link meta (only when mode === "standard")
   useEffect(() => {
+    if (mode !== "standard") return;
+
     let alive = true;
     (async () => {
       try {
@@ -135,10 +177,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
         if (!ct.includes("application/json")) return;
         const j = await res.json();
         const metaData = j?.data ?? j ?? null;
-        if (!metaData) return;
-
-        const m = metaData.meta ?? {};
-        if (alive) {
+        if (alive && metaData) {
           setMeta({
             name: metaData.name ?? metaData.test_name ?? null,
             org_name: metaData.org_name ?? null,
@@ -146,8 +185,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
             email_report: metaData.email_report ?? null,
             hidden_results_message: metaData.hidden_results_message ?? null,
             redirect_url: metaData.redirect_url ?? null,
-            frameworkType: m.frameworkType ?? null,
-            frameworkVariant: m.variant ?? null,
           });
         }
       } catch {
@@ -157,19 +194,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     return () => {
       alive = false;
     };
-  }, [token]);
-
-  // Detect if this is a QSC test (by meta OR by name)
-  const isQscTest =
-    (meta?.frameworkType ?? "").toLowerCase() === "qsc" ||
-    (meta?.name ?? "").toLowerCase().includes("quantum source code");
-
-  // If this is a QSC test, redirect to the dedicated QSC page
-  useEffect(() => {
-    if (isQscTest) {
-      router.replace(`/qsc/${encodeURIComponent(token)}`);
-    }
-  }, [isQscTest, router, token]);
+  }, [mode, token]);
 
   const freq = useMemo(
     () => data?.frequency_percentages ?? { A: 0, B: 0, C: 0, D: 0 },
@@ -185,7 +210,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   const orgName = meta?.org_name || data?.org_slug || "your organisation";
   const rawTestName = meta?.name || data?.test_name || "Profile Test";
 
-  // If the test name is still generic, use a more branded heading
   const heading =
     rawTestName && rawTestName !== "Profile Test"
       ? rawTestName
@@ -201,6 +225,33 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   // Early exits
   // ---------------------------------------------------------------------------
 
+  // While we're still probing for QSC vs standard
+  if (mode === "checking") {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+        <main className="mx-auto max-w-3xl px-4 py-10">
+          <h1 className="text-2xl font-semibold">
+            Redirecting to your Quantum Source Code results…
+          </h1>
+        </main>
+      </div>
+    );
+  }
+
+  // If this turned out to be QSC, the browser will already be navigating away.
+  if (mode === "qsc") {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+        <main className="mx-auto max-w-3xl px-4 py-10">
+          <h1 className="text-2xl font-semibold">
+            Redirecting to your Quantum Source Code results…
+          </h1>
+        </main>
+      </div>
+    );
+  }
+
+  // From here down: standard (non-QSC) result page behaviour
   if (!tid) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
@@ -214,20 +265,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     );
   }
 
-  // 🔀 If this is a QSC test, show a simple shell while redirect happens
-  if (isQscTest) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-        <main className="mx-auto max-w-3xl px-4 py-10">
-          <h1 className="text-2xl font-semibold">
-            Redirecting to your Quantum Source Code results…
-          </h1>
-        </main>
-      </div>
-    );
-  }
-
-  // 🔒 If this link is configured to hide results, show the custom message instead
   if (shouldHideResults) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
@@ -307,7 +344,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   }
 
   // ---------------------------------------------------------------------------
-  // Main rendered result (non-QSC tests)
+  // Main rendered result (standard tests)
   // ---------------------------------------------------------------------------
 
   return (
