@@ -1,6 +1,7 @@
 // apps/web/app/api/public/test/[token]/submit/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { calculateQscScores } from "@/lib/qsc-scoring";
 
 type AB = "A" | "B" | "C" | "D";
 type PMEntry = { points?: number; profile?: string };
@@ -63,6 +64,17 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
     }
 
+    // Load test row so we can detect QSC
+    const { data: test, error: testErr } = await sb
+      .from("tests")
+      .select("id, slug, meta")
+      .eq("id", taker.test_id)
+      .maybeSingle();
+
+    if (testErr || !test) {
+      return NextResponse.json({ ok: false, error: "Test not found for taker" }, { status: 500 });
+    }
+
     // Load questions with profile_map (drives scoring)
     const { data: questions, error: qErr } = await sb
       .from("test_questions")
@@ -105,7 +117,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       }
     }
 
-    // Compute totals
+    // Compute totals (legacy frequency/profile scoring)
     const freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
     const profileTotals: Record<string, number> = {};
 
@@ -166,6 +178,108 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: `Results upsert failed: ${upErr.message}` }, { status: 500 });
     }
 
+    // ---------------- QSC SCORING (only for Quantum Source Code) ----------------
+    const slug: string | null = (test.slug as string) || null;
+    const meta: any = test.meta || {};
+    const frameworkType: string | null = (meta?.frameworkType as string) || null;
+
+    if (slug === "qsc-core" || frameworkType === "qsc") {
+      try {
+        // 1) Prepare data for calculateQscScores
+        const questionsForScoring = (questions || []).map((q: any) => ({
+          id: q.id as string,
+          idx: (q.idx as number | null) ?? null,
+          profile_map: (q.profile_map ?? []) as any,
+        }));
+
+        const answersForScoring = answers
+          .map((row: any) => {
+            const qid = row?.question_id || row?.qid || row?.id;
+            const sel = toZeroBasedSelected(row);
+            return {
+              question_id: qid as string,
+              choice: sel ?? -1,
+            };
+          })
+          .filter((a: any) => a.question_id && a.choice >= 0);
+
+        const scoring = calculateQscScores(questionsForScoring, answersForScoring);
+
+        // 2) Map combinedProfileCode (e.g. "FIRE_VECTOR") → portal.qsc_profiles
+        let qscProfileId: string | null = null;
+
+        if (scoring.combinedProfileCode) {
+          const [personalityKey, mindsetKey] = scoring.combinedProfileCode.split("_");
+
+          const personalityMap: Record<string, string> = {
+            FIRE: "A",
+            FLOW: "B",
+            FORM: "C",
+            FIELD: "D",
+          };
+
+          const mindsetMap: Record<string, number> = {
+            ORIGIN: 1,
+            MOMENTUM: 2,
+            VECTOR: 3,
+            ORBIT: 4,
+            QUANTUM: 5,
+          };
+
+          const personality_code = personalityMap[personalityKey];
+          const mindset_level = mindsetMap[mindsetKey];
+
+          if (personality_code && mindset_level) {
+            const { data: qscProfileRow, error: qscProfileError } = await sb
+              .from("qsc_profiles")
+              .select("id")
+              .eq("personality_code", personality_code)
+              .eq("mindset_level", mindset_level)
+              .maybeSingle();
+
+            if (qscProfileError) {
+              console.error("QSC scoring: failed to load qsc_profile row", qscProfileError);
+            } else {
+              qscProfileId = qscProfileRow?.id ?? null;
+            }
+          }
+        }
+
+        // 3) Upsert into portal.qsc_results (one row per test+token)
+        const { error: qscUpsertError } = await sb
+          .from("qsc_results")
+          .upsert(
+            {
+              test_id: taker.test_id,
+              token,
+
+              personality_totals: scoring.personalityTotals,
+              personality_percentages: scoring.personalityPercentages,
+              mindset_totals: scoring.mindsetTotals,
+              mindset_percentages: scoring.mindsetPercentages,
+
+              primary_personality: scoring.primaryPersonality,
+              secondary_personality: scoring.secondaryPersonality,
+              primary_mindset: scoring.primaryMindset,
+              secondary_mindset: scoring.secondaryMindset,
+
+              combined_profile_code: scoring.combinedProfileCode,
+              qsc_profile_id: qscProfileId,
+            },
+            {
+              onConflict: "test_id,token",
+            }
+          );
+
+        if (qscUpsertError) {
+          console.error("QSC scoring: failed to upsert qsc_results", qscUpsertError);
+        }
+      } catch (e) {
+        console.error("QSC scoring: unexpected error", e);
+      }
+    }
+    // ---------------- END QSC SCORING ----------------
+
     // Mark taker completed (best-effort)
     await sb.from("test_takers").update({ status: "completed" }).eq("id", taker.id).eq("link_token", token);
 
@@ -174,3 +288,4 @@ export async function POST(req: Request, { params }: { params: { token: string }
     return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
   }
 }
+
