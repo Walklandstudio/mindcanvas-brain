@@ -1,307 +1,395 @@
 // apps/web/app/qsc/[token]/page.tsx
-import React from "react";
+"use client";
 
-const PERSONALITY_ROWS = [
-  { code: "FIRE", label: "FIRE" },
-  { code: "FLOW", label: "FLOW" },
-  { code: "FORM", label: "FORM" },
-  { code: "FIELD", label: "FIELD" },
-] as const;
+import { useEffect, useState } from "react";
 
-const MINDSET_COLS = [
-  { code: "ORIGIN", label: "Origin" },
-  { code: "MOMENTUM", label: "Momentum" },
-  { code: "VECTOR", label: "Vector" },
-  { code: "ORBIT", label: "Orbit" },
-  { code: "QUANTUM", label: "Quantum" },
-] as const;
+type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD" | string;
+type MindsetKey =
+  | "ORIGIN"
+  | "MOMENTUM"
+  | "VECTOR"
+  | "ORBIT"
+  | "QUANTUM"
+  | string;
 
-type QscResults = {
-  personality_totals: Record<string, number>;
-  personality_percentages: Record<string, number>;
-  mindset_totals: Record<string, number>;
-  mindset_percentages: Record<string, number>;
-  primary_personality?: string | null;
-  secondary_personality?: string | null;
-  primary_mindset?: string | null;
-  secondary_mindset?: string | null;
+type QscResult = {
+  test_name?: string | null;
+  taker_first_name?: string | null;
+  taker_last_name?: string | null;
+
+  personality_totals: Record<PersonalityKey, number>;
+  personality_percentages: Record<PersonalityKey, number>;
+  mindset_totals: Record<MindsetKey, number>;
+  mindset_percentages: Record<MindsetKey, number>;
+
+  primary_personality?: PersonalityKey | null;
+  secondary_personality?: PersonalityKey | null;
+  primary_mindset?: MindsetKey | null;
+  secondary_mindset?: MindsetKey | null;
+
   combined_profile_code?: string | null;
+  profile_title?: string | null;
+  profile_subtitle?: string | null;
 };
 
-type QscProfile = {
-  title?: string | null;
-  description?: string | null;
+type ApiResponse =
+  | { ok: true; data: QscResult }
+  | { ok: false; error: string };
+
+const PERSONALITY_ORDER: PersonalityKey[] = ["FIRE", "FLOW", "FORM", "FIELD"];
+const MINDSET_ORDER: MindsetKey[] = [
+  "ORIGIN",
+  "MOMENTUM",
+  "VECTOR",
+  "ORBIT",
+  "QUANTUM",
+];
+
+const PERSONALITY_LABELS: Record<string, string> = {
+  FIRE: "Fire",
+  FLOW: "Flow",
+  FORM: "Form",
+  FIELD: "Field",
 };
 
-type QscResultApiResponse = {
-  ok: boolean;
-  error?: string;
-  results?: QscResults;
-  profile?: QscProfile | null;
+const MINDSET_LABELS: Record<string, string> = {
+  ORIGIN: "Origin",
+  MOMENTUM: "Momentum",
+  VECTOR: "Vector",
+  ORBIT: "Orbit",
+  QUANTUM: "Quantum",
 };
 
-async function getData(token: string): Promise<QscResultApiResponse> {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const res = await fetch(`${baseUrl}/api/public/qsc/${token}/result`, {
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    return { ok: false, error: `HTTP ${res.status}` };
-  }
-
-  return (await res.json()) as QscResultApiResponse;
+function percentLabel(v: number | undefined) {
+  if (!v || Number.isNaN(v)) return "0%";
+  return `${Math.round(v)}%`;
 }
 
-function formatPct(val: unknown): string {
-  const n = typeof val === "number" ? val : Number(val);
-  if (!Number.isFinite(n)) return "0.0";
-  return n.toFixed(1);
-}
-
-export default async function QscResultPage({ params }: { params: { token: string } }) {
+export default function QscResultPage({
+  params,
+}: {
+  params: { token: string };
+}) {
   const { token } = params;
-  const data = await getData(token);
 
-  if (!data.ok || !data.results) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string>("");
+  const [result, setResult] = useState<QscResult | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setErr("");
+
+        const res = await fetch(
+          `/api/public/qsc/${encodeURIComponent(token)}/result`,
+          { cache: "no-store" }
+        );
+
+        const ct = res.headers.get("content-type") ?? "";
+        if (!ct.includes("application/json")) {
+          const text = await res.text();
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 300)}`
+          );
+        }
+
+        const json = (await res.json()) as ApiResponse;
+        if (!res.ok || json.ok === false) {
+          throw new Error(
+            (json as any).error || `HTTP ${res.status} fetching QSC result`
+          );
+        }
+
+        if (alive) setResult(json.data);
+      } catch (e: any) {
+        if (alive) setErr(String(e?.message || e));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
+  const title = result?.test_name || "Quantum Source Code Diagnostic";
+
+  const fullName =
+    [result?.taker_first_name, result?.taker_last_name]
+      .filter(Boolean)
+      .join(" ") || "Your";
+
+  const primaryPersonality = result?.primary_personality || null;
+  const primaryMindset = result?.primary_mindset || null;
+
+  const personalityPerc = result?.personality_percentages || {};
+  const mindsetPerc = result?.mindset_percentages || {};
+
+  // ---------------------------------------------------------------------------
+  // Basic states
+  // ---------------------------------------------------------------------------
+
+  if (loading) {
     return (
-      <div className="p-10">
-        <h1 className="text-2xl font-bold mb-2">Quantum Source Code</h1>
-        <p className="text-red-600">
-          {data.error || "No results found for this link yet."}
-        </p>
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <main className="mx-auto max-w-4xl px-4 py-10">
+          <h1 className="text-2xl font-semibold">
+            Loading your Quantum Source Code result…
+          </h1>
+        </main>
       </div>
     );
   }
 
-  const { results, profile } = data;
+  if (err || !result) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <main className="mx-auto max-w-4xl px-4 py-10">
+          <h1 className="text-2xl font-semibold">Something went wrong</h1>
+          <p className="mt-2 text-sm text-slate-300">
+            We couldn&apos;t load your Quantum Source Code result.
+          </p>
+          <pre className="mt-4 p-3 rounded bg-slate-900 border border-slate-700 text-xs text-slate-100 whitespace-pre-wrap">
+{err || "No data"}
+          </pre>
+          <p className="mt-4 text-xs text-slate-500">
+            Debug endpoint:{" "}
+            <code>/api/public/qsc/{token}/result</code>
+          </p>
+        </main>
+      </div>
+    );
+  }
 
-  const primaryPersonality = (results.primary_personality || "").toUpperCase();
-  const secondaryPersonality = (results.secondary_personality || "").toUpperCase();
-  const primaryMindset = (results.primary_mindset || "").toUpperCase();
-  const secondaryMindset = (results.secondary_mindset || "").toUpperCase();
-  const combinedCode = results.combined_profile_code || "";
+  // ---------------------------------------------------------------------------
+  // Main UI
+  // ---------------------------------------------------------------------------
 
   return (
-    <div className="p-8 md:p-10 max-w-5xl mx-auto space-y-10">
-      {/* Header */}
-      <header className="space-y-2">
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-          Your Quantum Source Code
-        </h1>
-        <p className="text-slate-600 max-w-2xl">
-          This map shows how your core leadership / buyer Personality (FIRE, FLOW,
-          FORM, FIELD) combines with your current Mindset level (Origin → Quantum).
-        </p>
-      </header>
-
-      {/* Overall profile + narrative */}
-      <section className="bg-white shadow-sm border border-slate-100 rounded-2xl p-6 md:p-8 space-y-4">
-        <h2 className="text-xl md:text-2xl font-semibold">
-          Overall Quantum Profile
-        </h2>
-        <p className="text-lg font-bold">
-          {combinedCode || "Profile in progress"}
-        </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-700">
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
+      <main className="mx-auto max-w-6xl px-4 py-8 md:py-10 space-y-10">
+        {/* Header */}
+        <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between border-b border-slate-800 pb-6">
           <div>
-            <p className="font-semibold text-slate-900 mb-1">Personality</p>
-            <p>
-              Primary:{" "}
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-300/80">
+              Quantum Source Code
+            </p>
+            <h1 className="mt-2 text-3xl md:text-4xl font-bold tracking-tight">
+              {title}
+            </h1>
+            <p className="mt-1 text-sm text-slate-300">
+              {fullName} Quantum Buyer Persona
+            </p>
+            {result.profile_title && (
+              <p className="mt-3 text-sm font-medium text-sky-200">
+                {result.profile_title}
+              </p>
+            )}
+            {result.profile_subtitle && (
+              <p className="mt-1 text-sm text-slate-200">
+                {result.profile_subtitle}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-sky-500/60 bg-slate-950/70 px-4 py-3 text-xs text-slate-200 max-w-sm shadow-lg shadow-black/40">
+            <p className="font-semibold text-sky-200">Snapshot</p>
+            <p className="mt-1">
+              Primary personality:{" "}
               <span className="font-semibold">
                 {primaryPersonality || "—"}
               </span>
-              {secondaryPersonality && (
-                <>
-                  {" "}
-                  · Secondary:{" "}
-                  <span className="font-semibold">
-                    {secondaryPersonality}
-                  </span>
-                </>
-              )}
             </p>
-          </div>
-          <div>
-            <p className="font-semibold text-slate-900 mb-1">Mindset</p>
             <p>
-              Primary:{" "}
+              Primary mindset:{" "}
               <span className="font-semibold">
                 {primaryMindset || "—"}
               </span>
-              {secondaryMindset && (
-                <>
-                  {" "}
-                  · Secondary:{" "}
-                  <span className="font-semibold">
-                    {secondaryMindset}
-                  </span>
-                </>
-              )}
             </p>
-          </div>
-        </div>
-
-        {profile && (profile.title || profile.description) && (
-          <div className="pt-4 border-t border-slate-100">
-            {profile.title && (
-              <p className="font-semibold text-slate-900 mb-1">
-                {profile.title}
-              </p>
-            )}
-            {profile.description && (
-              <p className="text-sm md:text-base text-slate-700 whitespace-pre-line">
-                {profile.description}
+            {result.combined_profile_code && (
+              <p className="mt-1 text-slate-300">
+                Combined profile:{" "}
+                <span className="font-semibold">
+                  {result.combined_profile_code}
+                </span>
               </p>
             )}
           </div>
-        )}
-      </section>
+        </header>
 
-      {/* Matrix + side summaries */}
-      <section className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-8 items-start">
-        {/* Matrix */}
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 md:p-6 shadow-sm">
-          <h3 className="text-lg md:text-xl font-semibold mb-4">
-            Quantum Source Code Matrix
-          </h3>
-          <p className="text-sm text-slate-600 mb-4">
-            Rows show your Personality frequencies. Columns show your Mindset
-            level. Your exact profile is highlighted in the grid.
+        {/* Personality & Mindset bars */}
+        <section className="grid gap-6 md:grid-cols-2">
+          {/* Personality */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 shadow-lg shadow-black/40">
+            <h2 className="text-lg font-semibold mb-3">
+              Buyer Frequency Types
+            </h2>
+            <p className="text-xs text-slate-300 mb-4">
+              How they think, decide, and buy.
+            </p>
+            <div className="space-y-3">
+              {PERSONALITY_ORDER.map((k) => {
+                const pct = personalityPerc[k] ?? 0;
+                return (
+                  <div key={k}>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-100">
+                        {PERSONALITY_LABELS[k] || k}
+                      </span>
+                      <span className="text-slate-400">
+                        {percentLabel(pct)}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-2 rounded bg-slate-800">
+                      <div
+                        className="h-2 rounded bg-sky-500"
+                        style={{
+                          width: `${Math.max(0, Math.min(100, pct))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Mindset */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 shadow-lg shadow-black/40">
+            <h2 className="text-lg font-semibold mb-3">
+              Buyer Mindset Levels
+            </h2>
+            <p className="text-xs text-slate-300 mb-4">
+              Where they are in their business journey.
+            </p>
+            <div className="space-y-3">
+              {MINDSET_ORDER.map((k) => {
+                const pct = mindsetPerc[k] ?? 0;
+                return (
+                  <div key={k}>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-100">
+                        {MINDSET_LABELS[k] || k}
+                      </span>
+                      <span className="text-slate-400">
+                        {percentLabel(pct)}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-2 rounded bg-slate-800">
+                      <div
+                        className="h-2 rounded bg-emerald-500"
+                        style={{
+                          width: `${Math.max(0, Math.min(100, pct))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* Heat map */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-950/80 p-5 md:p-7 shadow-lg shadow-black/40">
+          <h2 className="text-lg font-semibold mb-2">
+            Quantum Profile Matrix
+          </h2>
+          <p className="text-xs text-slate-300 mb-5 max-w-2xl">
+            This matrix combines buyer frequency types (rows) with mindset
+            levels (columns). Your primary profile is highlighted, giving a
+            quick visual of where this buyer sits on the 20-profile map.
           </p>
 
           <div className="overflow-x-auto">
-            <div className="inline-block min-w-full">
-              <div className="grid"
-                   style={{
-                     gridTemplateColumns: `minmax(80px, 100px) repeat(${MINDSET_COLS.length}, minmax(80px, 1fr))`
-                   }}>
+            <div className="inline-block min-w-full align-middle">
+              <div
+                className="grid"
+                style={{
+                  gridTemplateColumns: `120px repeat(${MINDSET_ORDER.length}, minmax(80px, 1fr))`,
+                }}
+              >
                 {/* Header row */}
-                <div className="border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Personality ↓ / Mindset →
-                </div>
-                {MINDSET_COLS.map((col) => (
+                <div />
+                {MINDSET_ORDER.map((m) => (
                   <div
-                    key={col.code}
-                    className="border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-center text-slate-600"
+                    key={m}
+                    className="px-2 pb-2 text-xs font-semibold text-center text-slate-200"
                   >
-                    {col.label}
+                    {MINDSET_LABELS[m] || m}
                   </div>
                 ))}
 
-                {/* Body rows */}
-                {PERSONALITY_ROWS.map((row) => {
-                  const rowPct = results.personality_percentages?.[row.code] ?? 0;
-
-                  return (
-                    <React.Fragment key={row.code}>
-                      {/* Row label */}
-                      <div className="border border-slate-200 bg-slate-50 px-2 py-2 text-xs md:text-sm font-semibold text-slate-700 flex flex-col">
-                        <span>{row.label}</span>
-                        <span className="text-[10px] md:text-xs text-slate-500">
-                          {formatPct(rowPct)}%
-                        </span>
-                      </div>
-
-                      {/* Cells */}
-                      {MINDSET_COLS.map((col) => {
-                        const colPct =
-                          results.mindset_percentages?.[col.code] ?? 0;
-                        const cellCode = `${row.code}_${col.code}`;
-
-                        const isPrimary = combinedCode === cellCode;
-                        const isPrimaryRow = row.code === primaryPersonality;
-                        const isPrimaryCol = col.code === primaryMindset;
-
-                        let base =
-                          "border border-slate-200 px-2 py-3 text-xs md:text-sm transition-colors";
-                        let inner =
-                          "h-full w-full flex flex-col items-center justify-center rounded-md";
-
-                        if (isPrimary) {
-                          base += " bg-indigo-50";
-                          inner +=
-                            " bg-indigo-600 text-white font-semibold shadow-sm";
-                        } else if (isPrimaryRow || isPrimaryCol) {
-                          base += " bg-indigo-25";
-                          inner +=
-                            " bg-indigo-100 text-slate-900 font-medium";
-                        } else {
-                          base += " bg-white";
-                          inner += " bg-slate-50 text-slate-600";
-                        }
-
-                        return (
-                          <div key={cellCode} className={base}>
-                            <div className={inner}>
-                              <span className="text-[11px] md:text-xs">
-                                {row.code}_{col.code}
-                              </span>
-                              {isPrimary && (
-                                <span className="mt-1 text-[10px] uppercase tracking-wide">
-                                  Primary Profile
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </React.Fragment>
-                  );
-                })}
+                {/* Rows */}
+                {PERSONALITY_ORDER.map((p) => (
+                  <MatrixRow
+                    key={p}
+                    personality={p}
+                    primaryPersonality={primaryPersonality}
+                    primaryMindset={primaryMindset}
+                    mindsets={MINDSET_ORDER}
+                  />
+                ))}
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Side summaries */}
-        <div className="space-y-6">
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 md:p-5 shadow-sm">
-            <h4 className="text-sm md:text-base font-semibold mb-3">
-              Personality Breakdown
-            </h4>
-            <div className="space-y-1 text-sm">
-              {PERSONALITY_ROWS.map((row) => {
-                const pct = results.personality_percentages?.[row.code] ?? 0;
-                return (
-                  <div
-                    key={row.code}
-                    className="flex items-center justify-between"
-                  >
-                    <span className="text-slate-700">{row.label}</span>
-                    <span className="font-semibold">
-                      {formatPct(pct)}%
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 md:p-5 shadow-sm">
-            <h4 className="text-sm md:text-base font-semibold mb-3">
-              Mindset Breakdown
-            </h4>
-            <div className="space-y-1 text-sm">
-              {MINDSET_COLS.map((col) => {
-                const pct = results.mindset_percentages?.[col.code] ?? 0;
-                return (
-                  <div
-                    key={col.code}
-                    className="flex items-center justify-between"
-                  >
-                    <span className="text-slate-700">{col.label}</span>
-                    <span className="font-semibold">
-                      {formatPct(pct)}%
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
+        <footer className="pt-4 text-xs text-slate-500">
+          © {new Date().getFullYear()} MindCanvas — Profiletest.ai
+        </footer>
+      </main>
     </div>
+  );
+}
+
+type MatrixRowProps = {
+  personality: PersonalityKey;
+  primaryPersonality: PersonalityKey | null;
+  primaryMindset: MindsetKey | null;
+  mindsets: MindsetKey[];
+};
+
+function MatrixRow({
+  personality,
+  primaryPersonality,
+  primaryMindset,
+  mindsets,
+}: MatrixRowProps) {
+  const isPrimaryRow =
+    primaryPersonality &&
+    personality &&
+    primaryPersonality.toUpperCase() === personality.toUpperCase();
+
+  return (
+    <>
+      <div className="py-2 pr-3 text-xs font-medium text-right text-slate-200">
+        {PERSONALITY_LABELS[personality] || personality}
+      </div>
+      {mindsets.map((m) => {
+        const isPrimaryCol =
+          primaryMindset &&
+          m &&
+          primaryMindset.toUpperCase() === m.toUpperCase();
+        const isPrimaryCell = isPrimaryRow && isPrimaryCol;
+
+        return (
+          <div
+            key={String(m)}
+            className={[
+              "h-10 m-1 rounded-lg border transition",
+              isPrimaryCell
+                ? "border-sky-400 bg-sky-500/25 shadow-[0_0_0_1px_rgba(56,189,248,0.6)]"
+                : "border-slate-800 bg-slate-900/70",
+            ].join(" ")}
+          />
+        );
+      })}
+    </>
   );
 }
