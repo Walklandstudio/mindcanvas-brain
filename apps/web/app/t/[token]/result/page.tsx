@@ -33,7 +33,7 @@ type LinkMeta = {
   email_report?: boolean | null;
   hidden_results_message?: string | null;
   redirect_url?: string | null;
-  // QSC-specific fields (from test_links.meta)
+  // QSC-specific fields (if present in meta JSON)
   frameworkType?: string | null;
   frameworkVariant?: string | null;
 };
@@ -87,7 +87,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   const [data, setData] = useState<ReportData | null>(null);
   const [meta, setMeta] = useState<LinkMeta | null>(null);
 
-  // Load result data
+  // Load result data (generic engine)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -123,7 +123,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     };
   }, [token, tid]);
 
-  // Load link meta (to see if results should be hidden, and if this is QSC)
+  // Load link meta (used for both hiding results AND QSC detection)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -135,9 +135,10 @@ export default function ResultPage({ params }: { params: { token: string } }) {
         if (!ct.includes("application/json")) return;
         const j = await res.json();
         const metaData = j?.data ?? j ?? null;
+        if (!metaData) return;
 
-        if (alive && metaData) {
-          const m = metaData.meta ?? {};
+        const m = metaData.meta ?? {};
+        if (alive) {
           setMeta({
             name: metaData.name ?? metaData.test_name ?? null,
             org_name: metaData.org_name ?? null,
@@ -158,12 +159,17 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     };
   }, [token]);
 
-  // If this is a QSC test, redirect to the dedicated QSC results page
+  // Detect if this is a QSC test (by meta OR by name)
+  const isQscTest =
+    (meta?.frameworkType ?? "").toLowerCase() === "qsc" ||
+    (meta?.name ?? "").toLowerCase().includes("quantum source code");
+
+  // If this is a QSC test, redirect to the dedicated QSC page
   useEffect(() => {
-    if (meta?.frameworkType === "qsc") {
+    if (isQscTest) {
       router.replace(`/qsc/${encodeURIComponent(token)}`);
     }
-  }, [meta?.frameworkType, router, token]);
+  }, [isQscTest, router, token]);
 
   const freq = useMemo(
     () => data?.frequency_percentages ?? { A: 0, B: 0, C: 0, D: 0 },
@@ -208,8 +214,8 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     );
   }
 
-  // 🔀 If this is a QSC test, show a lightweight shell while redirect happens
-  if (meta?.frameworkType === "qsc") {
+  // 🔀 If this is a QSC test, show a simple shell while redirect happens
+  if (isQscTest) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
         <main className="mx-auto max-w-3xl px-4 py-10">
