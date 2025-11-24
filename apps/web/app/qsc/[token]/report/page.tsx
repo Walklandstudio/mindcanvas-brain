@@ -125,7 +125,6 @@ function OnePageSummary({
     minute: "2-digit",
   });
 
-  // Generic bullets for now – later we'll replace with persona-specific content.
   const strengths: string[] = [
     `${primaryPersonalityLabel} energy at the ${primaryMindsetLabel} stage gives you strong momentum when you are clear on direction.`,
     `You naturally create movement and don’t stay stuck for long.`,
@@ -431,6 +430,201 @@ function IntroAndHowToUse() {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                           Personality Layer section                        */
+/* -------------------------------------------------------------------------- */
+
+function normalizeField(raw: string | null, fallback: string): string {
+  const t = (raw ?? "").trim();
+  if (!t || t.toLowerCase().startsWith("[todo")) return fallback;
+  return t;
+}
+
+function PersonalityLayerSection({
+  results,
+  profile,
+}: {
+  results: QscResults;
+  profile: QscProfile;
+}) {
+  const primaryPersonalityLabel =
+    PERSONALITY_LABELS[results.primary_personality] ??
+    results.primary_personality;
+
+  const howToCommunicate = normalizeField(
+    profile.how_to_communicate,
+    "This section will be tailored for this profile. For now, notice how clearly expressed communication, simple next steps and consistent follow-through support you."
+  );
+  const decisionStyle = normalizeField(
+    profile.decision_style,
+    "You tend to make decisions based on a mix of instinct and pattern recognition. You move faster when there is momentum and clarity."
+  );
+  const businessChallenges = normalizeField(
+    profile.business_challenges,
+    "Your main challenges often sit around balancing growth with stability — keeping delivery, cashflow and team alignment in step with your ambition."
+  );
+  const trustSignals = normalizeField(
+    profile.trust_signals,
+    "You feel most confident when leaders are clear, consistent and honest, and when there is visible progress towards meaningful outcomes."
+  );
+  const offerFit = normalizeField(
+    profile.offer_fit,
+    "You respond well to offers that save time, remove friction and create momentum without adding unnecessary complexity."
+  );
+  const saleBlockers = normalizeField(
+    profile.sale_blockers,
+    "You hesitate when things feel vague, slow, over-engineered or disconnected from real-world results."
+  );
+
+  return (
+    <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/80 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_55px_rgba(0,0,0,0.65)] space-y-6">
+      <header className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-300/80">
+          Personality Layer
+        </p>
+        <h2 className="text-2xl font-semibold text-slate-50">
+          How your natural {primaryPersonalityLabel.toLowerCase()} energy shows up
+          day-to-day
+        </h2>
+        <p className="text-sm text-slate-300 max-w-3xl">
+          This section looks only at you — your emotional wiring, thinking patterns
+          and default behaviours. Later, the Mindset Layer will show how this interacts
+          with the current stage of your business.
+        </p>
+      </header>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            How you show up
+          </h3>
+          <p className="mt-2 text-xs text-slate-200">
+            Your {primaryPersonalityLabel.toLowerCase()} pattern influences how you
+            think, act and relate to people around you. It shapes the pace you prefer,
+            how quickly you move into action, and what you pay attention to first.
+          </p>
+          <p className="mt-3 text-xs text-slate-300">
+            Use this as a neutral mirror — not a judgement. The goal is awareness, not
+            perfection.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            What energises &amp; drains you
+          </h3>
+          <p className="mt-2 text-xs text-slate-200">
+            You are energised by environments that match your natural pace and style,
+            and drained when you have to constantly operate against your wiring.
+          </p>
+          <ul className="mt-3 space-y-1.5 text-xs text-slate-200 list-disc list-inside">
+            <li>
+              <span className="font-semibold">Energises:</span> work that matches your
+              preferred speed, gives you autonomy, and lets you lean into your natural
+              strengths.
+            </li>
+            <li>
+              <span className="font-semibold">Drains:</span> situations where you feel
+              stuck, over-controlled, or responsible for every detail with no support.
+            </li>
+          </ul>
+          <p className="mt-3 text-[11px] text-slate-400">
+            Noticing this helps you structure your week around high-energy work and
+            protect yourself from unnecessary burnout.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            What people notice about you
+          </h3>
+          <p className="mt-2 text-xs text-slate-200">
+            Others experience your personality before they understand your strategy.
+            The way you enter a room, respond to pressure and make decisions all sends
+            a signal.
+          </p>
+          <ul className="mt-3 space-y-1.5 text-xs text-slate-200 list-disc list-inside">
+            <li>
+              <span className="font-semibold">Appreciated:</span> your energy when it
+              is focused, your ability to move things forward, and your willingness to
+              carry responsibility.
+            </li>
+            <li>
+              <span className="font-semibold">Misunderstood:</span> at times, your
+              speed or intensity may be read as impatience, pressure or emotional
+              distance.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      {/* Persona fields from qsc_profiles */}
+      <div className="grid gap-6 md:grid-cols-3">
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            How you communicate
+          </h3>
+          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+            {howToCommunicate}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Decision style
+          </h3>
+          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+            {decisionStyle}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Core business challenges
+          </h3>
+          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+            {businessChallenges}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Trust signals
+          </h3>
+          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+            {trustSignals}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Best offer fit
+          </h3>
+          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+            {offerFit}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Sale blockers &amp; friction points
+          </h3>
+          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+            {saleBlockers}
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-2 text-[11px] text-slate-400">
+        As you and your coach refine this profile, these descriptions can be updated to
+        match your exact language and examples.
+      </p>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*                               Main Report Page                             */
 /* -------------------------------------------------------------------------- */
 
@@ -509,10 +703,6 @@ export default function QscReportPage({ params }: { params: { token: string } })
   const activeRow = results?.primary_mindset;
   const activeCol = results?.primary_personality;
   const activeCode = results?.combined_profile_code ?? profile?.profile_code;
-
-  // ---------------------------------------------------------------------------
-  // Render states
-  // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
@@ -616,7 +806,7 @@ export default function QscReportPage({ params }: { params: { token: string } })
           </div>
         </header>
 
-        {/* NEW: Introduction + How to use */}
+        {/* Intro + How to use */}
         <IntroAndHowToUse />
 
         {/* Top row: pie, bar, matrix */}
@@ -772,6 +962,9 @@ export default function QscReportPage({ params }: { params: { token: string } })
 
         {/* One-page summary */}
         <OnePageSummary results={results} profile={profile} />
+
+        {/* Personality layer */}
+        <PersonalityLayerSection results={results} profile={profile} />
       </main>
     </div>
   );
