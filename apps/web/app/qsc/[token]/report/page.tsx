@@ -1,23 +1,17 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-
+import { useEffect, useMemo, useState } from "react";
 import {
   PieChart,
   Pie,
   Cell,
-  Tooltip as PieTooltip,
-  ResponsiveContainer as PieResponsive,
-} from "recharts";
-
-import {
+  ResponsiveContainer,
   BarChart,
   Bar,
   XAxis,
   YAxis,
-  Tooltip as BarTooltip,
-  ResponsiveContainer as BarResponsive,
+  Tooltip,
 } from "recharts";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
@@ -27,25 +21,25 @@ type QscResults = {
   id: string;
   test_id: string;
   token: string;
-  personality_totals: Record<string, number> | null;
-  personality_percentages: Record<string, number> | null;
-  mindset_totals: Record<string, number> | null;
-  mindset_percentages: Record<string, number> | null;
+  personality_totals: Record<string, number>;
+  personality_percentages: Record<string, number>;
+  mindset_totals: Record<string, number>;
+  mindset_percentages: Record<string, number>;
   primary_personality: PersonalityKey;
   secondary_personality: PersonalityKey | null;
   primary_mindset: MindsetKey;
   secondary_mindset: MindsetKey | null;
   combined_profile_code: string;
-  qsc_profile_id: string | null;
+  qsc_profile_id: string;
   created_at: string;
 };
 
 type QscProfile = {
   id: string;
-  personality_code: string; // "A" | "B" | "C" | "D"
+  personality_code: string; // A/B/C/D
   mindset_level: number; // 1..5
-  profile_code: string; // "A5" etc
-  profile_label: string; // "Fire Quantum"
+  profile_code: string; // A1..D5
+  profile_label: string; // e.g. "Fire Quantum"
   how_to_communicate: string | null;
   decision_style: string | null;
   business_challenges: string | null;
@@ -55,29 +49,11 @@ type QscProfile = {
   created_at: string;
 };
 
-type TipTapNode = {
-  type: string;
-  text?: string;
-  attrs?: { level?: number };
-  content?: TipTapNode[];
-};
-
-type ReportSection = {
-  id: string;
-  section_key: string;
-  title: string | null;
-  content: any | null; // TipTap JSON
-  persona_code: string | null;
-  order_index: number | null;
-  is_active: boolean | null;
-};
-
-type ApiResponse = {
+type ReportApiPayload = {
   ok: boolean;
-  results?: QscResults;
-  profile?: QscProfile | null;
-  sections?: ReportSection[];
-  error?: string;
+  results: QscResults;
+  profile: QscProfile;
+  sections: any[];
 };
 
 const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
@@ -95,298 +71,402 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   QUANTUM: "Quantum",
 };
 
-const PERSONALITY_COLORS: Record<PersonalityKey, string> = {
-  FIRE: "#f97316", // orange
-  FLOW: "#38bdf8", // sky
-  FORM: "#a855f7", // purple
-  FIELD: "#22c55e", // green
-};
+const MINDSET_ORDER: MindsetKey[] = [
+  "ORIGIN",
+  "MOMENTUM",
+  "VECTOR",
+  "ORBIT",
+  "QUANTUM",
+];
 
-const MINDSET_COLORS: Record<MindsetKey, string> = {
-  ORIGIN: "#6366f1",
-  MOMENTUM: "#22c55e",
-  VECTOR: "#f97316",
-  ORBIT: "#0ea5e9",
-  QUANTUM: "#e11d48",
-};
+const PERSONALITY_ORDER: PersonalityKey[] = [
+  "FIRE",
+  "FLOW",
+  "FORM",
+  "FIELD",
+];
 
-/**
- * Very small TipTap renderer for:
- * - heading
- * - paragraph
- * - bulletList / listItem
- * - text
- */
-function renderTipTap(node: TipTapNode, key?: number | string): JSX.Element | null {
-  if (!node) return null;
+const MATRIX_ROWS: MindsetKey[] = MINDSET_ORDER;
+const MATRIX_COLS: PersonalityKey[] = PERSONALITY_ORDER;
 
-  switch (node.type) {
-    case "doc":
-      return (
-        <div key={key} className="space-y-4">
-          {(node.content || []).map((child, idx) => renderTipTap(child, idx))}
-        </div>
-      );
+/* -------------------------------------------------------------------------- */
+/*                          One-Page Quantum Summary                          */
+/* -------------------------------------------------------------------------- */
 
-    case "heading": {
-      const level = node.attrs?.level ?? 2;
-      const children = (node.content || []).map((c, idx) => renderTipTap(c, idx));
-      const common = "font-semibold text-slate-50";
-      if (level === 1) {
-        return (
-          <h2 key={key} className={`text-2xl md:text-3xl ${common}`}>
-            {children}
-          </h2>
-        );
-      }
-      if (level === 2) {
-        return (
-          <h3 key={key} className={`text-xl md:text-2xl ${common}`}>
-            {children}
-          </h3>
-        );
-      }
-      return (
-        <h4 key={key} className={`text-lg ${common}`}>
-          {children}
-        </h4>
-      );
-    }
+function OnePageSummary({
+  results,
+  profile,
+}: {
+  results: QscResults;
+  profile: QscProfile;
+}) {
+  const primaryPersonalityLabel =
+    PERSONALITY_LABELS[results.primary_personality] ??
+    results.primary_personality;
+  const secondaryPersonalityLabel = results.secondary_personality
+    ? PERSONALITY_LABELS[results.secondary_personality] ??
+      results.secondary_personality
+    : null;
 
-    case "paragraph": {
-      const children = (node.content || []).map((c, idx) => renderTipTap(c, idx));
-      return (
-        <p key={key} className="text-sm md:text-base text-slate-200 leading-relaxed">
-          {children}
-        </p>
-      );
-    }
+  const primaryMindsetLabel =
+    MINDSET_LABELS[results.primary_mindset] ?? results.primary_mindset;
+  const secondaryMindsetLabel = results.secondary_mindset
+    ? MINDSET_LABELS[results.secondary_mindset] ?? results.secondary_mindset
+    : null;
 
-    case "bulletList": {
-      return (
-        <ul key={key} className="list-disc list-inside space-y-1 text-sm md:text-base text-slate-200">
-          {(node.content || []).map((c, idx) => renderTipTap(c, idx))}
-        </ul>
-      );
-    }
+  const combinedLabel = profile.profile_label || results.combined_profile_code;
 
-    case "listItem": {
-      const children = (node.content || []).map((c, idx) => renderTipTap(c, idx));
-      return <li key={key}>{children}</li>;
-    }
+  const created = new Date(results.created_at);
+  const createdStr = created.toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
-    case "text":
-      return (
-        <span key={key}>
-          {node.text}
-        </span>
-      );
+  // Generic bullets for now – later we'll replace with persona-specific content.
+  const strengths: string[] = [
+    `${primaryPersonalityLabel} energy at the ${primaryMindsetLabel} stage gives you strong momentum when you are clear on direction.`,
+    `You naturally create movement and don’t stay stuck for long.`,
+    `You are comfortable making decisions even when everything isn’t perfectly defined.`,
+  ];
 
-    default:
-      return null;
-  }
-}
+  const risks: string[] = [
+    `You can move faster than your systems, which can create hidden friction or chaos.`,
+    `Important details may be skipped when you are focused on speed or possibility.`,
+    `You may carry too much alone instead of building stable support and structure.`,
+  ];
 
-function renderSection(section: ReportSection) {
-  if (!section.content) return null;
-  const node = section.content as TipTapNode;
+  const priorities: string[] = [
+    `Protect focused time each week for strategic thinking instead of only reacting to urgencies.`,
+    `Tighten one or two key systems (delivery, sales, or communication) so your speed is backed by stability.`,
+    `Create a simple rhythm for reviewing numbers and progress so you always know what is working.`,
+  ];
+
+  const nextStep =
+    "Use this report to choose one system to simplify, one decision to make faster, and one behaviour to stabilise over the next 30 days.";
+
   return (
-    <section
-      key={section.id}
-      className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 md:p-7 shadow-lg shadow-black/40"
-    >
-      {renderTipTap(node)}
+    <section className="mt-10 rounded-3xl border border-slate-800 bg-slate-950/70 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_60px_rgba(0,0,0,0.7)] space-y-6">
+      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.2em] uppercase text-sky-300/80">
+            One-Page Quantum Summary
+          </p>
+          <h2 className="mt-2 text-2xl md:text-3xl font-semibold text-slate-50">
+            Your personal emotional, strategic &amp; scaling snapshot
+          </h2>
+          <p className="mt-1 text-sm text-slate-300 max-w-2xl">
+            Use this page as your quick reference. It summarises who you are, where
+            your business is, and what matters most over the next season.
+          </p>
+        </div>
+        <div className="text-xs text-right text-slate-400">
+          <div>Created at</div>
+          <div className="font-medium text-slate-200">{createdStr}</div>
+        </div>
+      </header>
+
+      {/* Quantum profile row */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl bg-slate-900/80 border border-sky-600/40 px-4 py-4 md:px-5 md:py-5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-300/90">
+            Quantum Profile
+          </p>
+          <div className="mt-2 text-lg font-semibold text-slate-50">
+            {combinedLabel}
+          </div>
+          <div className="mt-1 text-xs text-slate-300">
+            Code:{" "}
+            <span className="font-mono text-sky-200">
+              {results.combined_profile_code}
+            </span>
+          </div>
+          <dl className="mt-4 space-y-1.5 text-xs text-slate-200">
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-400">Primary personality</dt>
+              <dd className="font-medium">{primaryPersonalityLabel}</dd>
+            </div>
+            {secondaryPersonalityLabel && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-400">Secondary personality</dt>
+                <dd className="font-medium">{secondaryPersonalityLabel}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-400">Primary mindset</dt>
+              <dd className="font-medium">{primaryMindsetLabel}</dd>
+            </div>
+            {secondaryMindsetLabel && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-slate-400">Secondary mindset</dt>
+                <dd className="font-medium">{secondaryMindsetLabel}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/60 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+            Stage
+          </p>
+          <div className="mt-2 text-sm text-slate-200">
+            Your current growth focus is{" "}
+            <span className="font-semibold text-sky-200">
+              {primaryMindsetLabel}
+            </span>
+            . This stage asks you to balance your natural{" "}
+            <span className="font-semibold text-sky-200">
+              {primaryPersonalityLabel.toLowerCase()}
+            </span>{" "}
+            style with the structure and decisions needed for the next level.
+          </div>
+          <p className="mt-3 text-xs text-slate-400">
+            Think of this as your “home base” for the next 3–6 months. Most of your
+            important decisions will happen from here.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/60 border border-slate-800 px-4 py-4 md:px-5 md:py-5 flex flex-col justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+              Next step
+            </p>
+            <p className="mt-2 text-sm text-slate-200">{nextStep}</p>
+          </div>
+          <div className="mt-3 text-[11px] text-slate-400">
+            Tip: screenshot or print this page and keep it visible in your workspace as
+            your decision filter.
+          </div>
+        </div>
+      </div>
+
+      {/* Strengths / Risks / Priorities */}
+      <div className="grid gap-4 md:grid-cols-3 mt-4">
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Strengths you can lean on
+          </h3>
+          <ul className="mt-3 space-y-2 text-xs text-slate-200 list-disc list-inside">
+            {strengths.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Risks &amp; patterns to watch
+          </h3>
+          <ul className="mt-3 space-y-2 text-xs text-slate-200 list-disc list-inside">
+            {risks.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Top priorities (next 90 days)
+          </h3>
+          <ul className="mt-3 space-y-2 text-xs text-slate-200 list-disc list-inside">
+            {priorities.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </section>
   );
 }
 
-/**
- * Simple 4x5 Persona Matrix based on personality_code (A–D) & mindset_level (1–5).
- * Highlights the active cell from the QSC profile.
- */
-function PersonaMatrix({ profile }: { profile: QscProfile | null | undefined }) {
-  const rows = ["A", "B", "C", "D"];
-  const cols = [1, 2, 3, 4, 5];
+/* -------------------------------------------------------------------------- */
+/*                 Intro + “How to use this report” section                   */
+/* -------------------------------------------------------------------------- */
 
-  const activeCode = profile?.profile_code || null;
-
+function IntroAndHowToUse() {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 md:p-5 shadow-lg shadow-black/40">
-      <h3 className="text-sm md:text-base font-semibold text-slate-50 mb-3">
-        Buyer Persona Matrix
-      </h3>
-      <div className="grid grid-cols-[auto,1fr] gap-2 md:gap-3 text-xs md:text-sm text-slate-200">
-        {/* Row labels + grid */}
-        <div className="flex flex-col justify-between py-5 pr-1 text-[10px] md:text-xs text-slate-400">
-          <span>A</span>
-          <span>B</span>
-          <span>C</span>
-          <span>D</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          {/* Column headers */}
-          <div className="grid grid-cols-5 gap-1 text-[10px] md:text-xs text-slate-400 pb-1">
-            {cols.map((c) => (
-              <span key={c} className="text-center">
-                {c}
+    <section className="mt-6 rounded-3xl border border-slate-800 bg-slate-950/70 px-6 py-6 md:px-8 md:py-7 shadow-[0_18px_50px_rgba(0,0,0,0.65)] space-y-6">
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* INTRODUCTION */}
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-300/80">
+            Introduction
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-50">
+            Your personal growth &amp; business direction guide
+          </h2>
+          <p className="mt-3 text-sm text-slate-200">
+            This report gives you a clear understanding of who you are, how you work,
+            and what your business needs next. It is designed to be simple, practical,
+            and focused on helping you take confident action.
+          </p>
+
+          <p className="mt-4 text-xs font-semibold text-slate-300">
+            You will learn two important things about yourself:
+          </p>
+          <ul className="mt-2 space-y-2 text-sm text-slate-200">
+            <li>
+              <span className="font-semibold text-sky-200">
+                Your Personality Layer
               </span>
-            ))}
-          </div>
-          {/* Grid */}
-          <div className="grid grid-rows-4 gap-1">
-            {rows.map((row) => (
-              <div key={row} className="grid grid-cols-5 gap-1">
-                {cols.map((col) => {
-                  const code = `${row}${col}`;
-                  const isActive = activeCode === code;
-                  return (
-                    <div
-                      key={code}
-                      className={[
-                        "aspect-square rounded-md border flex items-center justify-center text-[9px] md:text-[11px]",
-                        isActive
-                          ? "border-sky-400 bg-sky-500/20 text-sky-100 shadow-inner shadow-sky-900/60"
-                          : "border-slate-700 bg-slate-900/70 text-slate-400",
-                      ].join(" ")}
-                    >
-                      {code}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+              <span className="text-slate-300">
+                {" "}
+                – how you naturally think, act, and make decisions.
+              </span>
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Your Mindset Layer
+              </span>
+              <span className="text-slate-300">
+                {" "}
+                – where your business is right now and what stage of growth you are
+                in.
+              </span>
+            </li>
+          </ul>
+
+          <p className="mt-3 text-sm text-slate-200">
+            Together, these create your{" "}
+            <span className="font-semibold text-sky-200">Quantum Profile</span>. Your
+            Quantum Profile shows your strengths, blind spots, patterns, and the best
+            way for you to grow.
+          </p>
+
+          <p className="mt-3 text-xs text-slate-300">This report includes:</p>
+          <ul className="mt-2 grid gap-x-4 gap-y-1 text-xs text-slate-200 md:grid-cols-2">
+            <li>Clear explanations</li>
+            <li>Examples</li>
+            <li>Steps you can follow</li>
+            <li>Prompts to help you reflect</li>
+            <li>A 30-day plan</li>
+            <li>A simple growth roadmap</li>
+          </ul>
+
+          <p className="mt-4 text-xs text-slate-300">
+            Read it slowly. Use it as a guide. Come back to it often. This is your
+            personal strategic growth plan.
+          </p>
+        </div>
+
+        {/* HOW TO USE THIS REPORT */}
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-300/80">
+            How to use this report
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-50">
+            Turn insight into focused, confident action
+          </h2>
+          <p className="mt-3 text-sm text-slate-200">
+            To get the most value from this:
+          </p>
+
+          <ul className="mt-3 space-y-2 text-sm text-slate-200">
+            <li>
+              <span className="font-semibold text-sky-200">
+                Start with the Profile Summary
+              </span>{" "}
+              – understand your natural style and energy.
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Study the Personality Layer
+              </span>{" "}
+              – this explains why you act the way you do.
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Read the Mindset Layer
+              </span>{" "}
+              – this shows what your business needs right now.
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Pay close attention to the Combined Pattern
+              </span>{" "}
+              – this part gives you the real insight.
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Use the Strategic Priorities
+              </span>{" "}
+              – these are your most important actions.
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Follow the 30-day Action Plan
+              </span>{" "}
+              – this turns clarity into forward movement.
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Use the Roadmap to stay on track
+              </span>{" "}
+              – it shows the next steps and the expected timeline.
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Work through the Reflection Prompts
+              </span>{" "}
+              – these help you stay aligned and aware.
+            </li>
+            <li>
+              <span className="font-semibold text-sky-200">
+                Keep the One-Page Summary nearby
+              </span>{" "}
+              – this is your quick, at-a-glance guide.
+            </li>
+          </ul>
+
+          <p className="mt-4 text-xs text-slate-300">
+            This report gives you direction, simplicity, and momentum without
+            overwhelming you.
+          </p>
         </div>
       </div>
-      {profile?.profile_label && (
-        <p className="mt-3 text-xs md:text-sm text-slate-300">
-          Active profile: <span className="font-semibold">{profile.profile_label}</span> ({profile.profile_code})
-        </p>
-      )}
-    </div>
+    </section>
   );
 }
 
-function BuyerFrequencyPie({ results }: { results: QscResults }) {
-  const percentages = results.personality_percentages || {};
-  const keys: PersonalityKey[] = ["FIRE", "FLOW", "FORM", "FIELD"];
-
-  const data = keys
-    .map((k) => ({
-      key: k,
-      label: PERSONALITY_LABELS[k],
-      value: Number(percentages[k] ?? 0),
-    }))
-    .filter((d) => d.value > 0);
-
-  if (!data.length) {
-    return (
-      <div className="text-xs text-slate-400">
-        No personality scores available yet.
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full h-48 md:h-56">
-      <PieResponsive>
-        <PieChart>
-          <Pie
-            data={data}
-            dataKey="value"
-            nameKey="label"
-            outerRadius="80%"
-            innerRadius="50%"
-            paddingAngle={2}
-          >
-            {data.map((entry, index) => (
-              <Cell
-                key={entry.key}
-                fill={PERSONALITY_COLORS[entry.key as PersonalityKey]}
-              />
-            ))}
-          </Pie>
-          <PieTooltip
-            formatter={(value: any, _name: any, props: any) => {
-              const v = Number(value || 0);
-              return [`${v.toFixed(1)}%`, props.payload.label];
-            }}
-          />
-        </PieChart>
-      </PieResponsive>
-    </div>
-  );
-}
-
-function BuyerMindsetBar({ results }: { results: QscResults }) {
-  const percentages = results.mindset_percentages || {};
-  const keys: MindsetKey[] = ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"];
-
-  const data = keys.map((k) => ({
-    key: k,
-    label: MINDSET_LABELS[k],
-    value: Number(percentages[k] ?? 0),
-  }));
-
-  return (
-    <div className="w-full h-48 md:h-56">
-      <BarResponsive>
-        <BarChart data={data}>
-          <XAxis dataKey="label" tick={{ fill: "#cbd5f5", fontSize: 11 }} />
-          <YAxis tick={{ fill: "#cbd5f5", fontSize: 11 }} />
-          <BarTooltip
-            formatter={(value: any) => {
-              const v = Number(value || 0);
-              return [`${v.toFixed(1)}%`, "Mindset"];
-            }}
-          />
-          <Bar dataKey="value">
-            {data.map((entry) => (
-              <Cell
-                key={entry.key}
-                fill={MINDSET_COLORS[entry.key as MindsetKey]}
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </BarResponsive>
-    </div>
-  );
-}
+/* -------------------------------------------------------------------------- */
+/*                               Main Report Page                             */
+/* -------------------------------------------------------------------------- */
 
 export default function QscReportPage({ params }: { params: { token: string } }) {
   const token = params.token;
+  const [data, setData] = useState<ReportApiPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string>("");
-  const [results, setResults] = useState<QscResults | null>(null);
-  const [profile, setProfile] = useState<QscProfile | null>(null);
-  const [sections, setSections] = useState<ReportSection[]>([]);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
         setLoading(true);
-        setErr("");
+        setErr(null);
 
-        const res = await fetch(`/api/public/qsc/${encodeURIComponent(token)}/report`, {
-          cache: "no-store",
-        });
-        const ct = res.headers.get("content-type") || "";
+        const res = await fetch(
+          `/api/public/qsc/${encodeURIComponent(token)}/report`,
+          { cache: "no-store" }
+        );
+
+        const ct = res.headers.get("content-type") ?? "";
         if (!ct.includes("application/json")) {
-          const txt = await res.text();
-          throw new Error(`Non-JSON response (${res.status}): ${txt.slice(0, 300)}`);
-        }
-        const json = (await res.json()) as ApiResponse;
-        if (!res.ok || json.ok === false) {
-          throw new Error(json.error || `HTTP ${res.status}`);
+          const text = await res.text();
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
+          );
         }
 
-        if (!alive) return;
+        const j = (await res.json()) as ReportApiPayload;
+        if (!res.ok || (j as any).ok === false) {
+          throw new Error((j as any).error || `HTTP ${res.status}`);
+        }
 
-        setResults(json.results || null);
-        setProfile(json.profile || null);
-        setSections(Array.isArray(json.sections) ? json.sections : []);
+        if (alive) setData(j);
       } catch (e: any) {
         if (alive) setErr(String(e?.message || e));
       } finally {
@@ -399,92 +479,136 @@ export default function QscReportPage({ params }: { params: { token: string } })
     };
   }, [token]);
 
-  const combinedLabel = useMemo(() => {
-    if (!results) return "";
-    return results.combined_profile_code || "";
-  }, [results]);
+  const results = data?.results;
+  const profile = data?.profile;
+
+  const freqChartData = useMemo(
+    () =>
+      results
+        ? PERSONALITY_ORDER.map((key) => ({
+            name: PERSONALITY_LABELS[key],
+            code: key,
+            value: results.personality_percentages?.[key] ?? 0,
+          }))
+        : [],
+    [results]
+  );
+
+  const mindsetChartData = useMemo(
+    () =>
+      results
+        ? MINDSET_ORDER.map((key) => ({
+            name: MINDSET_LABELS[key],
+            code: key,
+            value: results.mindset_percentages?.[key] ?? 0,
+          }))
+        : [],
+    [results]
+  );
+
+  const activeRow = results?.primary_mindset;
+  const activeCol = results?.primary_personality;
+  const activeCode = results?.combined_profile_code ?? profile?.profile_code;
 
   // ---------------------------------------------------------------------------
-  // States
+  // Render states
   // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-        <main className="mx-auto max-w-5xl px-4 py-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-300/80">
-            Quantum Source Code
-          </p>
-          <h1 className="mt-3 text-2xl md:text-3xl font-semibold">
-            Loading your strategic growth report…
-          </h1>
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <main className="mx-auto max-w-6xl px-4 py-10">
+          <p className="text-sm text-slate-300">Loading report…</p>
         </main>
       </div>
     );
   }
 
-  if (err || !results) {
+  if (err || !results || !profile) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-        <main className="mx-auto max-w-5xl px-4 py-10 space-y-4">
-          <h1 className="text-2xl md:text-3xl font-semibold">Couldn’t load report</h1>
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <main className="mx-auto max-w-6xl px-4 py-10 space-y-4">
+          <h1 className="text-2xl font-semibold">Something went wrong</h1>
           <p className="text-sm text-slate-300">
-            Something went wrong while loading your Quantum Source Code report.
+            We couldn&apos;t load your Quantum Source Code report.
           </p>
-          <pre className="mt-2 p-3 rounded border border-slate-700 bg-slate-950 text-xs text-slate-100 whitespace-pre-wrap">
-{err || "No results found for this link."}
+          <pre className="mt-2 rounded-xl bg-slate-900/90 border border-slate-800 px-4 py-3 text-xs text-slate-100 whitespace-pre-wrap">
+            {err || "No data"}
           </pre>
-          <p className="text-xs text-slate-500">
-            Debug: <code>/api/public/qsc/{token}/report</code>
-          </p>
+          <div className="text-xs text-slate-500">
+            Debug endpoint:{" "}
+            <code className="font-mono">
+              /api/public/qsc/{token}/report
+            </code>
+          </div>
+          <Link
+            href={`/qsc/${encodeURIComponent(token)}`}
+            className="inline-flex mt-4 px-4 py-2 rounded-xl bg-sky-600 text-xs font-medium text-white hover:bg-sky-500"
+          >
+            Back to Quantum Summary
+          </Link>
         </main>
       </div>
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Main layout
-  // ---------------------------------------------------------------------------
+  const primaryPersonalityLabel =
+    PERSONALITY_LABELS[results.primary_personality] ??
+    results.primary_personality;
+  const primaryMindsetLabel =
+    MINDSET_LABELS[results.primary_mindset] ?? results.primary_mindset;
 
-  const createdDate = new Date(results.created_at);
-  const formattedDate = createdDate.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
+  const todayStr = new Date().toLocaleDateString(undefined, {
     day: "2-digit",
+    month: "short",
+    year: "numeric",
   });
 
-  const primaryPersonalityLabel = PERSONALITY_LABELS[results.primary_personality] || results.primary_personality;
-  const primaryMindsetLabel = MINDSET_LABELS[results.primary_mindset] || results.primary_mindset;
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-      <div className="mx-auto max-w-5xl px-4 py-8 md:py-10 space-y-10">
-        {/* HEADER / COVER */}
-        <header className="border-b border-slate-800 pb-6 md:pb-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-50">
+      <main className="mx-auto max-w-6xl px-4 py-8 md:py-10 space-y-8">
+        {/* Top header */}
+        <header className="space-y-3 border-b border-slate-800 pb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <p className="text-[10px] md:text-xs font-semibold uppercase tracking-[0.28em] text-sky-300/80">
+              <p className="text-[11px] font-semibold tracking-[0.26em] uppercase text-sky-300/80">
                 QSC Entrepreneur — Strategic Growth Report
               </p>
               <h1 className="mt-2 text-3xl md:text-4xl font-bold tracking-tight text-slate-50">
                 Your Personal Emotional, Strategic &amp; Scaling Blueprint
               </h1>
-              <p className="mt-3 text-sm md:text-base text-slate-200">
-                Quantum Profile:{" "}
-                <span className="font-semibold">
-                  {primaryPersonalityLabel} × {primaryMindsetLabel}
-                  {combinedLabel ? ` (${combinedLabel})` : ""}
-                </span>
+              <p className="mt-3 text-sm text-slate-300 max-w-2xl">
+                This report combines your Buyer Frequency Type and Buyer Mindset
+                Level into one Quantum Source Code profile so you can see exactly
+                how to grow without burning out or creating chaos.
               </p>
-              <p className="mt-1 text-xs md:text-sm text-slate-400">
-                Prepared for: <span className="font-medium">You</span> • Date: {formattedDate}
-              </p>
+
+              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-300">
+                <div>
+                  Quantum Profile:{" "}
+                  <span className="font-semibold text-sky-200">
+                    {primaryPersonalityLabel} × {primaryMindsetLabel}
+                  </span>{" "}
+                  <span className="font-mono text-slate-400">
+                    ({results.combined_profile_code})
+                  </span>
+                </div>
+                <div>Prepared for: You</div>
+                <div>Date: {todayStr}</div>
+              </div>
             </div>
-            <div className="flex flex-col items-start md:items-end gap-2 text-xs md:text-sm text-slate-400">
-              <span>Powered by MindCanvas • Profiletest.ai</span>
+
+            <div className="flex flex-col items-start md:items-end gap-3">
+              <div className="text-xs text-slate-400">
+                Powered by{" "}
+                <span className="font-semibold text-slate-100">
+                  MindCanvas
+                </span>{" "}
+                • Profiletest.ai
+              </div>
               <Link
                 href={`/qsc/${encodeURIComponent(token)}`}
-                className="inline-flex items-center px-3 py-1.5 rounded-xl border border-slate-700/80 bg-slate-950/70 text-[11px] md:text-xs font-medium text-slate-100 hover:border-sky-400 hover:text-sky-100 transition"
+                className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-medium text-slate-50 hover:border-sky-500 hover:bg-slate-900/90"
               >
                 ← Back to Quantum Summary
               </Link>
@@ -492,43 +616,163 @@ export default function QscReportPage({ params }: { params: { token: string } })
           </div>
         </header>
 
-        {/* TOP VISUALS: PIE, BAR, MATRIX */}
-        <section className="grid gap-6 md:grid-cols-3">
-          {/* Buyer Frequency Pie */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 md:p-5 shadow-lg shadow-black/40">
-            <h3 className="text-sm md:text-base font-semibold text-slate-50 mb-2">
+        {/* NEW: Introduction + How to use */}
+        <IntroAndHowToUse />
+
+        {/* Top row: pie, bar, matrix */}
+        <section className="grid gap-5 md:grid-cols-3">
+          {/* Buyer Frequency Type (pie) */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.7)] flex flex-col">
+            <h2 className="text-sm font-semibold text-slate-50">
               Buyer Frequency Type
-            </h3>
-            <p className="text-xs md:text-[13px] text-slate-300 mb-3">
-              Distribution of your emotional and behavioural style across the four QSC frequencies.
+            </h2>
+            <p className="mt-1 text-xs text-slate-300">
+              Distribution of your emotional and behavioural style across the four
+              QSC frequencies.
             </p>
-            <BuyerFrequencyPie results={results} />
+            <div className="mt-4 flex-1">
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={freqChartData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={85}
+                    paddingAngle={2}
+                  >
+                    {freqChartData.map((entry, idx) => (
+                      <Cell
+                        key={entry.code}
+                        fill={
+                          ["#38bdf8", "#22c55e", "#eab308", "#a855f7"][idx % 4]
+                        }
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: any) =>
+                      `${Number(value)
+                        .toFixed(1)
+                        .replace(/\.0$/, "")}%`
+                    }
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
-          {/* Buyer Mindset Bar */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 md:p-5 shadow-lg shadow-black/40">
-            <h3 className="text-sm md:text-base font-semibold text-slate-50 mb-2">
+          {/* Mindset levels bar chart */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.7)] flex flex-col">
+            <h2 className="text-sm font-semibold text-slate-50">
               Buyer Mindset Levels
-            </h3>
-            <p className="text-xs md:text-[13px] text-slate-300 mb-3">
-              Where your business energy is currently focused across the five Quantum stages.
+            </h2>
+            <p className="mt-1 text-xs text-slate-300">
+              Where your business energy is currently focused across the five
+              Quantum stages.
             </p>
-            <BuyerMindsetBar results={results} />
+            <div className="mt-4 flex-1">
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={mindsetChartData}>
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 10, fill: "#cbd5f5" }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={24}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip
+                    formatter={(value: any) =>
+                      `${Number(value)
+                        .toFixed(1)
+                        .replace(/\.0$/, "")}%`
+                    }
+                  />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]} fill="#38bdf8" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
-          {/* Persona Matrix */}
-          <PersonaMatrix profile={profile} />
+          {/* Buyer Persona Matrix */}
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.7)] flex flex-col">
+            <h2 className="text-sm font-semibold text-slate-50">
+              Buyer Persona Matrix
+            </h2>
+            <p className="mt-1 text-xs text-slate-300">
+              Your combined profile sits at the intersection of your Buyer
+              Frequency Type (left to right) and Buyer Mindset Level (top to
+              bottom).
+            </p>
+
+            <div className="mt-4 flex-1 overflow-x-auto">
+              <div className="inline-grid grid-cols-[auto_repeat(5,minmax(0,1fr))] gap-1 text-[10px]">
+                {/* Header row */}
+                <div />
+                {MATRIX_COLS.map((col) => (
+                  <div
+                    key={col}
+                    className="px-2 py-1 text-center text-slate-400"
+                  >
+                    {PERSONALITY_LABELS[col]}
+                  </div>
+                ))}
+
+                {/* Body rows */}
+                {MATRIX_ROWS.map((row) => (
+                  <div key={row} className="contents">
+                    <div className="px-2 py-1 text-right text-slate-400">
+                      {MINDSET_LABELS[row]}
+                    </div>
+                    {MATRIX_COLS.map((col) => {
+                      const code = `${col[0]}${
+                        MINDSET_ORDER.indexOf(row) + 1
+                      }`;
+                      const isActive =
+                        row === activeRow &&
+                        col === activeCol &&
+                        code === profile.profile_code;
+
+                      return (
+                        <button
+                          key={col}
+                          type="button"
+                          className={[
+                            "h-9 min-w-[44px] rounded-lg border text-[11px] font-medium transition",
+                            isActive
+                              ? "border-sky-400 bg-sky-500/20 text-sky-50 shadow-[0_0_0_1px_rgba(56,189,248,0.6)]"
+                              : "border-slate-700/70 bg-slate-900/70 text-slate-300 hover:border-sky-500/60 hover:bg-slate-900",
+                          ].join(" ")}
+                        >
+                          {code}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 text-[11px] text-slate-400">
+              Active profile:{" "}
+              <span className="font-semibold text-slate-100">
+                {profile.profile_label} ({activeCode})
+              </span>
+            </div>
+          </div>
         </section>
 
-        {/* RENDER ALL SECTIONS FROM report_sections */}
-        <main className="space-y-6 md:space-y-8">
-          {sections.map((section) => renderSection(section))}
-        </main>
-
-        <footer className="pt-6 text-xs md:text-sm text-slate-500 border-t border-slate-900 mt-6">
-          © {new Date().getFullYear()} MindCanvas — Profiletest.ai • Quantum Source Code (Entrepreneur)
-        </footer>
-      </div>
+        {/* One-page summary */}
+        <OnePageSummary results={results} profile={profile} />
+      </main>
     </div>
   );
 }
