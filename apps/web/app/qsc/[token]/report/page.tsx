@@ -90,6 +90,16 @@ const MATRIX_ROWS: MindsetKey[] = MINDSET_ORDER;
 const MATRIX_COLS: PersonalityKey[] = PERSONALITY_ORDER;
 
 /* -------------------------------------------------------------------------- */
+/*                           Shared helper functions                          */
+/* -------------------------------------------------------------------------- */
+
+function normalizeField(raw: string | null, fallback: string): string {
+  const t = (raw ?? "").trim();
+  if (!t || t.toLowerCase().startsWith("[todo")) return fallback;
+  return t;
+}
+
+/* -------------------------------------------------------------------------- */
 /*                          One-Page Quantum Summary                          */
 /* -------------------------------------------------------------------------- */
 
@@ -147,94 +157,94 @@ function OnePageSummary({
     "Use this report to choose one system to simplify, one decision to make faster, and one behaviour to stabilise over the next 30 days.";
 
   return (
-    <section className="mt-10 rounded-3xl border border-slate-800 bg-slate-950/70 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_60px_rgba(0,0,0,0.7)] space-y-6">
+    <section className="mt-10 rounded-3xl border border-slate-200/80 bg-white/95 px-6 py-7 md:px-8 md:py-8 shadow-[0_20px_60px_rgba(15,23,42,0.45)] space-y-6">
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold tracking-[0.2em] uppercase text-sky-300/80">
+          <p className="text-[11px] font-semibold tracking-[0.2em] uppercase text-sky-700">
             One-Page Quantum Summary
           </p>
-          <h2 className="mt-2 text-2xl md:text-3xl font-semibold text-slate-50">
+          <h2 className="mt-2 text-2xl md:text-3xl font-semibold text-slate-900">
             Your personal emotional, strategic &amp; scaling snapshot
           </h2>
-          <p className="mt-1 text-sm text-slate-300 max-w-2xl">
+          <p className="mt-1 text-sm text-slate-700 max-w-2xl">
             Use this page as your quick reference. It summarises who you are, where
             your business is, and what matters most over the next season.
           </p>
         </div>
-        <div className="text-xs text-right text-slate-400">
+        <div className="text-xs text-right text-slate-500">
           <div>Created at</div>
-          <div className="font-medium text-slate-200">{createdStr}</div>
+          <div className="font-medium text-slate-800">{createdStr}</div>
         </div>
       </header>
 
       {/* Quantum profile row */}
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl bg-slate-900/80 border border-sky-600/40 px-4 py-4 md:px-5 md:py-5">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-300/90">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">
             Quantum Profile
           </p>
-          <div className="mt-2 text-lg font-semibold text-slate-50">
+          <div className="mt-2 text-lg font-semibold text-slate-900">
             {combinedLabel}
           </div>
-          <div className="mt-1 text-xs text-slate-300">
+          <div className="mt-1 text-xs text-slate-600">
             Code:{" "}
-            <span className="font-mono text-sky-200">
+            <span className="font-mono text-sky-700">
               {results.combined_profile_code}
             </span>
           </div>
-          <dl className="mt-4 space-y-1.5 text-xs text-slate-200">
+          <dl className="mt-4 space-y-1.5 text-xs text-slate-800">
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-400">Primary personality</dt>
+              <dt className="text-slate-500">Primary personality</dt>
               <dd className="font-medium">{primaryPersonalityLabel}</dd>
             </div>
             {secondaryPersonalityLabel && (
               <div className="flex justify-between gap-3">
-                <dt className="text-slate-400">Secondary personality</dt>
+                <dt className="text-slate-500">Secondary personality</dt>
                 <dd className="font-medium">{secondaryPersonalityLabel}</dd>
               </div>
             )}
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-400">Primary mindset</dt>
+              <dt className="text-slate-500">Primary mindset</dt>
               <dd className="font-medium">{primaryMindsetLabel}</dd>
             </div>
             {secondaryMindsetLabel && (
               <div className="flex justify-between gap-3">
-                <dt className="text-slate-400">Secondary mindset</dt>
+                <dt className="text-slate-500">Secondary mindset</dt>
                 <dd className="font-medium">{secondaryMindsetLabel}</dd>
               </div>
             )}
           </dl>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/60 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
             Stage
           </p>
-          <div className="mt-2 text-sm text-slate-200">
+          <div className="mt-2 text-sm text-slate-800">
             Your current growth focus is{" "}
-            <span className="font-semibold text-sky-200">
+            <span className="font-semibold text-sky-700">
               {primaryMindsetLabel}
             </span>
             . This stage asks you to balance your natural{" "}
-            <span className="font-semibold text-sky-200">
+            <span className="font-semibold text-sky-700">
               {primaryPersonalityLabel.toLowerCase()}
             </span>{" "}
             style with the structure and decisions needed for the next level.
           </div>
-          <p className="mt-3 text-xs text-slate-400">
+          <p className="mt-3 text-xs text-slate-500">
             Think of this as your “home base” for the next 3–6 months. Most of your
             important decisions will happen from here.
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/60 border border-slate-800 px-4 py-4 md:px-5 md:py-5 flex flex-col justify-between">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5 flex flex-col justify-between">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
               Next step
             </p>
-            <p className="mt-2 text-sm text-slate-200">{nextStep}</p>
+            <p className="mt-2 text-sm text-slate-800">{nextStep}</p>
           </div>
-          <div className="mt-3 text-[11px] text-slate-400">
+          <div className="mt-3 text-[11px] text-slate-500">
             Tip: screenshot or print this page and keep it visible in your workspace as
             your decision filter.
           </div>
@@ -243,33 +253,33 @@ function OnePageSummary({
 
       {/* Strengths / Risks / Priorities */}
       <div className="grid gap-4 md:grid-cols-3 mt-4">
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Strengths you can lean on
           </h3>
-          <ul className="mt-3 space-y-2 text-xs text-slate-200 list-disc list-inside">
+          <ul className="mt-3 space-y-2 text-xs text-slate-700 list-disc list-inside">
             {strengths.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
           </ul>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Risks &amp; patterns to watch
           </h3>
-          <ul className="mt-3 space-y-2 text-xs text-slate-200 list-disc list-inside">
+          <ul className="mt-3 space-y-2 text-xs text-slate-700 list-disc list-inside">
             {risks.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
           </ul>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Top priorities (next 90 days)
           </h3>
-          <ul className="mt-3 space-y-2 text-xs text-slate-200 list-disc list-inside">
+          <ul className="mt-3 space-y-2 text-xs text-slate-700 list-disc list-inside">
             {priorities.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
@@ -286,40 +296,40 @@ function OnePageSummary({
 
 function IntroAndHowToUse() {
   return (
-    <section className="mt-6 rounded-3xl border border-slate-800 bg-slate-950/70 px-6 py-6 md:px-8 md:py-7 shadow-[0_18px_50px_rgba(0,0,0,0.65)] space-y-6">
+    <section className="mt-6 rounded-3xl border border-slate-200/80 bg-white/95 px-6 py-6 md:px-8 md:py-7 shadow-[0_18px_55px_rgba(15,23,42,0.45)] space-y-6">
       <div className="grid gap-6 md:grid-cols-2">
         {/* INTRODUCTION */}
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-300/80">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">
             Introduction
           </p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-50">
+          <h2 className="mt-2 text-xl font-semibold text-slate-900">
             Your personal growth &amp; business direction guide
           </h2>
-          <p className="mt-3 text-sm text-slate-200">
+          <p className="mt-3 text-sm text-slate-700">
             This report gives you a clear understanding of who you are, how you work,
             and what your business needs next. It is designed to be simple, practical,
             and focused on helping you take confident action.
           </p>
 
-          <p className="mt-4 text-xs font-semibold text-slate-300">
+          <p className="mt-4 text-xs font-semibold text-slate-700">
             You will learn two important things about yourself:
           </p>
-          <ul className="mt-2 space-y-2 text-sm text-slate-200">
+          <ul className="mt-2 space-y-2 text-sm text-slate-700">
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Your Personality Layer
               </span>
-              <span className="text-slate-300">
+              <span className="text-slate-700">
                 {" "}
                 – how you naturally think, act, and make decisions.
               </span>
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Your Mindset Layer
               </span>
-              <span className="text-slate-300">
+              <span className="text-slate-700">
                 {" "}
                 – where your business is right now and what stage of growth you are
                 in.
@@ -327,15 +337,15 @@ function IntroAndHowToUse() {
             </li>
           </ul>
 
-          <p className="mt-3 text-sm text-slate-200">
+          <p className="mt-3 text-sm text-slate-700">
             Together, these create your{" "}
-            <span className="font-semibold text-sky-200">Quantum Profile</span>. Your
+            <span className="font-semibold text-sky-700">Quantum Profile</span>. Your
             Quantum Profile shows your strengths, blind spots, patterns, and the best
             way for you to grow.
           </p>
 
-          <p className="mt-3 text-xs text-slate-300">This report includes:</p>
-          <ul className="mt-2 grid gap-x-4 gap-y-1 text-xs text-slate-200 md:grid-cols-2">
+          <p className="mt-3 text-xs text-slate-700">This report includes:</p>
+          <ul className="mt-2 grid gap-x-4 gap-y-1 text-xs text-slate-700 md:grid-cols-2">
             <li>Clear explanations</li>
             <li>Examples</li>
             <li>Steps you can follow</li>
@@ -344,7 +354,7 @@ function IntroAndHowToUse() {
             <li>A simple growth roadmap</li>
           </ul>
 
-          <p className="mt-4 text-xs text-slate-300">
+          <p className="mt-4 text-xs text-slate-600">
             Read it slowly. Use it as a guide. Come back to it often. This is your
             personal strategic growth plan.
           </p>
@@ -352,74 +362,74 @@ function IntroAndHowToUse() {
 
         {/* HOW TO USE THIS REPORT */}
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-300/80">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">
             How to use this report
           </p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-50">
+          <h2 className="mt-2 text-xl font-semibold text-slate-900">
             Turn insight into focused, confident action
           </h2>
-          <p className="mt-3 text-sm text-slate-200">
+          <p className="mt-3 text-sm text-slate-700">
             To get the most value from this:
           </p>
 
-          <ul className="mt-3 space-y-2 text-sm text-slate-200">
+          <ul className="mt-3 space-y-2 text-sm text-slate-700">
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Start with the Profile Summary
               </span>{" "}
               – understand your natural style and energy.
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Study the Personality Layer
               </span>{" "}
               – this explains why you act the way you do.
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Read the Mindset Layer
               </span>{" "}
               – this shows what your business needs right now.
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Pay close attention to the Combined Pattern
               </span>{" "}
               – this part gives you the real insight.
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Use the Strategic Priorities
               </span>{" "}
               – these are your most important actions.
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Follow the 30-day Action Plan
               </span>{" "}
               – this turns clarity into forward movement.
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Use the Roadmap to stay on track
               </span>{" "}
               – it shows the next steps and the expected timeline.
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Work through the Reflection Prompts
               </span>{" "}
               – these help you stay aligned and aware.
             </li>
             <li>
-              <span className="font-semibold text-sky-200">
+              <span className="font-semibold text-sky-700">
                 Keep the One-Page Summary nearby
               </span>{" "}
               – this is your quick, at-a-glance guide.
             </li>
           </ul>
 
-          <p className="mt-4 text-xs text-slate-300">
+          <p className="mt-4 text-xs text-slate-600">
             This report gives you direction, simplicity, and momentum without
             overwhelming you.
           </p>
@@ -432,12 +442,6 @@ function IntroAndHowToUse() {
 /* -------------------------------------------------------------------------- */
 /*                           Personality Layer section                        */
 /* -------------------------------------------------------------------------- */
-
-function normalizeField(raw: string | null, fallback: string): string {
-  const t = (raw ?? "").trim();
-  if (!t || t.toLowerCase().startsWith("[todo")) return fallback;
-  return t;
-}
 
 function PersonalityLayerSection({
   results,
@@ -476,16 +480,16 @@ function PersonalityLayerSection({
   );
 
   return (
-    <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/80 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_55px_rgba(0,0,0,0.65)] space-y-6">
+    <section className="mt-8 rounded-3xl border border-slate-200/80 bg-white/95 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_55px_rgba(15,23,42,0.45)] space-y-6">
       <header className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-300/80">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">
           Personality Layer
         </p>
-        <h2 className="text-2xl font-semibold text-slate-50">
+        <h2 className="text-2xl font-semibold text-slate-900">
           How your natural {primaryPersonalityLabel.toLowerCase()} energy shows up
           day-to-day
         </h2>
-        <p className="text-sm text-slate-300 max-w-3xl">
+        <p className="text-sm text-slate-700 max-w-3xl">
           This section looks only at you — your emotional wiring, thinking patterns
           and default behaviours. Later, the Mindset Layer will show how this interacts
           with the current stage of your business.
@@ -493,30 +497,30 @@ function PersonalityLayerSection({
       </header>
 
       <div className="grid gap-6 md:grid-cols-3">
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             How you show up
           </h3>
-          <p className="mt-2 text-xs text-slate-200">
+          <p className="mt-2 text-xs text-slate-700">
             Your {primaryPersonalityLabel.toLowerCase()} pattern influences how you
             think, act and relate to people around you. It shapes the pace you prefer,
             how quickly you move into action, and what you pay attention to first.
           </p>
-          <p className="mt-3 text-xs text-slate-300">
+          <p className="mt-3 text-xs text-slate-500">
             Use this as a neutral mirror — not a judgement. The goal is awareness, not
             perfection.
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             What energises &amp; drains you
           </h3>
-          <p className="mt-2 text-xs text-slate-200">
+          <p className="mt-2 text-xs text-slate-700">
             You are energised by environments that match your natural pace and style,
             and drained when you have to constantly operate against your wiring.
           </p>
-          <ul className="mt-3 space-y-1.5 text-xs text-slate-200 list-disc list-inside">
+          <ul className="mt-3 space-y-1.5 text-xs text-slate-700 list-disc list-inside">
             <li>
               <span className="font-semibold">Energises:</span> work that matches your
               preferred speed, gives you autonomy, and lets you lean into your natural
@@ -527,22 +531,22 @@ function PersonalityLayerSection({
               stuck, over-controlled, or responsible for every detail with no support.
             </li>
           </ul>
-          <p className="mt-3 text-[11px] text-slate-400">
+          <p className="mt-3 text-[11px] text-slate-500">
             Noticing this helps you structure your week around high-energy work and
             protect yourself from unnecessary burnout.
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             What people notice about you
           </h3>
-          <p className="mt-2 text-xs text-slate-200">
+          <p className="mt-2 text-xs text-slate-700">
             Others experience your personality before they understand your strategy.
             The way you enter a room, respond to pressure and make decisions all sends
             a signal.
           </p>
-          <ul className="mt-3 space-y-1.5 text-xs text-slate-200 list-disc list-inside">
+          <ul className="mt-3 space-y-1.5 text-xs text-slate-700 list-disc list-inside">
             <li>
               <span className="font-semibold">Appreciated:</span> your energy when it
               is focused, your ability to move things forward, and your willingness to
@@ -559,64 +563,64 @@ function PersonalityLayerSection({
 
       {/* Persona fields from qsc_profiles */}
       <div className="grid gap-6 md:grid-cols-3">
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             How you communicate
           </h3>
-          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+          <p className="mt-2 text-xs text-slate-700 whitespace-pre-line">
             {howToCommunicate}
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Decision style
           </h3>
-          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+          <p className="mt-2 text-xs text-slate-700 whitespace-pre-line">
             {decisionStyle}
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Core business challenges
           </h3>
-          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+          <p className="mt-2 text-xs text-slate-700 whitespace-pre-line">
             {businessChallenges}
           </p>
         </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Trust signals
           </h3>
-          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+          <p className="mt-2 text-xs text-slate-700 whitespace-pre-line">
             {trustSignals}
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Best offer fit
           </h3>
-          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+          <p className="mt-2 text-xs text-slate-700 whitespace-pre-line">
             {offerFit}
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/70 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Sale blockers &amp; friction points
           </h3>
-          <p className="mt-2 text-xs text-slate-200 whitespace-pre-line">
+          <p className="mt-2 text-xs text-slate-700 whitespace-pre-line">
             {saleBlockers}
           </p>
         </div>
       </div>
 
-      <p className="mt-2 text-[11px] text-slate-400">
+      <p className="mt-2 text-[11px] text-slate-500">
         As you and your coach refine this profile, these descriptions can be updated to
         match your exact language and examples.
       </p>
@@ -694,15 +698,15 @@ function MindsetLayerSection({
   const requirements = getMindsetRequirements(results.primary_mindset);
 
   return (
-    <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/90 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_55px_rgba(0,0,0,0.7)] space-y-6">
+    <section className="mt-8 rounded-3xl border border-slate-200/80 bg-white/95 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_55px_rgba(15,23,42,0.45)] space-y-6">
       <header className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-300/80">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-700">
           Mindset Layer
         </p>
-        <h2 className="text-2xl font-semibold text-slate-50">
+        <h2 className="text-2xl font-semibold text-slate-900">
           {primaryMindsetLabel} &mdash; Level {level}
         </h2>
-        <p className="text-sm text-slate-300 max-w-3xl">
+        <p className="text-sm text-slate-700 max-w-3xl">
           This is the stage your business is currently signalling. It describes how
           much structure, leadership and operational maturity is needed for you to grow
           without sliding back into chaos or burnout.
@@ -710,44 +714,45 @@ function MindsetLayerSection({
       </header>
 
       <div className="grid gap-6 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             What this stage is asking from you
           </h3>
-          <p className="mt-2 text-xs text-slate-200">
+          <p className="mt-2 text-xs text-slate-700">
             Each Quantum stage changes the game. What worked one or two stages ago may
             now create friction. The list below captures the core requirements of your
             current stage.
           </p>
-          <ul className="mt-3 space-y-1.5 text-xs text-slate-200 list-disc list-inside">
+          <ul className="mt-3 space-y-1.5 text-xs text-slate-700 list-disc list-inside">
             {requirements.map((r, i) => (
               <li key={i}>{r}</li>
             ))}
           </ul>
-          <p className="mt-3 text-[11px] text-slate-400">
+          <p className="mt-3 text-[11px] text-slate-500">
             You don&apos;t need to do everything at once. Start with one or two items
             that will remove the most friction or unlock the most capacity.
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5 flex flex-col justify-between">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5 flex flex-col justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-slate-50">
+            <h3 className="text-sm font-semibold text-slate-900">
               How this stage feels from the inside
             </h3>
-            <p className="mt-2 text-xs text-slate-200">
-              Most entrepreneurs in the <span className="font-semibold">{primaryMindsetLabel}</span>{" "}
-              stage feel a mix of pressure, possibility and responsibility. You can
-              sense what&apos;s next, but the path can feel noisy or crowded.
+            <p className="mt-2 text-xs text-slate-700">
+              Most entrepreneurs in the{" "}
+              <span className="font-semibold">{primaryMindsetLabel}</span> stage feel a
+              mix of pressure, possibility and responsibility. You can sense what&apos;s
+              next, but the path can feel noisy or crowded.
             </p>
-            <p className="mt-3 text-xs text-slate-200">
+            <p className="mt-3 text-xs text-slate-700">
               It&apos;s normal to question your pace, to wonder if you&apos;re building
               fast enough, and to feel stretched between leading, delivering and
               thinking. The goal is not to escape this stage, but to move through it
               deliberately.
             </p>
           </div>
-          <p className="mt-4 text-[11px] text-slate-400">
+          <p className="mt-4 text-[11px] text-slate-500">
             When you align your decisions with the true requirements of this stage,
             progress becomes calmer, more repeatable and easier to sustain.
           </p>
@@ -755,52 +760,191 @@ function MindsetLayerSection({
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
-        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             If you ignore this stage…
           </h3>
-          <p className="mt-2 text-xs text-slate-200">
+          <p className="mt-2 text-xs text-slate-700">
             Skipping the real work of {primaryMindsetLabel.toLowerCase()} usually shows
             up as repeated loops: the same problems resurfacing in different forms,
             team frustration, or growth that spikes and then drops.
           </p>
-          <p className="mt-3 text-[11px] text-slate-400">
+          <p className="mt-3 text-[11px] text-slate-500">
             This is where businesses plateau, even when the founder is working harder
             than ever.
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             When you work with it…
           </h3>
-          <p className="mt-2 text-xs text-slate-200">
+          <p className="mt-2 text-xs text-slate-700">
             When you honour the real needs of this stage, your business becomes easier
             to steer. You spend more time leading and less time firefighting.
           </p>
-          <p className="mt-3 text-xs text-slate-200">
+          <p className="mt-3 text-xs text-slate-700">
             Capacity, profit and clarity all increase because your systems, people and
             offers are finally working in the same direction.
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
-          <h3 className="text-sm font-semibold text-slate-50">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
             Anchor question for this stage
           </h3>
-          <p className="mt-2 text-xs text-slate-200">
+          <p className="mt-2 text-xs text-slate-700">
             A powerful reflection for{" "}
             <span className="font-semibold">{primaryMindsetLabel}</span> is:
           </p>
-          <p className="mt-3 text-xs font-medium text-sky-200">
+          <p className="mt-3 text-xs font-medium text-sky-700">
             &quot;If I fully respected the needs of this stage, what would I stop,
             start or stabilise in the next 30 days?&quot;
           </p>
-          <p className="mt-3 text-[11px] text-slate-400">
+          <p className="mt-3 text-[11px] text-slate-500">
             Revisit this question weekly. Your answers will evolve as you implement the
             work of this stage.
           </p>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          Combined Pattern section                          */
+/* -------------------------------------------------------------------------- */
+
+function CombinedPatternSection({
+  results,
+  profile,
+}: {
+  results: QscResults;
+  profile: QscProfile;
+}) {
+  const primaryPersonalityLabel =
+    PERSONALITY_LABELS[results.primary_personality] ??
+    results.primary_personality;
+  const primaryMindsetLabel =
+    MINDSET_LABELS[results.primary_mindset] ?? results.primary_mindset;
+
+  const combinedLabel = profile.profile_label || results.combined_profile_code;
+
+  const businessChallenges = normalizeField(
+    profile.business_challenges,
+    "At this combined pattern, your main risks sit between speed and structure: moving fast enough to create momentum, but slow enough to stabilise systems, cashflow and delivery."
+  );
+  const offerFit = normalizeField(
+    profile.offer_fit,
+    "You are best served by offers that respect your pace, give you strategic clarity, and plug directly into the systems you already have, rather than forcing a complete rebuild."
+  );
+  const saleBlockers = normalizeField(
+    profile.sale_blockers,
+    "You are most likely to hesitate when the path feels vague, overly complex or slow, or when it is unclear how this will actually shift results in the next 90–180 days."
+  );
+
+  return (
+    <section className="mt-8 rounded-3xl border border-slate-200/80 bg-white/95 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_55px_rgba(15,23,42,0.45)] space-y-6">
+      <header className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">
+          Combined Pattern
+        </p>
+        <h2 className="text-2xl font-semibold text-slate-900">
+          {combinedLabel} — what happens when your personality meets your stage
+        </h2>
+        <p className="text-sm text-slate-700 max-w-3xl">
+          This is where the real QSC magic lives. Your{" "}
+          <span className="font-semibold">{primaryPersonalityLabel}</span> pattern and{" "}
+          <span className="font-semibold">{primaryMindsetLabel}</span> stage combine
+          into one strategic blueprint. It explains why certain patterns repeat, why
+          some decisions feel easy and others feel heavy, and where your fastest growth
+          is likely to come from.
+        </p>
+      </header>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
+            Strategic strengths
+          </h3>
+          <p className="mt-2 text-xs text-slate-700">
+            As a <span className="font-semibold">{combinedLabel}</span>, you are at
+            your best when you:
+          </p>
+          <ul className="mt-3 space-y-1.5 text-xs text-slate-700 list-disc list-inside">
+            <li>
+              Lean into your natural{" "}
+              {primaryPersonalityLabel.toLowerCase()} energy to create movement and
+              momentum.
+            </li>
+            <li>
+              Make decisions that connect today&apos;s reality with the future you are
+              building, instead of getting lost in extremes.
+            </li>
+            <li>
+              Build systems, offers and relationships that amplify your strengths
+              rather than trying to “fix” your wiring.
+            </li>
+          </ul>
+          <p className="mt-3 text-[11px] text-slate-500">
+            These strengths become exponential when they are pointed at the right
+            projects and protected from distraction.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
+            Growth risks &amp; loops
+          </h3>
+          <p className="mt-2 text-xs text-slate-700">
+            The same pattern that fuels your growth can also create your biggest
+            friction if left unchecked:
+          </p>
+          <p className="mt-3 text-xs text-slate-700 whitespace-pre-line">
+            {businessChallenges}
+          </p>
+          <p className="mt-3 text-[11px] text-slate-500">
+            Most entrepreneurs don&apos;t get stuck because of lack of effort — they
+            get stuck repeating a pattern that used to work at a previous stage.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-900">
+            Your biggest lever
+          </h3>
+          <p className="mt-2 text-xs text-slate-700 whitespace-pre-line">
+            {offerFit}
+          </p>
+          <p className="mt-3 text-xs text-slate-700 whitespace-pre-line">
+            {saleBlockers}
+          </p>
+          <p className="mt-3 text-[11px] text-slate-500">
+            In practice, this means your fastest progress often comes from simplifying
+            how you buy, build and lead — not just adding more.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-slate-50 border border-dashed border-slate-300 px-4 py-4 md:px-5 md:py-5">
+        <h3 className="text-sm font-semibold text-slate-900">
+          Reflection prompts for your Quantum pattern
+        </h3>
+        <ul className="mt-3 space-y-1.5 text-xs text-slate-700 list-disc list-inside">
+          <li>Where am I moving faster than my systems can reliably support?</li>
+          <li>
+            Which decisions am I delaying that would actually create more ease or
+            capacity?
+          </li>
+          <li>
+            What do I keep trying to “handle myself” that really needs a system or a
+            person?
+          </li>
+          <li>
+            If I fully trusted this profile, what would I stop forcing, and what would
+            I give myself permission to do more of?
+          </li>
+        </ul>
       </div>
     </section>
   );
@@ -888,7 +1032,7 @@ export default function QscReportPage({ params }: { params: { token: string } })
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-50">
         <main className="mx-auto max-w-6xl px-4 py-10">
           <p className="text-sm text-slate-300">Loading report…</p>
         </main>
@@ -898,7 +1042,7 @@ export default function QscReportPage({ params }: { params: { token: string } })
 
   if (err || !results || !profile) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-50">
         <main className="mx-auto max-w-6xl px-4 py-10 space-y-4">
           <h1 className="text-2xl font-semibold">Something went wrong</h1>
           <p className="text-sm text-slate-300">
@@ -994,11 +1138,11 @@ export default function QscReportPage({ params }: { params: { token: string } })
         {/* Top row: pie, bar, matrix */}
         <section className="grid gap-5 md:grid-cols-3">
           {/* Buyer Frequency Type (pie) */}
-          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.7)] flex flex-col">
-            <h2 className="text-sm font-semibold text-slate-50">
+          <div className="rounded-3xl border border-slate-200/80 bg-white/95 px-5 py-5 shadow-[0_18px_55px_rgba(15,23,42,0.45)] flex flex-col">
+            <h2 className="text-sm font-semibold text-slate-900">
               Buyer Frequency Type
             </h2>
-            <p className="mt-1 text-xs text-slate-300">
+            <p className="mt-1 text-xs text-slate-700">
               Distribution of your emotional and behavioural style across the four
               QSC frequencies.
             </p>
@@ -1037,11 +1181,11 @@ export default function QscReportPage({ params }: { params: { token: string } })
           </div>
 
           {/* Mindset levels bar chart */}
-          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.7)] flex flex-col">
-            <h2 className="text-sm font-semibold text-slate-50">
+          <div className="rounded-3xl border border-slate-200/80 bg-white/95 px-5 py-5 shadow-[0_18px_55px_rgba(15,23,42,0.45)] flex flex-col">
+            <h2 className="text-sm font-semibold text-slate-900">
               Buyer Mindset Levels
             </h2>
-            <p className="mt-1 text-xs text-slate-300">
+            <p className="mt-1 text-xs text-slate-700">
               Where your business energy is currently focused across the five
               Quantum stages.
             </p>
@@ -1050,7 +1194,7 @@ export default function QscReportPage({ params }: { params: { token: string } })
                 <BarChart data={mindsetChartData}>
                   <XAxis
                     dataKey="name"
-                    tick={{ fontSize: 10, fill: "#cbd5f5" }}
+                    tick={{ fontSize: 10, fill: "#0f172a" }}
                     tickLine={false}
                     axisLine={false}
                   />
@@ -1075,11 +1219,11 @@ export default function QscReportPage({ params }: { params: { token: string } })
           </div>
 
           {/* Buyer Persona Matrix */}
-          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 px-5 py-5 shadow-[0_18px_50px_rgba(0,0,0,0.7)] flex flex-col">
-            <h2 className="text-sm font-semibold text-slate-50">
+          <div className="rounded-3xl border border-slate-200/80 bg-white/95 px-5 py-5 shadow-[0_18px_55px_rgba(15,23,42,0.45)] flex flex-col">
+            <h2 className="text-sm font-semibold text-slate-900">
               Buyer Persona Matrix
             </h2>
-            <p className="mt-1 text-xs text-slate-300">
+            <p className="mt-1 text-xs text-slate-700">
               Your combined profile sits at the intersection of your Buyer
               Frequency Type (left to right) and Buyer Mindset Level (top to
               bottom).
@@ -1092,7 +1236,7 @@ export default function QscReportPage({ params }: { params: { token: string } })
                 {MATRIX_COLS.map((col) => (
                   <div
                     key={col}
-                    className="px-2 py-1 text-center text-slate-400"
+                    className="px-2 py-1 text-center text-slate-500"
                   >
                     {PERSONALITY_LABELS[col]}
                   </div>
@@ -1101,7 +1245,7 @@ export default function QscReportPage({ params }: { params: { token: string } })
                 {/* Body rows */}
                 {MATRIX_ROWS.map((row) => (
                   <div key={row} className="contents">
-                    <div className="px-2 py-1 text-right text-slate-400">
+                    <div className="px-2 py-1 text-right text-slate-500">
                       {MINDSET_LABELS[row]}
                     </div>
                     {MATRIX_COLS.map((col) => {
@@ -1120,8 +1264,8 @@ export default function QscReportPage({ params }: { params: { token: string } })
                           className={[
                             "h-9 min-w-[44px] rounded-lg border text-[11px] font-medium transition",
                             isActive
-                              ? "border-sky-400 bg-sky-500/20 text-sky-50 shadow-[0_0_0_1px_rgba(56,189,248,0.6)]"
-                              : "border-slate-700/70 bg-slate-900/70 text-slate-300 hover:border-sky-500/60 hover:bg-slate-900",
+                              ? "border-sky-500 bg-sky-50 text-sky-800 shadow-[0_0_0_1px_rgba(56,189,248,0.6)]"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-sky-400 hover:bg-sky-50",
                           ].join(" ")}
                         >
                           {code}
@@ -1133,9 +1277,9 @@ export default function QscReportPage({ params }: { params: { token: string } })
               </div>
             </div>
 
-            <div className="mt-4 text-[11px] text-slate-400">
+            <div className="mt-4 text-[11px] text-slate-600">
               Active profile:{" "}
-              <span className="font-semibold text-slate-100">
+              <span className="font-semibold text-slate-900">
                 {profile.profile_label} ({activeCode})
               </span>
             </div>
@@ -1150,6 +1294,9 @@ export default function QscReportPage({ params }: { params: { token: string } })
 
         {/* Mindset layer */}
         <MindsetLayerSection results={results} profile={profile} />
+
+        {/* Combined pattern */}
+        <CombinedPatternSection results={results} profile={profile} />
       </main>
     </div>
   );
