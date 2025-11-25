@@ -625,6 +625,188 @@ function PersonalityLayerSection({
 }
 
 /* -------------------------------------------------------------------------- */
+/*                            Mindset Layer section                            */
+/* -------------------------------------------------------------------------- */
+
+function getMindsetRequirements(primary: MindsetKey): string[] {
+  switch (primary) {
+    case "ORIGIN":
+      return [
+        "Clarifying your core offer, audience and promise so everything else has a clear anchor.",
+        "Building a simple, repeatable way to generate interest and have real sales conversations.",
+        "Protecting your energy by saying no to distractions that pull you away from validation.",
+        "Documenting what works so early wins become stable patterns, not one-off events.",
+        "Watching cashflow closely and avoiding commitments that lock you in too early.",
+      ];
+    case "MOMENTUM":
+      return [
+        "Turning what already works into repeatable systems and basic delivery processes.",
+        "Building simple, reliable ways to enrol and onboard new clients without starting from scratch.",
+        "Strengthening your calendar, boundaries and focus so you don’t drown in your own success.",
+        "Cleaning up any loose ends or messy operations that erode trust or profitability.",
+        "Starting to think in terms of capacity, not just ‘can I fit in one more client?’",
+      ];
+    case "VECTOR":
+      return [
+        "Choosing a clear strategic direction instead of saying yes to every opportunity.",
+        "Upgrading systems, tools and team roles so they can carry more volume with less friction.",
+        "Building dashboards or rhythms so you can steer from data, not only from emotion.",
+        "Aligning your brand, pricing and positioning with the value you actually deliver.",
+        "Delegating operational tasks so your energy moves toward leadership and design.",
+      ];
+    case "ORBIT":
+      return [
+        "Designing a stable operating rhythm that keeps delivery, sales and strategy connected.",
+        "Scaling your team’s ownership so the business can run without you as the bottleneck.",
+        "Refining offers, processes and client experience so they are consistent and predictable.",
+        "Creating space for deep strategic thinking instead of living in constant reaction.",
+        "Ensuring cashflow, profit and operations are robust enough to handle bigger swings.",
+      ];
+    case "QUANTUM":
+      return [
+        "Focusing on leverage — intellectual property, assets, partnerships and new models.",
+        "Making fewer, higher-impact decisions that shift the entire system, not just parts.",
+        "Protecting your energy, time and attention so you can think at a bigger level.",
+        "Building leadership layers so the organisation can grow beyond your personal capacity.",
+        "Staying anchored in your values while you pursue more reach, scale and complexity.",
+      ];
+    default:
+      return [
+        "Clarifying the most important focus for this stage of business.",
+        "Stabilising core systems so growth does not create chaos.",
+        "Aligning your energy, offers and operations around a clear direction.",
+        "Creating simple rhythms for review, decisions and course-correction.",
+        "Staying honest about what needs to change — in you and in the business.",
+      ];
+  }
+}
+
+function MindsetLayerSection({
+  results,
+  profile,
+}: {
+  results: QscResults;
+  profile: QscProfile;
+}) {
+  const primaryMindsetLabel =
+    MINDSET_LABELS[results.primary_mindset] ?? results.primary_mindset;
+  const level = profile.mindset_level;
+  const requirements = getMindsetRequirements(results.primary_mindset);
+
+  return (
+    <section className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/90 px-6 py-7 md:px-8 md:py-8 shadow-[0_18px_55px_rgba(0,0,0,0.7)] space-y-6">
+      <header className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-300/80">
+          Mindset Layer
+        </p>
+        <h2 className="text-2xl font-semibold text-slate-50">
+          {primaryMindsetLabel} &mdash; Level {level}
+        </h2>
+        <p className="text-sm text-slate-300 max-w-3xl">
+          This is the stage your business is currently signalling. It describes how
+          much structure, leadership and operational maturity is needed for you to grow
+          without sliding back into chaos or burnout.
+        </p>
+      </header>
+
+      <div className="grid gap-6 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            What this stage is asking from you
+          </h3>
+          <p className="mt-2 text-xs text-slate-200">
+            Each Quantum stage changes the game. What worked one or two stages ago may
+            now create friction. The list below captures the core requirements of your
+            current stage.
+          </p>
+          <ul className="mt-3 space-y-1.5 text-xs text-slate-200 list-disc list-inside">
+            {requirements.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+          <p className="mt-3 text-[11px] text-slate-400">
+            You don&apos;t need to do everything at once. Start with one or two items
+            that will remove the most friction or unlock the most capacity.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5 flex flex-col justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-50">
+              How this stage feels from the inside
+            </h3>
+            <p className="mt-2 text-xs text-slate-200">
+              Most entrepreneurs in the <span className="font-semibold">{primaryMindsetLabel}</span>{" "}
+              stage feel a mix of pressure, possibility and responsibility. You can
+              sense what&apos;s next, but the path can feel noisy or crowded.
+            </p>
+            <p className="mt-3 text-xs text-slate-200">
+              It&apos;s normal to question your pace, to wonder if you&apos;re building
+              fast enough, and to feel stretched between leading, delivering and
+              thinking. The goal is not to escape this stage, but to move through it
+              deliberately.
+            </p>
+          </div>
+          <p className="mt-4 text-[11px] text-slate-400">
+            When you align your decisions with the true requirements of this stage,
+            progress becomes calmer, more repeatable and easier to sustain.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            If you ignore this stage…
+          </h3>
+          <p className="mt-2 text-xs text-slate-200">
+            Skipping the real work of {primaryMindsetLabel.toLowerCase()} usually shows
+            up as repeated loops: the same problems resurfacing in different forms,
+            team frustration, or growth that spikes and then drops.
+          </p>
+          <p className="mt-3 text-[11px] text-slate-400">
+            This is where businesses plateau, even when the founder is working harder
+            than ever.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            When you work with it…
+          </h3>
+          <p className="mt-2 text-xs text-slate-200">
+            When you honour the real needs of this stage, your business becomes easier
+            to steer. You spend more time leading and less time firefighting.
+          </p>
+          <p className="mt-3 text-xs text-slate-200">
+            Capacity, profit and clarity all increase because your systems, people and
+            offers are finally working in the same direction.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-4 md:px-5 md:py-5">
+          <h3 className="text-sm font-semibold text-slate-50">
+            Anchor question for this stage
+          </h3>
+          <p className="mt-2 text-xs text-slate-200">
+            A powerful reflection for{" "}
+            <span className="font-semibold">{primaryMindsetLabel}</span> is:
+          </p>
+          <p className="mt-3 text-xs font-medium text-sky-200">
+            &quot;If I fully respected the needs of this stage, what would I stop,
+            start or stabilise in the next 30 days?&quot;
+          </p>
+          <p className="mt-3 text-[11px] text-slate-400">
+            Revisit this question weekly. Your answers will evolve as you implement the
+            work of this stage.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*                               Main Report Page                             */
 /* -------------------------------------------------------------------------- */
 
@@ -965,6 +1147,9 @@ export default function QscReportPage({ params }: { params: { token: string } })
 
         {/* Personality layer */}
         <PersonalityLayerSection results={results} profile={profile} />
+
+        {/* Mindset layer */}
+        <MindsetLayerSection results={results} profile={profile} />
       </main>
     </div>
   );
