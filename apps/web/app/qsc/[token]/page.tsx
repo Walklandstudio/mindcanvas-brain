@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -246,6 +248,8 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
 
 export default function QscResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
+  const searchParams = useSearchParams();
+  const tid = searchParams?.get("tid") ?? "";
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -360,6 +364,11 @@ export default function QscResultPage({ params }: { params: { token: string } })
     value: personalityPerc[p.key] ?? 0,
   }));
 
+  const extendedReportHref =
+    tid && typeof window !== "undefined"
+      ? `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`
+      : `/qsc/${encodeURIComponent(token)}/report`;
+
   // ---------------------------------------------------------------------------
   // Main layout
   // ---------------------------------------------------------------------------
@@ -371,18 +380,31 @@ export default function QscResultPage({ params }: { params: { token: string } })
         {/* Snapshot header                                                   */}
         {/* ----------------------------------------------------------------- */}
         <section className="space-y-6">
-          <div>
-            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-              Quantum Source Code
-            </p>
-            <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
-              Your Buyer Persona Snapshot
-            </h1>
-            <p className="mt-2 text-sm text-slate-300">
-              This view combines your <span className="font-semibold">Buyer Frequency Type</span>{" "}
-              and <span className="font-semibold">Buyer Mindset Level</span> into one
-              Quantum Source Code profile.
-            </p>
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+                Quantum Source Code
+              </p>
+              <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
+                Your Buyer Persona Snapshot
+              </h1>
+              <p className="mt-2 text-sm text-slate-300 max-w-2xl">
+                This view combines your{" "}
+                <span className="font-semibold">Buyer Frequency Type</span>{" "}
+                and <span className="font-semibold">Buyer Mindset Level</span>{" "}
+                into one Quantum Source Code profile.
+              </p>
+            </div>
+
+            {/* Extended Source Code button */}
+            <div className="flex md:items-end">
+              <Link
+                href={extendedReportHref}
+                className="inline-flex items-center rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-slate-50 shadow-md shadow-sky-900/60 hover:bg-sky-500 hover:border-sky-400 transition"
+              >
+                View Extended Source Code →
+              </Link>
+            </div>
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
@@ -505,7 +527,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
         {/* Frequency + Mindset summaries                                      */}
         {/* ----------------------------------------------------------------- */}
         <section className="grid gap-6 md:grid-cols-2">
-          {/* Buyer Frequency Types – now donut chart */}
+          {/* Buyer Frequency Types – donut chart */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
             <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
             <p className="mt-1 text-sm text-slate-300">
@@ -541,7 +563,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
             </div>
           </div>
 
-          {/* Buyer Mindset Levels – keep bar layout */}
+          {/* Buyer Mindset Levels – bars */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
             <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
             <p className="mt-1 text-sm text-slate-300">
