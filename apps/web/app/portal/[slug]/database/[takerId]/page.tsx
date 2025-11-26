@@ -25,18 +25,36 @@ function parseTotals(totals: Totals): any {
 }
 
 function asPercentMap(values: Record<string, number>): Record<string, number> {
-  const sum = Object.values(values).reduce((a, b) => a + (Number(b) || 0), 0);
-  if (!sum) return Object.fromEntries(Object.keys(values).map((k) => [k, 0]));
+  const sum = Object.values(values).reduce(
+    (a, b) => a + (Number(b) || 0),
+    0
+  );
+  if (!sum)
+    return Object.fromEntries(
+      Object.keys(values).map((k) => [k, 0])
+    );
   return Object.fromEntries(
-    Object.entries(values).map(([k, v]) => [k, Math.round(((Number(v) || 0) / sum) * 100)])
+    Object.entries(values).map(([k, v]) => [
+      k,
+      Math.round(((Number(v) || 0) / sum) * 100),
+    ])
   );
 }
 
 function asDecimalMap(values: Record<string, number>): Record<string, number> {
-  const sum = Object.values(values).reduce((a, b) => a + (Number(b) || 0), 0);
-  if (!sum) return Object.fromEntries(Object.keys(values).map((k) => [k, 0]));
+  const sum = Object.values(values).reduce(
+    (a, b) => a + (Number(b) || 0),
+    0
+  );
+  if (!sum)
+    return Object.fromEntries(
+      Object.keys(values).map((k) => [k, 0])
+    );
   return Object.fromEntries(
-    Object.entries(values).map(([k, v]) => [k, (Number(v) || 0) / sum])
+    Object.entries(values).map(([k, v]) => [
+      k,
+      (Number(v) || 0) / sum,
+    ])
   );
 }
 
@@ -75,7 +93,9 @@ function BarRow({
           style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
         />
       </div>
-      <div className="w-10 text-right text-sm tabular-nums">{pct}%</div>
+      <div className="w-10 text-right text-sm tabular-nums">
+        {pct}%
+      </div>
     </div>
   );
 }
@@ -98,7 +118,7 @@ export default async function TakerDetail({
   const { data: taker } = await sb
     .from("test_takers")
     .select(
-      "id, org_id, test_id, first_name, last_name, email, phone, created_at, company, role_title, last_result_url"
+      "id, org_id, test_id, first_name, last_name, email, phone, created_at, company, role_title, link_token, last_result_url"
     )
     .eq("id", takerId)
     .maybeSingle();
@@ -106,7 +126,7 @@ export default async function TakerDetail({
 
   const { data: test } = await sb
     .from("tests")
-    .select("id, name, meta")
+    .select("id, name, slug, meta")
     .eq("id", taker.test_id)
     .maybeSingle();
 
@@ -137,13 +157,6 @@ export default async function TakerDetail({
         ])
       )
     : { A: "A", B: "B", C: "C", D: "D" };
-
-  // --- Detect QSC tests (kind flag or name match) -------------------------
-  const testMeta = (test?.meta as any) ?? {};
-  const testKind = String(testMeta?.kind || "").toLowerCase();
-  const isQscTest =
-    testKind === "qsc" ||
-    (test?.name || "").toLowerCase().includes("quantum source code");
 
   // --- Build frequency and profile score maps (raw points) ----------------
   let profileScores: Record<string, number> = {};
@@ -238,7 +251,9 @@ export default async function TakerDetail({
   const freqDec = asDecimalMap(frequencyScores);
   const profileDec = asDecimalMap(profileScores);
 
-  const freqLabelArray = (["A", "B", "C", "D"] as const).map((code) => ({
+  const freqLabelArray = (
+    ["A", "B", "C", "D"] as const
+  ).map((code) => ({
     code,
     name: freqLabels[code] || code,
   }));
@@ -287,7 +302,10 @@ export default async function TakerDetail({
         },
         frequencies: {
           labels: freqLabelArray,
-          percentages: freqDec as Record<"A" | "B" | "C" | "D", number>,
+          percentages: freqDec as Record<
+            "A" | "B" | "C" | "D",
+            number
+          >,
           topCode: topFreqCode,
         },
         profiles: {
@@ -304,18 +322,38 @@ export default async function TakerDetail({
     : "";
 
   const fullName =
-    [taker.first_name, taker.last_name].filter(Boolean).join(" ").trim() ||
-    "—";
+    [taker.first_name, taker.last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim() || "—";
 
   // Build top 3 profiles for cards (using percentage profile mix)
   const sortedProfilePct = sortDesc(profilePct);
-  const topThreeProfiles = sortedProfilePct.slice(0, 3).map(([name, pct]) => {
-    const pMeta = profiles.find((p) => p.name === name);
-    const code = pMeta?.code || "";
-    return { name, pct, code };
-  });
+  const topThreeProfiles = sortedProfilePct
+    .slice(0, 3)
+    .map(([name, pct]) => {
+      const pMeta = profiles.find((p) => p.name === name);
+      const code = pMeta?.code || "";
+      return { name, pct, code };
+    });
 
   const labels = ["Primary profile", "Secondary", "Tertiary"];
+
+  // --- QSC URLs (Snapshot + Extended) -------------------------------------
+  const isQsc =
+    (test?.slug === "qsc-core") ||
+    (typeof meta?.frameworkType === "string" &&
+      meta.frameworkType.toLowerCase() === "qsc");
+
+  let qscSnapshotUrl: string | null = null;
+  let qscReportUrl: string | null = null;
+
+  if (isQsc && taker.link_token) {
+    const base = `/qsc/${encodeURIComponent(taker.link_token)}`;
+    const query = `?tid=${encodeURIComponent(taker.id)}`;
+    qscSnapshotUrl = `${base}${query}`;
+    qscReportUrl = `${base}/report${query}`;
+  }
 
   return (
     <div className="space-y-6">
@@ -347,173 +385,162 @@ export default async function TakerDetail({
           <dt className="text-gray-500">Created at</dt>
           <dd className="col-span-2">
             {taker.created_at
-              ? new Date(taker.created_at as any).toLocaleString()
+              ? new Date(
+                  taker.created_at as any
+                ).toLocaleString()
               : "—"}
           </dd>
           <dt className="text-gray-500">Company</dt>
           <dd className="col-span-2">{taker.company || "—"}</dd>
           <dt className="text-gray-500">Role title</dt>
-          <dd className="col-span-2">{taker.role_title || "—"}</dd>
+          <dd className="col-span-2">
+            {taker.role_title || "—"}
+          </dd>
         </dl>
       </section>
 
       {/* Latest Result */}
       <section className="rounded-xl border p-4 bg-white space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-medium">Latest Result</h2>
-          <button
-            className="rounded-md border px-3 py-2 text-sm disabled:opacity-60"
-            disabled
-          >
-            Generate PDF (coming soon)
-          </button>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="font-medium">Latest Result</h2>
+            <dl className="mt-1 grid grid-cols-3 gap-2 text-sm">
+              <dt className="text-gray-500">Test</dt>
+              <dd className="col-span-2">{test?.name || "—"}</dd>
+              <dt className="text-gray-500">Completed</dt>
+              <dd className="col-span-2">
+                {latest?.created_at
+                  ? new Date(
+                      latest.created_at as any
+                    ).toLocaleString()
+                  : "—"}
+              </dd>
+              <dt className="text-gray-500">Top profile</dt>
+              <dd className="col-span-2">
+                {topProfile
+                  ? `${topProfile[0]} (${topProfile[1]})`
+                  : "—"}
+              </dd>
+            </dl>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-md border px-3 py-2 text-sm disabled:opacity-60"
+              disabled
+            >
+              Generate PDF (coming soon)
+            </button>
+          </div>
         </div>
 
-        {/* QSC-specific summary */}
-        {isQscTest ? (
-          <>
-            <dl className="grid grid-cols-3 gap-2 text-sm">
-              <dt className="text-gray-500">Test</dt>
-              <dd className="col-span-2">{test?.name || "—"}</dd>
-              <dt className="text-gray-500">Completed</dt>
-              <dd className="col-span-2">
-                {latest?.created_at
-                  ? new Date(latest.created_at as any).toLocaleString()
-                  : "—"}
-              </dd>
-              <dt className="text-gray-500">Top profile</dt>
-              <dd className="col-span-2">
-                {topProfile ? `${topProfile[0]} (${topProfile[1]})` : "—"}
-              </dd>
-            </dl>
+        {isQsc && (qscSnapshotUrl || qscReportUrl) && (
+          <div className="flex flex-wrap gap-2 pt-2">
+            {qscSnapshotUrl && (
+              <Link
+                href={qscSnapshotUrl}
+                className="rounded-md border border-sky-500 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-800 hover:bg-sky-100"
+              >
+                Buyer Persona Snapshot
+              </Link>
+            )}
+            {qscReportUrl && (
+              <Link
+                href={qscReportUrl}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-slate-800"
+              >
+                Extended Source Code report
+              </Link>
+            )}
+          </div>
+        )}
 
-            <div className="space-y-3 pt-2 text-sm text-gray-700">
-              <p>
-                This result is from a{" "}
-                <span className="font-semibold">Quantum Source Code</span> test.
-                Use the buttons below to open the Buyer Persona Snapshot and
-                full QSC report for this test taker.
-              </p>
+        <div className="space-y-2 pt-4">
+          <h3 className="font-medium">Frequency mix</h3>
+          {["A", "B", "C", "D"].map((f) => (
+            <BarRow
+              key={f}
+              label={
+                (meta?.frequencies?.find?.(
+                  (x: any) =>
+                    String(x?.code).toUpperCase() === f
+                )?.label as string) ?? freqLabels[f] ?? f
+              }
+              note={`(${f})`}
+              pct={freqPct[f] ?? 0}
+            />
+          ))}
+        </div>
 
-              <div className="flex flex-wrap gap-3">
-                {taker.last_result_url ? (
-                  <>
-                    <Link
-                      href={taker.last_result_url}
-                      className="inline-flex items-center rounded-md border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500"
-                      target="_blank"
-                    >
-                      Open latest QSC result
-                    </Link>
-                  </>
-                ) : (
-                  <p className="text-xs text-gray-500">
-                    No stored result URL yet. Ask the participant to retake the
-                    QSC test to generate a fresh result link.
+        <div className="space-y-2">
+          <h3 className="font-medium">Profile mix</h3>
+          {Object.keys(profilePct).length ? (
+            sortDesc(profilePct).map(
+              ([name, pct]) => {
+                const p = profiles.find(
+                  (x) => x.name === name
+                );
+                const short = codeToPShort(p?.code || "");
+                return (
+                  <BarRow
+                    key={name}
+                    label={name}
+                    note={short ? `(${short})` : undefined}
+                    pct={pct}
+                  />
+                );
+              }
+            )
+          ) : (
+            <p className="text-sm text-gray-500">
+              Profile-level scores aren’t available for
+              this result (only frequencies were stored).
+            </p>
+          )}
+        </div>
+
+        {/* Primary / Secondary / Tertiary cards for coaches */}
+        {topThreeProfiles.length > 0 && (
+          <div className="grid gap-4 md:grid-cols-3 pt-4">
+            {topThreeProfiles.map((p, idx) => (
+              <div
+                key={p.name}
+                className="flex flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  {labels[idx] || "Profile"}
+                </p>
+                <h3 className="mt-1 text-base font-semibold text-slate-900">
+                  {p.name}
+                </h3>
+                {p.code && (
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    {p.code}
                   </p>
                 )}
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Original non-QSC layout (unchanged) */}
-            <dl className="grid grid-cols-3 gap-2 text-sm">
-              <dt className="text-gray-500">Test</dt>
-              <dd className="col-span-2">{test?.name || "—"}</dd>
-              <dt className="text-gray-500">Completed</dt>
-              <dd className="col-span-2">
-                {latest?.created_at
-                  ? new Date(latest.created_at as any).toLocaleString()
-                  : "—"}
-              </dd>
-              <dt className="text-gray-500">Top profile</dt>
-              <dd className="col-span-2">
-                {topProfile ? `${topProfile[0]} (${topProfile[1]})` : "—"}
-              </dd>
-            </dl>
-
-            <div className="space-y-2">
-              <h3 className="font-medium">Frequency mix</h3>
-              {["A", "B", "C", "D"].map((f) => (
-                <BarRow
-                  key={f}
-                  label={
-                    (meta?.frequencies?.find?.(
-                      (x: any) => String(x?.code).toUpperCase() === f
-                    )?.label as string) ?? freqLabels[f] ?? f
-                  }
-                  note={`(${f})`}
-                  pct={freqPct[f] ?? 0}
-                />
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <h3 className="font-medium">Profile mix</h3>
-              {Object.keys(profilePct).length ? (
-                sortDesc(profilePct).map(([name, pct]) => {
-                  const p = profiles.find((x) => x.name === name);
-                  const short = codeToPShort(p?.code || "");
-                  return (
-                    <BarRow
-                      key={name}
-                      label={name}
-                      note={short ? `(${short})` : undefined}
-                      pct={pct}
-                    />
-                  );
-                })
-              ) : (
-                <p className="text-sm text-gray-500">
-                  Profile-level scores aren’t available for this result (only
-                  frequencies were stored).
+                <p className="mt-2 text-sm font-medium text-slate-800">
+                  {p.pct}% match
                 </p>
-              )}
-            </div>
+              </div>
+            ))}
+          </div>
+        )}
 
-            {/* Primary / Secondary / Tertiary cards for coaches */}
-            {topThreeProfiles.length > 0 && (
-              <div className="grid gap-4 md:grid-cols-3 pt-4">
-                {topThreeProfiles.map((p, idx) => (
-                  <div
-                    key={p.name}
-                    className="flex flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  >
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      {labels[idx] || "Profile"}
-                    </p>
-                    <h3 className="mt-1 text-base font-semibold text-slate-900">
-                      {p.name}
-                    </h3>
-                    {p.code && (
-                      <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                        {p.code}
-                      </p>
-                    )}
-                    <p className="mt-2 text-sm font-medium text-slate-800">
-                      {p.pct}% match
-                    </p>
-                  </div>
+        {coachSummary && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <h3 className="font-medium mb-2">
+              Coach summary
+            </h3>
+            <div className="space-y-2 text-sm leading-relaxed text-gray-700">
+              {coachSummary
+                .split(/\n{2,}/)
+                .map((p, idx) => p.trim())
+                .filter(Boolean)
+                .map((p, idx) => (
+                  <p key={idx}>{p}</p>
                 ))}
-              </div>
-            )}
-
-            {coachSummary && (
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <h3 className="font-medium mb-2">Coach summary</h3>
-                <div className="space-y-2 text-sm leading-relaxed text-gray-700">
-                  {coachSummary
-                    .split(/\n{2,}/)
-                    .map((p, idx) => p.trim())
-                    .filter(Boolean)
-                    .map((p, idx) => (
-                      <p key={idx}>{p}</p>
-                    ))}
-                </div>
-              </div>
-            )}
-          </>
+            </div>
+          </div>
         )}
       </section>
     </div>
