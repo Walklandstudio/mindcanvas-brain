@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
@@ -38,8 +37,6 @@ type QscProfileRow = {
   trust_signals: string | null;
   offer_fit: string | null;
   sale_blockers: string | null;
-  // New – for the "Insider Insight summary" block
-  insider_insights_summary?: string | null;
 };
 
 type QscPayload = {
@@ -146,6 +143,106 @@ function Bar({ pct }: { pct: number }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Donut chart for Buyer Frequency Type
+// ---------------------------------------------------------------------------
+
+type FrequencyDonutDatum = {
+  key: PersonalityKey;
+  label: string;
+  value: number;
+};
+
+const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
+  FIRE: "#f97316", // orange
+  FLOW: "#0ea5e9", // sky
+  FORM: "#22c55e", // green
+  FIELD: "#a855f7", // purple
+};
+
+function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
+  const total = data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
+
+  const radius = 60;
+  const strokeWidth = 20;
+  const center = 80;
+  const circumference = 2 * Math.PI * radius;
+
+  let offset = 0;
+
+  return (
+    <svg
+      viewBox="0 0 160 160"
+      className="h-40 w-40 md:h-48 md:w-48"
+      aria-hidden="true"
+    >
+      {/* Background ring */}
+      <circle
+        cx={center}
+        cy={center}
+        r={radius}
+        stroke="rgba(15,23,42,0.9)"
+        strokeWidth={strokeWidth}
+        fill="transparent"
+      />
+      {data.map((d) => {
+        const fraction = (isFinite(d.value) ? d.value : 0) / total;
+        const dash = circumference * fraction;
+        const dashArray = `${dash} ${circumference}`;
+        const strokeDashoffset = offset;
+        offset -= dash;
+        return (
+          <circle
+            key={d.key}
+            cx={center}
+            cy={center}
+            r={radius}
+            stroke={FREQUENCY_COLORS[d.key]}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+            strokeDasharray={dashArray}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+          />
+        );
+      })}
+
+      {/* Inner circle */}
+      <circle
+        cx={center}
+        cy={center}
+        r={radius - strokeWidth}
+        fill="#020617"
+      />
+
+      <text
+        x={center}
+        y={center - 4}
+        textAnchor="middle"
+        className="text-[9px] md:text-[10px]"
+        fill="#e5e7eb"
+        style={{ fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif" }}
+      >
+        BUYER
+      </text>
+      <text
+        x={center}
+        y={center + 10}
+        textAnchor="middle"
+        className="text-[9px] md:text-[10px]"
+        fill="#e5e7eb"
+        style={{ fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif" }}
+      >
+        FREQUENCY
+      </text>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
 
 export default function QscResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
@@ -256,6 +353,13 @@ export default function QscResultPage({ params }: { params: { token: string } })
   const primaryPersonaLabel = profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
+  // Donut data for Buyer Frequency
+  const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
+    key: p.key,
+    label: p.label,
+    value: personalityPerc[p.key] ?? 0,
+  }));
+
   // ---------------------------------------------------------------------------
   // Main layout
   // ---------------------------------------------------------------------------
@@ -275,8 +379,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
               Your Buyer Persona Snapshot
             </h1>
             <p className="mt-2 text-sm text-slate-300">
-              This view combines your{" "}
-              <span className="font-semibold">Buyer Frequency Type</span>{" "}
+              This view combines your <span className="font-semibold">Buyer Frequency Type</span>{" "}
               and <span className="font-semibold">Buyer Mindset Level</span> into one
               Quantum Source Code profile.
             </p>
@@ -296,8 +399,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 </span>
               </p>
 
-              {/* Simplified: only primary personality + primary mindset */}
-              <dl className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6 text-sm">
+              <dl className="mt-5 grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-slate-400">
                     Primary personality
@@ -308,10 +410,26 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 </div>
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Secondary personality
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.secondary_personality || "—"}
+                  </dd>
+                </div>
+                <div className="mt-2">
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
                     Primary mindset
                   </dt>
                   <dd className="mt-0.5 font-medium">
                     {result.primary_mindset || "—"}
+                  </dd>
+                </div>
+                <div className="mt-2">
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Secondary mindset
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.secondary_mindset || "—"}
                   </dd>
                 </div>
               </dl>
@@ -338,14 +456,14 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 <div>
                   <h3 className="font-semibold text-slate-100">How to communicate</h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.how_to_communicate || ""}
+                    {profile?.how_to_communicate || "[todo: how to communicate]"}
                   </p>
                 </div>
 
                 <div>
                   <h3 className="font-semibold text-slate-100">Decision style</h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.decision_style || ""}
+                    {profile?.decision_style || "[todo: decision style]"}
                   </p>
                 </div>
 
@@ -353,13 +471,13 @@ export default function QscResultPage({ params }: { params: { token: string } })
                   <div>
                     <h3 className="font-semibold text-slate-100">Core challenges</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.business_challenges || ""}
+                      {profile?.business_challenges || "[todo: core business challenges]"}
                     </p>
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-100">Trust signals</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.trust_signals || ""}
+                      {profile?.trust_signals || "[todo: trust signals]"}
                     </p>
                   </div>
                 </div>
@@ -368,38 +486,16 @@ export default function QscResultPage({ params }: { params: { token: string } })
                   <div>
                     <h3 className="font-semibold text-slate-100">Offer fit</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.offer_fit || ""}
+                      {profile?.offer_fit || "[todo: best offer fit]"}
                     </p>
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-100">Sale blockers</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.sale_blockers || ""}
+                      {profile?.sale_blockers || "[todo: what blocks the sale]"}
                     </p>
                   </div>
                 </div>
-
-                {/* Insider Insight summary (no edits to text, just rendered) */}
-                {profile?.insider_insights_summary && (
-                  <div>
-                    <h3 className="font-semibold text-slate-100">
-                      Insider Insight summary
-                    </h3>
-                    <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile.insider_insights_summary}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Link to full Extended Source Code report */}
-              <div className="pt-2">
-                <Link
-                  href={`/qsc/${encodeURIComponent(token)}/report`}
-                  className="inline-flex items-center px-4 py-2 rounded-xl bg-sky-600 text-sm font-medium text-white hover:bg-sky-500 shadow-md shadow-black/40"
-                >
-                  View full Extended Source Code report →
-                </Link>
               </div>
             </div>
           </div>
@@ -409,32 +505,43 @@ export default function QscResultPage({ params }: { params: { token: string } })
         {/* Frequency + Mindset summaries                                      */}
         {/* ----------------------------------------------------------------- */}
         <section className="grid gap-6 md:grid-cols-2">
-          {/* Buyer Frequency Types */}
+          {/* Buyer Frequency Types – now donut chart */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
-            <h2 className="text-lg font-semibold">Buyer Frequency Types</h2>
+            <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
             <p className="mt-1 text-sm text-slate-300">
-              How this buyer prefers to think, decide, and buy.
+              Your emotional & energetic style across Fire, Flow, Form and Field.
             </p>
 
-            <div className="mt-5 space-y-3">
-              {PERSONALITIES.map((p) => {
-                const pct = personalityPerc[p.key] ?? 0;
-                return (
-                  <div key={p.key} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-slate-100">{p.key}</span>
-                      <span className="text-slate-400">
-                        {percentLabel(pct)}
+            <div className="mt-5 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
+              <div className="flex justify-center">
+                <FrequencyDonut data={frequencyDonutData} />
+              </div>
+
+              <div className="space-y-3 text-sm">
+                {frequencyDonutData.map((d) => (
+                  <div
+                    key={d.key}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: FREQUENCY_COLORS[d.key] }}
+                      />
+                      <span className="font-medium text-slate-100">
+                        {d.label.charAt(0) + d.label.slice(1).toLowerCase()}
                       </span>
                     </div>
-                    <Bar pct={pct} />
+                    <span className="text-sm text-slate-300">
+                      {percentLabel(d.value)}
+                    </span>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Buyer Mindset Levels */}
+          {/* Buyer Mindset Levels – keep bar layout */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
             <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
             <p className="mt-1 text-sm text-slate-300">
