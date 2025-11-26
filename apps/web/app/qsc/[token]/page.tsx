@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
@@ -37,6 +38,8 @@ type QscProfileRow = {
   trust_signals: string | null;
   offer_fit: string | null;
   sale_blockers: string | null;
+  // New – for the "Insider Insight summary" block
+  insider_insights_summary?: string | null;
 };
 
 type QscPayload = {
@@ -261,7 +264,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
         {/* ----------------------------------------------------------------- */}
-        {/* Snapshot header                                                       */}
+        {/* Snapshot header                                                   */}
         {/* ----------------------------------------------------------------- */}
         <section className="space-y-6">
           <div>
@@ -272,7 +275,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
               Your Buyer Persona Snapshot
             </h1>
             <p className="mt-2 text-sm text-slate-300">
-              This view combines your <span className="font-semibold">Buyer Frequency Type</span>{" "}
+              This view combines your{" "}
+              <span className="font-semibold">Buyer Frequency Type</span>{" "}
               and <span className="font-semibold">Buyer Mindset Level</span> into one
               Quantum Source Code profile.
             </p>
@@ -292,7 +296,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 </span>
               </p>
 
-              <dl className="mt-5 grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
+              {/* Simplified: only primary personality + primary mindset */}
+              <dl className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6 text-sm">
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-slate-400">
                     Primary personality
@@ -303,26 +308,10 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 </div>
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-slate-400">
-                    Secondary personality
-                  </dt>
-                  <dd className="mt-0.5 font-medium">
-                    {result.secondary_personality || "—"}
-                  </dd>
-                </div>
-                <div className="mt-2">
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">
                     Primary mindset
                   </dt>
                   <dd className="mt-0.5 font-medium">
                     {result.primary_mindset || "—"}
-                  </dd>
-                </div>
-                <div className="mt-2">
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">
-                    Secondary mindset
-                  </dt>
-                  <dd className="mt-0.5 font-medium">
-                    {result.secondary_mindset || "—"}
                   </dd>
                 </div>
               </dl>
@@ -349,14 +338,14 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 <div>
                   <h3 className="font-semibold text-slate-100">How to communicate</h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.how_to_communicate || "[todo: how to communicate]"}
+                    {profile?.how_to_communicate || ""}
                   </p>
                 </div>
 
                 <div>
                   <h3 className="font-semibold text-slate-100">Decision style</h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.decision_style || "[todo: decision style]"}
+                    {profile?.decision_style || ""}
                   </p>
                 </div>
 
@@ -364,13 +353,13 @@ export default function QscResultPage({ params }: { params: { token: string } })
                   <div>
                     <h3 className="font-semibold text-slate-100">Core challenges</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.business_challenges || "[todo: core business challenges]"}
+                      {profile?.business_challenges || ""}
                     </p>
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-100">Trust signals</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.trust_signals || "[todo: trust signals]"}
+                      {profile?.trust_signals || ""}
                     </p>
                   </div>
                 </div>
@@ -379,16 +368,38 @@ export default function QscResultPage({ params }: { params: { token: string } })
                   <div>
                     <h3 className="font-semibold text-slate-100">Offer fit</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.offer_fit || "[todo: best offer fit]"}
+                      {profile?.offer_fit || ""}
                     </p>
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-100">Sale blockers</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.sale_blockers || "[todo: what blocks the sale]"}
+                      {profile?.sale_blockers || ""}
                     </p>
                   </div>
                 </div>
+
+                {/* Insider Insight summary (no edits to text, just rendered) */}
+                {profile?.insider_insights_summary && (
+                  <div>
+                    <h3 className="font-semibold text-slate-100">
+                      Insider Insight summary
+                    </h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile.insider_insights_summary}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Link to full Extended Source Code report */}
+              <div className="pt-2">
+                <Link
+                  href={`/qsc/${encodeURIComponent(token)}/report`}
+                  className="inline-flex items-center px-4 py-2 rounded-xl bg-sky-600 text-sm font-medium text-white hover:bg-sky-500 shadow-md shadow-black/40"
+                >
+                  View full Extended Source Code report →
+                </Link>
               </div>
             </div>
           </div>
