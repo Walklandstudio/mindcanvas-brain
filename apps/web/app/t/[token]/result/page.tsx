@@ -167,7 +167,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     };
   }, [token]);
 
-  // 🔀 QSC redirect: if this is a Quantum Source Code test, send to /qsc/[token]?tid=...
+  // 🔀 QSC redirect: if this is a Quantum Source Code test, send to /qsc/[token]/report
   useEffect(() => {
     if (!meta || !tid || qscRedirecting) return;
 
@@ -184,9 +184,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     // Browser-only redirect
     if (typeof window !== "undefined") {
       setQscRedirecting(true);
-      const url = `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(
-        tid
-      )}`;
+      const url = `/qsc/${encodeURIComponent(token)}/report`;
       window.location.replace(url);
     }
   }, [meta, tid, token, qscRedirecting]);
@@ -447,3 +445,5 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     </div>
   );
 }
+
+

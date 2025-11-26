@@ -33,7 +33,10 @@ export async function POST(req: Request) {
     '0.0.0.0';
 
   if (throttle(ip)) {
-    return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 });
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait a moment.' },
+      { status: 429 }
+    );
   }
 
   const sb = await getAdminClient();
@@ -110,5 +113,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: ins.error.message }, { status: 500 });
   }
 
+  // 7) Store canonical result URL on the test taker (if we have one)
+  if (takerId) {
+    const resultUrl = `/t/${encodeURIComponent(
+      token
+    )}/result?tid=${encodeURIComponent(takerId)}`;
+
+    await sb
+      .from('test_takers')
+      .update({ last_result_url: resultUrl })
+      .eq('id', takerId);
+  }
+
   return NextResponse.json({ ok: true, submissionId: ins.data?.id ?? null });
 }
+
