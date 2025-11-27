@@ -33,7 +33,7 @@ type LinkMeta = {
   hidden_results_message?: string | null;
   redirect_url?: string | null;
 
-  // New – so we can detect QSC tests safely
+  // kept for future, but NOT used for redirects anymore
   kind?: string | null;
   qsc_variant?: string | null;
 };
@@ -87,9 +87,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   const [data, setData] = useState<ReportData | null>(null);
   const [meta, setMeta] = useState<LinkMeta | null>(null);
 
-  // Track whether we've already attempted a QSC redirect to avoid double-work
-  const [qscRedirecting, setQscRedirecting] = useState(false);
-
   // Load result data (standard profile test result)
   useEffect(() => {
     let alive = true;
@@ -126,7 +123,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     };
   }, [token, tid]);
 
-  // Load link meta (to see if results should be hidden, and detect QSC)
+  // Load link meta (used ONLY for “hide results” logic)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -146,7 +143,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
             email_report: metaData.email_report ?? null,
             hidden_results_message: metaData.hidden_results_message ?? null,
             redirect_url: metaData.redirect_url ?? null,
-            // Try to pick up QSC flags from either top-level or nested meta
             kind:
               metaData.kind ??
               metaData.test_kind ??
@@ -167,28 +163,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
     };
   }, [token]);
 
-  // 🔀 QSC redirect: if this is a Quantum Source Code test, send to /qsc/[token]/report
-  useEffect(() => {
-    if (!meta || !tid || qscRedirecting) return;
-
-    const rawName = (meta.name || "").toLowerCase();
-
-    const isQscByKind = (meta.kind || "").toLowerCase() === "qsc";
-    const isQscByVariant = !!(meta.qsc_variant || "").length;
-    const isQscByName = rawName.includes("quantum source code");
-
-    const isQsc = isQscByKind || isQscByVariant || isQscByName;
-
-    if (!isQsc) return;
-
-    // Browser-only redirect
-    if (typeof window !== "undefined") {
-      setQscRedirecting(true);
-      const url = `/qsc/${encodeURIComponent(token)}/report`;
-      window.location.replace(url);
-    }
-  }, [meta, tid, token, qscRedirecting]);
-
   const freq = useMemo(
     () => data?.frequency_percentages ?? { A: 0, B: 0, C: 0, D: 0 },
     [data]
@@ -203,7 +177,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   const orgName = meta?.org_name || data?.org_slug || "your organisation";
   const rawTestName = meta?.name || data?.test_name || "Profile Test";
 
-  // If the test name is still generic, use a more branded heading
   const heading =
     rawTestName && rawTestName !== "Profile Test"
       ? rawTestName
@@ -227,25 +200,6 @@ export default function ResultPage({ params }: { params: { token: string } }) {
           <p className="mt-3 text-sm text-slate-300">
             This page expects a <code>?tid=</code> query parameter.
           </p>
-        </main>
-      </div>
-    );
-  }
-
-  // ⏳ If we are in the process of redirecting to QSC, show a nice loader
-  if (qscRedirecting) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-        <main className="mx-auto max-w-3xl px-4 py-10 space-y-4">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-            Redirecting to your Quantum Source Code...
-          </h1>
-          <p className="text-sm text-slate-300">
-            We&apos;re preparing your Buyer Persona Snapshot and Matrix view.
-          </p>
-          <div className="mt-6 h-1 w-40 rounded-full bg-slate-800 overflow-hidden">
-            <div className="h-full w-1/2 animate-pulse bg-sky-500" />
-          </div>
         </main>
       </div>
     );
@@ -331,7 +285,7 @@ export default function ResultPage({ params }: { params: { token: string } }) {
   }
 
   // ---------------------------------------------------------------------------
-  // Main rendered result (non-QSC tests)
+  // Main rendered result (all tests – QSC behaves the same as others here)
   // ---------------------------------------------------------------------------
 
   return (
