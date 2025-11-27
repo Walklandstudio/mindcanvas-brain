@@ -1,3 +1,4 @@
+// apps/web/app/api/public/test/[token]/submit/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { calculateQscScores } from "@/lib/qsc-scoring";
@@ -177,15 +178,12 @@ export async function POST(req: Request, { params }: { params: { token: string }
       return NextResponse.json({ ok: false, error: `Results upsert failed: ${upErr.message}` }, { status: 500 });
     }
 
-    // ---------------- QSC DETECTION (shared) ----------------
+    // ---------------- QSC SCORING (only for Quantum Source Code) ----------------
     const slug: string | null = (test.slug as string) || null;
     const meta: any = test.meta || {};
     const frameworkType: string | null = (meta?.frameworkType as string) || null;
-    const isQscTest = slug === "qsc-core" || frameworkType === "qsc";
-    // ---------------- END QSC DETECTION ---------------------
 
-    // ---------------- QSC SCORING (only for Quantum Source Code) ----------------
-    if (isQscTest) {
+    if (slug === "qsc-core" || slug === "qsc-entrepreneur" || frameworkType === "qsc") {
       try {
         // 1) Prepare data for calculateQscScores
         const questionsForScoring = (questions || []).map((q: any) => ({
@@ -282,22 +280,23 @@ export async function POST(req: Request, { params }: { params: { token: string }
     }
     // ---------------- END QSC SCORING ----------------
 
-    // ---------------- LAST RESULT URL (generic & scalable) ----------------
-    // For QSC, jump to the Snapshot page; for all others, use the standard result page.
-    const basePath = isQscTest ? "/qsc" : "/t";
-    const lastResultUrl = `${basePath}/${encodeURIComponent(
-      token
-    )}?tid=${encodeURIComponent(taker.id)}`;
+    // Mark taker completed (best-effort)
+    await sb.from("test_takers").update({ status: "completed" }).eq("id", taker.id).eq("link_token", token);
 
-    // Mark taker completed + store last_result_url (best-effort)
-    await sb
-      .from("test_takers")
-      .update({ status: "completed", last_result_url: lastResultUrl })
-      .eq("id", taker.id)
-      .eq("link_token", token);
-    // ---------------- END LAST RESULT URL --------------------------------
+    // NEW: compute redirect URL for QSC Entrepreneur test
+    let redirectUrl: string | null = null;
+    const isQscEntrepreneur =
+      slug === "qsc-entrepreneur" ||
+      (typeof frameworkType === "string" &&
+        frameworkType.toLowerCase() === "qsc");
 
-    return NextResponse.json({ ok: true, totals });
+    if (isQscEntrepreneur && taker.link_token) {
+      redirectUrl = `/qsc/${encodeURIComponent(
+        taker.link_token
+      )}/report?tid=${encodeURIComponent(taker.id)}`;
+    }
+
+    return NextResponse.json({ ok: true, totals, redirect: redirectUrl }); // NEW: include redirect
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
   }
