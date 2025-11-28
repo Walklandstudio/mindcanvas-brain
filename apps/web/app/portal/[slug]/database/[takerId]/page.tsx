@@ -1,5 +1,6 @@
+// apps/web/app/portal/[slug]/database/[takerId]/page.tsx
 // Server component — /portal/[slug]/database/[takerId]
-// Contact info + latest results with QSC actions
+// Contact info + latest results with Frequency/Profile mixes (no fragile views)
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -30,7 +31,9 @@ function asPercentMap(values: Record<string, number>): Record<string, number> {
     0
   );
   if (!sum)
-    return Object.fromEntries(Object.keys(values).map((k) => [k, 0]));
+    return Object.fromEntries(
+      Object.keys(values).map((k) => [k, 0])
+    );
   return Object.fromEntries(
     Object.entries(values).map(([k, v]) => [
       k,
@@ -45,9 +48,14 @@ function asDecimalMap(values: Record<string, number>): Record<string, number> {
     0
   );
   if (!sum)
-    return Object.fromEntries(Object.keys(values).map((k) => [k, 0]));
+    return Object.fromEntries(
+      Object.keys(values).map((k) => [k, 0])
+    );
   return Object.fromEntries(
-    Object.entries(values).map(([k, v]) => [k, (Number(v) || 0) / sum])
+    Object.entries(values).map(([k, v]) => [
+      k,
+      (Number(v) || 0) / sum,
+    ])
   );
 }
 
@@ -244,17 +252,17 @@ export default async function TakerDetail({
   const freqDec = asDecimalMap(frequencyScores);
   const profileDec = asDecimalMap(profileScores);
 
-  const freqLabelArray = (["A", "B", "C", "D"] as const).map((code) => ({
+  const freqLabelArray = (
+    ["A", "B", "C", "D"] as const
+  ).map((code) => ({
     code,
     name: freqLabels[code] || code,
   }));
 
   const topFreqEntry = sortDesc(freqDec)[0];
-  const topFreqCode = (topFreqEntry ? topFreqEntry[0].toUpperCase() : "A") as
-    | "A"
-    | "B"
-    | "C"
-    | "D";
+  const topFreqCode = (topFreqEntry
+    ? topFreqEntry[0].toUpperCase()
+    : "A") as "A" | "B" | "C" | "D";
 
   const sortedProfileDec = sortDesc(profileDec);
   const primaryDec = sortedProfileDec[0]
@@ -326,7 +334,6 @@ export default async function TakerDetail({
   const labels = ["Primary profile", "Secondary", "Tertiary"];
 
   // --- QSC URLs (Snapshot + Extended + Strategic Growth Report) -----------
-
   const isQsc =
     test?.slug === "qsc-core" ||
     (typeof meta?.frameworkType === "string" &&
@@ -339,9 +346,15 @@ export default async function TakerDetail({
   if (isQsc && taker.link_token) {
     const base = `/qsc/${encodeURIComponent(taker.link_token)}`;
     const query = `?tid=${encodeURIComponent(taker.id)}`;
+
+    // 1) Buyer Persona Snapshot
     qscSnapshotUrl = `${base}${query}`;
-    qscExtendedUrl = `${base}/extended${query}`;
-    qscEntrepreneurUrl = `${base}/report${query}`;
+
+    // 2) Extended Source Code Snapshot (existing Extended Source Code page)
+    qscExtendedUrl = `${base}/report${query}`;
+
+    // 3) QSC Entrepreneur — Strategic Growth Report (to be implemented)
+    qscEntrepreneurUrl = `${base}/entrepreneur${query}`;
   }
 
   return (
@@ -415,7 +428,6 @@ export default async function TakerDetail({
           </div>
         </div>
 
-        {/* QSC actions */}
         {isQsc &&
           (qscSnapshotUrl || qscExtendedUrl || qscEntrepreneurUrl) && (
             <div className="flex flex-wrap gap-2 pt-2">
@@ -427,18 +439,20 @@ export default async function TakerDetail({
                   Buyer Persona Snapshot
                 </Link>
               )}
+
               {qscExtendedUrl && (
                 <Link
                   href={qscExtendedUrl}
-                  className="rounded-md border border-slate-500 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100"
+                  className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-slate-800"
                 >
                   Extended Source Code Snapshot
                 </Link>
               )}
+
               {qscEntrepreneurUrl && (
                 <Link
                   href={qscEntrepreneurUrl}
-                  className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-slate-800"
+                  className="rounded-md border border-amber-600 bg-amber-500 px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-400"
                 >
                   QSC Entrepreneur — Strategic Growth Report
                 </Link>
@@ -446,9 +460,86 @@ export default async function TakerDetail({
             </div>
           )}
 
-        {/* Existing score visualisations + coach summary stay as-is below.
-            If you want these removed from this card completely, we can safely
-            strip them out in a follow-up. */}
+        <div className="space-y-2 pt-4">
+          <h3 className="font-medium">Frequency mix</h3>
+          {["A", "B", "C", "D"].map((f) => (
+            <BarRow
+              key={f}
+              label={
+                (meta?.frequencies?.find?.(
+                  (x: any) => String(x?.code).toUpperCase() === f
+                )?.label as string) ?? freqLabels[f] ?? f
+              }
+              note={`(${f})`}
+              pct={freqPct[f] ?? 0}
+            />
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="font-medium">Profile mix</h3>
+          {Object.keys(profilePct).length ? (
+            sortDesc(profilePct).map(([name, pct]) => {
+              const p = profiles.find((x) => x.name === name);
+              const short = codeToPShort(p?.code || "");
+              return (
+                <BarRow
+                  key={name}
+                  label={name}
+                  note={short ? `(${short})` : undefined}
+                  pct={pct}
+                />
+              );
+            })
+          ) : (
+            <p className="text-sm text-gray-500">
+              Profile-level scores aren’t available for this result (only
+              frequencies were stored).
+            </p>
+          )}
+        </div>
+
+        {/* Primary / Secondary / Tertiary cards for coaches */}
+        {topThreeProfiles.length > 0 && (
+          <div className="grid gap-4 md:grid-cols-3 pt-4">
+            {topThreeProfiles.map((p, idx) => (
+              <div
+                key={p.name}
+                className="flex flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  {labels[idx] || "Profile"}
+                </p>
+                <h3 className="mt-1 text-base font-semibold text-slate-900">
+                  {p.name}
+                </h3>
+                {p.code && (
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    {p.code}
+                  </p>
+                )}
+                <p className="mt-2 text-sm font-medium text-slate-800">
+                  {p.pct}% match
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {coachSummary && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <h3 className="font-medium mb-2">Coach summary</h3>
+            <div className="space-y-2 text-sm leading-relaxed text-gray-700">
+              {coachSummary
+                .split(/\n{2,}/)
+                .map((p, idx) => p.trim())
+                .filter(Boolean)
+                .map((p, idx) => (
+                  <p key={idx}>{p}</p>
+                ))}
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );
