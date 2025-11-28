@@ -19,8 +19,8 @@ export default function Login() {
 
   /**
    * ✅ Central redirect logic:
-   * - If user already has org membership → /portal/[slug]/dashboard
-   * - Else → keep existing bootstrap + /dashboard behaviour
+   * - If user has org membership → /portal/[slug]/dashboard
+   * - Else → keep original bootstrap + /dashboard behaviour
    */
   async function redirectAfterAuth() {
     const { data } = await supabase.auth.getSession();
@@ -28,26 +28,36 @@ export default function Login() {
     const user = session?.user;
 
     if (!session || !user) {
-      // Not logged in – nothing to do
-      return;
+      return; // not logged in yet
     }
 
-    // 1) Look up org memberships
+    // 1) Look up org memberships (no relationships, just raw ids)
     const { data: memberships, error: orgError } = await supabase
       .from('portal.user_orgs')
-      .select('role, orgs!inner(slug)')
+      .select('org_id, role')
       .eq('user_id', user.id);
 
     if (!orgError && memberships && memberships.length > 0) {
-      // 🧩 User belongs to at least one org → go to that portal
-      const primary = memberships[0] as any;
-      const slug = primary.orgs.slug as string;
+      // Take the first org for now
+      const primaryOrgId = memberships[0].org_id;
 
-      router.replace(`/portal/${slug}/dashboard`);
-      return;
+      if (primaryOrgId) {
+        // 2) Fetch the org slug
+        const { data: org, error: orgFetchError } = await supabase
+          .from('portal.orgs')
+          .select('slug')
+          .eq('id', primaryOrgId)
+          .maybeSingle();
+
+        if (!orgFetchError && org?.slug) {
+          // 🎯 Send straight to org portal
+          router.replace(`/portal/${org.slug}/dashboard`);
+          return;
+        }
+      }
     }
 
-    // 2) No org membership (new client) → keep your original bootstrap flow
+    // 3) Fallback for users with no org (your existing behaviour)
     const token = session.access_token;
     if (token) {
       await fetch('/api/bootstrap', {
@@ -56,16 +66,14 @@ export default function Login() {
       });
     }
 
-    // Your existing post-bootstrap behaviour
     router.replace('/dashboard');
   }
 
-  // If already logged in, redirect based on org membership
+  // If already logged in, redirect appropriately
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
-      if (!data.session) return; // not logged in
-
+      if (!data.session) return;
       await redirectAfterAuth();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
