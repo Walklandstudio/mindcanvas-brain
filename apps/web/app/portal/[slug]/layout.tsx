@@ -44,7 +44,6 @@ export default async function OrgLayout({
 }) {
   const org = await loadOrg(params.slug);
 
-  // Use a generic string map for CSS variables, then cast when applying to style
   const vars: Record<string, string> = {
     "--brand-primary": org?.brand_primary ?? "#2d8fc4",
     "--brand-secondary": org?.brand_secondary ?? "#015a8b",
@@ -55,22 +54,21 @@ export default async function OrgLayout({
   };
 
   return (
-    <div
-      style={vars as React.CSSProperties}
-      className="relative min-h-screen overflow-x-hidden text-slate-900"
-    >
-      {/* Shared MindCanvas background */}
-      <AppBackground />
-
-      {/* Portal chrome/nav + the page content */}
-      <div
-        className="relative z-10"
+    <html style={vars as any}>
+      <body
         style={{ fontFamily: "var(--report-font-family)" }}
+        className="relative min-h-screen bg-[#050914] text-white overflow-x-hidden"
       >
-        <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
-          {children}
-        </PortalChrome>
-      </div>
-    </div>
+        {/* Shared MindCanvas background */}
+        <AppBackground />
+
+        {/* Portal chrome/nav + the page content */}
+        <div className="relative z-10">
+          <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
+            {children}
+          </PortalChrome>
+        </div>
+      </body>
+    </html>
   );
 }
