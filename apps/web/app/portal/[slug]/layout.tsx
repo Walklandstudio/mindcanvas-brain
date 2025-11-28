@@ -24,12 +24,14 @@ async function loadOrg(slug: string): Promise<Org | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
+
   const supabase = createClient(url, key);
   const { data } = await supabase
     .from("portal.orgs")
     .select("*")
     .eq("slug", slug)
     .maybeSingle();
+
   return (data as Org) ?? null;
 }
 
@@ -55,7 +57,8 @@ export default async function OrgLayout({
     <html style={vars as any}>
       <body
         style={{ fontFamily: "var(--report-font-family)" }}
-        className="relative min-h-screen bg-[#050914] text-white overflow-x-hidden"
+        // 🔧 Let AppBackground control the look; use dark text for readability
+        className="relative min-h-screen bg-transparent text-slate-900 overflow-x-hidden"
       >
         {/* Shared MindCanvas background */}
         <AppBackground />
