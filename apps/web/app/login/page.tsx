@@ -18,47 +18,48 @@ export default function Login() {
   const [msg, setMsg] = useState<string>('');
 
   /**
-   * ✅ Central redirect logic:
-   * 1) If email is one of the Team Puzzle users → /portal/team-puzzle/dashboard
-   * 2) Otherwise → keep original bootstrap + /dashboard behaviour
-   *
-   * This gives you exactly what you want right now, without touching
-   * any existing onboarding/test flows.
+   * Central redirect logic:
+   * 1) If the user email is one of the Team Puzzle / admin emails →
+   *    /portal/team-puzzle/dashboard
+   * 2) Otherwise → original bootstrap + /dashboard behaviour
    */
-  async function redirectAfterAuth() {
-    const { data } = await supabase.auth.getSession();
-    const session = data.session;
-    const user = session?.user;
+  async function redirectAfterAuth(explicitEmail?: string) {
+    let userEmail = explicitEmail?.toLowerCase();
 
-    if (!session || !user) return;
+    // If no email was passed in (eg. page reload with existing session),
+    // look it up from Supabase.
+    if (!userEmail) {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user?.email) {
+        return;
+      }
+      userEmail = data.user.email.toLowerCase();
+    }
 
-    const userEmail = (user.email || '').toLowerCase();
-
-    // 🎯 1) Hard-code Team Puzzle logins to their portal
+    // Team Puzzle logins
     const teamPuzzleEmails = [
       'stevep@teba.com.au',
       'info@lifepuzzle.com.au',
       'chandell@lifepuzzle.com.au',
     ];
 
-    if (teamPuzzleEmails.includes(userEmail)) {
-      router.replace('/portal/team-puzzle/dashboard');
-      return;
-    }
-
-    // (Optional) 1b: if you and DA should also land in Team Puzzle portal:
+    // You + DA (add your own login email below)
     const adminEmails = [
       'da@profiletest.ai',
-      '<YOUR_EMAIL_HERE>'.toLowerCase(), // replace with your own login email
+      'lw@profiletest.ai'.toLowerCase(), // replace with your login email
     ];
 
-    if (adminEmails.includes(userEmail)) {
+    if (teamPuzzleEmails.includes(userEmail) || adminEmails.includes(userEmail)) {
+      // Go straight to Team Puzzle org portal
       router.replace('/portal/team-puzzle/dashboard');
       return;
     }
 
-    // 🧩 2) Fallback: your existing bootstrap → /dashboard behaviour
-    const token = session.access_token;
+    // Fallback: original bootstrap + /dashboard behaviour
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    const token = session?.access_token;
+
     if (token) {
       await fetch('/api/bootstrap', {
         method: 'POST',
@@ -69,7 +70,7 @@ export default function Login() {
     router.replace('/dashboard');
   }
 
-  // If already logged in, redirect appropriately
+  // If already logged in, redirect appropriately (eg. manual visit to /login)
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
@@ -91,18 +92,24 @@ export default function Login() {
           password,
         });
         if (error) throw error;
-        if (data.user) await redirectAfterAuth();
+
+        if (data.user) {
+          const userEmail = data.user.email?.toLowerCase();
+          await redirectAfterAuth(userEmail);
+        }
       } else {
-        const { error, data } = await supabase.auth.signUp({ email, password });
+        const { error, data } = await supabase.auth.signUp({
+          email,
+          password,
+        });
         if (error) throw error;
 
         // If email confirmations are ON, user must verify before they can sign in
         if (data.user && !data.session) {
-          setMsg(
-            '✅ Account created. Please check your email to verify, then sign in.'
-          );
-        } else {
-          await redirectAfterAuth();
+          setMsg('✅ Account created. Please check your email to verify, then sign in.');
+        } else if (data.user && data.session) {
+          const userEmail = data.user.email?.toLowerCase();
+          await redirectAfterAuth(userEmail);
         }
       }
     } catch (err: any) {
