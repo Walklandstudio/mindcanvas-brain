@@ -17,16 +17,26 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string>('');
 
+  // ✅ Team Puzzle client emails
+  const teamPuzzleEmails = [
+    'stevep@teba.com.au',
+    'info@lifepuzzle.com.au',
+    'chandell@lifepuzzle.com.au',
+  ];
+
   /**
    * Central redirect logic:
-   * 1) If the user email is one of the Team Puzzle / admin emails →
-   *    /portal/team-puzzle/dashboard
-   * 2) Otherwise → original bootstrap + /dashboard behaviour
+   *
+   * 1) If email is one of the Team Puzzle client emails
+   *    → FULL PAGE NAVIGATION to /portal/team-puzzle/dashboard
+   *
+   * 2) Everyone else
+   *    → original /api/bootstrap + /dashboard behaviour
    */
   async function redirectAfterAuth(explicitEmail?: string) {
     let userEmail = explicitEmail?.toLowerCase();
 
-    // If no email was passed in (eg. page reload with existing session),
+    // If no email passed in (eg. user hits /login while already signed in),
     // look it up from Supabase.
     if (!userEmail) {
       const { data, error } = await supabase.auth.getUser();
@@ -36,26 +46,14 @@ export default function Login() {
       userEmail = data.user.email.toLowerCase();
     }
 
-    // Team Puzzle logins
-    const teamPuzzleEmails = [
-      'stevep@teba.com.au',
-      'info@lifepuzzle.com.au',
-      'chandell@lifepuzzle.com.au',
-    ];
-
-    // You + DA (add your own login email below)
-    const adminEmails = [
-      'da@profiletest.ai',
-      'lw@profiletest.ai'.toLowerCase(), // replace with your login email
-    ];
-
-    if (teamPuzzleEmails.includes(userEmail) || adminEmails.includes(userEmail)) {
-      // Go straight to Team Puzzle org portal
-      router.replace('/portal/team-puzzle/dashboard');
+    // 🎯 Case 1: Team Puzzle – do a FULL reload into the portal
+    if (teamPuzzleEmails.includes(userEmail)) {
+      // Full page navigation so auth cookies are guaranteed to be present
+      window.location.href = '/portal/team-puzzle/dashboard';
       return;
     }
 
-    // Fallback: original bootstrap + /dashboard behaviour
+    // 🧩 Case 2: everyone else – existing bootstrap → /dashboard behaviour
     const { data: sessionData } = await supabase.auth.getSession();
     const session = sessionData.session;
     const token = session?.access_token;
@@ -70,7 +68,7 @@ export default function Login() {
     router.replace('/dashboard');
   }
 
-  // If already logged in, redirect appropriately (eg. manual visit to /login)
+  // If already logged in and user hits /login, redirect them appropriately
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
