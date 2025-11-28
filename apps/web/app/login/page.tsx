@@ -19,50 +19,50 @@ export default function Login() {
 
   /**
    * ✅ Central redirect logic:
-   * - If user has org membership → /portal/[slug]/dashboard
-   * - Else → keep original bootstrap + /dashboard behaviour
+   * 1) If email is one of the Team Puzzle users → /portal/team-puzzle/dashboard
+   * 2) Otherwise → keep original bootstrap + /dashboard behaviour
+   *
+   * This gives you exactly what you want right now, without touching
+   * any existing onboarding/test flows.
    */
   async function redirectAfterAuth() {
     const { data } = await supabase.auth.getSession();
     const session = data.session;
     const user = session?.user;
 
-    if (!session || !user) {
-      return; // not logged in yet
+    if (!session || !user) return;
+
+    const userEmail = (user.email || '').toLowerCase();
+
+    // 🎯 1) Hard-code Team Puzzle logins to their portal
+    const teamPuzzleEmails = [
+      'stevep@teba.com.au',
+      'info@lifepuzzle.com.au',
+      'chandell@lifepuzzle.com.au',
+    ];
+
+    if (teamPuzzleEmails.includes(userEmail)) {
+      router.replace('/portal/team-puzzle/dashboard');
+      return;
     }
 
-    // 1) Look up org memberships (no relationships, just raw ids)
-    const { data: memberships, error: orgError } = await supabase
-      .from('portal.user_orgs')
-      .select('org_id, role')
-      .eq('user_id', user.id);
+    // (Optional) 1b: if you and DA should also land in Team Puzzle portal:
+    const adminEmails = [
+      'da@profiletest.ai',
+      '<YOUR_EMAIL_HERE>'.toLowerCase(), // replace with your own login email
+    ];
 
-    if (!orgError && memberships && memberships.length > 0) {
-      // Take the first org for now
-      const primaryOrgId = memberships[0].org_id;
-
-      if (primaryOrgId) {
-        // 2) Fetch the org slug
-        const { data: org, error: orgFetchError } = await supabase
-          .from('portal.orgs')
-          .select('slug')
-          .eq('id', primaryOrgId)
-          .maybeSingle();
-
-        if (!orgFetchError && org?.slug) {
-          // 🎯 Send straight to org portal
-          router.replace(`/portal/${org.slug}/dashboard`);
-          return;
-        }
-      }
+    if (adminEmails.includes(userEmail)) {
+      router.replace('/portal/team-puzzle/dashboard');
+      return;
     }
 
-    // 3) Fallback for users with no org (your existing behaviour)
+    // 🧩 2) Fallback: your existing bootstrap → /dashboard behaviour
     const token = session.access_token;
     if (token) {
       await fetch('/api/bootstrap', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
     }
 
@@ -86,7 +86,10 @@ export default function Login() {
 
     try {
       if (mode === 'signin') {
-        const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+        const { error, data } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
         if (error) throw error;
         if (data.user) await redirectAfterAuth();
       } else {
@@ -95,7 +98,9 @@ export default function Login() {
 
         // If email confirmations are ON, user must verify before they can sign in
         if (data.user && !data.session) {
-          setMsg('✅ Account created. Please check your email to verify, then sign in.');
+          setMsg(
+            '✅ Account created. Please check your email to verify, then sign in.'
+          );
         } else {
           await redirectAfterAuth();
         }
@@ -109,20 +114,26 @@ export default function Login() {
 
   return (
     <main className="mx-auto max-w-md p-8 space-y-6">
-      <h1 className="text-2xl font-semibold">Sign {mode === 'signin' ? 'in' : 'up'}</h1>
+      <h1 className="text-2xl font-semibold">
+        Sign {mode === 'signin' ? 'in' : 'up'}
+      </h1>
 
       <div className="flex gap-2 text-sm">
         <button
           type="button"
           onClick={() => setMode('signin')}
-          className={`rounded px-3 py-1 border ${mode === 'signin' ? 'bg-black text-white' : ''}`}
+          className={`rounded px-3 py-1 border ${
+            mode === 'signin' ? 'bg-black text-white' : ''
+          }`}
         >
           Sign in
         </button>
         <button
           type="button"
           onClick={() => setMode('signup')}
-          className={`rounded px-3 py-1 border ${mode === 'signup' ? 'bg-black text-white' : ''}`}
+          className={`rounded px-3 py-1 border ${
+            mode === 'signup' ? 'bg-black text-white' : ''
+          }`}
         >
           Create account
         </button>
@@ -154,8 +165,8 @@ export default function Login() {
               ? 'Signing in…'
               : 'Creating…'
             : mode === 'signin'
-              ? 'Sign in'
-              : 'Create account'}
+            ? 'Sign in'
+            : 'Create account'}
         </button>
       </form>
 
@@ -169,3 +180,4 @@ export default function Login() {
     </main>
   );
 }
+
