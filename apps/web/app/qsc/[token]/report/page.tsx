@@ -151,10 +151,11 @@ export default function QscEntrepreneurStrategicReportPage({
   // ───────────────── LOADING STATE ─────────────────
   if (loading) {
     return (
-      <div className="min-h-screen relative text-slate-900">
+      <div className="min-h-screen relative text-slate-50">
         <BackgroundGrid />
+        <div className="fixed inset-0 -z-[5] bg-slate-950/80" />
         <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300">
             Strategic Growth Report
           </p>
           <h1 className="mt-3 text-3xl font-bold">
@@ -168,18 +169,19 @@ export default function QscEntrepreneurStrategicReportPage({
   // ───────────────── ERROR / NO RESULT ─────────────────
   if (err || !result) {
     return (
-      <div className="min-h-screen relative text-slate-900">
+      <div className="min-h-screen relative text-slate-50">
         <BackgroundGrid />
+        <div className="fixed inset-0 -z-[5] bg-slate-950/80" />
         <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300">
             Strategic Growth Report
           </p>
           <h1 className="text-3xl font-bold">Couldn&apos;t load report</h1>
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-slate-200">
             We weren&apos;t able to generate your QSC Entrepreneur — Strategic
             Growth Report.
           </p>
-          <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
+          <pre className="mt-2 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-xs text-slate-100 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
         </main>
@@ -214,28 +216,30 @@ export default function QscEntrepreneurStrategicReportPage({
   const mindsetTotals = result.mindset_percentages || {};
 
   return (
-    <div className="min-h-screen relative text-slate-900">
+    <div className="min-h-screen relative text-slate-50">
+      {/* Standard MindCanvas background */}
       <BackgroundGrid />
+      <div className="fixed inset-0 -z-[5] bg-slate-950/80" />
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10">
         {/* HEADER */}
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300">
               Strategic Growth Report
             </p>
-            <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
+            <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-white">
               QSC Entrepreneur — Strategic Growth Report
             </h1>
-            <p className="mt-2 text-sm text-slate-700 max-w-2xl">
+            <p className="mt-2 text-sm text-slate-200 max-w-2xl">
               Your personal emotional, strategic and scaling blueprint – based
               on your Quantum buyer profile and current mindset stage.
             </p>
           </div>
-          <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
+          <div className="flex flex-col items-end gap-2 text-xs text-slate-300">
             <Link
               href={backHref}
-              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+              className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900/70 px-3 py-1.5 text-xs font-medium hover:bg-slate-800"
             >
               ← Back to Snapshot
             </Link>
@@ -257,7 +261,9 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Quantum profile
           </p>
-          <h2 className="text-2xl font-semibold">{personaName}</h2>
+          <h2 className="text-2xl font-semibold text-slate-900">
+            {personaName}
+          </h2>
           <p className="text-sm text-slate-700 max-w-3xl">
             This report gives you a clear understanding of who you are, how you
             work, and what your business needs next. It is designed to be
@@ -266,7 +272,7 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-2 pt-4 border-t border-slate-200">
             <div>
-              <h3 className="text-sm font-semibold mb-1">
+              <h3 className="text-sm font-semibold mb-1 text-slate-900">
                 Your Personality Layer
               </h3>
               <p className="text-sm text-slate-700">
@@ -276,7 +282,7 @@ export default function QscEntrepreneurStrategicReportPage({
               </p>
             </div>
             <div>
-              <h3 className="text-sm font-semibold mb-1">
+              <h3 className="text-sm font-semibold mb-1 text-slate-900">
                 Your Mindset Layer
               </h3>
               <p className="text-sm text-slate-700">
@@ -290,7 +296,9 @@ export default function QscEntrepreneurStrategicReportPage({
 
         {/* HOW TO USE THIS REPORT */}
         <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
-          <h2 className="text-xl font-semibold">How to use this report</h2>
+          <h2 className="text-xl font-semibold text-slate-900">
+            How to use this report
+          </h2>
           <p className="text-sm text-slate-700">
             This is your personal strategic growth guide — not a personality
             box. Move through it slowly and come back often.
@@ -333,7 +341,7 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
             One-page Quantum Summary
           </p>
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-xl font-semibold text-slate-900">
             Your at-a-glance Quantum Profile
           </h2>
           <p className="text-sm text-slate-800">
@@ -343,8 +351,8 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-3 pt-4">
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
-              <h3 className="font-semibold">Quantum Profile</h3>
-              <p className="font-medium">{personaName}</p>
+              <h3 className="font-semibold text-slate-900">Quantum Profile</h3>
+              <p className="font-medium text-slate-900">{personaName}</p>
               <p className="text-slate-700">
                 Personality: {primaryPersonalityLabel}.
                 <br />
@@ -352,17 +360,19 @@ export default function QscEntrepreneurStrategicReportPage({
               </p>
             </div>
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
-              <h3 className="font-semibold">Strengths</h3>
+              <h3 className="font-semibold text-slate-900">Strengths</h3>
               <p className="text-slate-700">
                 [todo: best offer fit / strengths copy per profile]
               </p>
-              <h4 className="mt-2 font-semibold">Risks</h4>
+              <h4 className="mt-2 font-semibold text-slate-900">Risks</h4>
               <p className="text-slate-700">
                 [todo: core business challenges for this pattern]
               </p>
             </div>
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
-              <h3 className="font-semibold">Top strategic priorities</h3>
+              <h3 className="font-semibold text-slate-900">
+                Top strategic priorities
+              </h3>
               <p className="text-slate-700">
                 Use the three Strategic Growth Priorities at the end of this
                 report as your 90-day focus.
@@ -431,7 +441,7 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Buyer Persona Matrix
           </p>
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-xl font-semibold text-slate-900">
             Where your buyer frequency meets your mindset level
           </h2>
           <p className="text-sm text-slate-700">
@@ -453,7 +463,7 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-indigo-700">
             Personality layer
           </p>
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-xl font-semibold text-slate-900">
             How you show up emotionally & behaviourally
           </h2>
           <p className="text-sm text-slate-700">
@@ -463,7 +473,7 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">
+              <h3 className="font-semibold text-slate-900">
                 Core pattern ({primaryPersonalityLabel})
               </h3>
               <p className="mt-1 text-slate-700">
@@ -471,14 +481,18 @@ export default function QscEntrepreneurStrategicReportPage({
               </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">What energises you</h3>
+              <h3 className="font-semibold text-slate-900">
+                What energises you
+              </h3>
               <p className="mt-1 text-slate-700">
                 {persona?.energisers ||
                   "[todo: energisers / trust signals for this pattern]"}
               </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">What drains you</h3>
+              <h3 className="font-semibold text-slate-900">
+                What drains you
+              </h3>
               <p className="mt-1 text-slate-700">
                 {persona?.drains ||
                   "[todo: typical drains / risks for this pattern]"}
@@ -492,7 +506,7 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-emerald-700">
             Mindset layer
           </p>
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-xl font-semibold text-slate-900">
             Your current Quantum stage — and what it asks of you
           </h2>
           <p className="text-sm text-slate-700">
@@ -503,14 +517,16 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-2 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Your stage</h3>
+              <h3 className="font-semibold text-slate-900">Your stage</h3>
               <p className="mt-1 text-slate-700">{primaryMindsetLabel}</p>
               <p className="mt-2 text-slate-700">
                 [todo: narrative description of this mindset stage]
               </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">How your energy is spread</h3>
+              <h3 className="font-semibold text-slate-900">
+                How your energy is spread
+              </h3>
               <p className="mt-1 text-slate-700">
                 You&apos;ll always have some energy spread across multiple
                 stages. The goal is not to force yourself into a perfect box,
@@ -525,7 +541,7 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-rose-700">
             Combined pattern
           </p>
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-xl font-semibold text-slate-900">
             {personaName} — what happens when your personality meets your stage
           </h2>
           <p className="text-sm text-slate-700">
@@ -535,19 +551,25 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Strategic strengths</h3>
+              <h3 className="font-semibold text-slate-900">
+                Strategic strengths
+              </h3>
               <p className="mt-1 text-slate-700">
                 [todo: strengths for this combined pattern]
               </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Growth risks & loops</h3>
+              <h3 className="font-semibold text-slate-900">
+                Growth risks & loops
+              </h3>
               <p className="mt-1 text-slate-700">
                 [todo: core business challenges / loops]
               </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Your biggest lever</h3>
+              <h3 className="font-semibold text-slate-900">
+                Your biggest lever
+              </h3>
               <p className="mt-1 text-slate-700">
                 [todo: biggest lever + offer fit]
               </p>
@@ -555,7 +577,7 @@ export default function QscEntrepreneurStrategicReportPage({
           </div>
 
           <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm">
-            <h3 className="font-semibold mb-2">
+            <h3 className="font-semibold mb-2 text-slate-900">
               Reflection prompts for your Quantum pattern
             </h3>
             <ul className="list-disc pl-5 space-y-1 text-slate-700">
@@ -579,7 +601,7 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-orange-700">
             Strategic growth priorities (next 90 days)
           </p>
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-xl font-semibold text-slate-900">
             The three levers that shift everything faster
           </h2>
           <p className="text-sm text-slate-700">
@@ -602,12 +624,11 @@ export default function QscEntrepreneurStrategicReportPage({
           </ol>
         </section>
 
-        <footer className="pt-4 pb-6 text-xs text-slate-500">
+        <footer className="pt-4 pb-6 text-xs text-slate-400">
           © {new Date().getFullYear()} MindCanvas — Profiletest.ai
         </footer>
       </main>
     </div>
   );
 }
-
 

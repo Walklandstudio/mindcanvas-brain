@@ -84,7 +84,7 @@ export default function UsageClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  // ✅ Safely read from possibly-null searchParams
+  // Safely read from possibly-null searchParams
   const initialOrg = searchParams?.get("org") ?? "team-puzzle";
   const initialTest = searchParams?.get("test") ?? "";
   const initialRange = searchParams?.get("range") ?? "this_month";
@@ -98,6 +98,9 @@ export default function UsageClient() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<UsageResponse | null>(null);
+
+  // 🔍 NEW: quick text filter for summary tables
+  const [filterText, setFilterText] = useState("");
 
   // keep URL in sync
   function syncUrl(nextOrg: string, nextTest: string, nextRange: string, nextDetails: boolean) {
@@ -146,26 +149,51 @@ export default function UsageClient() {
   const summary = data?.summary;
   const details = data?.details ?? [];
 
-  // CSV datasets
+  const normalizedFilter = filterText.trim().toLowerCase();
+
+  // filtered summary datasets
+  const filteredTests = useMemo(
+    () =>
+      (summary?.by_test ?? []).filter((row) => {
+        if (!normalizedFilter) return true;
+        const haystack = `${row.test_name} ${row.test_slug}`.toLowerCase();
+        return haystack.includes(normalizedFilter);
+      }),
+    [summary, normalizedFilter]
+  );
+
+  const filteredLinks = useMemo(
+    () =>
+      (summary?.by_link ?? []).filter((row) => {
+        if (!normalizedFilter) return true;
+        const haystack = `${row.link_name ?? ""} ${row.link_token} ${
+          row.contact_owner ?? ""
+        }`.toLowerCase();
+        return haystack.includes(normalizedFilter);
+      }),
+    [summary, normalizedFilter]
+  );
+
+  // CSV datasets (use filtered sets so exports respect quick filter)
   const testsCsvRows = useMemo(
     () =>
-      summary?.by_test.map((row) => ({
+      filteredTests.map((row) => ({
         test_slug: row.test_slug,
         test_name: row.test_name,
         submissions: row.count,
-      })) ?? [],
-    [summary]
+      })),
+    [filteredTests]
   );
 
   const linksCsvRows = useMemo(
     () =>
-      summary?.by_link.map((row) => ({
+      filteredLinks.map((row) => ({
         link_token: row.link_token,
         link_name: row.link_name,
         contact_owner: row.contact_owner,
         submissions: row.count,
-      })) ?? [],
-    [summary]
+      })),
+    [filteredLinks]
   );
 
   const daysCsvRows = useMemo(
@@ -268,15 +296,29 @@ export default function UsageClient() {
           </div>
         </div>
 
-        <label className="inline-flex items-center gap-2 text-xs text-slate-300">
-          <input
-            type="checkbox"
-            checked={includeDetails}
-            onChange={(e) => setIncludeDetails(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-600 bg-slate-900"
-          />
-          Include detailed submission list (up to 1000 rows)
-        </label>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <label className="inline-flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={includeDetails}
+              onChange={(e) => setIncludeDetails(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-600 bg-slate-900"
+            />
+            Include detailed submission list (up to 1000 rows)
+          </label>
+
+          {/* 🔍 Quick filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-300">Quick filter (tests & links):</span>
+            <input
+              type="text"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              className="rounded-md border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+              placeholder="type to filter…"
+            />
+          </div>
+        </div>
       </section>
 
       {err && (
@@ -317,7 +359,7 @@ export default function UsageClient() {
                   Submissions by test
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Sorted by number of submissions (high to low).
+                  Sorted by number of submissions (high to low). Use the quick filter above to search by name or slug.
                 </p>
               </div>
               <button
@@ -342,7 +384,7 @@ export default function UsageClient() {
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.by_test.map((row) => (
+                  {filteredTests.map((row) => (
                     <tr key={row.test_slug} className="border-b border-slate-800/60">
                       <td className="py-1 pr-4">{row.test_name}</td>
                       <td className="py-1 pr-4 text-slate-400">
@@ -353,10 +395,10 @@ export default function UsageClient() {
                       </td>
                     </tr>
                   ))}
-                  {!summary.by_test.length && (
+                  {!filteredTests.length && (
                     <tr>
                       <td className="py-2 text-slate-400" colSpan={3}>
-                        No submissions in this range.
+                        No tests match this filter in the selected range.
                       </td>
                     </tr>
                   )}
@@ -373,7 +415,7 @@ export default function UsageClient() {
                   Submissions by link
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Sorted by number of submissions (high to low).
+                  Sorted by number of submissions (high to low). Use the quick filter above to search by link name, token or contact owner.
                 </p>
               </div>
               <button
@@ -399,7 +441,7 @@ export default function UsageClient() {
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.by_link.map((row) => (
+                  {filteredLinks.map((row) => (
                     <tr key={row.link_token} className="border-b border-slate-800/60">
                       <td className="py-1 pr-4">{row.link_name || "—"}</td>
                       <td className="py-1 pr-4 text-slate-400">
@@ -413,10 +455,10 @@ export default function UsageClient() {
                       </td>
                     </tr>
                   ))}
-                  {!summary.by_link.length && (
+                  {!filteredLinks.length && (
                     <tr>
                       <td className="py-2 text-slate-400" colSpan={4}>
-                        No submissions in this range.
+                        No links match this filter in the selected range.
                       </td>
                     </tr>
                   )}
