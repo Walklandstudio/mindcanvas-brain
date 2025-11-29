@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { QscMatrix } from "../../QscMatrix";
-
+import BackgroundGrid from "@/components/ui/BackgroundGrid";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -148,10 +148,12 @@ export default function QscEntrepreneurStrategicReportPage({
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
 
+  // ───────────────── LOADING STATE ─────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-100 text-slate-900">
-        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
+      <div className="min-h-screen relative text-slate-900">
+        <BackgroundGrid />
+        <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Strategic Growth Report
           </p>
@@ -163,10 +165,12 @@ export default function QscEntrepreneurStrategicReportPage({
     );
   }
 
+  // ───────────────── ERROR / NO RESULT ─────────────────
   if (err || !result) {
     return (
-      <div className="min-h-screen bg-slate-100 text-slate-900">
-        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
+      <div className="min-h-screen relative text-slate-900">
+        <BackgroundGrid />
+        <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Strategic Growth Report
           </p>
@@ -183,6 +187,7 @@ export default function QscEntrepreneurStrategicReportPage({
     );
   }
 
+  // ───────────────── MAIN REPORT ─────────────────
   const createdAt = new Date(result.created_at);
   const personaName =
     persona?.profile_label ||
@@ -209,8 +214,10 @@ export default function QscEntrepreneurStrategicReportPage({
   const mindsetTotals = result.mindset_percentages || {};
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10">
+    <div className="min-h-screen relative text-slate-900">
+      <BackgroundGrid />
+
+      <main className="relative z-10 mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10">
         {/* HEADER */}
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
@@ -372,8 +379,6 @@ export default function QscEntrepreneurStrategicReportPage({
             <p className="text-sm text-slate-300">
               Your emotional & energetic style across Fire, Flow, Form and Field.
             </p>
-            {/* You already have a donut chart on the snapshot page. 
-                For now we can show simple percentages; you can wire the chart later. */}
             <div className="grid grid-cols-2 gap-3 pt-2 text-sm">
               {(["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).map(
                 (key) => (
@@ -396,25 +401,27 @@ export default function QscEntrepreneurStrategicReportPage({
             </p>
 
             <div className="space-y-2 pt-2 text-xs">
-              {(["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]).map(
-                (key) => {
-                  const pct = Math.round((mindsetTotals[key] ?? 0) * 100);
-                  return (
-                    <div key={key} className="space-y-1">
-                      <div className="flex justify-between">
-                        <span>{MINDSET_LABELS[key]}</span>
-                        <span className="tabular-nums">{pct}%</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-slate-900">
-                        <div
-                          className="h-2 rounded-full bg-emerald-400"
-                          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-                        />
-                      </div>
+              {(
+                ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
+              ).map((key) => {
+                const pct = Math.round((mindsetTotals[key] ?? 0) * 100);
+                return (
+                  <div key={key} className="space-y-1">
+                    <div className="flex justify-between">
+                      <span>{MINDSET_LABELS[key]}</span>
+                      <span className="tabular-nums">{pct}%</span>
                     </div>
-                  );
-                }
-              )}
+                    <div className="h-2 rounded-full bg-slate-900">
+                      <div
+                        className="h-2 rounded-full bg-emerald-400"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, pct))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -441,11 +448,6 @@ export default function QscEntrepreneurStrategicReportPage({
           </div>
         </section>
 
-        {/* Personality, Mindset, Combined pattern, etc. */}
-        {/* These sections mostly host narrative text pulled from persona/profile.
-            I’m keeping them fairly close to your Word template but you can
-            refine copy per profile later. */}
-
         {/* PERSONALITY LAYER */}
         <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-indigo-700">
@@ -461,7 +463,9 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Core pattern ({primaryPersonalityLabel})</h3>
+              <h3 className="font-semibold">
+                Core pattern ({primaryPersonalityLabel})
+              </h3>
               <p className="mt-1 text-slate-700">
                 [todo: core emotional pattern + offer fit for this personality]
               </p>
@@ -570,7 +574,7 @@ export default function QscEntrepreneurStrategicReportPage({
           </div>
         </section>
 
-        {/* STRATEGIC PRIORITIES (short version for now) */}
+        {/* STRATEGIC PRIORITIES */}
         <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-orange-700">
             Strategic growth priorities (next 90 days)
@@ -605,4 +609,5 @@ export default function QscEntrepreneurStrategicReportPage({
     </div>
   );
 }
+
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 type UsageSummary = {
   total_submissions: number;
@@ -52,15 +53,62 @@ const RANGE_OPTIONS = [
   { value: "last_year", label: "Last year" },
 ];
 
+// ---- CSV helpers ----
+function toCSV(rows: Array<Record<string, any>>): string {
+  if (!rows || !rows.length) return "";
+  const headers = Object.keys(rows[0]);
+  const escape = (v: any) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [
+    headers.join(","),
+    ...rows.map((row) => headers.map((h) => escape(row[h])).join(",")),
+  ];
+  return lines.join("\n");
+}
+
+function downloadCSV(filename: string, rows: Array<Record<string, any>>) {
+  if (!rows.length) return;
+  const csv = toCSV(rows);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function UsageClient() {
-  const [org, setOrg] = useState("team-puzzle");
-  const [test, setTest] = useState("");
-  const [range, setRange] = useState("this_month");
-  const [includeDetails, setIncludeDetails] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // ✅ Safely read from possibly-null searchParams
+  const initialOrg = searchParams?.get("org") ?? "team-puzzle";
+  const initialTest = searchParams?.get("test") ?? "";
+  const initialRange = searchParams?.get("range") ?? "this_month";
+  const initialDetails = (searchParams?.get("details") ?? "") === "1";
+
+  const [org, setOrg] = useState(initialOrg);
+  const [test, setTest] = useState(initialTest);
+  const [range, setRange] = useState(initialRange);
+  const [includeDetails, setIncludeDetails] = useState(initialDetails);
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<UsageResponse | null>(null);
+
+  // keep URL in sync
+  function syncUrl(nextOrg: string, nextTest: string, nextRange: string, nextDetails: boolean) {
+    const params = new URLSearchParams();
+    if (nextOrg.trim()) params.set("org", nextOrg.trim());
+    if (nextTest.trim()) params.set("test", nextTest.trim());
+    if (nextRange) params.set("range", nextRange);
+    if (nextDetails) params.set("details", "1");
+    const qs = params.toString();
+    router.replace(qs ? `/admin/usage?${qs}` : `/admin/usage`);
+  }
 
   async function loadUsage() {
     try {
@@ -68,7 +116,7 @@ export default function UsageClient() {
       setErr(null);
 
       const params = new URLSearchParams();
-      params.set("org", org.trim());
+      if (org.trim()) params.set("org", org.trim());
       if (test.trim()) params.set("test", test.trim());
       if (range) params.set("range", range);
       if (includeDetails) params.set("details", "1");
@@ -89,14 +137,66 @@ export default function UsageClient() {
     }
   }
 
+  // initial load
   useEffect(() => {
-    // auto-load on first render
     loadUsage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const summary = data?.summary;
   const details = data?.details ?? [];
+
+  // CSV datasets
+  const testsCsvRows = useMemo(
+    () =>
+      summary?.by_test.map((row) => ({
+        test_slug: row.test_slug,
+        test_name: row.test_name,
+        submissions: row.count,
+      })) ?? [],
+    [summary]
+  );
+
+  const linksCsvRows = useMemo(
+    () =>
+      summary?.by_link.map((row) => ({
+        link_token: row.link_token,
+        link_name: row.link_name,
+        contact_owner: row.contact_owner,
+        submissions: row.count,
+      })) ?? [],
+    [summary]
+  );
+
+  const daysCsvRows = useMemo(
+    () =>
+      summary?.by_day.map((row) => ({
+        date: row.date,
+        submissions: row.count,
+      })) ?? [],
+    [summary]
+  );
+
+  const detailsCsvRows = useMemo(
+    () =>
+      details.map((r) => ({
+        submission_id: r.submission_id,
+        completed_at: r.completed_at,
+        org_slug: r.org_slug,
+        test_slug: r.test_slug,
+        test_name: r.test_name,
+        link_name: r.link_name,
+        link_token: r.link_token,
+        taker_email: r.taker_email,
+        taker_first_name: r.taker_first_name,
+        taker_last_name: r.taker_last_name,
+        taker_company: r.taker_company,
+        taker_role_title: r.taker_role_title,
+      })),
+    [details]
+  );
+
+  const filePrefix = org ? org.replace(/[^a-zA-Z0-9_-]/g, "_") : "usage";
 
   return (
     <div className="p-6 space-y-6">
@@ -110,7 +210,10 @@ export default function UsageClient() {
 
         <button
           type="button"
-          onClick={loadUsage}
+          onClick={() => {
+            syncUrl(org, test, range, includeDetails);
+            loadUsage();
+          }}
           disabled={loading}
           className="rounded-xl bg-sky-600/90 px-4 py-2 text-sm font-medium text-white shadow hover:bg-sky-500 disabled:opacity-50"
         >
@@ -208,12 +311,27 @@ export default function UsageClient() {
 
           {/* By test */}
           <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 space-y-2">
-            <h2 className="text-sm font-semibold text-slate-100">
-              Submissions by test
-            </h2>
-            <p className="text-xs text-slate-400">
-              Sorted by number of submissions (high to low).
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-100">
+                  Submissions by test
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Sorted by number of submissions (high to low).
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!testsCsvRows.length}
+                onClick={() =>
+                  downloadCSV(`${filePrefix}_usage_by_test.csv`, testsCsvRows)
+                }
+                className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500 hover:text-white disabled:opacity-40"
+              >
+                Export CSV
+              </button>
+            </div>
+
             <div className="mt-2 overflow-x-auto">
               <table className="min-w-full text-xs text-left text-slate-200">
                 <thead className="border-b border-slate-700 text-slate-400">
@@ -227,7 +345,9 @@ export default function UsageClient() {
                   {summary.by_test.map((row) => (
                     <tr key={row.test_slug} className="border-b border-slate-800/60">
                       <td className="py-1 pr-4">{row.test_name}</td>
-                      <td className="py-1 pr-4 text-slate-400">{row.test_slug}</td>
+                      <td className="py-1 pr-4 text-slate-400">
+                        {row.test_slug}
+                      </td>
                       <td className="py-1 pr-4 text-right font-semibold">
                         {row.count}
                       </td>
@@ -247,12 +367,27 @@ export default function UsageClient() {
 
           {/* By link */}
           <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 space-y-2">
-            <h2 className="text-sm font-semibold text-slate-100">
-              Submissions by link
-            </h2>
-            <p className="text-xs text-slate-400">
-              Sorted by number of submissions (high to low).
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-100">
+                  Submissions by link
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Sorted by number of submissions (high to low).
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!linksCsvRows.length}
+                onClick={() =>
+                  downloadCSV(`${filePrefix}_usage_by_link.csv`, linksCsvRows)
+                }
+                className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500 hover:text-white disabled:opacity-40"
+              >
+                Export CSV
+              </button>
+            </div>
+
             <div className="mt-2 overflow-x-auto">
               <table className="min-w-full text-xs text-left text-slate-200">
                 <thead className="border-b border-slate-700 text-slate-400">
@@ -292,12 +427,27 @@ export default function UsageClient() {
 
           {/* By day */}
           <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 space-y-2">
-            <h2 className="text-sm font-semibold text-slate-100">
-              Activity by day
-            </h2>
-            <p className="text-xs text-slate-400">
-              Simple time series of submissions per day in the selected range.
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-100">
+                  Activity by day
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Simple time series of submissions per day in the selected range.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!daysCsvRows.length}
+                onClick={() =>
+                  downloadCSV(`${filePrefix}_usage_by_day.csv`, daysCsvRows)
+                }
+                className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500 hover:text-white disabled:opacity-40"
+              >
+                Export CSV
+              </button>
+            </div>
+
             <div className="mt-2 overflow-x-auto">
               <table className="min-w-full text-xs text-left text-slate-200">
                 <thead className="border-b border-slate-700 text-slate-400">
@@ -332,12 +482,27 @@ export default function UsageClient() {
       {/* Details table */}
       {includeDetails && details.length > 0 && (
         <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 space-y-2">
-          <h2 className="text-sm font-semibold text-slate-100">
-            Detailed submissions (most recent first)
-          </h2>
-          <p className="text-xs text-slate-400">
-            Up to 1000 rows, sorted by completion time (newest at top).
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-100">
+                Detailed submissions (most recent first)
+              </h2>
+              <p className="text-xs text-slate-400">
+                Up to 1000 rows, sorted by completion time.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!detailsCsvRows.length}
+              onClick={() =>
+                downloadCSV(`${filePrefix}_usage_details.csv`, detailsCsvRows)
+              }
+              className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500 hover:text-white disabled:opacity-40"
+            >
+              Export CSV
+            </button>
+          </div>
+
           <div className="mt-2 overflow-x-auto">
             <table className="min-w-full text-xs text-left text-slate-200">
               <thead className="border-b border-slate-700 text-slate-400">
@@ -358,9 +523,7 @@ export default function UsageClient() {
                     </td>
                     <td className="py-1 pr-4">
                       <div className="font-medium">{r.test_name}</div>
-                      <div className="text-[10px] text-slate-400">
-                        {r.test_slug}
-                      </div>
+                      <div className="text-[10px] text-slate-400">{r.test_slug}</div>
                     </td>
                     <td className="py-1 pr-4">
                       <div>{r.link_name || "—"}</div>
@@ -393,3 +556,4 @@ export default function UsageClient() {
     </div>
   );
 }
+
