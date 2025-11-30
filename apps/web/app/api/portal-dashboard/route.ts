@@ -1,3 +1,4 @@
+// apps/web/app/api/portal-dashboard/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -8,7 +9,6 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as strin
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// ----- helpers -----
 type KV = { key: string; value: number; percent?: string };
 type Payload = {
   frequencies: KV[];
@@ -24,62 +24,85 @@ const sum = (rows: { value: number }[]) =>
 const pct = (n: number, total: number) =>
   !total ? "0%" : `${((n * 100) / total).toFixed(1)}%`;
 
-// pick a label-ish field
-const pickKey = (row: any): string => {
-  const cands = [
-    "label",
-    "name",
-    "key",
-    "frequency_name",
-    "profile_name",
-    "frequency_code",
-    "profile_code",
-    "frequency",
-    "profile",
-    "code",
-    "id",
-    "slug",
-  ];
-  for (const k of cands) if (row && row[k] != null) return String(row[k]);
-  for (const [k, v] of Object.entries(row || {}))
-    if (typeof v === "string") return v as string;
-  return "";
-};
-// pick a numeric field
-const pickValue = (row: any): number => {
-  const cands = ["value", "avg", "average", "score", "count", "total"];
-  for (const k of cands) if (row && row[k] != null) return Number(row[k]);
-  for (const [, v] of Object.entries(row || {}))
-    if (typeof v === "number") return v as number;
-  return 0;
-};
+// Time-range helper
+type DateRange = { start: string | null; end: string | null };
 
-const toKV = (rows: any): KV[] =>
-  Array.isArray(rows)
-    ? rows.map((r) => ({ key: pickKey(r), value: pickValue(r) }))
-    : [];
+function getDateRange(key: string | null): DateRange {
+  const now = new Date();
+  const k = (key || "all_time").toLowerCase();
 
-const parseMaybeJSON = (x: any) => {
-  if (Array.isArray(x)) return x;
-  if (typeof x === "string") {
-    try {
-      const j = JSON.parse(x);
-      return Array.isArray(j) ? j : [];
-    } catch {}
+  const make = (d: Date) =>
+    new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+
+  const startOfThisWeek = () => {
+    const d = make(now);
+    const dow = d.getUTCDay(); // 0 = Sun
+    const diff = (dow + 6) % 7; // days since Monday
+    d.setUTCDate(d.getUTCDate() - diff);
+    return d;
+  };
+
+  const startOfThisMonth = () =>
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const startOfNextMonth = () =>
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
+  const startOfThisYear = () =>
+    new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+  const startOfNextYear = () =>
+    new Date(Date.UTC(now.getUTCFullYear() + 1, 0, 1));
+
+  let start: Date | null = null;
+  let end: Date | null = null;
+
+  switch (k) {
+    case "this_week": {
+      start = startOfThisWeek();
+      end = new Date(start);
+      end.setUTCDate(start.getUTCDate() + 7);
+      break;
+    }
+    case "last_week": {
+      const thisWeek = startOfThisWeek();
+      end = thisWeek;
+      start = new Date(thisWeek);
+      start.setUTCDate(thisWeek.getUTCDate() - 7);
+      break;
+    }
+    case "this_month": {
+      start = startOfThisMonth();
+      end = startOfNextMonth();
+      break;
+    }
+    case "last_month": {
+      const thisMonth = startOfThisMonth();
+      end = thisMonth;
+      start = new Date(thisMonth);
+      start.setUTCMonth(thisMonth.getUTCMonth() - 1);
+      break;
+    }
+    case "this_year": {
+      start = startOfThisYear();
+      end = startOfNextYear();
+      break;
+    }
+    case "last_year": {
+      const thisYear = startOfThisYear();
+      end = thisYear;
+      start = new Date(thisYear);
+      start.setUTCFullYear(thisYear.getUTCFullYear() - 1);
+      break;
+    }
+    case "all_time":
+    default:
+      return { start: null, end: null };
   }
-  return [];
-};
 
-const withPercent = (rows: KV[]): KV[] => {
-  const total = sum(rows);
-  return rows.map((r) => ({ ...r, percent: pct(Number(r.value) || 0, total) }));
-};
+  return { start: start!.toISOString(), end: end!.toISOString() };
+}
 
-// ---------- test selection helpers ----------
-
-// legacy fallback (your existing behaviour)
-async function getLegacyTestIdForOrg(portal: any, orgSlug: string) {
-  // Try view first (active test), then tests table
+// Get default test for org if none explicitly set
+async function getTestIdForOrg(portal: any, orgSlug: string) {
   const v = await portal
     .from("v_org_tests")
     .select("*")
@@ -87,6 +110,7 @@ async function getLegacyTestIdForOrg(portal: any, orgSlug: string) {
     .order("is_active", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);
+
   if (!v.error && v.data?.[0]?.test_id) return String(v.data[0].test_id);
 
   const t = await portal
@@ -95,34 +119,9 @@ async function getLegacyTestIdForOrg(portal: any, orgSlug: string) {
     .eq("org_slug", orgSlug)
     .order("created_at", { ascending: false })
     .limit(1);
+
   if (!t.error && t.data?.[0]?.id) return String(t.data[0].id);
-
   return null;
-}
-
-// new generic: explicit testId > default-dashboard flag > legacy
-async function getDashboardTestId(
-  portal: any,
-  orgSlug: string,
-  explicitTestId: string | null
-) {
-  if (explicitTestId) return explicitTestId;
-
-  // 1) prefer test marked as default dashboard
-  const t = await portal
-    .from("tests")
-    .select("id, is_default_dashboard")
-    .eq("org_slug", orgSlug)
-    .order("is_default_dashboard", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  if (!t.error && t.data?.[0]?.id) {
-    return String(t.data[0].id);
-  }
-
-  // 2) fallback to legacy behaviour (v_org_tests / newest test)
-  return await getLegacyTestIdForOrg(portal, orgSlug);
 }
 
 export async function GET(req: Request) {
@@ -133,6 +132,7 @@ export async function GET(req: Request) {
         { status: 500 }
       );
     }
+
     const sb: any = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const portal = sb.schema("portal");
 
@@ -140,6 +140,7 @@ export async function GET(req: Request) {
     const orgSlug = (url.searchParams.get("org") || "").trim();
     const explicitTestId =
       (url.searchParams.get("testId") || "").trim() || null;
+    const rangeKey = (url.searchParams.get("range") || "all_time").trim();
     const debugMode = url.searchParams.get("debug") === "1";
 
     if (!orgSlug) {
@@ -149,95 +150,200 @@ export async function GET(req: Request) {
       );
     }
 
-    // ---------- choose test for this dashboard ----------
-    const testId = await getDashboardTestId(portal, orgSlug, explicitTestId);
+    const { start, end } = getDateRange(rangeKey);
+    let testId = explicitTestId || (await getTestIdForOrg(portal, orgSlug));
 
-    let dbg: any = { steps: [] as any[] };
-
-    // helper for adding common filters
-    const withFilters = (q: any) => {
-      let query = q.eq("org_slug", orgSlug);
-      if (testId) query = query.eq("test_id", testId);
-      return query;
+    let payload: Payload = {
+      frequencies: [],
+      profiles: [],
+      top3: [],
+      bottom3: [],
+      overall: undefined,
     };
 
-    // ---------- 1) consolidated fast-path ----------
-    let payload: Payload | null = null;
-    const c = await withFilters(
-      portal.from("v_dashboard_consolidated").select("*")
-    ).limit(1);
-
-    if (!c.error && Array.isArray(c.data) && c.data.length) {
-      const row: any = c.data[0] || {};
-      const frequencies = toKV(parseMaybeJSON(row.frequencies));
-      const profiles = toKV(parseMaybeJSON(row.profiles));
-      const top3 = toKV(parseMaybeJSON(row.top3));
-      const bottom3 = toKV(parseMaybeJSON(row.bottom3));
-      const overall = row.overall ?? undefined;
-
-      payload = { frequencies, profiles, top3, bottom3, overall };
-      dbg.steps.push({
-        src: "consolidated",
-        sizes: {
-          frequencies: frequencies.length,
-          profiles: profiles.length,
-          top3: top3.length,
-          bottom3: bottom3.length,
-          overall: overall ? 1 : 0,
-        },
-      });
-    }
-
-    // ---------- 2) per-view fallback ----------
-    if (
-      !payload ||
-      (payload.frequencies.length === 0 &&
-        payload.profiles.length === 0 &&
-        payload.top3.length === 0 &&
-        payload.bottom3.length === 0)
-    ) {
+    // ---------- Branch A: ALL-TIME (no date filter) ----------
+    if (!start && !end) {
       const [vf, vp, vt, vb, vo] = await Promise.all([
-        withFilters(portal.from("v_dashboard_avg_frequency").select("*")),
-        withFilters(portal.from("v_dashboard_avg_profile").select("*")),
-        withFilters(portal.from("v_dashboard_top3_profiles").select("*")),
-        withFilters(portal.from("v_dashboard_bottom3_profiles").select("*")),
-        withFilters(portal.from("v_dashboard_overall_avg").select("*")).limit(
-          1
-        ),
+        portal
+          .from("v_dashboard_avg_frequency")
+          .select(
+            "org_slug,test_id,frequency_code,frequency_name,avg_points"
+          )
+          .eq("org_slug", orgSlug)
+          .maybe(
+            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
+          ),
+        portal
+          .from("v_dashboard_avg_profile")
+          .select("org_slug,test_id,profile_code,profile_name,avg_points")
+          .eq("org_slug", orgSlug)
+          .maybe(
+            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
+          ),
+        portal
+          .from("v_dashboard_top3_profiles")
+          .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
+          .eq("org_slug", orgSlug)
+          .maybe(
+            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
+          ),
+        portal
+          .from("v_dashboard_bottom3_profiles")
+          .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
+          .eq("org_slug", orgSlug)
+          .maybe(
+            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
+          ),
+        portal
+          .from("v_dashboard_overall_avg")
+          .select("org_slug,test_id,overall_avg")
+          .eq("org_slug", orgSlug)
+          .maybe(
+            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
+          )
+          .limit(1),
       ]);
 
-      const frequencies = !vf.error ? toKV(vf.data) : [];
-      const profiles = !vp.error ? toKV(vp.data) : [];
-      const top3 = !vt.error ? toKV(vt.data) : [];
-      const bottom3 = !vb.error ? toKV(vb.data) : [];
+      const frequencies: KV[] =
+        !vf.error && Array.isArray(vf.data)
+          ? (vf.data as any[]).map((r) => ({
+              key: r.frequency_name || r.frequency_code || "",
+              value: Number(r.avg_points) || 0,
+            }))
+          : [];
+
+      const profiles: KV[] =
+        !vp.error && Array.isArray(vp.data)
+          ? (vp.data as any[]).map((r) => ({
+              key: r.profile_name || r.profile_code || "",
+              value: Number(r.avg_points) || 0,
+            }))
+          : [];
+
+      const top3: KV[] =
+        !vt.error && Array.isArray(vt.data)
+          ? (vt.data as any[])
+              .sort((a, b) => (a.rnk ?? 999) - (b.rnk ?? 999))
+              .map((r) => ({
+                key: r.profile_name || r.profile_code || "",
+                value: Number(r.avg_points) || 0,
+              }))
+          : [];
+
+      const bottom3: KV[] =
+        !vb.error && Array.isArray(vb.data)
+          ? (vb.data as any[])
+              .sort((a, b) => (a.rnk ?? 999) - (b.rnk ?? 999))
+              .map((r) => ({
+                key: r.profile_name || r.profile_code || "",
+                value: Number(r.avg_points) || 0,
+              }))
+          : [];
 
       let overall: Payload["overall"] = undefined;
       if (!vo.error && Array.isArray(vo.data) && vo.data[0]) {
         const o = vo.data[0] as any;
         overall = {
-          average: Number(o.average ?? o.avg ?? o.value) || undefined,
-          count: Number(o.count ?? o.total) || undefined,
+          average: Number(o.overall_avg) || undefined,
+          count: undefined, // not tracked in this view
         };
       }
 
       payload = { frequencies, profiles, top3, bottom3, overall };
-      dbg.steps.push({
-        src: "per_views",
-        sizes: {
-          frequencies: frequencies.length,
-          profiles: profiles.length,
-          top3: top3.length,
-          bottom3: bottom3.length,
-          overall: overall ? 1 : 0,
-        },
-        samples: {
-          avg_frequency: vf.data?.slice?.(0, 2) ?? null,
-          avg_profile: vp.data?.slice?.(0, 2) ?? null,
-        },
-      });
     }
 
-    // ---------- 3) optional label maps ----------
+    // ---------- Branch B: TIME-FILTERED ----------
+    if (start || end) {
+      const freqQuery = portal
+        .from("v_taker_frequency_scores")
+        .select("org_slug,test_id,frequency_code,frequency_name,total_points,created_at")
+        .eq("org_slug", orgSlug);
+
+      const profQuery = portal
+        .from("v_taker_profile_scores")
+        .select(
+          "org_slug,test_id,profile_code,profile_name,total_points,created_at,taker_id"
+        )
+        .eq("org_slug", orgSlug);
+
+      let fq: any = freqQuery;
+      let pq: any = profQuery;
+
+      if (testId) {
+        fq = fq.eq("test_id", testId);
+        pq = pq.eq("test_id", testId);
+      }
+      if (start) {
+        fq = fq.gte("created_at", start);
+        pq = pq.gte("created_at", start);
+      }
+      if (end) {
+        fq = fq.lt("created_at", end);
+        pq = pq.lt("created_at", end);
+      }
+
+      const [freqRes, profRes] = await Promise.all([fq, pq]);
+
+      if (freqRes.error) throw freqRes.error;
+      if (profRes.error) throw profRes.error;
+
+      const freqAgg = new Map<string, { label: string; sum: number }>();
+      for (const r of (freqRes.data || []) as any[]) {
+        const label = r.frequency_name || r.frequency_code || "";
+        const cur = freqAgg.get(label) || { label, sum: 0 };
+        cur.sum += Number(r.total_points) || 0;
+        freqAgg.set(label, cur);
+      }
+
+      const profAgg = new Map<string, { label: string; sum: number }>();
+      const takerAgg = new Map<string, number>();
+
+      for (const r of (profRes.data || []) as any[]) {
+        const label = r.profile_name || r.profile_code || "";
+        const cur = profAgg.get(label) || { label, sum: 0 };
+        cur.sum += Number(r.total_points) || 0;
+        profAgg.set(label, cur);
+
+        if (r.taker_id) {
+          const prev = takerAgg.get(r.taker_id) || 0;
+          takerAgg.set(
+            r.taker_id,
+            prev + (Number(r.total_points) || 0)
+          );
+        }
+      }
+
+      const frequencies: KV[] = Array.from(freqAgg.values()).map((v) => ({
+        key: v.label,
+        value: v.sum,
+      }));
+
+      const profiles: KV[] = Array.from(profAgg.values()).map((v) => ({
+        key: v.label,
+        value: v.sum,
+      }));
+
+      const sortedProfiles = [...profiles].sort(
+        (a, b) => b.value - a.value
+      );
+      const top3 = sortedProfiles.slice(0, 3);
+      const bottom3 = sortedProfiles.slice(-3).reverse();
+
+      let overall: Payload["overall"] = undefined;
+      if (takerAgg.size) {
+        const totals = Array.from(takerAgg.values());
+        const totalSum = totals.reduce((a, v) => a + v, 0);
+        const avg = totalSum / takerAgg.size;
+        overall = {
+          average: Number(avg.toFixed(1)),
+          count: takerAgg.size,
+        };
+      }
+
+      payload = { frequencies, profiles, top3, bottom3, overall };
+    }
+
+    // ---------- Label maps + percent calculation (both branches) ----------
     let freqMap: Record<string, string> = {};
     let profileMap: Record<string, string> = {};
 
@@ -252,6 +358,7 @@ export async function GET(req: Request) {
           .select("profile_code,profile_name")
           .eq("test_id", testId),
       ]);
+
       if (!freqLabels.error && Array.isArray(freqLabels.data)) {
         for (const r of freqLabels.data as any[]) {
           if (r.frequency_code && r.frequency_name)
@@ -264,14 +371,6 @@ export async function GET(req: Request) {
             profileMap[r.profile_code] = r.profile_name;
         }
       }
-      dbg.steps.push({
-        src: "labels",
-        testId,
-        freqLabels: Object.keys(freqMap).length,
-        profileLabels: Object.keys(profileMap).length,
-      });
-    } else {
-      dbg.steps.push({ src: "labels", testId: null });
     }
 
     const mapWith = (rows: KV[], map: Record<string, string>) => {
@@ -284,11 +383,11 @@ export async function GET(req: Request) {
     };
 
     const out: Payload = {
-      frequencies: mapWith(payload!.frequencies, freqMap),
-      profiles: mapWith(payload!.profiles, profileMap),
-      top3: mapWith(payload!.top3, profileMap),
-      bottom3: mapWith(payload!.bottom3, profileMap),
-      overall: payload!.overall,
+      frequencies: mapWith(payload.frequencies, freqMap),
+      profiles: mapWith(payload.profiles, profileMap),
+      top3: mapWith(payload.top3, profileMap),
+      bottom3: mapWith(payload.bottom3, profileMap),
+      overall: payload.overall,
     };
 
     if (debugMode) {
@@ -297,7 +396,8 @@ export async function GET(req: Request) {
           ok: true,
           org: orgSlug,
           testId,
-          debug: dbg,
+          range: rangeKey,
+          debug: { start, end },
           data_preview: {
             frequencies: out.frequencies.slice(0, 4),
             profiles: out.profiles.slice(0, 4),
@@ -311,7 +411,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json(
-      { ok: true, org: orgSlug, testId, data: out },
+      { ok: true, org: orgSlug, testId, range: rangeKey, data: out },
       { status: 200 }
     );
   } catch (e: any) {
