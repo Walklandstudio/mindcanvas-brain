@@ -48,6 +48,14 @@ type Payload = {
   overall?: { average?: number; count?: number };
 };
 
+type TestSummary = {
+  id: string;
+  name: string;
+  slug: string | null;
+  is_default_dashboard?: boolean | null;
+  status?: string | null;
+};
+
 const COLORS = {
   tileBg: "rgba(45,143,196,0.05)",
   primary: "#2d8fc4",
@@ -75,6 +83,7 @@ function toCSV(rows: Array<Record<string, any>>): string {
 }
 
 function downloadCSV(filename: string, rows: KV[]) {
+  if (!rows.length) return;
   const csv = toCSV(
     rows.map((r) => ({
       name: r.key,
@@ -99,21 +108,81 @@ export default function DashboardClient() {
     return i >= 0 && segs[i + 1] ? segs[i + 1] : "";
   }, [pathname]);
 
+  // ---- state ----
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Payload | null>(null);
 
+  const [tests, setTests] = useState<TestSummary[]>([]);
+  const [testsLoading, setTestsLoading] = useState(false);
+  const [testsError, setTestsError] = useState<string | null>(null);
+
+  const [selectedTestId, setSelectedTestId] = useState<string | null>(null);
+
+  // derive selected test name/slug for display
+  const selectedTest = useMemo(
+    () => tests.find((t) => t.id === selectedTestId) || null,
+    [tests, selectedTestId]
+  );
+
+  // ---- load tests list (for dropdown) ----
   useEffect(() => {
+    if (!slug) return;
     let active = true;
+
     (async () => {
-      if (!slug) return;
+      try {
+        setTestsLoading(true);
+        setTestsError(null);
+
+        const res = await fetch(
+          `/api/portal-tests?org=${encodeURIComponent(slug)}`,
+          { cache: "no-store" }
+        );
+        const json = await res.json();
+
+        if (!active) return;
+
+        if (!json?.ok) {
+          setTestsError(json?.error || "Failed to load tests");
+          setTests([]);
+        } else {
+          const list: TestSummary[] = json.tests ?? [];
+          setTests(list);
+
+          // auto-select default dashboard test if one is flagged
+          const def =
+            list.find((t) => t.is_default_dashboard) || list[0] || null;
+          setSelectedTestId(def ? def.id : null);
+        }
+      } catch (e: any) {
+        if (active) setTestsError(e?.message ?? "Failed to load tests");
+      } finally {
+        if (active) setTestsLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [slug]);
+
+  // ---- load dashboard data (org-level, optional testId hint) ----
+  useEffect(() => {
+    if (!slug) return;
+    let active = true;
+
+    (async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/portal-dashboard?org=${encodeURIComponent(slug)}`,
-          { cache: "no-store" }
-        );
+        const params = new URLSearchParams();
+        params.set("org", slug);
+        if (selectedTestId) params.set("testId", selectedTestId);
+
+        const res = await fetch(`/api/portal-dashboard?${params.toString()}`, {
+          cache: "no-store",
+        });
         const json = await res.json();
         if (!active) return;
         if (!json?.ok) setError(json?.error || "Unknown error");
@@ -124,10 +193,11 @@ export default function DashboardClient() {
         if (active) setLoading(false);
       }
     })();
+
     return () => {
       active = false;
     };
-  }, [slug]);
+  }, [slug, selectedTestId]);
 
   const freq = data?.frequencies ?? [];
   const prof = data?.profiles ?? [];
@@ -153,19 +223,66 @@ export default function DashboardClient() {
     [prof]
   );
 
+  const scopeLabel = useMemo(() => {
+    if (!slug) return "—";
+    if (!selectedTest) return slug;
+    return `${slug} – ${selectedTest.name}`;
+  }, [slug, selectedTest]);
+
+  const csvSuffix = useMemo(() => {
+    if (!slug && !selectedTest) return "all";
+    if (slug && !selectedTest) return slug;
+    if (slug && selectedTest?.slug) return `${slug}_${selectedTest.slug}`;
+    if (slug && selectedTest) return `${slug}_${selectedTest.id}`;
+    return selectedTest?.id ?? "all";
+  }, [slug, selectedTest]);
+
   return (
     <div className="space-y-6">
-      {/* Description + CTA (no extra heading) */}
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-slate-300">
-          Overview of frequency mix and profile distribution.
-        </p>
+      {/* Description + filters + CTA */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <p className="text-sm text-slate-300">
+            Overview of frequency mix and profile distribution for your
+            organisation.
+          </p>
+
+          {/* Test selector */}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300">
+            <span className="font-medium">Test:</span>
+            <select
+              className="min-w-[220px] rounded-md border border-slate-600 bg-slate-900/70 px-2 py-1 text-xs text-slate-100"
+              value={selectedTestId ?? ""}
+              onChange={(e) =>
+                setSelectedTestId(e.target.value || null)
+              }
+              disabled={testsLoading || !!testsError || !tests.length}
+            >
+              <option value="">
+                All tests {tests.length ? `(${tests.length})` : ""}
+              </option>
+              {tests.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.slug ? ` — ${t.slug}` : ""}
+                  {t.is_default_dashboard ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+            {testsError && (
+              <span className="text-xs text-red-400">
+                {testsError}
+              </span>
+            )}
+          </div>
+        </div>
+
         <button
           type="button"
-          className="rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-sky-500 transition"
+          className="self-start rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-white shadow-sm opacity-40"
           disabled
         >
-          Manage Test
+          Manage Test (coming soon)
         </button>
       </div>
 
@@ -175,7 +292,7 @@ export default function DashboardClient() {
           className="rounded-2xl border border-white/10 p-4 shadow-sm"
           style={{ backgroundColor: COLORS.tileBg }}
         >
-          <div className="text-xs opacity-70 mb-2">Overall Average</div>
+          <div className="mb-2 text-xs opacity-70">Overall Average</div>
           <div className="text-2xl font-semibold text-sky-400">
             {overall?.average ?? "—"}
           </div>
@@ -184,7 +301,7 @@ export default function DashboardClient() {
           className="rounded-2xl border border-white/10 p-4 shadow-sm"
           style={{ backgroundColor: COLORS.tileBg }}
         >
-          <div className="text-xs opacity-70 mb-2">Total Responses</div>
+          <div className="mb-2 text-xs opacity-70">Total Responses</div>
           <div className="text-2xl font-semibold text-sky-400">
             {overall?.count ?? "—"}
           </div>
@@ -193,32 +310,40 @@ export default function DashboardClient() {
           className="rounded-2xl border border-white/10 p-4 shadow-sm"
           style={{ backgroundColor: COLORS.tileBg }}
         >
-          <div className="text-xs opacity-70 mb-2">Scope</div>
-          <div className="text-2xl font-semibold text-sky-400">
-            {slug || "—"}
+          <div className="mb-2 text-xs opacity-70">Scope</div>
+          <div className="text-sm font-semibold text-sky-400">
+            {scopeLabel}
           </div>
         </div>
       </div>
 
-      {loading && <div className="text-sm opacity-70">Loading data…</div>}
-      {error && <div className="text-sm text-red-400">Error: {error}</div>}
+      {loading && (
+        <div className="text-sm opacity-70">Loading data…</div>
+      )}
+      {error && (
+        <div className="text-sm text-red-400">Error: {error}</div>
+      )}
 
       {/* Charts row */}
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {/* Frequencies – donut */}
         <div className="rounded-2xl border border-white/10 p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-medium">Frequencies (% of total)</h2>
+            <h2 className="text-lg font-medium">
+              Frequencies (% of total)
+            </h2>
             <button
-              className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500 hover:text-white transition"
-              disabled={!slug || !freq.length}
-              onClick={() => downloadCSV(`frequencies_${slug}.csv`, freq)}
+              className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 transition hover:bg-sky-500 hover:text-white"
+              disabled={!freq.length}
+              onClick={() =>
+                downloadCSV(`frequencies_${csvSuffix}.csv`, freq)
+              }
             >
               Download CSV
             </button>
           </div>
 
-          <div className="h-60 w-full flex items-center gap-4">
+          <div className="flex h-60 w-full items-center gap-4">
             <div className="h-full w-1/2 min-w-[220px]">
               <ResponsiveContainer>
                 <PieChart>
@@ -246,7 +371,8 @@ export default function DashboardClient() {
                   <Tooltip
                     contentStyle={{
                       backgroundColor: "#020617",
-                      border: "1px solid rgba(148,163,184,0.6)",
+                      border:
+                        "1px solid rgba(148,163,184,0.6)",
                       borderRadius: 8,
                       color: "#e5e7eb",
                       fontSize: 12,
@@ -275,7 +401,8 @@ export default function DashboardClient() {
                         style={{
                           backgroundColor:
                             FREQ_SEGMENT_COLORS[
-                              idx % FREQ_SEGMENT_COLORS.length
+                              idx %
+                                FREQ_SEGMENT_COLORS.length
                             ],
                         }}
                       />
@@ -299,11 +426,15 @@ export default function DashboardClient() {
         {/* Profiles – bar chart */}
         <div className="rounded-2xl border border-white/10 p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-medium">Profiles (% of total)</h2>
+            <h2 className="text-lg font-medium">
+              Profiles (% of total)
+            </h2>
             <button
-              className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500 hover:text-white transition"
-              disabled={!slug || !prof.length}
-              onClick={() => downloadCSV(`profiles_${slug}.csv`, prof)}
+              className="rounded-md border border-sky-500 px-3 py-1 text-xs text-sky-300 transition hover:bg-sky-500 hover:text-white"
+              disabled={!prof.length}
+              onClick={() =>
+                downloadCSV(`profiles_${csvSuffix}.csv`, prof)
+              }
             >
               Download CSV
             </button>
@@ -314,12 +445,20 @@ export default function DashboardClient() {
               <BarChart
                 data={profChartData}
                 layout="vertical"
-                margin={{ left: 80, right: 32, top: 12, bottom: 12 }}
+                margin={{
+                  left: 80,
+                  right: 32,
+                  top: 12,
+                  bottom: 12,
+                }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="#1e293b"
+                />
                 <XAxis
                   type="number"
-                  domain={[0, 100]} // always show 0–100%
+                  domain={[0, 100]} // always 0–100%
                   tickFormatter={(v: number) => `${v}%`}
                   stroke="#64748b"
                   tick={{ fontSize: 11 }}
@@ -334,13 +473,15 @@ export default function DashboardClient() {
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "#020617",
-                    border: "1px solid rgba(148,163,184,0.6)",
+                    border:
+                      "1px solid rgba(148,163,184,0.6)",
                     borderRadius: 8,
                     color: "#e5e7eb",
                     fontSize: 12,
                   }}
                   labelStyle={{ color: "#e5e7eb" }}
-                  formatter={((value: any) => `${value}%`) as any}
+                  formatter={((value: any) =>
+                    `${value}%`) as any}
                 />
                 <Bar
                   dataKey="percentNum"
@@ -420,4 +561,3 @@ export default function DashboardClient() {
     </div>
   );
 }
-
