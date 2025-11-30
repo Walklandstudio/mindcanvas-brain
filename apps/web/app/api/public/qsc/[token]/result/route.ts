@@ -56,12 +56,29 @@ type QscPersonaRow = {
   mindset_level: number | null;
   profile_code: string | null;
   profile_label: string | null;
+
+  // Existing fields
   show_up_summary: string | null;
   energisers: string | null;
   drains: string | null;
   communication_long: string | null;
   admired_for: string | null;
   stuck_points: string | null;
+
+  // New enriched narrative fields
+  one_page_strengths: string | null;
+  one_page_risks: string | null;
+  combined_strengths: string | null;
+  combined_risks: string | null;
+  combined_big_lever: string | null;
+  emotional_stabilises: string | null;
+  emotional_destabilises: string | null;
+  emotional_patterns_to_watch: string | null;
+  decision_style_long: string | null;
+  support_yourself: string | null;
+  strategic_priority_1: string | null;
+  strategic_priority_2: string | null;
+  strategic_priority_3: string | null;
 };
 
 export async function GET(
@@ -177,6 +194,19 @@ export async function GET(
           "communication_long",
           "admired_for",
           "stuck_points",
+          "one_page_strengths",
+          "one_page_risks",
+          "combined_strengths",
+          "combined_risks",
+          "combined_big_lever",
+          "emotional_stabilises",
+          "emotional_destabilises",
+          "emotional_patterns_to_watch",
+          "decision_style_long",
+          "support_yourself",
+          "strategic_priority_1",
+          "strategic_priority_2",
+          "strategic_priority_3",
         ].join(", ")
       )
       .eq("test_id", result.test_id)
@@ -198,3 +228,4 @@ export async function GET(
     persona,
   });
 }
+
