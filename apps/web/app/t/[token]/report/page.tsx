@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import PersonalityMapSection from "./PersonalityMapSection";
 import PrintButton from "./PrintButton";
 
@@ -99,9 +100,7 @@ function getOrgAssets(orgSlug?: string | null, orgName?: string | null) {
   };
 }
 
-function getTeamPuzzleProfileImage(
-  profileName: string | undefined
-): string | null {
+function getTeamPuzzleProfileImage(profileName: string | undefined): string | null {
   if (!profileName) return null;
   const key = profileName.trim().toLowerCase();
 
@@ -237,6 +236,19 @@ export default async function ReportPage({
     loadError = String(e?.message || e);
   }
 
+  // 🔁 Special handling for QSC tests:
+  // If the generic result API complains about missing frequency labels,
+  // this is a QSC test and we should use the QSC report flow instead.
+  if (
+    loadError &&
+    loadError.toLowerCase().includes("labels_missing_for_test_frequency")
+  ) {
+    const qscHref = `/qsc/${encodeURIComponent(
+      token
+    )}/report${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`;
+    redirect(qscHref);
+  }
+
   if (!resultData || loadError) {
     return (
       <div className="mx-auto max-w-4xl p-6 space-y-4">
@@ -319,6 +331,10 @@ export default async function ReportPage({
   const secondary = sortedProfiles[1];
   const tertiary = sortedProfiles[2];
 
+  const downloadPdfHref = `/api/portal/reports/${encodeURIComponent(
+    data.taker.id
+  )}`;
+
   const primaryExample =
     profileCopy?.[primary?.code || ""]?.example ||
     "For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.";
@@ -364,9 +380,7 @@ export default async function ReportPage({
             </div>
 
             <div className="flex items-center gap-3">
-              <PrintButton className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800">
-                Download PDF
-              </PrintButton>
+              <PrintButton className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800" />
             </div>
           </header>
 
@@ -956,14 +970,6 @@ export default async function ReportPage({
                   development area to explore in your next session.
                 </li>
               </ul>
-              <div className="mt-4">
-                <Link
-                  href="#"
-                  className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-sky-700"
-                >
-                  Continue
-                </Link>
-              </div>
             </div>
           </section>
 
@@ -976,3 +982,4 @@ export default async function ReportPage({
     </div>
   );
 }
+
