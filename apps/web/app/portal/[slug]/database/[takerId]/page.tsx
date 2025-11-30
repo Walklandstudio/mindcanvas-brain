@@ -363,16 +363,17 @@ export default async function TakerDetail({
 
   if (taker.last_result_url) {
     const raw = String(taker.last_result_url);
+
     // If it already looks like a result/report URL, use as-is
-    if (raw.includes("/result") || raw.includes("/report")) {
+    if (raw.includes("/report") || raw.includes("/result")) {
       reportUrl = raw;
     } else if (taker.link_token) {
-      // last_result_url points to test; upgrade to result page
-      reportUrl = `/t/${encodeURIComponent(taker.link_token)}/result`;
+      // last_result_url points to the test; upgrade to the report page
+      reportUrl = `/t/${encodeURIComponent(taker.link_token)}/report`;
     }
   } else if (taker.link_token) {
-    // No stored URL, but we have the token – construct result URL
-    reportUrl = `/t/${encodeURIComponent(taker.link_token)}/result`;
+    // No stored URL, but we have the token – construct report URL
+    reportUrl = `/t/${encodeURIComponent(taker.link_token)}/report`;
   }
 
   return (
