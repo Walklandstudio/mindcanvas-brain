@@ -44,13 +44,13 @@ type QscProfileRow = {
 
 type QscPersonaRow = {
   id: string;
-  test_id: string;
+  test_id?: string;
   personality_code: string | null;
   mindset_level: number | null;
   profile_code: string | null;
   profile_label: string | null;
 
-  // existing short fields
+  // snapshot / persona basics
   show_up_summary: string | null;
   energisers: string | null;
   drains: string | null;
@@ -58,7 +58,7 @@ type QscPersonaRow = {
   admired_for: string | null;
   stuck_points: string | null;
 
-  // new extended-report fields
+  // strategic report extras
   one_page_strengths: string | null;
   one_page_risks: string | null;
 
@@ -98,15 +98,6 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   ORBIT: "Orbit",
   QUANTUM: "Quantum",
 };
-
-// normalise stored values that might be 0–1 OR 0–100
-function toDisplayPercent(raw: number | undefined | null): number {
-  if (raw == null || Number.isNaN(raw)) return 0;
-  const n = Number(raw);
-  if (n <= 0) return 0;
-  const pct = n <= 1 ? n * 100 : n; // 0.48 -> 48, 48 -> 48
-  return Math.round(Math.min(100, Math.max(0, pct)));
-}
 
 export default function QscEntrepreneurStrategicReportPage({
   params,
@@ -179,8 +170,8 @@ export default function QscEntrepreneurStrategicReportPage({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
-        <main className="mx-auto max-w-6xl px-4 py-12 space-y-4">
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-400">
             Strategic Growth Report
           </p>
@@ -194,8 +185,8 @@ export default function QscEntrepreneurStrategicReportPage({
 
   if (err || !result) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
-        <main className="mx-auto max-w-6xl px-4 py-12 space-y-4">
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-400">
             Strategic Growth Report
           </p>
@@ -204,7 +195,7 @@ export default function QscEntrepreneurStrategicReportPage({
             We weren&apos;t able to generate your QSC Entrepreneur — Strategic
             Growth Report.
           </p>
-          <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+          <pre className="mt-2 rounded-xl border border-slate-700 bg-slate-900 p-3 text-xs text-slate-100 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
         </main>
@@ -234,38 +225,76 @@ export default function QscEntrepreneurStrategicReportPage({
       ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
       : `/qsc/${encodeURIComponent(token)}`;
 
-  const personalityPercentages = result.personality_percentages || {};
-  const mindsetPercentages = result.mindset_percentages || {};
+  const personalityTotals = result.personality_percentages || {};
+  const mindsetTotals = result.mindset_percentages || {};
 
-  const frequencyEntries = (["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[])
-    .map((key) => ({
-      key,
-      label: PERSONALITY_LABELS[key],
-      pct: toDisplayPercent(personalityPercentages[key]),
-    }))
-    // hide all-zero patterns so it looks cleaner
-    .filter((entry) => entry.pct > 0);
+  // Small helpers for fallbacks so non-filled personas don’t look broken
+  const onePageStrengths =
+    persona?.one_page_strengths ||
+    "This section will summarise your key strengths at a glance.";
+  const onePageRisks =
+    persona?.one_page_risks ||
+    "This section will highlight the main risks or pitfalls to watch for.";
 
-  const mindsetEntries = (
-    ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
-  )
-    .map((key) => ({
-      key,
-      label: MINDSET_LABELS[key],
-      pct: toDisplayPercent(mindsetPercentages[key]),
-    }))
-    .filter((entry) => entry.pct > 0);
+  const corePattern =
+    persona?.show_up_summary ||
+    "This is your default operating mode — the way you naturally approach decisions, conflict, opportunity and risk.";
+  const energises =
+    persona?.energisers || "Here we’ll outline what most energises you.";
+  const drains =
+    persona?.emotional_destabilises ||
+    persona?.drains ||
+    "Here we’ll highlight what tends to drain or destabilise you.";
+  const patternsToWatch =
+    persona?.emotional_patterns_to_watch ||
+    "We’ll use this section for emotional patterns to keep an eye on as you grow.";
+  const supportYourself =
+    persona?.support_yourself ||
+    "This section will give you practical ways to support yourself at this stage.";
+
+  const combinedStrengths =
+    persona?.combined_strengths ||
+    "This section will outline the strengths of your combined Quantum pattern.";
+  const combinedRisks =
+    persona?.combined_risks ||
+    "This section will outline the growth risks and loops for this pattern.";
+  const combinedBigLever =
+    persona?.combined_big_lever ||
+    "This section will point to the biggest strategic lever for this pattern.";
+
+  const emotionalStabilises =
+    persona?.emotional_stabilises ||
+    "Here we will describe what tends to stabilise your nervous system and business rhythm.";
+  const emotionalDestabilises =
+    persona?.emotional_destabilises ||
+    "Here we will describe what tends to destabilise you emotionally.";
+  const emotionalWatch =
+    persona?.emotional_patterns_to_watch ||
+    "Here we will outline the patterns to watch as you move through growth.";
+
+  const decisionLong =
+    persona?.decision_style_long ||
+    "This section will describe how you naturally make decisions at your best.";
+  const strat1 =
+    persona?.strategic_priority_1 ||
+    "Protect time and energy for the work that actually moves revenue.";
+  const strat2 =
+    persona?.strategic_priority_2 ||
+    "Stabilise your core offer and delivery so growth does not create chaos.";
+  const strat3 =
+    persona?.strategic_priority_3 ||
+    "Align your support and tools around the way you actually work.";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
-      <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
+      <main className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10">
         {/* HEADER */}
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-400">
               Strategic Growth Report
             </p>
-            <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-slate-50">
+            <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
               QSC Entrepreneur — Strategic Growth Report
             </h1>
             <p className="mt-2 text-sm text-slate-300 max-w-2xl">
@@ -294,37 +323,20 @@ export default function QscEntrepreneurStrategicReportPage({
         </header>
 
         {/* QUANTUM PROFILE HERO */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-400">
             Quantum profile
           </p>
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-2 max-w-3xl">
-              <h2 className="text-2xl font-semibold text-slate-50">
-                {personaName}
-              </h2>
-              <p className="text-sm text-slate-300">
-                This report gives you a clear understanding of who you are, how
-                you work, and what your business needs next. It is designed to
-                be simple, practical, and focused on helping you take confident
-                action.
-              </p>
-            </div>
-            <div className="mt-2 w-full max-w-xs rounded-2xl bg-slate-950/80 border border-slate-800 p-4 text-xs text-slate-200">
-              <h3 className="mb-2 text-[11px] font-semibold tracking-[0.25em] uppercase text-slate-400">
-                What you&apos;ll see
-              </h3>
-              <ul className="space-y-1 list-disc pl-4">
-                <li>Your Personality Layer (how you naturally act & decide)</li>
-                <li>Your Mindset Layer (where your business is right now)</li>
-                <li>Your combined Quantum Profile &amp; strategic priorities</li>
-              </ul>
-            </div>
-          </div>
+          <h2 className="text-2xl font-semibold">{personaName}</h2>
+          <p className="text-sm text-slate-300 max-w-3xl">
+            This report gives you a clear understanding of who you are, how you
+            work, and what your business needs next. It is designed to be
+            simple, practical, and focused on helping you take confident action.
+          </p>
 
           <div className="grid gap-6 md:grid-cols-2 pt-4 border-t border-slate-800">
             <div>
-              <h3 className="text-sm font-semibold mb-1 text-slate-100">
+              <h3 className="text-sm font-semibold mb-1">
                 Your Personality Layer
               </h3>
               <p className="text-sm text-slate-300">
@@ -334,7 +346,7 @@ export default function QscEntrepreneurStrategicReportPage({
               </p>
             </div>
             <div>
-              <h3 className="text-sm font-semibold mb-1 text-slate-100">
+              <h3 className="text-sm font-semibold mb-1">
                 Your Mindset Layer
               </h3>
               <p className="text-sm text-slate-300">
@@ -347,10 +359,8 @@ export default function QscEntrepreneurStrategicReportPage({
         </section>
 
         {/* HOW TO USE THIS REPORT */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
-          <h2 className="text-xl font-semibold text-slate-50">
-            How to use this report
-          </h2>
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
+          <h2 className="text-xl font-semibold">How to use this report</h2>
           <p className="text-sm text-slate-300">
             This is your personal strategic growth guide — not a personality
             box. Move through it slowly and come back often.
@@ -389,7 +399,7 @@ export default function QscEntrepreneurStrategicReportPage({
         </section>
 
         {/* ONE-PAGE SUMMARY */}
-        <section className="rounded-3xl bg-[#f5e6c9] text-slate-900 border border-amber-300 p-6 md:p-8 space-y-4">
+        <section className="rounded-3xl bg-[#f5e3c2] text-slate-900 border border-amber-300/70 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
             One-page Quantum Summary
           </p>
@@ -402,60 +412,51 @@ export default function QscEntrepreneurStrategicReportPage({
           </p>
 
           <div className="grid gap-6 md:grid-cols-3 pt-4">
-            <div className="rounded-2xl bg-white border border-amber-200 p-4 text-sm space-y-2">
+            <div className="rounded-2xl bg-white/80 border border-amber-200 p-4 text-sm space-y-2">
               <h3 className="font-semibold">Quantum Profile</h3>
               <p className="font-medium">{personaName}</p>
-              <p className="text-slate-700">
+              <p className="text-slate-800">
                 Personality: {primaryPersonalityLabel}.
                 <br />
                 Mindset Stage: {primaryMindsetLabel}.
               </p>
             </div>
-            <div className="rounded-2xl bg-white border border-amber-200 p-4 text-sm space-y-2">
+            <div className="rounded-2xl bg-white/80 border border-amber-200 p-4 text-sm space-y-2 whitespace-pre-wrap">
               <h3 className="font-semibold">Strengths</h3>
-              <p className="text-slate-700 whitespace-pre-line">
-                {persona?.one_page_strengths ||
-                  "This section will summarise your key strengths at a glance."}
-              </p>
+              <p className="text-slate-800">{onePageStrengths}</p>
             </div>
-            <div className="rounded-2xl bg-white border border-amber-200 p-4 text-sm space-y-2">
+            <div className="rounded-2xl bg-white/80 border border-amber-200 p-4 text-sm space-y-2 whitespace-pre-wrap">
               <h3 className="font-semibold">Risks</h3>
-              <p className="text-slate-700 whitespace-pre-line">
-                {persona?.one_page_risks ||
-                  "This section will highlight the main risks or pitfalls to watch for."}
-              </p>
+              <p className="text-slate-800">{onePageRisks}</p>
             </div>
           </div>
         </section>
 
         {/* FREQUENCY + MINDSET */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
-          {/* Buyer Frequency Type */}
           <div className="rounded-3xl bg-slate-900 text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
             <p className="text-sm text-slate-300">
               Your emotional & energetic style across Fire, Flow, Form and Field.
             </p>
-
             <div className="grid grid-cols-2 gap-3 pt-2 text-sm">
-              {frequencyEntries.length === 0 && (
-                <p className="col-span-2 text-xs text-slate-500">
-                  Frequency data not available for this result.
-                </p>
+              {(["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).map(
+                (key) => {
+                  const pct = Math.round((personalityTotals[key] ?? 0) * 100);
+                  return (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between"
+                    >
+                      <span>{PERSONALITY_LABELS[key]}</span>
+                      <span className="tabular-nums">{pct}%</span>
+                    </div>
+                  );
+                }
               )}
-              {frequencyEntries.map((entry) => (
-                <div
-                  key={entry.key}
-                  className="flex items-center justify-between"
-                >
-                  <span>{entry.label}</span>
-                  <span className="tabular-nums">{entry.pct}%</span>
-                </div>
-              ))}
             </div>
           </div>
 
-          {/* Buyer Mindset Levels */}
           <div className="rounded-3xl bg-slate-900 text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
             <p className="text-sm text-slate-300">
@@ -463,35 +464,37 @@ export default function QscEntrepreneurStrategicReportPage({
             </p>
 
             <div className="space-y-2 pt-2 text-xs">
-              {mindsetEntries.length === 0 && (
-                <p className="text-slate-500">
-                  Mindset distribution data not available for this result.
-                </p>
-              )}
-              {mindsetEntries.map((entry) => (
-                <div key={entry.key} className="space-y-1">
-                  <div className="flex justify-between">
-                    <span>{entry.label}</span>
-                    <span className="tabular-nums">{entry.pct}%</span>
+              {(
+                ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
+              ).map((key) => {
+                const pct = Math.round((mindsetTotals[key] ?? 0) * 100);
+                return (
+                  <div key={key} className="space-y-1">
+                    <div className="flex justify-between">
+                      <span>{MINDSET_LABELS[key]}</span>
+                      <span className="tabular-nums">{pct}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-900">
+                      <div
+                        className="h-2 rounded-full bg-emerald-400"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, pct))}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-slate-800">
-                    <div
-                      className="h-2 rounded-full bg-emerald-400"
-                      style={{ width: `${entry.pct}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </section>
 
         {/* Buyer Persona Matrix */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-400">
             Buyer Persona Matrix
           </p>
-          <h2 className="text-xl font-semibold text-slate-50">
+          <h2 className="text-xl font-semibold">
             Where your buyer frequency meets your mindset level
           </h2>
           <p className="text-sm text-slate-300">
@@ -509,11 +512,11 @@ export default function QscEntrepreneurStrategicReportPage({
         </section>
 
         {/* PERSONALITY LAYER */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-400">
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-indigo-400">
             Personality layer
           </p>
-          <h2 className="text-xl font-semibold text-slate-50">
+          <h2 className="text-xl font-semibold">
             How you show up emotionally & behaviourally
           </h2>
           <p className="text-sm text-slate-300">
@@ -522,58 +525,40 @@ export default function QscEntrepreneurStrategicReportPage({
           </p>
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">
                 Core pattern ({primaryPersonalityLabel})
               </h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.combined_strengths ||
-                  persona?.show_up_summary ||
-                  "This is your default operating mode — the way you naturally approach decisions, conflict, opportunity and risk."}
-              </p>
+              <p className="mt-1 text-slate-300">{corePattern}</p>
             </div>
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">What energises you</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.emotional_stabilises ||
-                  persona?.energisers ||
-                  "Add what energises you for this profile in qsc_personas.emotional_stabilises."}
-              </p>
+              <p className="mt-1 text-slate-300">{energises}</p>
             </div>
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">What drains or destabilises you</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.emotional_destabilises ||
-                  persona?.drains ||
-                  "Add drains / emotional destabilisers for this profile in qsc_personas.emotional_destabilises."}
-              </p>
+              <p className="mt-1 text-slate-300">{drains}</p>
             </div>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1.6fr)] pt-4 text-sm">
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+          <div className="grid gap-6 md:grid-cols-2 pt-4 text-sm">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">Emotional patterns to watch</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.emotional_patterns_to_watch ||
-                  "Add patterns to watch for this profile in qsc_personas.emotional_patterns_to_watch."}
-              </p>
+              <p className="mt-1 text-slate-300">{patternsToWatch}</p>
             </div>
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">How to support yourself</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.support_yourself ||
-                  "Add self-support guidance for this profile in qsc_personas.support_yourself."}
-              </p>
+              <p className="mt-1 text-slate-300">{supportYourself}</p>
             </div>
           </div>
         </section>
 
         {/* MINDSET LAYER */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-emerald-400">
             Mindset layer
           </p>
-          <h2 className="text-xl font-semibold text-slate-50">
+          <h2 className="text-xl font-semibold">
             Your current Quantum stage — and what it asks of you
           </h2>
           <p className="text-sm text-slate-300">
@@ -585,10 +570,12 @@ export default function QscEntrepreneurStrategicReportPage({
           <div className="grid gap-6 md:grid-cols-2 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
               <h3 className="font-semibold">Your stage</h3>
-              <p className="mt-1 text-slate-200">{primaryMindsetLabel}</p>
-              <p className="mt-2 text-slate-300 whitespace-pre-line">
-                {persona?.decision_style_long ||
-                  "Add the long narrative copy for this mindset stage in qsc_personas.decision_style_long."}
+              <p className="mt-1 text-slate-300">{primaryMindsetLabel}</p>
+              <p className="mt-2 text-slate-300">
+                {/* generic stage text kept for now */}
+                At this stage, your business needs a balance of stability and
+                forward motion. You are being asked to make decisions that
+                protect the foundations, while still creating space for growth.
               </p>
             </div>
             <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
@@ -603,11 +590,11 @@ export default function QscEntrepreneurStrategicReportPage({
         </section>
 
         {/* COMBINED PATTERN */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-rose-400">
             Combined pattern
           </p>
-          <h2 className="text-xl font-semibold text-slate-50">
+          <h2 className="text-xl font-semibold">
             {personaName} — what happens when your personality meets your stage
           </h2>
           <p className="text-sm text-slate-300">
@@ -616,35 +603,28 @@ export default function QscEntrepreneurStrategicReportPage({
           </p>
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">Strategic strengths</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.combined_strengths ||
-                  "Add combined strategic strengths in qsc_personas.combined_strengths."}
-              </p>
+              <p className="mt-1 text-slate-300">{combinedStrengths}</p>
             </div>
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">Growth risks & loops</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.combined_risks ||
-                  "Add combined growth risks / loops in qsc_personas.combined_risks."}
-              </p>
+              <p className="mt-1 text-slate-300">{combinedRisks}</p>
             </div>
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">Your biggest lever</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.combined_big_lever ||
-                  "Add the biggest strategic lever for this pattern in qsc_personas.combined_big_lever."}
-              </p>
+              <p className="mt-1 text-slate-300">{combinedBigLever}</p>
             </div>
           </div>
 
           <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-4 text-sm">
-            <h3 className="font-semibold mb-2 text-slate-50">
+            <h3 className="font-semibold mb-2">
               Reflection prompts for your Quantum pattern
             </h3>
             <ul className="list-disc pl-5 space-y-1 text-slate-300">
-              <li>Where am I moving faster than my systems can reliably support?</li>
+              <li>
+                Where am I moving faster than my systems can reliably support?
+              </li>
               <li>
                 Which decisions am I delaying that would actually create more
                 ease or capacity?
@@ -662,11 +642,11 @@ export default function QscEntrepreneurStrategicReportPage({
         </section>
 
         {/* EMOTIONAL ALIGNMENT */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-red-400">
             Emotional alignment
           </p>
-          <h2 className="text-xl font-semibold text-slate-50">
+          <h2 className="text-xl font-semibold">
             How your nervous system and business rhythm interact
           </h2>
           <p className="text-sm text-slate-300">
@@ -676,36 +656,27 @@ export default function QscEntrepreneurStrategicReportPage({
           </p>
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">What stabilises you</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.emotional_stabilises ||
-                  "Add what stabilises you in qsc_personas.emotional_stabilises."}
-              </p>
+              <p className="mt-1 text-slate-300">{emotionalStabilises}</p>
             </div>
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">What destabilises you</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.emotional_destabilises ||
-                  "Add what destabilises you in qsc_personas.emotional_destabilises."}
-              </p>
+              <p className="mt-1 text-slate-300">{emotionalDestabilises}</p>
             </div>
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">Patterns to watch</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.emotional_patterns_to_watch ||
-                  "Add patterns to watch in qsc_personas.emotional_patterns_to_watch."}
-              </p>
+              <p className="mt-1 text-slate-300">{emotionalWatch}</p>
             </div>
           </div>
         </section>
 
         {/* COMMUNICATION & DECISION STYLE */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-indigo-400">
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-indigo-300">
             Communication & decision style
           </p>
-          <h2 className="text-xl font-semibold text-slate-50">
+          <h2 className="text-xl font-semibold">
             How you communicate, process information & decide
           </h2>
           <p className="text-sm text-slate-300">
@@ -715,41 +686,32 @@ export default function QscEntrepreneurStrategicReportPage({
           </p>
 
           <div className="grid gap-6 md:grid-cols-2 pt-2 text-sm">
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">How you decide</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {persona?.decision_style_long ||
-                  profile?.decision_style ||
-                  "Add decision-style copy for this profile in qsc_personas.decision_style_long or qsc_profiles.decision_style."}
-              </p>
+              <p className="mt-1 text-slate-300">{decisionLong}</p>
             </div>
-            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4">
+            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 whitespace-pre-wrap">
               <h3 className="font-semibold">What convinces you</h3>
-              <p className="mt-1 text-slate-300 whitespace-pre-line">
-                {profile?.trust_signals ||
-                  persona?.admired_for ||
-                  "Add trust signals / what convinces you in qsc_profiles.trust_signals."}
+              <p className="mt-1 text-slate-300">
+                This section builds on your decision style to show what actually
+                convinces you to move: the trust signals, evidence and context
+                that help you decide with confidence.
               </p>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-emerald-900/20 border border-emerald-500/60 p-4 mt-4 text-sm">
-            <h3 className="font-semibold text-emerald-100">
-              How to support yourself
-            </h3>
-            <p className="mt-1 text-emerald-50 whitespace-pre-line">
-              {persona?.support_yourself ||
-                "Add self-support guidance for this pattern in qsc_personas.support_yourself."}
-            </p>
+          <div className="mt-4 rounded-2xl bg-emerald-900/40 border border-emerald-500/40 p-4 text-sm whitespace-pre-wrap">
+            <h3 className="font-semibold">How to support yourself</h3>
+            <p className="mt-1 text-slate-200">{supportYourself}</p>
           </div>
         </section>
 
         {/* STRATEGIC PRIORITIES */}
-        <section className="rounded-3xl bg-slate-900 border border-slate-800 p-6 md:p-8 space-y-4">
+        <section className="rounded-3xl bg-slate-900/80 shadow-sm border border-slate-800 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-orange-400">
             Strategic growth priorities (next 90 days)
           </p>
-          <h2 className="text-xl font-semibold text-slate-50">
+          <h2 className="text-xl font-semibold">
             The three levers that shift everything faster
           </h2>
           <p className="text-sm text-slate-300">
@@ -757,19 +719,10 @@ export default function QscEntrepreneurStrategicReportPage({
             actions you can focus on in the next 90 days. Treat them as anchors
             for your planning and decision-making.
           </p>
-          <ol className="list-decimal pl-5 space-y-1 text-sm text-slate-300">
-            <li>
-              {persona?.strategic_priority_1 ||
-                "Add Strategic priority 1 for this profile in qsc_personas.strategic_priority_1."}
-            </li>
-            <li>
-              {persona?.strategic_priority_2 ||
-                "Add Strategic priority 2 for this profile in qsc_personas.strategic_priority_2."}
-            </li>
-            <li>
-              {persona?.strategic_priority_3 ||
-                "Add Strategic priority 3 for this profile in qsc_personas.strategic_priority_3."}
-            </li>
+          <ol className="list-decimal pl-5 space-y-2 text-sm text-slate-300 whitespace-pre-wrap">
+            <li>{strat1}</li>
+            <li>{strat2}</li>
+            <li>{strat3}</li>
           </ol>
           <p className="mt-3 text-xs text-slate-400">
             You don&apos;t need to fix everything at once. If these three
