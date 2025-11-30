@@ -1,5 +1,6 @@
+// apps/web/app/portal/[slug]/database/page.tsx
 // Server component — Database list for /portal/[slug]/database
-// Uses portal.orgs + portal.tests + portal.test_takers (no views).
+// Uses only portal.orgs + portal.test_takers. Adds selection + bulk actions.
 
 import Link from "next/link";
 import { createClient } from "@/lib/server/supabaseAdmin";
@@ -9,8 +10,6 @@ export const dynamic = "force-dynamic";
 type SearchParams = {
   q?: string;
   page?: string;
-  test?: string; // test slug
-  sort?: string; // sort key
 };
 
 export default async function DatabasePage({
@@ -23,7 +22,7 @@ export default async function DatabasePage({
   const { slug } = params;
   const sb = createClient().schema("portal");
 
-  // ---- 1) Resolve org by slug ----
+  // 1) Resolve org by slug
   const { data: org, error: orgErr } = await sb
     .from("orgs")
     .select("id, slug, name")
@@ -38,101 +37,18 @@ export default async function DatabasePage({
     );
   }
 
-  // ---- 2) Load tests for this org (for filter + labels) ----
-  const { data: tests, error: testsErr } = await sb
-    .from("tests")
-    .select("id, name, slug")
-    .eq("org_id", org.id)
-    .order("created_at", { ascending: true });
-
-  if (testsErr) {
-    return (
-      <div className="p-6 text-red-400">
-        {testsErr.message || "Failed to load tests."}
-      </div>
-    );
-  }
-
-  const testsById: Record<
-    string,
-    { name: string; slug: string | null }
-  > = {};
-  for (const t of tests ?? []) {
-    if (!t?.id) continue;
-    testsById[t.id as string] = {
-      name: (t.name as string) ?? "Untitled test",
-      slug: (t.slug as string | null) ?? null,
-    };
-  }
-
+  // 2) Basic taker list (filter by name/email). No views, no joins.
   const q = (searchParams.q || "").toLowerCase();
   const page = Math.max(parseInt(searchParams.page || "1", 10), 1);
   const pageSize = 25;
   const from = (page - 1) * pageSize;
 
-  const selectedTestSlug = searchParams.test || "";
-  const sortKey = searchParams.sort || "created_desc";
-
-  // Resolve test filter -> test_id
-  let testIdFilter: string | null = null;
-  if (selectedTestSlug) {
-    const match = (tests ?? []).find(
-      (t: any) => t.slug === selectedTestSlug
-    );
-    if (match?.id) testIdFilter = match.id as string;
-  }
-
-  // ---- 3) Base test_takers query ----
-  let query = sb
+  const { data: takers, error: tkErr } = await sb
     .from("test_takers")
-    .select(
-      "id, first_name, last_name, email, company, created_at, test_id"
-    )
-    .eq("org_id", org.id);
-
-  if (testIdFilter) {
-    query = query.eq("test_id", testIdFilter);
-  }
-
-  // Sorting (server-side)
-  switch (sortKey) {
-    case "name_asc":
-      query = query
-        .order("first_name", { ascending: true })
-        .order("last_name", { ascending: true });
-      break;
-    case "name_desc":
-      query = query
-        .order("first_name", { ascending: false })
-        .order("last_name", { ascending: false });
-      break;
-    case "company_asc":
-      query = query.order("company", {
-        ascending: true,
-      });
-      break;
-    case "company_desc":
-      query = query.order("company", {
-        ascending: false,
-      });
-      break;
-    case "created_asc":
-      query = query.order("created_at", {
-        ascending: true,
-      });
-      break;
-    case "created_desc":
-    default:
-      query = query.order("created_at", {
-        ascending: false,
-      });
-      break;
-  }
-
-  const { data: takers, error: tkErr } = await query.range(
-    from,
-    from + pageSize
-  );
+    .select("id, first_name, last_name, email, company, created_at")
+    .eq("org_id", org.id)
+    .order("created_at", { ascending: false })
+    .range(from, from + pageSize);
 
   if (tkErr) {
     return (
@@ -142,44 +58,25 @@ export default async function DatabasePage({
     );
   }
 
-  // ---- 4) Local filter by q (name/email/company) ----
   const filtered = (takers ?? []).filter((t: any) => {
-    const name = [t.first_name, t.last_name]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
+    const name = [t.first_name, t.last_name].filter(Boolean).join(" ").toLowerCase();
     const email = (t.email || "").toLowerCase();
     const company = (t.company || "").toLowerCase();
-    if (!q) return true;
     return (
+      !q ||
       name.includes(q) ||
       email.includes(q) ||
       company.includes(q)
     );
   });
 
-  const rows = filtered.slice(0, pageSize).map((t: any) => {
-    const testMeta =
-      (t.test_id && testsById[t.test_id as string]) || null;
-    const createdIso =
-      typeof t.created_at === "string"
-        ? t.created_at
-        : t.created_at?.toISOString?.() ?? null;
-
-    return {
-      id: t.id as string,
-      name:
-        [t.first_name, t.last_name]
-          .filter(Boolean)
-          .join(" ")
-          .trim() || "—",
-      email: (t.email as string) || "—",
-      company: (t.company as string) || "—",
-      testName: testMeta?.name ?? "—",
-      testSlug: testMeta?.slug ?? null,
-      createdDate: createdIso ? createdIso.slice(0, 10) : "—",
-    };
-  });
+  const rows = filtered.slice(0, pageSize).map((t: any) => ({
+    id: t.id,
+    name: [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || "—",
+    email: t.email || "—",
+    company: t.company || "—",
+    created_at: t.created_at ? new Date(t.created_at) : null,
+  }));
 
   const hasNext = filtered.length > pageSize;
 
@@ -187,69 +84,39 @@ export default async function DatabasePage({
   const gotoPage = (n: number) => {
     const usp = new URLSearchParams();
     if (q) usp.set("q", q);
-    if (selectedTestSlug) usp.set("test", selectedTestSlug);
-    if (sortKey) usp.set("sort", sortKey);
     usp.set("page", String(n));
     const qs = usp.toString();
     return `/portal/${slug}/database${qs ? `?${qs}` : ""}`;
   };
 
+  const formattedDate = (d: Date | null) =>
+    d ? d.toISOString().slice(0, 10) : "—";
+
   return (
     <div className="space-y-5 text-slate-100">
-      {/* Header row: title + CSV */}
+      {/* Header row: title + CSV for ALL (existing behaviour) */}
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Database</h1>
         <form action={`/api/portal/takers-export`} method="GET">
           <input type="hidden" name="org" value={slug} />
           <input type="hidden" name="q" value={q} />
-          {/* we could also pass test/sort later if/when the export supports it */}
           <button
             type="submit"
             className="rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-slate-100 hover:bg-white/10 transition"
           >
-            Download CSV
+            Download CSV (all)
           </button>
         </form>
       </header>
 
-      {/* Filters row: search + test filter + sort */}
-      <form className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.3fr)_auto]">
-        {/* Search */}
+      {/* Search */}
+      <form className="grid gap-3 md:grid-cols-[minmax(0,2fr)_auto]">
         <input
           name="q"
           defaultValue={searchParams.q || ""}
           placeholder="Search name, email, or company…"
           className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
         />
-
-        {/* Test filter */}
-        <select
-          name="test"
-          defaultValue={selectedTestSlug}
-          className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
-        >
-          <option value="">All tests</option>
-          {(tests ?? []).map((t: any) => (
-            <option key={t.id} value={t.slug || ""}>
-              {t.name} {t.slug ? `— ${t.slug}` : ""}
-            </option>
-          ))}
-        </select>
-
-        {/* Sort */}
-        <select
-          name="sort"
-          defaultValue={sortKey}
-          className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
-        >
-          <option value="created_desc">Newest first</option>
-          <option value="created_asc">Oldest first</option>
-          <option value="name_asc">Name A → Z</option>
-          <option value="name_desc">Name Z → A</option>
-          <option value="company_asc">Company A → Z</option>
-          <option value="company_desc">Company Z → A</option>
-        </select>
-
         <button
           className="rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-sm text-slate-100 hover:bg-white/10 transition"
           type="submit"
@@ -258,11 +125,34 @@ export default async function DatabasePage({
         </button>
       </form>
 
-      {/* White data card */}
-      <div className="rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-lg overflow-hidden">
+      {/* White data card with form for bulk actions */}
+      <form
+        method="POST"
+        className="rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-lg overflow-hidden"
+      >
+        {/* needed for API routes to know which org these belong to */}
+        <input type="hidden" name="org" value={slug} />
+
         <table className="min-w-full text-sm">
           <thead className="bg-slate-100">
             <tr>
+              <th className="px-3 py-2 text-center">
+                {/* select-all is just a hint; actual selection handled in browser */}
+                <input
+                  type="checkbox"
+                  onChange={(e) => {
+                    // this handler will be ignored on server-render; it's here
+                    // so React attaches it on the client to toggle all checkboxes.
+                    const checked = e.currentTarget.checked;
+                    const form = e.currentTarget.form;
+                    if (!form) return;
+                    const boxes = Array.from(
+                      form.querySelectorAll<HTMLInputElement>('input[name="ids"]')
+                    );
+                    boxes.forEach((b) => (b.checked = checked));
+                  }}
+                />
+              </th>
               <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Name
               </th>
@@ -271,9 +161,6 @@ export default async function DatabasePage({
               </th>
               <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Company
-              </th>
-              <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Test
               </th>
               <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Created
@@ -293,20 +180,33 @@ export default async function DatabasePage({
                   " hover:bg-slate-100/80"
                 }
               >
+                <td className="px-3 py-2 text-center">
+                  <input type="checkbox" name="ids" value={r.id} />
+                </td>
                 <td className="px-4 py-2">{r.name}</td>
                 <td className="px-4 py-2">{r.email}</td>
                 <td className="px-4 py-2">{r.company}</td>
-                <td className="px-4 py-2">{r.testName}</td>
-                <td className="px-4 py-2 whitespace-nowrap">
-                  {r.createdDate}
-                </td>
                 <td className="px-4 py-2">
+                  {formattedDate(r.created_at)}
+                </td>
+                <td className="px-4 py-2 space-x-3">
                   <Link
                     className="text-sky-700 hover:text-sky-900 underline"
                     href={`/portal/${slug}/database/${r.id}`}
                   >
-                    View
+                    View / Edit
                   </Link>
+
+                  {/* Single-row delete using same bulk endpoint */}
+                  <button
+                    type="submit"
+                    name="ids"
+                    value={r.id}
+                    formAction="/api/portal/takers/bulk-delete"
+                    className="text-xs text-red-600 hover:text-red-800 underline"
+                  >
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}
@@ -322,7 +222,30 @@ export default async function DatabasePage({
             )}
           </tbody>
         </table>
-      </div>
+
+        {/* Bulk action buttons */}
+        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50 text-sm">
+          <span className="text-slate-500">
+            Select one or more rows to run bulk actions.
+          </span>
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              formAction="/api/portal/takers/bulk-export"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-100"
+            >
+              Export selected
+            </button>
+            <button
+              type="submit"
+              formAction="/api/portal/takers/bulk-delete"
+              className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+            >
+              Delete selected
+            </button>
+          </div>
+        </div>
+      </form>
 
       {/* Pagination */}
       <div className="flex items-center justify-between text-sm">

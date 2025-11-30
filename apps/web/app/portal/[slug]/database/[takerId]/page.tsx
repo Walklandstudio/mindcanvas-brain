@@ -372,29 +372,108 @@ export default async function TakerDetail({
         </Link>
       </header>
 
-      {/* Contact */}
-      <section className="rounded-xl border p-4 bg-white">
-        <h2 className="font-medium mb-3">Contact</h2>
-        <dl className="grid grid-cols-3 gap-2 text-sm">
-          <dt className="text-gray-500">First name</dt>
-          <dd className="col-span-2">{taker.first_name || "—"}</dd>
-          <dt className="text-gray-500">Last name</dt>
-          <dd className="col-span-2">{taker.last_name || "—"}</dd>
-          <dt className="text-gray-500">Email</dt>
-          <dd className="col-span-2">{taker.email || "—"}</dd>
-          <dt className="text-gray-500">Phone</dt>
-          <dd className="col-span-2">{taker.phone || "—"}</dd>
-          <dt className="text-gray-500">Created at</dt>
-          <dd className="col-span-2">
-            {taker.created_at
-              ? new Date(taker.created_at as any).toLocaleString()
-              : "—"}
-          </dd>
-          <dt className="text-gray-500">Company</dt>
-          <dd className="col-span-2">{taker.company || "—"}</dd>
-          <dt className="text-gray-500">Role title</dt>
-          <dd className="col-span-2">{taker.role_title || "—"}</dd>
-        </dl>
+      {/* Contact (editable) */}
+      <section className="rounded-xl border p-4 bg-white space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-medium">Contact</h2>
+          <p className="text-xs text-gray-500">
+            Updating these fields won&apos;t change scores or reports, only how this
+            person appears in the database and exports.
+          </p>
+        </div>
+
+        <form
+          method="POST"
+          action="/api/portal/takers/update"
+          className="space-y-4"
+        >
+          <input type="hidden" name="org" value={slug} />
+          <input type="hidden" name="id" value={taker.id} />
+          <input
+            type="hidden"
+            name="redirect"
+            value={`/portal/${slug}/database/${taker.id}`}
+          />
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
+            <div className="space-y-1">
+              <label className="text-gray-500 text-xs font-medium">
+                First name
+              </label>
+              <input
+                name="first_name"
+                defaultValue={taker.first_name ?? ""}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-gray-500 text-xs font-medium">
+                Last name
+              </label>
+              <input
+                name="last_name"
+                defaultValue={taker.last_name ?? ""}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
+            <div className="space-y-1">
+              <label className="text-gray-500 text-xs font-medium">
+                Email
+              </label>
+              <input
+                name="email"
+                type="email"
+                defaultValue={taker.email ?? ""}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-gray-500 text-xs font-medium">
+                Phone
+              </label>
+              <input
+                name="phone"
+                defaultValue={taker.phone ?? ""}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
+            <div className="space-y-1">
+              <label className="text-gray-500 text-xs font-medium">
+                Company
+              </label>
+              <input
+                name="company"
+                defaultValue={taker.company ?? ""}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-gray-500 text-xs font-medium">
+                Role title
+              </label>
+              <input
+                name="role_title"
+                defaultValue={taker.role_title ?? ""}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end">
+            <button
+              type="submit"
+              className="rounded-md border border-sky-500 bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
+            >
+              Save changes
+            </button>
+          </div>
+        </form>
       </section>
 
       {/* Latest Result */}
@@ -544,4 +623,3 @@ export default async function TakerDetail({
     </div>
   );
 }
-
