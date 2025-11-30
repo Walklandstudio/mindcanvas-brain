@@ -359,8 +359,21 @@ export default async function TakerDetail({
   }
 
   // --- Main report URL (what the test taker saw) --------------------------
-  const reportUrl: string | null =
-    (taker.last_result_url as string | null) || null;
+  let reportUrl: string | null = null;
+
+  if (taker.last_result_url) {
+    const raw = String(taker.last_result_url);
+    // If it already looks like a result/report URL, use as-is
+    if (raw.includes("/result") || raw.includes("/report")) {
+      reportUrl = raw;
+    } else if (taker.link_token) {
+      // last_result_url points to test; upgrade to result page
+      reportUrl = `/t/${encodeURIComponent(taker.link_token)}/result`;
+    }
+  } else if (taker.link_token) {
+    // No stored URL, but we have the token – construct result URL
+    reportUrl = `/t/${encodeURIComponent(taker.link_token)}/result`;
+  }
 
   return (
     <div className="space-y-6">
@@ -435,12 +448,6 @@ export default async function TakerDetail({
                   Open test-taker report
                 </Link>
               )}
-              <button
-                className="rounded-md border px-3 py-2 text-sm disabled:opacity-60"
-                disabled
-              >
-                Generate PDF (coming soon)
-              </button>
             </div>
             <ResendReportButton
               takerId={taker.id}
