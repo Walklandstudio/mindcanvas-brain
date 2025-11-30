@@ -1,5 +1,6 @@
 import Link from "next/link";
 import PersonalityMapSection from "./PersonalityMapSection";
+import PrintButton from "./PrintButton";
 
 import { getBaseUrl } from "@/lib/server-url";
 import {
@@ -98,7 +99,9 @@ function getOrgAssets(orgSlug?: string | null, orgName?: string | null) {
   };
 }
 
-function getTeamPuzzleProfileImage(profileName: string | undefined): string | null {
+function getTeamPuzzleProfileImage(
+  profileName: string | undefined
+): string | null {
   if (!profileName) return null;
   const key = profileName.trim().toLowerCase();
 
@@ -258,14 +261,14 @@ export default async function ReportPage({
     );
   }
 
-const data = resultData;
-const orgSlug = data.org_slug;
-const orgName = data.org_name || data.test_name || "Your Organisation";
-const participantName = getFullName(data.taker);
+  const data = resultData;
+  const orgSlug = data.org_slug;
+  const orgName = data.org_name || data.test_name || "Your Organisation";
+  const participantName = getFullName(data.taker);
 
-// org-specific assets (logo, graphics, founder photo)
-const orgAssets = getOrgAssets(orgSlug, orgName);
-const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
+  // org-specific assets (logo, graphics, founder photo)
+  const orgAssets = getOrgAssets(orgSlug, orgName);
+  const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
 
   // ---- Load org framework JSON (for copy) --------------------------------
   let orgFw: OrgFramework | null = null;
@@ -316,10 +319,6 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
   const secondary = sortedProfiles[1];
   const tertiary = sortedProfiles[2];
 
-  const downloadPdfHref = `/api/portal/reports/${encodeURIComponent(
-    data.taker.id
-  )}`;
-
   const primaryExample =
     profileCopy?.[primary?.code || ""]?.example ||
     "For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.";
@@ -365,13 +364,9 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
             </div>
 
             <div className="flex items-center gap-3">
-              <Link
-                href={downloadPdfHref}
-                prefetch={false}
-                className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
-              >
+              <PrintButton className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800">
                 Download PDF
-              </Link>
+              </PrintButton>
             </div>
           </header>
 
@@ -981,4 +976,3 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
     </div>
   );
 }
-
