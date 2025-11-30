@@ -24,84 +24,7 @@ const sum = (rows: { value: number }[]) =>
 const pct = (n: number, total: number) =>
   !total ? "0%" : `${((n * 100) / total).toFixed(1)}%`;
 
-// Time-range helper
-type DateRange = { start: string | null; end: string | null };
-
-function getDateRange(key: string | null): DateRange {
-  const now = new Date();
-  const k = (key || "all_time").toLowerCase();
-
-  const make = (d: Date) =>
-    new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-
-  const startOfThisWeek = () => {
-    const d = make(now);
-    const dow = d.getUTCDay(); // 0 = Sun
-    const diff = (dow + 6) % 7; // days since Monday
-    d.setUTCDate(d.getUTCDate() - diff);
-    return d;
-  };
-
-  const startOfThisMonth = () =>
-    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const startOfNextMonth = () =>
-    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-
-  const startOfThisYear = () =>
-    new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
-  const startOfNextYear = () =>
-    new Date(Date.UTC(now.getUTCFullYear() + 1, 0, 1));
-
-  let start: Date | null = null;
-  let end: Date | null = null;
-
-  switch (k) {
-    case "this_week": {
-      start = startOfThisWeek();
-      end = new Date(start);
-      end.setUTCDate(start.getUTCDate() + 7);
-      break;
-    }
-    case "last_week": {
-      const thisWeek = startOfThisWeek();
-      end = thisWeek;
-      start = new Date(thisWeek);
-      start.setUTCDate(thisWeek.getUTCDate() - 7);
-      break;
-    }
-    case "this_month": {
-      start = startOfThisMonth();
-      end = startOfNextMonth();
-      break;
-    }
-    case "last_month": {
-      const thisMonth = startOfThisMonth();
-      end = thisMonth;
-      start = new Date(thisMonth);
-      start.setUTCMonth(thisMonth.getUTCMonth() - 1);
-      break;
-    }
-    case "this_year": {
-      start = startOfThisYear();
-      end = startOfNextYear();
-      break;
-    }
-    case "last_year": {
-      const thisYear = startOfThisYear();
-      end = thisYear;
-      start = new Date(thisYear);
-      start.setUTCFullYear(thisYear.getUTCFullYear() - 1);
-      break;
-    }
-    case "all_time":
-    default:
-      return { start: null, end: null };
-  }
-
-  return { start: start!.toISOString(), end: end!.toISOString() };
-}
-
-// Get default test for org if none explicitly set
+// --- helper to get a default test for an org (if none explicitly chosen) ---
 async function getTestIdForOrg(portal: any, orgSlug: string) {
   const v = await portal
     .from("v_org_tests")
@@ -121,6 +44,7 @@ async function getTestIdForOrg(portal: any, orgSlug: string) {
     .limit(1);
 
   if (!t.error && t.data?.[0]?.id) return String(t.data[0].id);
+
   return null;
 }
 
@@ -140,6 +64,8 @@ export async function GET(req: Request) {
     const orgSlug = (url.searchParams.get("org") || "").trim();
     const explicitTestId =
       (url.searchParams.get("testId") || "").trim() || null;
+
+    // NOTE: range is currently accepted but not applied to data yet
     const rangeKey = (url.searchParams.get("range") || "all_time").trim();
     const debugMode = url.searchParams.get("debug") === "1";
 
@@ -150,200 +76,93 @@ export async function GET(req: Request) {
       );
     }
 
-    const { start, end } = getDateRange(rangeKey);
-    let testId = explicitTestId || (await getTestIdForOrg(portal, orgSlug));
+    const testId = explicitTestId || (await getTestIdForOrg(portal, orgSlug));
 
-    let payload: Payload = {
-      frequencies: [],
-      profiles: [],
-      top3: [],
-      bottom3: [],
-      overall: undefined,
-    };
+    // ---------- MAIN DASHBOARD QUERIES (all-time) ----------
+    let vfQuery = portal
+      .from("v_dashboard_avg_frequency")
+      .select("org_slug,test_id,frequency_code,frequency_name,avg_points")
+      .eq("org_slug", orgSlug);
 
-    // ---------- Branch A: ALL-TIME (no date filter) ----------
-    if (!start && !end) {
-      const [vf, vp, vt, vb, vo] = await Promise.all([
-        portal
-          .from("v_dashboard_avg_frequency")
-          .select(
-            "org_slug,test_id,frequency_code,frequency_name,avg_points"
-          )
-          .eq("org_slug", orgSlug)
-          .maybe(
-            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
-          ),
-        portal
-          .from("v_dashboard_avg_profile")
-          .select("org_slug,test_id,profile_code,profile_name,avg_points")
-          .eq("org_slug", orgSlug)
-          .maybe(
-            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
-          ),
-        portal
-          .from("v_dashboard_top3_profiles")
-          .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
-          .eq("org_slug", orgSlug)
-          .maybe(
-            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
-          ),
-        portal
-          .from("v_dashboard_bottom3_profiles")
-          .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
-          .eq("org_slug", orgSlug)
-          .maybe(
-            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
-          ),
-        portal
-          .from("v_dashboard_overall_avg")
-          .select("org_slug,test_id,overall_avg")
-          .eq("org_slug", orgSlug)
-          .maybe(
-            testId ? (q: any) => q.eq("test_id", testId) : (q: any) => q
-          )
-          .limit(1),
-      ]);
+    let vpQuery = portal
+      .from("v_dashboard_avg_profile")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points")
+      .eq("org_slug", orgSlug);
 
-      const frequencies: KV[] =
-        !vf.error && Array.isArray(vf.data)
-          ? (vf.data as any[]).map((r) => ({
-              key: r.frequency_name || r.frequency_code || "",
-              value: Number(r.avg_points) || 0,
-            }))
-          : [];
+    let vtQuery = portal
+      .from("v_dashboard_top3_profiles")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
+      .eq("org_slug", orgSlug);
 
-      const profiles: KV[] =
-        !vp.error && Array.isArray(vp.data)
-          ? (vp.data as any[]).map((r) => ({
-              key: r.profile_name || r.profile_code || "",
-              value: Number(r.avg_points) || 0,
-            }))
-          : [];
+    let vbQuery = portal
+      .from("v_dashboard_bottom3_profiles")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
+      .eq("org_slug", orgSlug);
 
-      const top3: KV[] =
-        !vt.error && Array.isArray(vt.data)
-          ? (vt.data as any[])
-              .sort((a, b) => (a.rnk ?? 999) - (b.rnk ?? 999))
-              .map((r) => ({
-                key: r.profile_name || r.profile_code || "",
-                value: Number(r.avg_points) || 0,
-              }))
-          : [];
+    let voQuery = portal
+      .from("v_dashboard_overall_avg")
+      .select("org_slug,test_id,overall_avg")
+      .eq("org_slug", orgSlug)
+      .limit(1);
 
-      const bottom3: KV[] =
-        !vb.error && Array.isArray(vb.data)
-          ? (vb.data as any[])
-              .sort((a, b) => (a.rnk ?? 999) - (b.rnk ?? 999))
-              .map((r) => ({
-                key: r.profile_name || r.profile_code || "",
-                value: Number(r.avg_points) || 0,
-              }))
-          : [];
-
-      let overall: Payload["overall"] = undefined;
-      if (!vo.error && Array.isArray(vo.data) && vo.data[0]) {
-        const o = vo.data[0] as any;
-        overall = {
-          average: Number(o.overall_avg) || undefined,
-          count: undefined, // not tracked in this view
-        };
-      }
-
-      payload = { frequencies, profiles, top3, bottom3, overall };
+    if (testId) {
+      vfQuery = vfQuery.eq("test_id", testId);
+      vpQuery = vpQuery.eq("test_id", testId);
+      vtQuery = vtQuery.eq("test_id", testId);
+      vbQuery = vbQuery.eq("test_id", testId);
+      voQuery = voQuery.eq("test_id", testId);
     }
 
-    // ---------- Branch B: TIME-FILTERED ----------
-    if (start || end) {
-      const freqQuery = portal
-        .from("v_taker_frequency_scores")
-        .select("org_slug,test_id,frequency_code,frequency_name,total_points,created_at")
-        .eq("org_slug", orgSlug);
+    const [vf, vp, vt, vb, vo] = await Promise.all([
+      vfQuery,
+      vpQuery,
+      vtQuery,
+      vbQuery,
+      voQuery,
+    ]);
 
-      const profQuery = portal
-        .from("v_taker_profile_scores")
-        .select(
-          "org_slug,test_id,profile_code,profile_name,total_points,created_at,taker_id"
-        )
-        .eq("org_slug", orgSlug);
+    if (vf.error) throw vf.error;
+    if (vp.error) throw vp.error;
+    if (vt.error) throw vt.error;
+    if (vb.error) throw vb.error;
+    if (vo.error) throw vo.error;
 
-      let fq: any = freqQuery;
-      let pq: any = profQuery;
+    const frequencies: KV[] = (vf.data || []).map((r: any) => ({
+      key: r.frequency_name || r.frequency_code || "",
+      value: Number(r.avg_points) || 0,
+    }));
 
-      if (testId) {
-        fq = fq.eq("test_id", testId);
-        pq = pq.eq("test_id", testId);
-      }
-      if (start) {
-        fq = fq.gte("created_at", start);
-        pq = pq.gte("created_at", start);
-      }
-      if (end) {
-        fq = fq.lt("created_at", end);
-        pq = pq.lt("created_at", end);
-      }
+    const profiles: KV[] = (vp.data || []).map((r: any) => ({
+      key: r.profile_name || r.profile_code || "",
+      value: Number(r.avg_points) || 0,
+    }));
 
-      const [freqRes, profRes] = await Promise.all([fq, pq]);
-
-      if (freqRes.error) throw freqRes.error;
-      if (profRes.error) throw profRes.error;
-
-      const freqAgg = new Map<string, { label: string; sum: number }>();
-      for (const r of (freqRes.data || []) as any[]) {
-        const label = r.frequency_name || r.frequency_code || "";
-        const cur = freqAgg.get(label) || { label, sum: 0 };
-        cur.sum += Number(r.total_points) || 0;
-        freqAgg.set(label, cur);
-      }
-
-      const profAgg = new Map<string, { label: string; sum: number }>();
-      const takerAgg = new Map<string, number>();
-
-      for (const r of (profRes.data || []) as any[]) {
-        const label = r.profile_name || r.profile_code || "";
-        const cur = profAgg.get(label) || { label, sum: 0 };
-        cur.sum += Number(r.total_points) || 0;
-        profAgg.set(label, cur);
-
-        if (r.taker_id) {
-          const prev = takerAgg.get(r.taker_id) || 0;
-          takerAgg.set(
-            r.taker_id,
-            prev + (Number(r.total_points) || 0)
-          );
-        }
-      }
-
-      const frequencies: KV[] = Array.from(freqAgg.values()).map((v) => ({
-        key: v.label,
-        value: v.sum,
+    const top3: KV[] = (vt.data || [])
+      .slice()
+      .sort((a: any, b: any) => (a.rnk ?? 999) - (b.rnk ?? 999))
+      .map((r: any) => ({
+        key: r.profile_name || r.profile_code || "",
+        value: Number(r.avg_points) || 0,
       }));
 
-      const profiles: KV[] = Array.from(profAgg.values()).map((v) => ({
-        key: v.label,
-        value: v.sum,
+    const bottom3: KV[] = (vb.data || [])
+      .slice()
+      .sort((a: any, b: any) => (a.rnk ?? 999) - (b.rnk ?? 999))
+      .map((r: any) => ({
+        key: r.profile_name || r.profile_code || "",
+        value: Number(r.avg_points) || 0,
       }));
 
-      const sortedProfiles = [...profiles].sort(
-        (a, b) => b.value - a.value
-      );
-      const top3 = sortedProfiles.slice(0, 3);
-      const bottom3 = sortedProfiles.slice(-3).reverse();
-
-      let overall: Payload["overall"] = undefined;
-      if (takerAgg.size) {
-        const totals = Array.from(takerAgg.values());
-        const totalSum = totals.reduce((a, v) => a + v, 0);
-        const avg = totalSum / takerAgg.size;
-        overall = {
-          average: Number(avg.toFixed(1)),
-          count: takerAgg.size,
-        };
-      }
-
-      payload = { frequencies, profiles, top3, bottom3, overall };
+    let overall: Payload["overall"] = undefined;
+    if (vo.data && vo.data[0]) {
+      const o = vo.data[0] as any;
+      overall = {
+        average: Number(o.overall_avg) || undefined,
+        count: undefined, // we don't track count in this view yet
+      };
     }
 
-    // ---------- Label maps + percent calculation (both branches) ----------
+    // ---------- LABEL MAPS (for nicer keys) ----------
     let freqMap: Record<string, string> = {};
     let profileMap: Record<string, string> = {};
 
@@ -361,14 +180,17 @@ export async function GET(req: Request) {
 
       if (!freqLabels.error && Array.isArray(freqLabels.data)) {
         for (const r of freqLabels.data as any[]) {
-          if (r.frequency_code && r.frequency_name)
+          if (r.frequency_code && r.frequency_name) {
             freqMap[r.frequency_code] = r.frequency_name;
+          }
         }
       }
+
       if (!profileLabels.error && Array.isArray(profileLabels.data)) {
         for (const r of profileLabels.data as any[]) {
-          if (r.profile_code && r.profile_name)
+          if (r.profile_code && r.profile_name) {
             profileMap[r.profile_code] = r.profile_name;
+          }
         }
       }
     }
@@ -383,11 +205,11 @@ export async function GET(req: Request) {
     };
 
     const out: Payload = {
-      frequencies: mapWith(payload.frequencies, freqMap),
-      profiles: mapWith(payload.profiles, profileMap),
-      top3: mapWith(payload.top3, profileMap),
-      bottom3: mapWith(payload.bottom3, profileMap),
-      overall: payload.overall,
+      frequencies: mapWith(frequencies, freqMap),
+      profiles: mapWith(profiles, profileMap),
+      top3: mapWith(top3, profileMap),
+      bottom3: mapWith(bottom3, profileMap),
+      overall,
     };
 
     if (debugMode) {
@@ -397,7 +219,6 @@ export async function GET(req: Request) {
           org: orgSlug,
           testId,
           range: rangeKey,
-          debug: { start, end },
           data_preview: {
             frequencies: out.frequencies.slice(0, 4),
             profiles: out.profiles.slice(0, 4),
