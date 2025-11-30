@@ -1,3 +1,4 @@
+// apps/web/app/api/portal-usage/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -7,102 +8,131 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as strin
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const runtime = "nodejs";
 
-type UsageSummary = {
+type Summary = {
   total_submissions: number;
-  unique_tests: number;
-  unique_links: number;
+  distinct_tests: number;
+  distinct_links: number;
 };
 
-type UsageByTest = {
+type ByTestRow = {
   test_id: string;
   test_name: string;
   test_slug: string | null;
   submissions: number;
-  first_submission: string | null;
-  last_submission: string | null;
 };
 
-type UsageByLink = {
-  link_id: string | null;
+type ByLinkRow = {
+  token: string;
   link_name: string | null;
-  link_token: string | null;
-  test_name: string | null;
+  contact_owner: string | null;
   submissions: number;
-  first_submission: string | null;
-  last_submission: string | null;
 };
 
-type UsageActivityByDay = {
+type ByDayRow = {
   date: string; // YYYY-MM-DD
   submissions: number;
 };
 
 type UsagePayload = {
-  summary: UsageSummary;
-  byTest: UsageByTest[];
-  byLink: UsageByLink[];
-  activityByDay: UsageActivityByDay[];
+  summary: Summary;
+  byTest: ByTestRow[];
+  byLink: ByLinkRow[];
+  byDay: ByDayRow[];
 };
 
-function computeRange(period: string | null): { from: Date | null; to: Date | null } {
-  const now = new Date();
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const year = today.getUTCFullYear();
-  const month = today.getUTCMonth();
+type TimeRangeKey =
+  | "this_week"
+  | "last_week"
+  | "this_month"
+  | "last_month"
+  | "this_year"
+  | "last_year"
+  | "all_time";
 
-  if (!period || period === "all") {
-    return { from: null, to: null };
-  }
+function startOfUTCDay(d: Date) {
+  const c = new Date(d);
+  c.setUTCHours(0, 0, 0, 0);
+  return c;
+}
 
-  const startOfWeek = (d: Date) => {
-    const day = d.getUTCDay(); // 0=Sun
-    const diff = (day + 6) % 7; // make Monday start (0)
-    const monday = new Date(d);
-    monday.setUTCDate(d.getUTCDate() - diff);
-    return new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate()));
-  };
+function addUTCMonths(d: Date, delta: number) {
+  const c = new Date(d);
+  c.setUTCMonth(c.getUTCMonth() + delta);
+  return c;
+}
 
-  const startOfMonth = new Date(Date.UTC(year, month, 1));
-  const startOfYear = new Date(Date.UTC(year, 0, 1));
+function addUTCYears(d: Date, delta: number) {
+  const c = new Date(d);
+  c.setUTCFullYear(c.getUTCFullYear() + delta);
+  return c;
+}
 
-  switch (period) {
-    case "this_week": {
-      const from = startOfWeek(today);
-      const to = new Date(from);
-      to.setUTCDate(from.getUTCDate() + 7);
-      return { from, to };
-    }
-    case "last_week": {
-      const thisWeekStart = startOfWeek(today);
-      const from = new Date(thisWeekStart);
-      from.setUTCDate(thisWeekStart.getUTCDate() - 7);
-      const to = thisWeekStart;
-      return { from, to };
-    }
-    case "this_month": {
-      const from = startOfMonth;
-      const to = new Date(Date.UTC(year, month + 1, 1));
-      return { from, to };
-    }
-    case "last_month": {
-      const from = new Date(Date.UTC(year, month - 1, 1));
-      const to = startOfMonth;
-      return { from, to };
-    }
-    case "this_year": {
-      const from = startOfYear;
-      const to = new Date(Date.UTC(year + 1, 0, 1));
-      return { from, to };
-    }
-    case "last_year": {
-      const from = new Date(Date.UTC(year - 1, 0, 1));
-      const to = startOfYear;
-      return { from, to };
-    }
+function getRange(rangeKeyRaw: string | null): { key: TimeRangeKey; from: string | null; to: string | null } {
+  const key = (rangeKeyRaw || "this_month").toLowerCase() as TimeRangeKey;
+  const today = startOfUTCDay(new Date());
+
+  const dayOfWeek = today.getUTCDay(); // 0 = Sun … 6 = Sat
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  const mondayThisWeek = new Date(today);
+  mondayThisWeek.setUTCDate(today.getUTCDate() - daysSinceMonday);
+  const mondayNextWeek = new Date(mondayThisWeek);
+  mondayNextWeek.setUTCDate(mondayThisWeek.getUTCDate() + 7);
+
+  const firstOfThisMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  const firstOfNextMonth = addUTCMonths(firstOfThisMonth, 1);
+  const firstOfLastMonth = addUTCMonths(firstOfThisMonth, -1);
+
+  const firstOfThisYear = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+  const firstOfNextYear = addUTCYears(firstOfThisYear, 1);
+  const firstOfLastYear = addUTCYears(firstOfThisYear, -1);
+
+  switch (key) {
+    case "this_week":
+      return {
+        key: "this_week",
+        from: mondayThisWeek.toISOString(),
+        to: mondayNextWeek.toISOString(),
+      };
+    case "last_week":
+      return {
+        key: "last_week",
+        from: new Date(mondayThisWeek.getTime() - 7 * 86400000).toISOString(),
+        to: mondayThisWeek.toISOString(),
+      };
+    case "this_month":
+      return {
+        key: "this_month",
+        from: firstOfThisMonth.toISOString(),
+        to: firstOfNextMonth.toISOString(),
+      };
+    case "last_month":
+      return {
+        key: "last_month",
+        from: firstOfLastMonth.toISOString(),
+        to: firstOfThisMonth.toISOString(),
+      };
+    case "this_year":
+      return {
+        key: "this_year",
+        from: firstOfThisYear.toISOString(),
+        to: firstOfNextYear.toISOString(),
+      };
+    case "last_year":
+      return {
+        key: "last_year",
+        from: firstOfLastYear.toISOString(),
+        to: firstOfThisYear.toISOString(),
+      };
+    case "all_time":
+      return { key: "all_time", from: null, to: null };
     default:
-      return { from: null, to: null };
+      // sensible default
+      return {
+        key: "this_month",
+        from: firstOfThisMonth.toISOString(),
+        to: firstOfNextMonth.toISOString(),
+      };
   }
 }
 
@@ -117,8 +147,9 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const orgSlug = (url.searchParams.get("org") || "").trim();
-    const testId = (url.searchParams.get("testId") || "").trim() || null;
-    const period = (url.searchParams.get("period") || "all").trim() || "all";
+    const testSlug = (url.searchParams.get("testSlug") || "").trim() || null;
+    const rangeRaw = url.searchParams.get("range");
+    const { key: rangeKey, from, to } = getRange(rangeRaw);
 
     if (!orgSlug) {
       return NextResponse.json(
@@ -127,146 +158,200 @@ export async function GET(req: Request) {
       );
     }
 
-    const { from, to } = computeRange(period);
-
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const portal = sb.schema("portal");
 
-    // Base rows from the view
-    let query = portal
-      .from("v_usage_submissions")
-      .select("*")
-      .eq("org_slug", orgSlug);
+    // 1) Resolve org
+    const { data: orgRow, error: orgErr } = await portal
+      .from("orgs")
+      .select("id")
+      .eq("slug", orgSlug)
+      .maybeSingle();
 
-    if (testId) {
-      query = query.eq("test_id", testId);
-    }
-    if (from) {
-      query = query.gte("created_at", from.toISOString());
-    }
-    if (to) {
-      query = query.lt("created_at", to.toISOString());
-    }
-
-    const { data: rows, error } = await query;
-
-    if (error) {
+    if (orgErr || !orgRow) {
       return NextResponse.json(
-        { ok: false, error: error.message },
+        { ok: false, error: orgErr?.message || "Org not found" },
+        { status: 404 }
+      );
+    }
+
+    const orgId = orgRow.id as string;
+
+    // 2) Load tests for org
+    const { data: tests, error: testsErr } = await portal
+      .from("tests")
+      .select("id, name, slug, is_default_dashboard, status")
+      .eq("org_id", orgId);
+
+    if (testsErr) {
+      return NextResponse.json(
+        { ok: false, error: testsErr.message },
         { status: 500 }
       );
     }
 
-    const records = Array.isArray(rows) ? rows : [];
+    const activeTests = (tests || []).filter((t: any) => t.status !== "archived");
 
-    // ---- aggregate in Node ----
-    const summary: UsageSummary = {
-      total_submissions: records.length,
-      unique_tests: new Set(records.map((r: any) => r.test_id).filter(Boolean)).size,
-      unique_links: new Set(records.map((r: any) => r.link_id).filter(Boolean)).size,
-    };
+    if (!activeTests.length) {
+      const empty: UsagePayload = {
+        summary: {
+          total_submissions: 0,
+          distinct_tests: 0,
+          distinct_links: 0,
+        },
+        byTest: [],
+        byLink: [],
+        byDay: [],
+      };
+      return NextResponse.json(
+        { ok: true, org: orgSlug, testSlug: null, range: rangeKey, data: empty },
+        { status: 200 }
+      );
+    }
 
-    const byTestMap = new Map<string, UsageByTest>();
-    const byLinkMap = new Map<string, UsageByLink>();
-    const dayMap = new Map<string, number>();
+    let selectedTest: any | null = null;
+    if (testSlug) {
+      selectedTest = activeTests.find((t: any) => t.slug === testSlug) || null;
+    }
+    if (!selectedTest) {
+      selectedTest =
+        activeTests.find((t: any) => t.is_default_dashboard) || activeTests[0];
+    }
 
-    for (const r of records as any[]) {
-      const testIdKey = String(r.test_id);
-      const linkIdKey = r.link_id ? String(r.link_id) : `no-link:${r.test_id || "unknown"}`;
-      const created = r.created_at ? new Date(r.created_at) : null;
-      const dayKey = created
-        ? created.toISOString().slice(0, 10) // YYYY-MM-DD
-        : null;
+    const effectiveTestIds: string[] = selectedTest
+      ? [selectedTest.id as string]
+      : activeTests.map((t: any) => t.id as string);
 
-      // by test
-      const existingTest = byTestMap.get(testIdKey);
-      if (!existingTest) {
-        byTestMap.set(testIdKey, {
-          test_id: testIdKey,
-          test_name: r.test_name || "Unknown test",
-          test_slug: r.test_slug || null,
-          submissions: 1,
-          first_submission: r.created_at || null,
-          last_submission: r.created_at || null,
-        });
-      } else {
-        existingTest.submissions += 1;
-        if (
-          r.created_at &&
-          (!existingTest.first_submission ||
-            r.created_at < existingTest.first_submission)
-        ) {
-          existingTest.first_submission = r.created_at;
+    // 3) Load submissions for those tests within the time window
+    let subsQuery = portal
+      .from("test_submissions")
+      .select("id, test_id, link_token, created_at")
+      .in("test_id", effectiveTestIds);
+
+    if (from) subsQuery = subsQuery.gte("created_at", from);
+    if (to) subsQuery = subsQuery.lt("created_at", to);
+
+    const { data: subs, error: subsErr } = await subsQuery;
+
+    if (subsErr) {
+      return NextResponse.json(
+        { ok: false, error: subsErr.message },
+        { status: 500 }
+      );
+    }
+
+    const submissions = subs || [];
+
+    const total_submissions = submissions.length;
+
+    const testIdSet = new Set<string>();
+    const linkTokenSet = new Set<string>();
+
+    for (const s of submissions as any[]) {
+      if (s.test_id) testIdSet.add(String(s.test_id));
+      if (s.link_token) linkTokenSet.add(String(s.link_token));
+    }
+
+    const distinct_tests = testIdSet.size;
+
+    // 4) Load link metadata for those tokens
+    let linksByToken: Record<string, { name: string | null; contact_owner: string | null }> =
+      {};
+
+    if (linkTokenSet.size) {
+      const { data: linkRows, error: linksErr } = await portal
+        .from("test_links")
+        .select("token, name, contact_owner")
+        .in("token", Array.from(linkTokenSet));
+
+      if (!linksErr && Array.isArray(linkRows)) {
+        for (const r of linkRows as any[]) {
+          if (!r.token) continue;
+          linksByToken[String(r.token)] = {
+            name: r.name ?? null,
+            contact_owner: r.contact_owner ?? null,
+          };
         }
-        if (
-          r.created_at &&
-          (!existingTest.last_submission ||
-            r.created_at > existingTest.last_submission)
-        ) {
-          existingTest.last_submission = r.created_at;
-        }
-      }
-
-      // by link
-      const existingLink = byLinkMap.get(linkIdKey);
-      if (!existingLink) {
-        byLinkMap.set(linkIdKey, {
-          link_id: r.link_id || null,
-          link_name: r.link_name || null,
-          link_token: r.link_token || null,
-          test_name: r.test_name || null,
-          submissions: 1,
-          first_submission: r.created_at || null,
-          last_submission: r.created_at || null,
-        });
-      } else {
-        existingLink.submissions += 1;
-        if (
-          r.created_at &&
-          (!existingLink.first_submission ||
-            r.created_at < existingLink.first_submission)
-        ) {
-          existingLink.first_submission = r.created_at;
-        }
-        if (
-          r.created_at &&
-          (!existingLink.last_submission ||
-            r.created_at > existingLink.last_submission)
-        ) {
-          existingLink.last_submission = r.created_at;
-        }
-      }
-
-      // activity by day
-      if (dayKey) {
-        dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
       }
     }
 
-    const byTest: UsageByTest[] = Array.from(byTestMap.values()).sort((a, b) =>
-      a.test_name.localeCompare(b.test_name)
-    );
-    const byLink: UsageByLink[] = Array.from(byLinkMap.values()).sort((a, b) =>
-      (a.link_name || "").localeCompare(b.link_name || "")
-    );
-    const activityByDay: UsageActivityByDay[] = Array.from(dayMap.entries())
-      .map(([date, submissions]) => ({ date, submissions }))
+    // 5) Aggregate by test
+    const testsById: Record<string, any> = {};
+    for (const t of activeTests) {
+      testsById[String(t.id)] = t;
+    }
+
+    const byTestMap = new Map<string, number>();
+    const byLinkMap = new Map<string, number>();
+    const byDayMap = new Map<string, number>();
+
+    for (const s of submissions as any[]) {
+      const testId = String(s.test_id);
+      const token = s.link_token ? String(s.link_token) : null;
+      const createdAt: string = s.created_at;
+
+      // per-test
+      byTestMap.set(testId, (byTestMap.get(testId) || 0) + 1);
+
+      // per-link
+      if (token) {
+        byLinkMap.set(token, (byLinkMap.get(token) || 0) + 1);
+      }
+
+      // per-day (UTC date)
+      if (createdAt) {
+        const day = createdAt.slice(0, 10); // YYYY-MM-DD
+        byDayMap.set(day, (byDayMap.get(day) || 0) + 1);
+      }
+    }
+
+    const byTest: ByTestRow[] = Array.from(byTestMap.entries())
+      .map(([testId, count]) => {
+        const t = testsById[testId];
+        return {
+          test_id: testId,
+          test_name: t?.name ?? "(Unknown test)",
+          test_slug: t?.slug ?? null,
+          submissions: count,
+        };
+      })
+      .sort((a, b) => b.submissions - a.submissions);
+
+    const byLink: ByLinkRow[] = Array.from(byLinkMap.entries())
+      .map(([token, count]) => {
+        const meta = linksByToken[token] || { name: null, contact_owner: null };
+        return {
+          token,
+          link_name: meta.name,
+          contact_owner: meta.contact_owner,
+          submissions: count,
+        };
+      })
+      .sort((a, b) => b.submissions - a.submissions);
+
+    const byDay: ByDayRow[] = Array.from(byDayMap.entries())
+      .map(([date, count]) => ({ date, submissions: count }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
+    const distinct_links = byLink.length;
+
     const payload: UsagePayload = {
-      summary,
+      summary: {
+        total_submissions,
+        distinct_tests,
+        distinct_links,
+      },
       byTest,
       byLink,
-      activityByDay,
+      byDay,
     };
 
     return NextResponse.json(
       {
         ok: true,
         org: orgSlug,
-        period,
-        from: from ? from.toISOString() : null,
-        to: to ? to.toISOString() : null,
+        testSlug: selectedTest?.slug ?? null,
+        range: rangeKey,
         data: payload,
       },
       { status: 200 }
@@ -278,3 +363,4 @@ export async function GET(req: Request) {
     );
   }
 }
+
