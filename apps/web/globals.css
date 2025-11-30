@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brand tokens */
+:root{
+  --bg-base:#0b1520;              /* base page color under panels */
+  --panel:rgba(255,255,255,.05);  /* glass cards */
+  --brand-blue:#2d8fc4;
+  --brand-blue-light:#64bae2;
+}
+
+html, body {
+  background: var(--bg-base);
+  color: white;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Optional: subtle focus ring normalization for dark UI */
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--brand-blue) 70%, white);
+  outline-offset: 2px;
+}

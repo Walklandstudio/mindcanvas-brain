@@ -17,25 +17,66 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string>('');
 
-  // If already logged in, go straight to dashboard
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) router.replace('/dashboard');
-    })();
-  }, [router, supabase]);
+  // ✅ Team Puzzle client emails
+  const teamPuzzleEmails = [
+    'stevep@teba.com.au',
+    'info@lifepuzzle.com.au',
+    'chandell@lifepuzzle.com.au',
+  ];
 
-  async function afterAuth() {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
+  /**
+   * Central redirect logic:
+   *
+   * 1) If email is one of the Team Puzzle client emails
+   *    → FULL PAGE NAVIGATION to /portal/team-puzzle/dashboard
+   *
+   * 2) Everyone else
+   *    → original /api/bootstrap + /dashboard behaviour
+   */
+  async function redirectAfterAuth(explicitEmail?: string) {
+    let userEmail = explicitEmail?.toLowerCase();
+
+    // If no email passed in (eg. user hits /login while already signed in),
+    // look it up from Supabase.
+    if (!userEmail) {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user?.email) {
+        return;
+      }
+      userEmail = data.user.email.toLowerCase();
+    }
+
+    // 🎯 Case 1: Team Puzzle – do a FULL reload into the portal
+    if (teamPuzzleEmails.includes(userEmail)) {
+      // Full page navigation so auth cookies are guaranteed to be present
+      window.location.href = '/portal/team-puzzle/dashboard';
+      return;
+    }
+
+    // 🧩 Case 2: everyone else – existing bootstrap → /dashboard behaviour
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    const token = session?.access_token;
+
     if (token) {
       await fetch('/api/bootstrap', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
     }
+
     router.replace('/dashboard');
   }
+
+  // If already logged in and user hits /login, redirect them appropriately
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) return;
+      await redirectAfterAuth();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,18 +85,29 @@ export default function Login() {
 
     try {
       if (mode === 'signin') {
-        const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+        const { error, data } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
         if (error) throw error;
-        if (data.user) await afterAuth();
+
+        if (data.user) {
+          const userEmail = data.user.email?.toLowerCase();
+          await redirectAfterAuth(userEmail);
+        }
       } else {
-        const { error, data } = await supabase.auth.signUp({ email, password });
+        const { error, data } = await supabase.auth.signUp({
+          email,
+          password,
+        });
         if (error) throw error;
 
         // If email confirmations are ON, user must verify before they can sign in
         if (data.user && !data.session) {
           setMsg('✅ Account created. Please check your email to verify, then sign in.');
-        } else {
-          await afterAuth();
+        } else if (data.user && data.session) {
+          const userEmail = data.user.email?.toLowerCase();
+          await redirectAfterAuth(userEmail);
         }
       }
     } catch (err: any) {
@@ -67,20 +119,26 @@ export default function Login() {
 
   return (
     <main className="mx-auto max-w-md p-8 space-y-6">
-      <h1 className="text-2xl font-semibold">Sign {mode === 'signin' ? 'in' : 'up'}</h1>
+      <h1 className="text-2xl font-semibold">
+        Sign {mode === 'signin' ? 'in' : 'up'}
+      </h1>
 
       <div className="flex gap-2 text-sm">
         <button
           type="button"
           onClick={() => setMode('signin')}
-          className={`rounded px-3 py-1 border ${mode === 'signin' ? 'bg-black text-white' : ''}`}
+          className={`rounded px-3 py-1 border ${
+            mode === 'signin' ? 'bg-black text-white' : ''
+          }`}
         >
           Sign in
         </button>
         <button
           type="button"
           onClick={() => setMode('signup')}
-          className={`rounded px-3 py-1 border ${mode === 'signup' ? 'bg-black text-white' : ''}`}
+          className={`rounded px-3 py-1 border ${
+            mode === 'signup' ? 'bg-black text-white' : ''
+          }`}
         >
           Create account
         </button>
@@ -107,15 +165,24 @@ export default function Login() {
           disabled={loading}
           className="rounded-md bg-black px-4 py-2 text-white disabled:opacity-60"
         >
-          {loading ? (mode === 'signin' ? 'Signing in…' : 'Creating…') : (mode === 'signin' ? 'Sign in' : 'Create account')}
+          {loading
+            ? mode === 'signin'
+              ? 'Signing in…'
+              : 'Creating…'
+            : mode === 'signin'
+            ? 'Sign in'
+            : 'Create account'}
         </button>
       </form>
 
       {msg && <div className="text-sm">{msg}</div>}
 
       <div className="text-sm">
-        <a className="underline" href="/logout">Sign out</a>
+        <a className="underline" href="/logout">
+          Sign out
+        </a>
       </div>
     </main>
   );
 }
+

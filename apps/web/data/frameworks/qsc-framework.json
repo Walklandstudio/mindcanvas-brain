@@ -1,0 +1,109 @@
+{
+  "code": "QSC",
+  "name": "Quantum Source Code Diagnostic",
+  "description": "A 5-minute diagnostic that combines buyer Personality and Mindset to produce a predictive Quantum Profile for sales and growth decisions.",
+  "owner": "profiletest.ai",
+  "version": 1,
+
+  "personalityLayers": [
+    {
+      "code": "A",
+      "key": "fire",
+      "label": "Fire",
+      "shortLabel": "Fire (A)",
+      "summary": "Fast, bold, decisive, driven. Moves quickly, makes bold calls, and is motivated by challenge and momentum."
+    },
+    {
+      "code": "B",
+      "key": "flow",
+      "label": "Flow",
+      "shortLabel": "Flow (B)",
+      "summary": "Relational, intuitive, collaborative. Values connection, trust, and co-creation in decisions and buying."
+    },
+    {
+      "code": "C",
+      "key": "form",
+      "label": "Form",
+      "shortLabel": "Form (C)",
+      "summary": "Structured, organised, consistent. Prefers plans, processes, and predictable systems before committing."
+    },
+    {
+      "code": "D",
+      "key": "field",
+      "label": "Field",
+      "shortLabel": "Field (D)",
+      "summary": "Analytical, precise, strategic. Looks for data, logic, and long-term alignment before moving forward."
+    }
+  ],
+
+  "mindsetLayers": [
+    {
+      "level": 1,
+      "key": "origin",
+      "label": "Origin – Mindset Level 1",
+      "summary": "Early stage, inconsistent, and still clarifying offers, audience, and direction."
+    },
+    {
+      "level": 2,
+      "key": "momentum",
+      "label": "Momentum – Mindset Level 2",
+      "summary": "Has some traction and revenue but growth is inconsistent and dependent on the founder."
+    },
+    {
+      "level": 3,
+      "key": "vector",
+      "label": "Vector – Mindset Level 3",
+      "summary": "Clear direction with growing systems, starting to think in scale instead of survival."
+    },
+    {
+      "level": 4,
+      "key": "orbit",
+      "label": "Orbit – Mindset Level 4",
+      "summary": "Stable business with leverage, team support, and room for strategic innovation."
+    },
+    {
+      "level": 5,
+      "key": "quantum",
+      "label": "Quantum – Mindset Level 5",
+      "summary": "Scaled, strategic, partnership-focused, and looking at legacy, impact, and collaboration."
+    }
+  ],
+
+  "combinedProfiles": [
+    { "code": "A1", "personalityCode": "A", "mindsetLevel": 1, "label": "Fire Origin" },
+    { "code": "A2", "personalityCode": "A", "mindsetLevel": 2, "label": "Fire Momentum" },
+    { "code": "A3", "personalityCode": "A", "mindsetLevel": 3, "label": "Fire Vector" },
+    { "code": "A4", "personalityCode": "A", "mindsetLevel": 4, "label": "Fire Orbit" },
+    { "code": "A5", "personalityCode": "A", "mindsetLevel": 5, "label": "Fire Quantum" },
+
+    { "code": "B1", "personalityCode": "B", "mindsetLevel": 1, "label": "Flow Origin" },
+    { "code": "B2", "personalityCode": "B", "mindsetLevel": 2, "label": "Flow Momentum" },
+    { "code": "B3", "personalityCode": "B", "mindsetLevel": 3, "label": "Flow Vector" },
+    { "code": "B4", "personalityCode": "B", "mindsetLevel": 4, "label": "Flow Orbit" },
+    { "code": "B5", "personalityCode": "B", "mindsetLevel": 5, "label": "Flow Quantum" },
+
+    { "code": "C1", "personalityCode": "C", "mindsetLevel": 1, "label": "Form Origin" },
+    { "code": "C2", "personalityCode": "C", "mindsetLevel": 2, "label": "Form Momentum" },
+    { "code": "C3", "personalityCode": "C", "mindsetLevel": 3, "label": "Form Vector" },
+    { "code": "C4", "personalityCode": "C", "mindsetLevel": 4, "label": "Form Orbit" },
+    { "code": "C5", "personalityCode": "C", "mindsetLevel": 5, "label": "Form Quantum" },
+
+    { "code": "D1", "personalityCode": "D", "mindsetLevel": 1, "label": "Field Origin" },
+    { "code": "D2", "personalityCode": "D", "mindsetLevel": 2, "label": "Field Momentum" },
+    { "code": "D3", "personalityCode": "D", "mindsetLevel": 3, "label": "Field Vector" },
+    { "code": "D4", "personalityCode": "D", "mindsetLevel": 4, "label": "Field Orbit" },
+    { "code": "D5", "personalityCode": "D", "mindsetLevel": 5, "label": "Field Quantum" }
+  ],
+
+  "reportConfig": {
+    "sections": [
+      { "key": "overview", "title": "Your Quantum Profile Overview" },
+      { "key": "personality", "title": "Your Personality Layer" },
+      { "key": "mindset", "title": "Your Mindset Layer" },
+      { "key": "priorities", "title": "Your Strategic Growth Priorities" },
+      { "key": "roadmap", "title": "Your Growth Roadmap" },
+      { "key": "communication", "title": "Communication + Decision Style Guide" },
+      { "key": "summary", "title": "Your One-Page Quantum Summary" }
+    ]
+  }
+}

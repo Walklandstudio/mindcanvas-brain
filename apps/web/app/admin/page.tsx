@@ -23,6 +23,7 @@ export default async function AdminPage() {
         </p>
       )}
 
+      {/* Organisations section (unchanged) */}
       <section style={{ marginTop: 16 }}>
         <h2 style={{ fontSize: 18, fontWeight: 600 }}>Organizations</h2>
         <p style={{ marginTop: 6, color: '#555' }}>
@@ -47,19 +48,35 @@ export default async function AdminPage() {
               <input type="hidden" name="orgId" value={o.id} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>{o.name}</div>
-                <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#666' }}>{o.slug}</div>
+                <div
+                  style={{
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: '#666',
+                  }}
+                >
+                  {o.slug}
+                </div>
               </div>
               <button
                 type="submit"
                 name="mode"
                 value="switch"
-                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #ddd',
+                }}
               >
                 Set Active
               </button>
               <Link
                 href={`/portal/${o.slug}`}
-                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #ddd',
+                }}
               >
                 Open portal
               </Link>
@@ -68,6 +85,7 @@ export default async function AdminPage() {
         </div>
       </section>
 
+      {/* Diagnostics (unchanged) */}
       <section style={{ marginTop: 24 }}>
         <h2 style={{ fontSize: 18, fontWeight: 600 }}>Diagnostics</h2>
         <ul style={{ marginTop: 8 }}>
@@ -78,6 +96,29 @@ export default async function AdminPage() {
           </li>
         </ul>
       </section>
+
+      {/* ✅ NEW: Usage & Analytics section */}
+      <section style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Usage & Analytics</h2>
+        <p style={{ marginTop: 6, color: '#555' }}>
+          View completed test submissions by organisation, test, and link over different time ranges.
+        </p>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link
+            href="/admin/usage"
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: '1px solid #ddd',
+              textDecoration: 'none',
+              fontSize: 14,
+            }}
+          >
+            Open Usage dashboard
+          </Link>
+        </div>
+      </section>
     </main>
   );
 }
+

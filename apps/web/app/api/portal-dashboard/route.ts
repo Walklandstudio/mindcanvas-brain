@@ -1,3 +1,4 @@
+// apps/web/app/api/portal-dashboard/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -8,7 +9,6 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as strin
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// ----- helpers -----
 type KV = { key: string; value: number; percent?: string };
 type Payload = {
   frequencies: KV[];
@@ -24,55 +24,25 @@ const sum = (rows: { value: number }[]) =>
 const pct = (n: number, total: number) =>
   !total ? "0%" : `${((n * 100) / total).toFixed(1)}%`;
 
-// pick a label-ish field
-const pickKey = (row: any): string => {
-  const cands = [
-    "label","name","key",
-    "frequency_name","profile_name",
-    "frequency_code","profile_code",
-    "frequency","profile","code","id","slug"
-  ];
-  for (const k of cands) if (row && row[k] != null) return String(row[k]);
-  for (const [k, v] of Object.entries(row || {})) if (typeof v === "string") return v as string;
-  return "";
-};
-// pick a numeric field
-const pickValue = (row: any): number => {
-  const cands = ["value","avg","average","score","count","total"];
-  for (const k of cands) if (row && row[k] != null) return Number(row[k]);
-  for (const [, v] of Object.entries(row || {})) if (typeof v === "number") return v as number;
-  return 0;
-};
-
-const toKV = (rows: any): KV[] =>
-  Array.isArray(rows) ? rows.map((r) => ({ key: pickKey(r), value: pickValue(r) })) : [];
-
-const parseMaybeJSON = (x: any) => {
-  if (Array.isArray(x)) return x;
-  if (typeof x === "string") {
-    try { const j = JSON.parse(x); return Array.isArray(j) ? j : []; } catch {}
-  }
-  return [];
-};
-
-const withPercent = (rows: KV[]): KV[] => {
-  const total = sum(rows);
-  return rows.map(r => ({ ...r, percent: pct(Number(r.value) || 0, total) }));
-};
-
+// --- helper to get a default test for an org (if none explicitly chosen) ---
 async function getTestIdForOrg(portal: any, orgSlug: string) {
-  // Try view first (active test), then tests table
-  const v = await portal.from("v_org_tests")
-    .select("*").eq("org_slug", orgSlug)
+  const v = await portal
+    .from("v_org_tests")
+    .select("*")
+    .eq("org_slug", orgSlug)
     .order("is_active", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(1);
+
   if (!v.error && v.data?.[0]?.test_id) return String(v.data[0].test_id);
 
-  const t = await portal.from("tests")
-    .select("id").eq("org_slug", orgSlug)
+  const t = await portal
+    .from("tests")
+    .select("id")
+    .eq("org_slug", orgSlug)
     .order("created_at", { ascending: false })
     .limit(1);
+
   if (!t.error && t.data?.[0]?.id) return String(t.data[0].id);
 
   return null;
@@ -81,110 +51,153 @@ async function getTestIdForOrg(portal: any, orgSlug: string) {
 export async function GET(req: Request) {
   try {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json({ ok: false, error: "Supabase env not configured" }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "Supabase env not configured" },
+        { status: 500 }
+      );
     }
+
     const sb: any = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const portal = sb.schema("portal");
 
     const url = new URL(req.url);
     const orgSlug = (url.searchParams.get("org") || "").trim();
-    const explicitTestId = (url.searchParams.get("testId") || "").trim() || null;
+    const explicitTestId =
+      (url.searchParams.get("testId") || "").trim() || null;
+
+    // NOTE: range is currently accepted but not applied to data yet
+    const rangeKey = (url.searchParams.get("range") || "all_time").trim();
     const debugMode = url.searchParams.get("debug") === "1";
-    if (!orgSlug) return NextResponse.json({ ok: false, error: "Missing ?org=slug" }, { status: 400 });
 
-    // ---------- 1) consolidated fast-path ----------
-    let payload: Payload | null = null;
-    const c = await portal.from("v_dashboard_consolidated")
-      .select("*").eq("org_slug", orgSlug).limit(1);
-
-    let dbg: any = { steps: [] as any[] };
-
-    if (!c.error && Array.isArray(c.data) && c.data.length) {
-      const row: any = c.data[0] || {};
-      const frequencies = toKV(parseMaybeJSON(row.frequencies));
-      const profiles    = toKV(parseMaybeJSON(row.profiles));
-      const top3        = toKV(parseMaybeJSON(row.top3));
-      const bottom3     = toKV(parseMaybeJSON(row.bottom3));
-      const overall     = row.overall ?? undefined;
-
-      payload = { frequencies, profiles, top3, bottom3, overall };
-      dbg.steps.push({ src: "consolidated", sizes: {
-        frequencies: frequencies.length, profiles: profiles.length,
-        top3: top3.length, bottom3: bottom3.length, overall: overall ? 1 : 0
-      }});
+    if (!orgSlug) {
+      return NextResponse.json(
+        { ok: false, error: "Missing ?org=slug" },
+        { status: 400 }
+      );
     }
 
-    // ---------- 2) per-view fallback ----------
-    if (!payload || (
-      payload.frequencies.length === 0 &&
-      payload.profiles.length === 0 &&
-      payload.top3.length === 0 &&
-      payload.bottom3.length === 0
-    )) {
-      const [vf, vp, vt, vb, vo] = await Promise.all([
-        portal.from("v_dashboard_avg_frequency").select("*").eq("org_slug", orgSlug),
-        portal.from("v_dashboard_avg_profile").select("*").eq("org_slug", orgSlug),
-        portal.from("v_dashboard_top3_profiles").select("*").eq("org_slug", orgSlug),
-        portal.from("v_dashboard_bottom3_profiles").select("*").eq("org_slug", orgSlug),
-        portal.from("v_dashboard_overall_avg").select("*").eq("org_slug", orgSlug).limit(1),
-      ]);
-
-      const frequencies = !vf.error ? toKV(vf.data) : [];
-      const profiles    = !vp.error ? toKV(vp.data) : [];
-      const top3        = !vt.error ? toKV(vt.data) : [];
-      const bottom3     = !vb.error ? toKV(vb.data) : [];
-
-      let overall: Payload["overall"] = undefined;
-      if (!vo.error && Array.isArray(vo.data) && vo.data[0]) {
-        const o = vo.data[0] as any;
-        overall = { average: Number(o.average ?? o.avg ?? o.value) || undefined,
-                    count: Number(o.count ?? o.total) || undefined };
-      }
-
-      payload = { frequencies, profiles, top3, bottom3, overall };
-      dbg.steps.push({
-        src: "per_views",
-        sizes: {
-          frequencies: frequencies.length, profiles: profiles.length,
-          top3: top3.length, bottom3: bottom3.length, overall: overall ? 1 : 0
-        },
-        samples: {
-          avg_frequency: vf.data?.slice?.(0,2) ?? null,
-          avg_profile:   vp.data?.slice?.(0,2) ?? null
-        }
-      });
-    }
-
-    // ---------- 3) optional label maps ----------
     const testId = explicitTestId || (await getTestIdForOrg(portal, orgSlug));
+
+    // ---------- MAIN DASHBOARD QUERIES (all-time) ----------
+    let vfQuery = portal
+      .from("v_dashboard_avg_frequency")
+      .select("org_slug,test_id,frequency_code,frequency_name,avg_points")
+      .eq("org_slug", orgSlug);
+
+    let vpQuery = portal
+      .from("v_dashboard_avg_profile")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points")
+      .eq("org_slug", orgSlug);
+
+    let vtQuery = portal
+      .from("v_dashboard_top3_profiles")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
+      .eq("org_slug", orgSlug);
+
+    let vbQuery = portal
+      .from("v_dashboard_bottom3_profiles")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
+      .eq("org_slug", orgSlug);
+
+    let voQuery = portal
+      .from("v_dashboard_overall_avg")
+      .select("org_slug,test_id,overall_avg")
+      .eq("org_slug", orgSlug)
+      .limit(1);
+
+    if (testId) {
+      vfQuery = vfQuery.eq("test_id", testId);
+      vpQuery = vpQuery.eq("test_id", testId);
+      vtQuery = vtQuery.eq("test_id", testId);
+      vbQuery = vbQuery.eq("test_id", testId);
+      voQuery = voQuery.eq("test_id", testId);
+    }
+
+    const [vf, vp, vt, vb, vo] = await Promise.all([
+      vfQuery,
+      vpQuery,
+      vtQuery,
+      vbQuery,
+      voQuery,
+    ]);
+
+    if (vf.error) throw vf.error;
+    if (vp.error) throw vp.error;
+    if (vt.error) throw vt.error;
+    if (vb.error) throw vb.error;
+    if (vo.error) throw vo.error;
+
+    const frequencies: KV[] = (vf.data || []).map((r: any) => ({
+      key: r.frequency_name || r.frequency_code || "",
+      value: Number(r.avg_points) || 0,
+    }));
+
+    const profiles: KV[] = (vp.data || []).map((r: any) => ({
+      key: r.profile_name || r.profile_code || "",
+      value: Number(r.avg_points) || 0,
+    }));
+
+    const top3: KV[] = (vt.data || [])
+      .slice()
+      .sort((a: any, b: any) => (a.rnk ?? 999) - (b.rnk ?? 999))
+      .map((r: any) => ({
+        key: r.profile_name || r.profile_code || "",
+        value: Number(r.avg_points) || 0,
+      }));
+
+    const bottom3: KV[] = (vb.data || [])
+      .slice()
+      .sort((a: any, b: any) => (a.rnk ?? 999) - (b.rnk ?? 999))
+      .map((r: any) => ({
+        key: r.profile_name || r.profile_code || "",
+        value: Number(r.avg_points) || 0,
+      }));
+
+    let overall: Payload["overall"] = undefined;
+    if (vo.data && vo.data[0]) {
+      const o = vo.data[0] as any;
+      overall = {
+        average: Number(o.overall_avg) || undefined,
+        count: undefined, // we don't track count in this view yet
+      };
+    }
+
+    // ---------- LABEL MAPS (for nicer keys) ----------
     let freqMap: Record<string, string> = {};
     let profileMap: Record<string, string> = {};
 
     if (testId) {
       const [freqLabels, profileLabels] = await Promise.all([
-        portal.from("test_frequency_labels")
-              .select("frequency_code,frequency_name").eq("test_id", testId),
-        portal.from("test_profile_labels")
-              .select("profile_code,profile_name").eq("test_id", testId),
+        portal
+          .from("test_frequency_labels")
+          .select("frequency_code,frequency_name")
+          .eq("test_id", testId),
+        portal
+          .from("test_profile_labels")
+          .select("profile_code,profile_name")
+          .eq("test_id", testId),
       ]);
+
       if (!freqLabels.error && Array.isArray(freqLabels.data)) {
         for (const r of freqLabels.data as any[]) {
-          if (r.frequency_code && r.frequency_name) freqMap[r.frequency_code] = r.frequency_name;
+          if (r.frequency_code && r.frequency_name) {
+            freqMap[r.frequency_code] = r.frequency_name;
+          }
         }
       }
+
       if (!profileLabels.error && Array.isArray(profileLabels.data)) {
         for (const r of profileLabels.data as any[]) {
-          if (r.profile_code && r.profile_name) profileMap[r.profile_code] = r.profile_name;
+          if (r.profile_code && r.profile_name) {
+            profileMap[r.profile_code] = r.profile_name;
+          }
         }
       }
-      dbg.steps.push({ src: "labels", testId, freqLabels: Object.keys(freqMap).length, profileLabels: Object.keys(profileMap).length });
-    } else {
-      dbg.steps.push({ src: "labels", testId: null });
     }
 
-    const mapWith = (rows: KV[], map: Record<string,string>) => {
+    const mapWith = (rows: KV[], map: Record<string, string>) => {
       const total = sum(rows);
-      return rows.map(r => ({
+      return rows.map((r) => ({
         ...r,
         key: map[r.key] || r.key,
         percent: pct(Number(r.value) || 0, total),
@@ -192,25 +205,41 @@ export async function GET(req: Request) {
     };
 
     const out: Payload = {
-      frequencies: mapWith(payload!.frequencies, freqMap),
-      profiles: mapWith(payload!.profiles, profileMap),
-      top3: mapWith(payload!.top3, profileMap),
-      bottom3: mapWith(payload!.bottom3, profileMap),
-      overall: payload!.overall,
+      frequencies: mapWith(frequencies, freqMap),
+      profiles: mapWith(profiles, profileMap),
+      top3: mapWith(top3, profileMap),
+      bottom3: mapWith(bottom3, profileMap),
+      overall,
     };
 
     if (debugMode) {
-      return NextResponse.json({ ok: true, org: orgSlug, testId, debug: dbg, data_preview: {
-        frequencies: out.frequencies.slice(0,4),
-        profiles: out.profiles.slice(0,4),
-        top3: out.top3,
-        bottom3: out.bottom3,
-        overall: out.overall
-      } }, { status: 200 });
+      return NextResponse.json(
+        {
+          ok: true,
+          org: orgSlug,
+          testId,
+          range: rangeKey,
+          data_preview: {
+            frequencies: out.frequencies.slice(0, 4),
+            profiles: out.profiles.slice(0, 4),
+            top3: out.top3,
+            bottom3: out.bottom3,
+            overall: out.overall,
+          },
+        },
+        { status: 200 }
+      );
     }
 
-    return NextResponse.json({ ok: true, org: orgSlug, testId, data: out }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, org: orgSlug, testId, range: rangeKey, data: out },
+      { status: 200 }
+    );
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Server error" },
+      { status: 500 }
+    );
   }
 }
+
