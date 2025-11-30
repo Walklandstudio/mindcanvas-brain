@@ -164,7 +164,8 @@ const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
 };
 
 function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
-  const total = data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
+  const total =
+    data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
 
   const radius = 60;
   const strokeWidth = 20;
@@ -211,12 +212,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
       })}
 
       {/* Inner circle */}
-      <circle
-        cx={center}
-        cy={center}
-        r={radius - strokeWidth}
-        fill="#020617"
-      />
+      <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
 
       <text
         x={center}
@@ -224,7 +220,10 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         textAnchor="middle"
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
-        style={{ fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif" }}
+        style={{
+          fontFamily:
+            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        }}
       >
         BUYER
       </text>
@@ -234,7 +233,10 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         textAnchor="middle"
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
-        style={{ fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif" }}
+        style={{
+          fontFamily:
+            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        }}
       >
         FREQUENCY
       </text>
@@ -276,15 +278,19 @@ export default function QscResultPage({ params }: { params: { token: string } })
           );
         }
 
-        const j = (await res.json()) as { ok?: boolean; error?: string } & QscPayload;
-        if (!res.ok || j.ok === false) {
-          throw new Error(j.error || `HTTP ${res.status}`);
+        const j = (await res.json()) as
+          | ({ ok?: boolean; error?: string } & QscPayload)
+          | { ok?: boolean; error?: string };
+
+        if (!res.ok || (j as any).ok === false) {
+          throw new Error((j as any).error || `HTTP ${res.status}`);
         }
 
+        const cast = j as any;
         if (alive) {
           setPayload({
-            results: j.results,
-            profile: j.profile ?? null,
+            results: cast.results,
+            profile: cast.profile ?? null,
           });
         }
       } catch (e: any) {
@@ -364,10 +370,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
     value: personalityPerc[p.key] ?? 0,
   }));
 
-  const extendedReportHref =
-    tid && typeof window !== "undefined"
-      ? `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`
-      : `/qsc/${encodeURIComponent(token)}/report`;
+  const extendedReportHref = tid
+    ? `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`
+    : `/qsc/${encodeURIComponent(token)}/report`;
 
   // ---------------------------------------------------------------------------
   // Main layout
@@ -376,9 +381,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
-        {/* ----------------------------------------------------------------- */}
-        {/* Snapshot header                                                   */}
-        {/* ----------------------------------------------------------------- */}
+        {/* Snapshot header */}
         <section className="space-y-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
@@ -390,9 +393,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
               </h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 This view combines your{" "}
-                <span className="font-semibold">Buyer Frequency Type</span>{" "}
-                and <span className="font-semibold">Buyer Mindset Level</span>{" "}
-                into one Quantum Source Code profile.
+                <span className="font-semibold">Buyer Frequency Type</span> and{" "}
+                <span className="font-semibold">Buyer Mindset Level</span> into
+                one Quantum Source Code profile.
               </p>
             </div>
 
@@ -413,7 +416,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
                 Combined profile
               </p>
-              <h2 className="mt-3 text-2xl font-semibold">{primaryPersonaLabel}</h2>
+              <h2 className="mt-3 text-2xl font-semibold">
+                {primaryPersonaLabel}
+              </h2>
               <p className="mt-1 text-xs text-slate-400">
                 Code:{" "}
                 <span className="font-mono text-slate-100">
@@ -476,14 +481,19 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
               <div className="space-y-3 text-sm">
                 <div>
-                  <h3 className="font-semibold text-slate-100">How to communicate</h3>
+                  <h3 className="font-semibold text-slate-100">
+                    How to communicate
+                  </h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.how_to_communicate || "[todo: how to communicate]"}
+                    {profile?.how_to_communicate ||
+                      "[todo: how to communicate]"}
                   </p>
                 </div>
 
                 <div>
-                  <h3 className="font-semibold text-slate-100">Decision style</h3>
+                  <h3 className="font-semibold text-slate-100">
+                    Decision style
+                  </h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
                     {profile?.decision_style || "[todo: decision style]"}
                   </p>
@@ -491,13 +501,18 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <h3 className="font-semibold text-slate-100">Core challenges</h3>
+                    <h3 className="font-semibold text-slate-100">
+                      Core challenges
+                    </h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.business_challenges || "[todo: core business challenges]"}
+                      {profile?.business_challenges ||
+                        "[todo: core business challenges]"}
                     </p>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-100">Trust signals</h3>
+                    <h3 className="font-semibold text-slate-100">
+                      Trust signals
+                    </h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
                       {profile?.trust_signals || "[todo: trust signals]"}
                     </p>
@@ -506,15 +521,20 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <h3 className="font-semibold text-slate-100">Offer fit</h3>
+                    <h3 className="font-semibold text-slate-100">
+                      Offer fit
+                    </h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
                       {profile?.offer_fit || "[todo: best offer fit]"}
                     </p>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-100">Sale blockers</h3>
+                    <h3 className="font-semibold text-slate-100">
+                      Sale blockers
+                    </h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.sale_blockers || "[todo: what blocks the sale]"}
+                      {profile?.sale_blockers ||
+                        "[todo: what blocks the sale]"}
                     </p>
                   </div>
                 </div>
@@ -523,15 +543,14 @@ export default function QscResultPage({ params }: { params: { token: string } })
           </div>
         </section>
 
-        {/* ----------------------------------------------------------------- */}
-        {/* Frequency + Mindset summaries                                      */}
-        {/* ----------------------------------------------------------------- */}
+        {/* Frequency + Mindset summaries */}
         <section className="grid gap-6 md:grid-cols-2">
           {/* Buyer Frequency Types – donut chart */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
             <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
             <p className="mt-1 text-sm text-slate-300">
-              Your emotional & energetic style across Fire, Flow, Form and Field.
+              Your emotional & energetic style across Fire, Flow, Form and
+              Field.
             </p>
 
             <div className="mt-5 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
@@ -591,9 +610,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
           </div>
         </section>
 
-        {/* ----------------------------------------------------------------- */}
-        {/* Buyer Persona Matrix (heatmap)                                     */}
-        {/* ----------------------------------------------------------------- */}
+        {/* Buyer Persona Matrix (heatmap) */}
         <section className="space-y-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -604,8 +621,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 This grid maps your{" "}
                 <span className="font-semibold">Buyer Frequency Type</span>{" "}
                 (left to right) against your{" "}
-                <span className="font-semibold">Buyer Mindset Level</span>{" "}
-                (top to bottom). Your combined profile sits at the intersection.
+                <span className="font-semibold">Buyer Mindset Level</span> (top
+                to bottom). Your combined profile sits at the intersection.
               </p>
             </div>
           </div>
@@ -660,7 +677,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
                             {p.label} {m.label}
                           </div>
                           <div className="text-[11px] text-slate-300/90">
-                            Code: <span className="font-mono">{cell.code}</span>
+                            Code:{" "}
+                            <span className="font-mono">{cell.code}</span>
                           </div>
                         </div>
 
@@ -715,3 +733,4 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
+
