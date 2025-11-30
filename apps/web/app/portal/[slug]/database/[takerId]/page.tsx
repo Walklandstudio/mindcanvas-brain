@@ -361,19 +361,14 @@ export default async function TakerDetail({
   // --- Main report URL (what the test taker saw) --------------------------
   let reportUrl: string | null = null;
 
-  if (taker.last_result_url) {
-    const raw = String(taker.last_result_url);
-
-    // If it already looks like a result/report URL, use as-is
-    if (raw.includes("/report") || raw.includes("/result")) {
-      reportUrl = raw;
-    } else if (taker.link_token) {
-      // last_result_url points to the test; upgrade to the report page
-      reportUrl = `/t/${encodeURIComponent(taker.link_token)}/report`;
-    }
-  } else if (taker.link_token) {
-    // No stored URL, but we have the token – construct report URL
-    reportUrl = `/t/${encodeURIComponent(taker.link_token)}/report`;
+  if (taker.link_token) {
+    // Always send them to the report page with the taker id as ?tid=
+    reportUrl = `/t/${encodeURIComponent(
+      taker.link_token
+    )}/report?tid=${encodeURIComponent(taker.id)}`;
+  } else if (taker.last_result_url) {
+    // Fallback: if for some reason we don't have a token, at least use the stored URL
+    reportUrl = String(taker.last_result_url);
   }
 
   return (
