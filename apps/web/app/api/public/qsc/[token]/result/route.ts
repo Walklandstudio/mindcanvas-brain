@@ -178,6 +178,7 @@ export async function GET(
   // 3) Load richer persona content from portal.qsc_personas (Entrepreneur-enhanced)
   let persona: QscPersonaRow | null = null;
 
+  // Primary path: use personality_code + mindset_level from qsc_profiles
   if (profile?.personality_code && profile?.mindset_level != null) {
     const {
       data: personaData,
@@ -222,6 +223,53 @@ export async function GET(
       console.error("QSC API: qsc_personas load error", personaErr);
     } else {
       persona = (personaData as QscPersonaRow | null) ?? null;
+    }
+  }
+
+  // Fallback: if for some reason there is no matching row above, try profile_code
+  if (!persona && result.combined_profile_code) {
+    const {
+      data: personaData2,
+      error: personaErr2,
+    } = await sb
+      .from("qsc_personas")
+      .select(
+        [
+          "id",
+          "test_id",
+          "personality_code",
+          "mindset_level",
+          "profile_code",
+          "profile_label",
+          "show_up_summary",
+          "energisers",
+          "drains",
+          "communication_long",
+          "admired_for",
+          "stuck_points",
+          "one_page_strengths",
+          "one_page_risks",
+          "combined_strengths",
+          "combined_risks",
+          "combined_big_lever",
+          "emotional_stabilises",
+          "emotional_destabilises",
+          "emotional_patterns_to_watch",
+          "decision_style_long",
+          "support_yourself",
+          "strategic_priority_1",
+          "strategic_priority_2",
+          "strategic_priority_3",
+        ].join(", ")
+      )
+      .eq("test_id", result.test_id)
+      .eq("profile_code", result.combined_profile_code)
+      .maybeSingle();
+
+    if (personaErr2) {
+      console.error("QSC API: qsc_personas fallback load error", personaErr2);
+    } else {
+      persona = (personaData2 as QscPersonaRow | null) ?? null;
     }
   }
 
