@@ -8,7 +8,7 @@ type Question = {
   idx?: number | null;
   order?: number | null;
   type?: string | null;
-  text: string;
+  text?: string; // make optional – some tests may not have this shaped identically
   options?: string[] | null;
   category?: 'scored' | 'qual' | string | null;
 };
@@ -62,13 +62,13 @@ export default function PublicTestClient({ token }: { token: string }) {
         setLoading(true);
         setError('');
 
+        // 1) Link meta
         const metaRes: any = await fetchJson(`/api/public/test/${token}`);
         if (!alive) return;
 
         const metaData = metaRes?.data ?? {};
         const nameFromMeta: string | null = metaData?.name ?? null;
 
-        // Try a couple of possible shapes for org name (all safe fallbacks)
         const orgNameFromMeta: string | null =
           metaData?.org_name ??
           metaData?.organisation_name ??
@@ -83,21 +83,29 @@ export default function PublicTestClient({ token }: { token: string }) {
             orgName: orgNameFromMeta,
             testName: nameFromMeta,
           };
-          window.dispatchEvent(
-            new CustomEvent('mc_test_meta', { detail })
-          );
+          window.dispatchEvent(new CustomEvent('mc_test_meta', { detail }));
         }
 
+        // 2) Questions
         const qRes: any = await fetchJson(`/api/public/test/${token}/questions`);
         if (!alive) return;
 
-        const list: Question[] = Array.isArray(qRes?.questions) ? qRes.questions : [];
+        const list: Question[] = Array.isArray(qRes?.questions)
+          ? qRes.questions
+          : [];
         setQuestions(list);
 
+        // 3) Restore local state (answers, details, taker_id)
         const key = (k: string) => `mc_${k}_${token}`;
         if (typeof window !== 'undefined') {
           const savedAns = window.localStorage.getItem(key('answers'));
-          if (savedAns) try { setAnswers(JSON.parse(savedAns)); } catch {}
+          if (savedAns) {
+            try {
+              setAnswers(JSON.parse(savedAns));
+            } catch {
+              // ignore
+            }
+          }
 
           const d = window.localStorage.getItem(key('details'));
           if (d) {
@@ -109,7 +117,9 @@ export default function PublicTestClient({ token }: { token: string }) {
               setPhone(o.phone || '');
               setCompany(o.company || '');
               setRoleTitle(o.roleTitle || '');
-            } catch {}
+            } catch {
+              // ignore
+            }
           }
 
           const tid = window.localStorage.getItem(key('taker_id'));
@@ -123,13 +133,18 @@ export default function PublicTestClient({ token }: { token: string }) {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [token]);
 
   // persist answers & details
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(`mc_answers_${token}`, JSON.stringify(answers));
+      window.localStorage.setItem(
+        `mc_answers_${token}`,
+        JSON.stringify(answers)
+      );
     }
   }, [answers, token]);
 
@@ -143,12 +158,16 @@ export default function PublicTestClient({ token }: { token: string }) {
   }, [firstName, lastName, email, phone, company, roleTitle, token]);
 
   const q = questions[i];
+
   const allAnswered = useMemo(
-    () => questions.length > 0 && questions.every(qq => Number(answers[qq.id]) >= 1),
+    () =>
+      questions.length > 0 &&
+      questions.every((qq) => Number(answers[qq.id]) >= 1),
     [questions, answers]
   );
 
-  const setChoice = (qid: string, val: number) => setAnswers(a => ({ ...a, [qid]: val }));
+  const setChoice = (qid: string, val: number) =>
+    setAnswers((a) => ({ ...a, [qid]: val }));
 
   const proceedToQuestions = async () => {
     try {
@@ -192,10 +211,12 @@ export default function PublicTestClient({ token }: { token: string }) {
       if (!takerId) throw new Error('missing taker_id');
 
       // ✅ send { question_id, selected } (0-based index)
-      const payloadAnswers = Object.entries(answers).map(([question_id, value]) => ({
-        question_id,
-        selected: Number(value) - 1, // backend expects 0..3
-      }));
+      const payloadAnswers = Object.entries(answers).map(
+        ([question_id, value]) => ({
+          question_id,
+          selected: Number(value) - 1, // backend expects 0..3
+        })
+      );
 
       const res = await fetch(`/api/public/test/${token}/submit`, {
         method: 'POST',
@@ -204,7 +225,8 @@ export default function PublicTestClient({ token }: { token: string }) {
       });
 
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
+      if (!res.ok || j?.ok === false)
+        throw new Error(j?.error || `HTTP ${res.status}`);
 
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(`mc_answers_${token}`);
@@ -221,56 +243,115 @@ export default function PublicTestClient({ token }: { token: string }) {
   /* ---------------- UI ---------------- */
 
   if (loading) {
-    return <div className="min-h-screen mc-bg text-white p-6"><h1 className="text-2xl font-semibold">Loading…</h1></div>;
+    return (
+      <div className="min-h-screen mc-bg text-white p-6">
+        <h1 className="text-2xl font-semibold">Loading…</h1>
+      </div>
+    );
   }
+
   if (error) {
     return (
       <div className="min-h-screen mc-bg text-white p-6 space-y-4">
         <h1 className="text-2xl font-semibold">Couldn’t load test</h1>
-        <pre className="p-3 rounded bg-white text-black whitespace-pre-wrap border">{error}</pre>
+        <pre className="p-3 rounded bg-white text-black whitespace-pre-wrap border">
+          {error}
+        </pre>
         <div className="text-white/70 text-sm">
           Debug:
           <ul className="list-disc ml-5 mt-2">
-            <li><a className="underline" href={`/api/public/test/${token}`} target="_blank">/api/public/test/{token}</a></li>
-            <li><a className="underline" href={`/api/public/test/${token}/questions`} target="_blank">/api/public/test/{token}/questions</a></li>
+            <li>
+              <a
+                className="underline"
+                href={`/api/public/test/${token}`}
+                target="_blank"
+              >
+                /api/public/test/{token}
+              </a>
+            </li>
+            <li>
+              <a
+                className="underline"
+                href={`/api/public/test/${token}/questions`}
+                target="_blank"
+              >
+                /api/public/test/{token}/questions
+              </a>
+            </li>
           </ul>
         </div>
       </div>
     );
   }
 
+  const noQuestions = questions.length === 0 || !q;
+
   return (
     <div className="min-h-screen mc-bg text-white p-6 space-y-6">
       <h1 className="text-3xl font-bold">{testName || 'Profile Test'}</h1>
-      <div className="text-white/70">Token: <code className="text-white">{token}</code> • {started ? 'started' : 'not started'}</div>
+      <div className="text-white/70">
+        Token:{' '}
+        <code className="text-white">
+          {token}
+        </code>{' '}
+        • {started ? 'started' : 'not started'}
+      </div>
 
       {step === 'details' ? (
         <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
-          <div className="text-lg font-semibold mb-3">Before we start, tell us about you</div>
+          <div className="text-lg font-semibold mb-3">
+            Before we start, tell us about you
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="block">
               <span className="text-sm text-white/80">First name</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={firstName} onChange={e=>setFirstName(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+              />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Last name</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={lastName} onChange={e=>setLastName(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+              />
             </label>
             <label className="block md:col-span-2">
               <span className="text-sm text-white/80">Email</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={email} onChange={e=>setEmail(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Phone (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={phone} onChange={e=>setPhone(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Company (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={company} onChange={e=>setCompany(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+              />
             </label>
             <label className="block md:col-span-2">
-              <span className="text-sm text-white/80">Role / Department (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={roleTitle} onChange={e=>setRoleTitle(e.target.value)} />
+              <span className="text-sm text-white/80">
+                Role / Department (optional)
+              </span>
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={roleTitle}
+                onChange={(e) => setRoleTitle(e.target.value)}
+              />
             </label>
           </div>
           <div className="mt-4 flex gap-3">
@@ -283,16 +364,33 @@ export default function PublicTestClient({ token }: { token: string }) {
             </button>
           </div>
         </div>
+      ) : noQuestions ? (
+        <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
+          <div className="text-lg font-semibold mb-2">
+            This test isn&apos;t configured with any questions yet
+          </div>
+          <p className="text-sm text-white/70">
+            The link is valid, but no question set was found for this test. If
+            you believe this is an error, please contact the organiser or
+            MindCanvas support so they can add questions to this assessment.
+          </p>
+        </div>
       ) : (
         <>
           <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
             <div className="text-sm text-white/60 mb-2">
               Question {i + 1} / {questions.length}
-              {q?.category && <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">{q.category}</span>}
+              {q.category && (
+                <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">
+                  {q.category}
+                </span>
+              )}
             </div>
-            <div className="text-lg font-medium mb-4">{q.text}</div>
+            <div className="text-lg font-medium mb-4">
+              {q.text || `Question ${i + 1}`}
+            </div>
 
-            {Array.isArray(q?.options) && q.options.length > 0 ? (
+            {Array.isArray(q.options) && q.options.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {q.options.map((label: string, idx: number) => {
                   const val = idx + 1;
@@ -303,8 +401,9 @@ export default function PublicTestClient({ token }: { token: string }) {
                       onClick={() => setChoice(q.id, val)}
                       className={[
                         'text-left px-3 py-3 rounded-xl border transition',
-                        selected ? 'bg-white text-black border-white'
-                                 : 'bg-white/5 border-white/20 hover:bg-white/10'
+                        selected
+                          ? 'bg-white text-black border-white'
+                          : 'bg-white/5 border-white/20 hover:bg-white/10',
                       ].join(' ')}
                     >
                       {label}
@@ -314,7 +413,7 @@ export default function PublicTestClient({ token }: { token: string }) {
               </div>
             ) : (
               <div className="grid grid-cols-5 gap-2">
-                {[1,2,3,4,5].map((val) => (
+                {[1, 2, 3, 4, 5].map((val) => (
                   <button
                     key={val}
                     onClick={() => setChoice(q.id, val)}
@@ -322,7 +421,7 @@ export default function PublicTestClient({ token }: { token: string }) {
                       'px-3 py-3 rounded-xl border transition',
                       answers[q.id] === val
                         ? 'bg-white text-black border-white'
-                        : 'bg-white/5 border-white/20 hover:bg-white/10'
+                        : 'bg-white/5 border-white/20 hover:bg-white/10',
                     ].join(' ')}
                   >
                     {val}
@@ -343,7 +442,9 @@ export default function PublicTestClient({ token }: { token: string }) {
 
             {i < questions.length - 1 ? (
               <button
-                onClick={() => setI(Math.min(questions.length - 1, i + 1))}
+                onClick={() =>
+                  setI(Math.min(questions.length - 1, i + 1))
+                }
                 className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 disabled:opacity-60"
                 disabled={!answers[q.id]}
               >
@@ -364,4 +465,5 @@ export default function PublicTestClient({ token }: { token: string }) {
     </div>
   );
 }
+
 
