@@ -236,16 +236,41 @@ export default async function ReportPage({
     loadError = String(e?.message || e);
   }
 
- // 🔁 Special handling for QSC tests:
-  // If the generic result API complains about missing frequency labels,
-  // this is a QSC test and we should use the QSC *Strategic Growth Report*.
+  // 🔁 Special handling for QSC tests:
+  // When the generic result API complains about missing frequency labels,
+  // this is a QSC test and we should send the taker to the existing
+  // Strategic Growth report at /qsc/[token]/{variant}?tid=…
   if (
     loadError &&
     loadError.toLowerCase().includes("labels_missing_for_test_frequency")
   ) {
+    let variant = "entrepreneur";
+
+    try {
+      const metaRes = await fetch(
+        `${base}/api/public/test/${encodeURIComponent(token)}`,
+        { cache: "no-store" }
+      );
+      const metaJson = await metaRes.json().catch(() => null as any);
+      const link = (metaJson?.data ?? metaJson ?? {}) as any;
+
+      variant =
+        link?.meta?.qsc_variant ||
+        link?.qsc_variant ||
+        link?.meta?.variant ||
+        link?.variant ||
+        "entrepreneur";
+    } catch {
+      // fall back to entrepreneur if anything goes wrong
+      variant = "entrepreneur";
+    }
+
     const qscHref = `/qsc/${encodeURIComponent(
       token
-    )}/report${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`;
+    )}/${encodeURIComponent(variant)}${
+      tid ? `?tid=${encodeURIComponent(tid)}` : ""
+    }`;
+
     redirect(qscHref);
   }
 

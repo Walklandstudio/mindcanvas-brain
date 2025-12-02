@@ -1,3 +1,4 @@
+// apps/web/app/qsc/[token]/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -15,9 +16,9 @@ type QscResultsRow = {
   test_id: string;
   token: string;
   personality_totals: Record<string, number> | null;
-  personality_percentages: PersonalityPercMap | null;
+  personality_percentages: PersonalityPercMap | null; // 0–1 fractions
   mindset_totals: Record<string, number> | null;
-  mindset_percentages: MindsetPercMap | null;
+  mindset_percentages: MindsetPercMap | null; // 0–1 fractions
   primary_personality: PersonalityKey | null;
   secondary_personality: PersonalityKey | null;
   primary_mindset: MindsetKey | null;
@@ -85,7 +86,7 @@ type MatrixCell = {
   personality: PersonalityKey;
   mindset: MindsetKey;
   label: string;
-  code: string; // e.g. "F1".."D5"
+  code: string; // e.g. "A1".."D5"
 };
 
 type CellCategory = "primary" | "secondary" | "related" | "other";
@@ -105,6 +106,10 @@ const MINDSETS: { key: MindsetKey; label: string; level: number }[] = [
   { key: "QUANTUM", label: "QUANTUM", level: 5 },
 ];
 
+// ---------------------------------------------------------------------------
+// Helpers for matrix
+// ---------------------------------------------------------------------------
+
 function buildMatrix(): MatrixCell[] {
   const cells: MatrixCell[] = [];
   for (const m of MINDSETS) {
@@ -119,7 +124,10 @@ function buildMatrix(): MatrixCell[] {
 
 const MATRIX = buildMatrix();
 
-function classifyCell(result: QscResultsRow | null, cell: MatrixCell): CellCategory {
+function classifyCell(
+  result: QscResultsRow | null,
+  cell: MatrixCell
+): CellCategory {
   if (!result) return "other";
 
   const combined = (result.combined_profile_code || "").toUpperCase(); // e.g. "FIELD_ORBIT"
@@ -166,12 +174,19 @@ function categoryClasses(cat: CellCategory): string {
   }
 }
 
-function percentLabel(value: number | undefined | null): string {
-  // We store percentages as fractions (0–1) in the DB.
-  // On the UI we want 0–100%.
-  const fraction = typeof value === "number" ? value : 0;
-  const v = fraction * 100;
-  return `${v.toFixed(1).replace(/\.0$/, "")}%`;
+// ---------------------------------------------------------------------------
+// Percentage helpers
+// ---------------------------------------------------------------------------
+
+// DB stores fractions (0–1). We want 0–100 in the UI.
+function toPercent(raw: number | undefined | null): number {
+  const fraction = typeof raw === "number" && isFinite(raw) ? raw : 0;
+  return Math.max(0, Math.min(100, fraction * 100));
+}
+
+function percentLabelFromFraction(value: number | undefined | null): string {
+  const pct = toPercent(value);
+  return `${pct.toFixed(1).replace(/\.0$/, "")}%`;
 }
 
 function Bar({ pct }: { pct: number }) {
@@ -286,7 +301,11 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function QscResultPage({ params }: { params: { token: string } }) {
+export default function QscResultPage({
+  params,
+}: {
+  params: { token: string };
+}) {
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
@@ -317,11 +336,13 @@ export default function QscResultPage({ params }: { params: { token: string } })
         }
 
         const j = (await res.json()) as
-          | ({ ok?: boolean; error?: string } & {
+          | ({
+              ok?: boolean;
+              error?: string;
               results?: QscResultsRow;
               profile?: QscProfileRow | null;
               persona?: QscPersonaRow | null;
-            })
+            } & Record<string, any>)
           | { ok?: boolean; error?: string };
 
         if (!res.ok || (j as any).ok === false) {
@@ -408,11 +429,11 @@ export default function QscResultPage({ params }: { params: { token: string } })
     persona?.profile_label || profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data for Buyer Frequency (convert 0–1 → 0–100)
+  // Donut data for Buyer Frequency (fractions → 0–100)
   const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
     key: p.key,
     label: p.label,
-    value: (personalityPerc[p.key] ?? 0) * 100,
+    value: toPercent(personalityPerc[p.key]),
   }));
 
   const extendedReportHref = tid
@@ -625,7 +646,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
                       </span>
                     </div>
                     <span className="text-sm text-slate-300">
-                      {percentLabel(d.value / 100)}
+                      {percentLabelFromFraction(
+                        (personalityPerc[d.key] ?? 0) as number
+                      )}
                     </span>
                   </div>
                 ))}
@@ -643,7 +666,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
                 const frac = mindsetPerc[m.key] ?? 0;
-                const pct = frac * 100;
+                const pct = toPercent(frac);
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -651,7 +674,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                         {m.label}
                       </span>
                       <span className="text-slate-400">
-                        {percentLabel(frac)}
+                        {percentLabelFromFraction(frac)}
                       </span>
                     </div>
                     <Bar pct={pct} />
@@ -785,5 +808,4 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
-
 

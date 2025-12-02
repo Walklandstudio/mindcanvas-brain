@@ -4,6 +4,18 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
+function normalisePercent(raw: number | undefined | null): number {
+  if (raw == null || !Number.isFinite(raw)) return 0;
+
+  // If it looks like a 0–1 fraction, convert to 0–100.
+  if (raw > 0 && raw <= 1.5) {
+    return raw * 100;
+  }
+
+  // Otherwise assume it's already 0–100 and clamp to [0, 100].
+  return Math.min(Math.max(raw, 0), 100);
+}
+
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
 
