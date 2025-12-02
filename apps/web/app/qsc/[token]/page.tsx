@@ -41,9 +41,44 @@ type QscProfileRow = {
   sale_blockers: string | null;
 };
 
+type QscPersonaRow = {
+  id: string;
+  test_id: string;
+  personality_code: string | null;
+  mindset_level: number | null;
+  profile_code: string | null;
+  profile_label: string | null;
+
+  show_up_summary: string | null;
+  energisers: string | null;
+  drains: string | null;
+  communication_long: string | null;
+  admired_for: string | null;
+  stuck_points: string | null;
+
+  one_page_strengths: string | null;
+  one_page_risks: string | null;
+
+  combined_strengths: string | null;
+  combined_risks: string | null;
+  combined_big_lever: string | null;
+
+  emotional_stabilises: string | null;
+  emotional_destabilises: string | null;
+  emotional_patterns_to_watch: string | null;
+
+  decision_style_long: string | null;
+  support_yourself: string | null;
+
+  strategic_priority_1: string | null;
+  strategic_priority_2: string | null;
+  strategic_priority_3: string | null;
+};
+
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
+  persona: QscPersonaRow | null;
 };
 
 type MatrixCell = {
@@ -132,7 +167,10 @@ function categoryClasses(cat: CellCategory): string {
 }
 
 function percentLabel(value: number | undefined | null): string {
-  const v = typeof value === "number" ? value : 0;
+  // We store percentages as fractions (0–1) in the DB.
+  // On the UI we want 0–100%.
+  const fraction = typeof value === "number" ? value : 0;
+  const v = fraction * 100;
   return `${v.toFixed(1).replace(/\.0$/, "")}%`;
 }
 
@@ -153,7 +191,7 @@ function Bar({ pct }: { pct: number }) {
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number;
+  value: number; // 0–100
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
@@ -279,7 +317,11 @@ export default function QscResultPage({ params }: { params: { token: string } })
         }
 
         const j = (await res.json()) as
-          | ({ ok?: boolean; error?: string } & QscPayload)
+          | ({ ok?: boolean; error?: string } & {
+              results?: QscResultsRow;
+              profile?: QscProfileRow | null;
+              persona?: QscPersonaRow | null;
+            })
           | { ok?: boolean; error?: string };
 
         if (!res.ok || (j as any).ok === false) {
@@ -291,6 +333,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
           setPayload({
             results: cast.results,
             profile: cast.profile ?? null,
+            persona: cast.persona ?? null,
           });
         }
       } catch (e: any) {
@@ -307,6 +350,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
+  const persona = payload?.persona ?? null;
 
   const personalityPerc = useMemo<PersonalityPercMap>(
     () => result?.personality_percentages || {},
@@ -360,14 +404,15 @@ export default function QscResultPage({ params }: { params: { token: string } })
   }
 
   // Helper labels
-  const primaryPersonaLabel = profile?.profile_label || "Combined profile";
+  const primaryPersonaLabel =
+    persona?.profile_label || profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data for Buyer Frequency
+  // Donut data for Buyer Frequency (convert 0–1 → 0–100)
   const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
     key: p.key,
     label: p.label,
-    value: personalityPerc[p.key] ?? 0,
+    value: (personalityPerc[p.key] ?? 0) * 100,
   }));
 
   const extendedReportHref = tid
@@ -425,6 +470,12 @@ export default function QscResultPage({ params }: { params: { token: string } })
                   {result.combined_profile_code || "—"}
                 </span>
               </p>
+
+              {persona?.show_up_summary && (
+                <p className="mt-4 text-sm text-slate-200 whitespace-pre-line">
+                  {persona.show_up_summary}
+                </p>
+              )}
 
               <dl className="mt-5 grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
                 <div>
@@ -574,7 +625,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                       </span>
                     </div>
                     <span className="text-sm text-slate-300">
-                      {percentLabel(d.value)}
+                      {percentLabel(d.value / 100)}
                     </span>
                   </div>
                 ))}
@@ -591,7 +642,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
-                const pct = mindsetPerc[m.key] ?? 0;
+                const frac = mindsetPerc[m.key] ?? 0;
+                const pct = frac * 100;
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -599,7 +651,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                         {m.label}
                       </span>
                       <span className="text-slate-400">
-                        {percentLabel(pct)}
+                        {percentLabel(frac)}
                       </span>
                     </div>
                     <Bar pct={pct} />
@@ -733,4 +785,5 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
+
 

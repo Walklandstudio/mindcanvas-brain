@@ -236,9 +236,9 @@ export default async function ReportPage({
     loadError = String(e?.message || e);
   }
 
-  // 🔁 Special handling for QSC tests:
+ // 🔁 Special handling for QSC tests:
   // If the generic result API complains about missing frequency labels,
-  // this is a QSC test and we should use the QSC report flow instead.
+  // this is a QSC test and we should use the QSC *Strategic Growth Report*.
   if (
     loadError &&
     loadError.toLowerCase().includes("labels_missing_for_test_frequency")
