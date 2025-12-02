@@ -11,6 +11,9 @@ import {
 } from "@/lib/report/getOrgFramework";
 import AppBackground from "@/components/ui/AppBackground";
 
+// Direct import of Competency Coach framework JSON so we can override
+import competencyCoachFramework from "@/data/frameworks/competency-coach.json";
+
 export const dynamic = "force-dynamic";
 
 type FrequencyCode = "A" | "B" | "C" | "D";
@@ -19,9 +22,9 @@ type FrequencyLabel = { code: FrequencyCode; name: string };
 type ProfileLabel = { code: string; name: string };
 
 type ResultData = {
-  org_slug: string;
+  org_slug: string | null;
   org_name?: string | null;
-  test_name: string;
+  test_name: string | null;
   taker: {
     id: string;
     first_name?: string | null;
@@ -198,6 +201,30 @@ const DEFAULT_FREQUENCY_DESCRIPTIONS: Record<FrequencyCode, string> = {
   D: "Pattern recognition, analysis, and perspective.",
 };
 
+// Detect if this looks like a Competency Coach test based on labels,
+// independent of org metadata.
+function looksLikeCompetencyCoachResult(data: ResultData): boolean {
+  const freqNames = data.frequency_labels
+    .map((f) => (f.name || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  const hasAllCcFrequencies = ["innovation", "influence", "implementation", "insight"].every(
+    (name) => freqNames.includes(name)
+  );
+
+  const profileNames = data.profile_labels
+    .map((p) => (p.name || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  const hasHeartCentered =
+    profileNames.includes("the heart-centered coach") ||
+    profileNames.includes("the heart-centred coach");
+  const hasInnovator = profileNames.includes("the innovator");
+  const hasChangeAgent = profileNames.includes("the change agent");
+
+  return hasAllCcFrequencies && hasHeartCentered && hasInnovator && hasChangeAgent;
+}
+
 // --- Page ------------------------------------------------------------------
 
 export default async function ReportPage({
@@ -315,13 +342,13 @@ export default async function ReportPage({
   }
 
   const data = resultData;
-  const orgSlug = data.org_slug;
-  const orgName = data.org_name || data.test_name || "Your Organisation";
-  const participantName = getFullName(data.taker);
 
-  // org-specific assets (logo, graphics, founder photo)
-  const orgAssets = getOrgAssets(orgSlug, orgName);
-  const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
+  // Start with whatever the API sends
+  let orgSlug = data.org_slug;
+  let orgName = data.org_name || data.test_name || "Your Organisation";
+
+  // Detect if this is clearly a Competency Coach test and override metadata/framework
+  const isCompetencyCoachByData = looksLikeCompetencyCoachResult(data);
 
   // ---- Load org framework JSON (for copy) --------------------------------
   let orgFw: OrgFramework | null = null;
@@ -331,8 +358,25 @@ export default async function ReportPage({
     orgFw = null;
   }
 
-  const fw = orgFw?.framework;
-  const reportCopy: OrgReportCopy | null = (fw as any)?.report ?? null;
+  if (isCompetencyCoachByData) {
+    // Force Competency Coach framework + names when the data matches,
+    // even if org_slug is null in the API.
+  
+    orgFw = competencyCoachFramework as OrgFramework;
+    if (!orgSlug) orgSlug = "competency-coach";
+    if (!data.org_name && orgName === "Your Organisation") {
+      orgName = "Competency Coach";
+    }
+  }
+
+  const participantName = getFullName(data.taker);
+
+  // org-specific assets (logo, graphics, founder photo)
+  const orgAssets = getOrgAssets(orgSlug, orgName);
+  const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
+
+  const fw = (orgFw as any)?.framework;
+  const reportCopy: OrgReportCopy | null = fw?.report ?? null;
 
   // Extra report configuration (per-org, from JSON)
   const frequenciesCopy: any = reportCopy?.frequencies_copy ?? null;
@@ -432,10 +476,17 @@ export default async function ReportPage({
 
             <div className="flex items-center gap-3">
               <PrintButton className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800" />
+              {/* PDF button is wired but UI-only for now */}
+              <Link
+                href={downloadPdfHref}
+                className="hidden md:inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+              >
+                Download PDF
+              </Link>
             </div>
           </header>
 
-          {/* Top profile image (Team Puzzle) */}
+          {/* Top profile image (Team Puzzle only) */}
           {topProfileImage && (
             <div className="flex justify-center">
               <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
@@ -1016,22 +1067,29 @@ export default async function ReportPage({
             </div>
           </section>
 
-          {/* DEV DEBUG – remove once things look right */}
+          {/* DEV DEBUG – keep for now */}
           <details className="mt-8 rounded-xl border border-slate-800 bg-slate-950/80 p-4 text-xs text-slate-200">
             <summary className="cursor-pointer font-semibold">
-              
               Debug – framework + org
             </summary>
             <div className="mt-2 space-y-1">
-              <div>org_slug: <code>{orgSlug ?? "null"}</code></div>
-              <div>org_name: <code>{orgName}</code></div>
+              <div>
+                org_slug: <code>{orgSlug ?? "null"}</code>
+              </div>
+              <div>
+                org_name: <code>{orgName}</code>
+              </div>
               <div>
                 framework.key:{" "}
-                <code>{(orgFw as any)?.framework?.key ?? "unknown"}</code>
+                <code>{(fw as any)?.key ?? "unknown"}</code>
               </div>
               <div>
                 report_title:{" "}
-                <code>{reportCopy?.report_title ?? "none"}</code>
+                <code>{reportTitle}</code>
+              </div>
+              <div>
+                isCompetencyCoachByData:{" "}
+                <code>{String(isCompetencyCoachByData)}</code>
               </div>
             </div>
           </details>
@@ -1045,3 +1103,4 @@ export default async function ReportPage({
     </div>
   );
 }
+
