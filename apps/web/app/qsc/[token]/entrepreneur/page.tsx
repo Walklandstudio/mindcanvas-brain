@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { QscMatrix } from "../../QscMatrix";
 
@@ -92,6 +92,115 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   ORBIT: "Orbit",
   QUANTUM: "Quantum",
 };
+
+// Normalise values that might be 0–1 or 0–100 into a safe 0–100 percentage
+function toPercent(raw: number | undefined | null): number {
+  if (raw == null || !Number.isFinite(raw)) return 0;
+  const n = Number(raw);
+  if (n > 0 && n <= 1.5) {
+    // Looks like a 0–1 fraction
+    return Math.round(n * 100);
+  }
+  // Already in a 0–100-ish range
+  return Math.round(Math.min(100, Math.max(0, n)));
+}
+
+// -----------------------------
+// Donut chart for Frequency
+// -----------------------------
+type FrequencyDonutDatum = {
+  key: PersonalityKey;
+  label: string;
+  value: number; // 0–100
+};
+
+const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
+  FIRE: "#f97316", // orange
+  FLOW: "#0ea5e9", // sky
+  FORM: "#22c55e", // green
+  FIELD: "#a855f7", // purple
+};
+
+function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
+  const total =
+    data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
+
+  const radius = 60;
+  const strokeWidth = 20;
+  const center = 80;
+  const circumference = 2 * Math.PI * radius;
+
+  let offset = 0;
+
+  return (
+    <svg
+      viewBox="0 0 160 160"
+      className="h-40 w-40 md:h-48 md:w-48"
+      aria-hidden="true"
+    >
+      {/* Background ring */}
+      <circle
+        cx={center}
+        cy={center}
+        r={radius}
+        stroke="rgba(15,23,42,0.9)"
+        strokeWidth={strokeWidth}
+        fill="transparent"
+      />
+      {data.map((d) => {
+        const fraction = (isFinite(d.value) ? d.value : 0) / total;
+        const dash = circumference * fraction;
+        const dashArray = `${dash} ${circumference}`;
+        const strokeDashoffset = offset;
+        offset -= dash;
+        return (
+          <circle
+            key={d.key}
+            cx={center}
+            cy={center}
+            r={radius}
+            stroke={FREQUENCY_COLORS[d.key]}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+            strokeDasharray={dashArray}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+          />
+        );
+      })}
+
+      {/* Inner circle */}
+      <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
+
+      <text
+        x={center}
+        y={center - 4}
+        textAnchor="middle"
+        className="text-[9px] md:text-[10px]"
+        fill="#e5e7eb"
+        style={{
+          fontFamily:
+            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        }}
+      >
+        BUYER
+      </text>
+      <text
+        x={center}
+        y={center + 10}
+        textAnchor="middle"
+        className="text-[9px] md:text-[10px]"
+        fill="#e5e7eb"
+        style={{
+          fontFamily:
+            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        }}
+      >
+        FREQUENCY
+      </text>
+    </svg>
+  );
+}
 
 export default function QscEntrepreneurStrategicReportPage({
   params,
@@ -218,10 +327,37 @@ export default function QscEntrepreneurStrategicReportPage({
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
-  // These are already stored as 0–100 percentages in qsc_results
-  const personalityPerc =
+  // These are stored as either fractions (0–1) or percentages (0–100).
+  const rawPersonality =
     (result.personality_percentages ?? {}) as PersonalityPercMap;
-  const mindsetPerc = (result.mindset_percentages ?? {}) as MindsetPercMap;
+  const rawMindset = (result.mindset_percentages ?? {}) as MindsetPercMap;
+
+  const personalityPerc = useMemo<PersonalityPercMap>(() => {
+    const out: PersonalityPercMap = {};
+    (["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).forEach((k) => {
+      out[k] = toPercent(rawPersonality[k] ?? 0);
+    });
+    return out;
+  }, [rawPersonality]);
+
+  const mindsetPerc = useMemo<MindsetPercMap>(() => {
+    const out: MindsetPercMap = {};
+    (
+      ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
+    ).forEach((k) => {
+      out[k] = toPercent(rawMindset[k] ?? 0);
+    });
+    return out;
+  }, [rawMindset]);
+
+  // Donut data for frequency
+  const frequencyDonutData: FrequencyDonutDatum[] = (
+    ["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]
+  ).map((key) => ({
+    key,
+    label: PERSONALITY_LABELS[key],
+    value: personalityPerc[key] ?? 0,
+  }));
 
   // Convenience helpers with graceful fallbacks
   const onePageStrengths = persona?.one_page_strengths || "—";
@@ -322,7 +458,9 @@ export default function QscEntrepreneurStrategicReportPage({
           </p>
           <div className="grid gap-4 md:grid-cols-2 text-sm text-slate-700">
             <ul className="list-disc pl-5 space-y-1">
-              <li>Start with the Profile Summary to understand your core pattern.</li>
+              <li>
+                Start with the Profile Summary to understand your core pattern.
+              </li>
               <li>
                 Study the Personality Layer to see why you act, respond and
                 decide the way you do.
@@ -403,30 +541,33 @@ export default function QscEntrepreneurStrategicReportPage({
 
         {/* FREQUENCY + MINDSET + MATRIX */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
-          {/* Buyer Frequency Type */}
+          {/* Buyer Frequency Type with donut */}
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
             <p className="text-sm text-slate-300">
-              Your emotional & energetic style across Fire, Flow, Form and Field.
+              Your emotional & energetic style across Fire, Flow, Form and
+              Field.
             </p>
-            <div className="grid grid-cols-2 gap-3 pt-2 text-sm">
-              {(["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).map(
-                (key) => {
-                  const raw = personalityPerc[key] ?? 0;
-                  const pct = Math.round(
-                    Math.min(100, Math.max(0, Number(raw) || 0))
-                  );
+            <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
+              <div className="flex justify-center">
+                <FrequencyDonut data={frequencyDonutData} />
+              </div>
+              <div className="space-y-3 text-sm">
+                {(
+                  ["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]
+                ).map((key) => {
+                  const pct = personalityPerc[key] ?? 0;
                   return (
                     <div
                       key={key}
-                      className="flex items-center justify-between"
+                      className="flex items-center justify-between gap-3"
                     >
                       <span>{PERSONALITY_LABELS[key]}</span>
                       <span className="tabular-nums">{pct}%</span>
                     </div>
                   );
-                }
-              )}
+                })}
+              </div>
             </div>
           </div>
 
@@ -441,10 +582,7 @@ export default function QscEntrepreneurStrategicReportPage({
               {(
                 ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
               ).map((key) => {
-                const raw = mindsetPerc[key] ?? 0;
-                const pct = Math.round(
-                  Math.min(100, Math.max(0, Number(raw) || 0))
-                );
+                const pct = mindsetPerc[key] ?? 0;
                 return (
                   <div key={key} className="space-y-1">
                     <div className="flex justify-between">

@@ -352,7 +352,7 @@ export default async function TakerDetail({
     qscSnapshotUrl = `${base}${query}`;
 
     // 2) Extended Source Code Snapshot (existing Extended Source Code page)
-    qscExtendedUrl = `${base}/report${query}`;
+    qscExtendedUrl = `${base}/extended${query}`;
 
     // 3) QSC Entrepreneur — Strategic Growth Report (to be implemented)
     qscEntrepreneurUrl = `${base}/entrepreneur${query}`;

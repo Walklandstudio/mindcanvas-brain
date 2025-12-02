@@ -414,8 +414,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
   }));
 
   const extendedReportHref = tid
-    ? `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`
-    : `/qsc/${encodeURIComponent(token)}/report`;
+   ? `/qsc/${encodeURIComponent(token)}/extended?tid=${encodeURIComponent(tid)}`
+   : `/qsc/${encodeURIComponent(token)}/extended`;
 
   // ---------------------------------------------------------------------------
   // Main layout
