@@ -169,8 +169,30 @@ function categoryClasses(cat: CellCategory): string {
   }
 }
 
-// IMPORTANT: this matches the *original*, working report.
-// We assume values are already 0–100 and just format them.
+// Normalise any map of numbers so that values sum to 100.
+// Works whether the raw values are 0–1, 0–100, 0–10000, or arbitrary scores.
+function normalisePercentages<K extends string>(
+  map: Partial<Record<K, number>> | null | undefined,
+  keys: K[]
+): Record<K, number> {
+  const out = {} as Record<K, number>;
+
+  const rawValues = keys.map((k) => {
+    const v =
+      map && typeof map[k] === "number" ? (map[k] as number) : 0;
+    return Number.isFinite(v) ? v : 0;
+  });
+
+  const total = rawValues.reduce((sum, v) => sum + v, 0);
+  const factor = total > 0 ? 100 / total : 0;
+
+  keys.forEach((k, idx) => {
+    out[k] = rawValues[idx] * factor;
+  });
+
+  return out;
+}
+
 function percentLabel(value: number | undefined | null): string {
   const v = typeof value === "number" ? value : 0;
   return `${v.toFixed(1).replace(/\.0$/, "")}%`;
@@ -193,7 +215,7 @@ function Bar({ pct }: { pct: number }) {
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number; // we treat this as 0–100, same as original
+  value: number; // 0–100, already normalised
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
@@ -368,12 +390,22 @@ export default function QscResultPage({
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
 
-  const personalityPerc = useMemo<PersonalityPercMap>(
-    () => result?.personality_percentages || {},
+  // NORMALISED 0–100 % maps for display
+  const personalityPerc = useMemo(
+    () =>
+      normalisePercentages<PersonalityKey>(
+        result?.personality_percentages,
+        PERSONALITIES.map((p) => p.key)
+      ),
     [result]
   );
-  const mindsetPerc = useMemo<MindsetPercMap>(
-    () => result?.mindset_percentages || {},
+
+  const mindsetPerc = useMemo(
+    () =>
+      normalisePercentages<MindsetKey>(
+        result?.mindset_percentages,
+        MINDSETS.map((m) => m.key)
+      ),
     [result]
   );
 
@@ -426,13 +458,12 @@ export default function QscResultPage({
     persona?.profile_label || profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data for Buyer Frequency – EXACTLY like the original working file:
-  // we assume personalityPerc values are already 0–100.
+  // Donut data for Buyer Frequency – using normalised 0–100 values
   const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map(
     (p) => ({
       key: p.key,
       label: p.label,
-      value: personalityPerc[p.key] ?? 0,
+      value: personalityPerc[p.key],
     })
   );
 
@@ -670,7 +701,6 @@ export default function QscResultPage({
 
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
-                // Exactly like the old, working file – treat as 0–100
                 const pct = mindsetPerc[m.key] ?? 0;
                 return (
                   <div key={m.key} className="space-y-1">
