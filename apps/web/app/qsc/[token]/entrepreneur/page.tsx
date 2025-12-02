@@ -202,6 +202,25 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
   );
 }
 
+// derive primary + secondary from percentages, instead of trusting DB fields
+function derivePrimarySecondary<K extends string>(
+  perc: Partial<Record<K, number>>,
+  keys: readonly K[]
+): { primary: K | null; secondary: K | null } {
+  const entries = keys.map((k) => ({
+    key: k,
+    value: normalisePercent(perc[k] ?? 0),
+  }));
+
+  entries.sort((a, b) => b.value - a.value);
+
+  const primary = entries[0] && entries[0].value > 0 ? entries[0].key : null;
+  const secondary =
+    entries[1] && entries[1].value > 0 ? entries[1].key : null;
+
+  return { primary, secondary };
+}
+
 // --- Main page -------------------------------------------------------------
 
 export default function QscEntrepreneurStrategicReportPage({
@@ -318,17 +337,6 @@ export default function QscEntrepreneurStrategicReportPage({
     profile?.profile_label ||
     "Your Quantum Profile";
 
-  const primaryPersonalityLabel =
-    (result.primary_personality &&
-      PERSONALITY_LABELS[result.primary_personality]) ||
-    result.primary_personality ||
-    "—";
-
-  const primaryMindsetLabel =
-    (result.primary_mindset && MINDSET_LABELS[result.primary_mindset]) ||
-    result.primary_mindset ||
-    "—";
-
   const backHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
@@ -364,6 +372,48 @@ export default function QscEntrepreneurStrategicReportPage({
     label: PERSONALITY_LABELS[key],
     value: personalityPerc[key] ?? 0,
   }));
+
+  // 🔑 Derive primary/secondary from percentages
+  const personalityKeys: PersonalityKey[] = ["FIRE", "FLOW", "FORM", "FIELD"];
+  const mindsetKeys: MindsetKey[] = [
+    "ORIGIN",
+    "MOMENTUM",
+    "VECTOR",
+    "ORBIT",
+    "QUANTUM",
+  ];
+
+  const {
+    primary: derivedPrimaryPersonality,
+    secondary: derivedSecondaryPersonality,
+  } = derivePrimarySecondary(personalityPerc, personalityKeys);
+
+  const {
+    primary: derivedPrimaryMindset,
+    secondary: derivedSecondaryMindset,
+  } = derivePrimarySecondary(mindsetPerc, mindsetKeys);
+
+  // Fallback to DB values only if percentages are all zero
+  const effectivePrimaryPersonality: PersonalityKey | null =
+    derivedPrimaryPersonality ?? result.primary_personality ?? null;
+  const effectiveSecondaryPersonality: PersonalityKey | null =
+    derivedSecondaryPersonality ?? result.secondary_personality ?? null;
+
+  const effectivePrimaryMindset: MindsetKey | null =
+    derivedPrimaryMindset ?? result.primary_mindset ?? null;
+  const effectiveSecondaryMindset: MindsetKey | null =
+    derivedSecondaryMindset ?? result.secondary_mindset ?? null;
+
+  const primaryPersonalityLabel =
+    (effectivePrimaryPersonality &&
+      PERSONALITY_LABELS[effectivePrimaryPersonality]) ||
+    effectivePrimaryPersonality ||
+    "—";
+
+  const primaryMindsetLabel =
+    (effectivePrimaryMindset && MINDSET_LABELS[effectivePrimaryMindset]) ||
+    effectivePrimaryMindset ||
+    "—";
 
   // Convenience helpers with graceful fallbacks
   const onePageStrengths = persona?.one_page_strengths || "—";
@@ -623,8 +673,8 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50">
             <QscMatrix
-              primaryPersonality={result.primary_personality}
-              primaryMindset={result.primary_mindset}
+              primaryPersonality={effectivePrimaryPersonality}
+              primaryMindset={effectivePrimaryMindset}
             />
           </div>
         </section>
