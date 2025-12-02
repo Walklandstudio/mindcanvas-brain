@@ -1016,6 +1016,26 @@ export default async function ReportPage({
             </div>
           </section>
 
+          {/* DEV DEBUG – remove once things look right */}
+          <details className="mt-8 rounded-xl border border-slate-800 bg-slate-950/80 p-4 text-xs text-slate-200">
+            <summary className="cursor-pointer font-semibold">
+              
+              Debug – framework + org
+            </summary>
+            <div className="mt-2 space-y-1">
+              <div>org_slug: <code>{orgSlug ?? "null"}</code></div>
+              <div>org_name: <code>{orgName}</code></div>
+              <div>
+                framework.key:{" "}
+                <code>{(orgFw as any)?.framework?.key ?? "unknown"}</code>
+              </div>
+              <div>
+                report_title:{" "}
+                <code>{reportCopy?.report_title ?? "none"}</code>
+              </div>
+            </div>
+          </details>
+
           <footer className="mt-4 border-t border-slate-800 pt-4 text-xs text-slate-400">
             © {new Date().getFullYear()} MindCanvas — this report is generated
             based on the {orgName} profiling framework.
