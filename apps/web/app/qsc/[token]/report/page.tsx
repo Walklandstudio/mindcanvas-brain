@@ -375,11 +375,11 @@ export default function QscResultPage({ params }: { params: { token: string } })
   const primaryPersonaLabel = profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data for Buyer Frequency
+  // Donut data for Buyer Frequency (normalised)
   const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
     key: p.key,
     label: p.label,
-    value: personalityPerc[p.key] ?? 0,
+    value: normalisePercent(personalityPerc[p.key]),
   }));
 
   const extendedReportHref = tid
@@ -603,7 +603,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
-                const pct = mindsetPerc[m.key] ?? 0;
+                const raw = mindsetPerc[m.key] ?? 0;
+                const pct = normalisePercent(raw);
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">

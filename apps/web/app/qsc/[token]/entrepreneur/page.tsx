@@ -214,13 +214,14 @@ export default function QscEntrepreneurStrategicReportPage({
     result.primary_mindset ||
     "—";
 
-  const backHref =
-    tid && typeof window !== "undefined"
-      ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
-      : `/qsc/${encodeURIComponent(token)}`;
+  const backHref = tid
+    ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
+    : `/qsc/${encodeURIComponent(token)}`;
 
-  const personalityTotals = result.personality_percentages || {};
-  const mindsetTotals = result.mindset_percentages || {};
+  // These are already stored as 0–100 percentages in qsc_results
+  const personalityPerc =
+    (result.personality_percentages ?? {}) as PersonalityPercMap;
+  const mindsetPerc = (result.mindset_percentages ?? {}) as MindsetPercMap;
 
   // Convenience helpers with graceful fallbacks
   const onePageStrengths = persona?.one_page_strengths || "—";
@@ -410,14 +411,21 @@ export default function QscEntrepreneurStrategicReportPage({
             </p>
             <div className="grid grid-cols-2 gap-3 pt-2 text-sm">
               {(["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).map(
-                (key) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span>{PERSONALITY_LABELS[key]}</span>
-                    <span className="tabular-nums">
-                      {Math.round((personalityTotals[key] ?? 0) * 100)}%
-                    </span>
-                  </div>
-                )
+                (key) => {
+                  const raw = personalityPerc[key] ?? 0;
+                  const pct = Math.round(
+                    Math.min(100, Math.max(0, Number(raw) || 0))
+                  );
+                  return (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between"
+                    >
+                      <span>{PERSONALITY_LABELS[key]}</span>
+                      <span className="tabular-nums">{pct}%</span>
+                    </div>
+                  );
+                }
               )}
             </div>
           </div>
@@ -430,25 +438,28 @@ export default function QscEntrepreneurStrategicReportPage({
             </p>
 
             <div className="space-y-2 pt-2 text-xs">
-              {(["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]).map(
-                (key) => {
-                  const pct = Math.round((mindsetTotals[key] ?? 0) * 100);
-                  return (
-                    <div key={key} className="space-y-1">
-                      <div className="flex justify-between">
-                        <span>{MINDSET_LABELS[key]}</span>
-                        <span className="tabular-nums">{pct}%</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-slate-900">
-                        <div
-                          className="h-2 rounded-full bg-emerald-400"
-                          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-                        />
-                      </div>
+              {(
+                ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
+              ).map((key) => {
+                const raw = mindsetPerc[key] ?? 0;
+                const pct = Math.round(
+                  Math.min(100, Math.max(0, Number(raw) || 0))
+                );
+                return (
+                  <div key={key} className="space-y-1">
+                    <div className="flex justify-between">
+                      <span>{MINDSET_LABELS[key]}</span>
+                      <span className="tabular-nums">{pct}%</span>
                     </div>
-                  );
-                }
-              )}
+                    <div className="h-2 rounded-full bg-slate-900">
+                      <div
+                        className="h-2 rounded-full bg-emerald-400"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
