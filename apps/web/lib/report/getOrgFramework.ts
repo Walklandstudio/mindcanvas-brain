@@ -2,25 +2,29 @@
 
 // Import the org-specific framework JSON files.
 // The "@/..." alias points at apps/web.
-import teamPuzzle from '@/data/frameworks/team-puzzle.json';
-import competencyCoach from '@/data/frameworks/competency-coach.json';
+import teamPuzzle from "@/data/frameworks/team-puzzle.json";
+import competencyCoach from "@/data/frameworks/competency-coach.json";
 
 // A framework can currently be either Team Puzzle or Competency Coach.
 // (If we add more later, we can expand this union.)
 export type OrgFramework = typeof teamPuzzle | typeof competencyCoach;
 
-// Map org slugs to their framework JSON
+// --- Helpers ---------------------------------------------------------------
+
+// Normalise slugs / names so we can safely match different variants.
+function normalise(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.trim().toLowerCase().replace(/[_\s]+/g, "-");
+}
+
+// Map org slugs to their framework JSON using *normalised* keys.
 const FRAMEWORKS_BY_SLUG: Record<string, OrgFramework> = {
   // Team Puzzle variants
-  'team-puzzle': teamPuzzle,
-  'team_puzzle': teamPuzzle,
-  'team puzzle': teamPuzzle,
-  'life-puzzle': teamPuzzle,
+  "team-puzzle": teamPuzzle,
+  "life-puzzle": teamPuzzle,
 
   // Competency Coach variants
-  'competency-coach': competencyCoach,
-  'competency_coach': competencyCoach,
-  'competency coach': competencyCoach,
+  "competency-coach": competencyCoach,
 };
 
 // If we can’t match a slug, fall back to Team Puzzle copy.
@@ -30,26 +34,33 @@ const GENERIC_FALLBACK: OrgFramework = teamPuzzle;
 /**
  * Look up the org-specific framework + report copy JSON
  * based on the organisation slug coming from Supabase.
+ *
+ * This is resilient to variants like:
+ *  - "team puzzle", "team_puzzle", "team-puzzle-2025"
+ *  - "Competency Coach", "competency_coach", "competency-coach-dna"
  */
 export function getOrgFramework(
   orgSlug: string | null | undefined
 ): OrgFramework {
   if (!orgSlug) return GENERIC_FALLBACK;
 
-  const key = orgSlug.trim().toLowerCase();
+  const raw = orgSlug.trim();
+  const key = normalise(raw);
 
-  // Direct match
+  // 1) Exact normalised match (preferred)
   if (FRAMEWORKS_BY_SLUG[key]) {
     return FRAMEWORKS_BY_SLUG[key];
   }
 
-  // Normalise spaces/underscores → hyphens and try again
-  const normalised = key.replace(/\s+/g, '-').replace(/_/g, '-');
-  if (FRAMEWORKS_BY_SLUG[normalised]) {
-    return FRAMEWORKS_BY_SLUG[normalised];
+  // 2) Heuristic match by substring – safe for scaling to more brands later
+  if (key.includes("team") && key.includes("puzzle")) {
+    return teamPuzzle;
   }
 
-  // Last resort – generic fallback
+  if (key.includes("competency") && key.includes("coach")) {
+    return competencyCoach;
+  }
+
+  // 3) Last resort – generic fallback (Team Puzzle)
   return GENERIC_FALLBACK;
 }
-
