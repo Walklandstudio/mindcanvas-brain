@@ -1,4 +1,3 @@
-// apps/web/app/qsc/[token]/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -16,9 +15,9 @@ type QscResultsRow = {
   test_id: string;
   token: string;
   personality_totals: Record<string, number> | null;
-  personality_percentages: PersonalityPercMap | null; // 0–1 fractions
+  personality_percentages: PersonalityPercMap | null;
   mindset_totals: Record<string, number> | null;
-  mindset_percentages: MindsetPercMap | null; // 0–1 fractions
+  mindset_percentages: MindsetPercMap | null;
   primary_personality: PersonalityKey | null;
   secondary_personality: PersonalityKey | null;
   primary_mindset: MindsetKey | null;
@@ -86,7 +85,7 @@ type MatrixCell = {
   personality: PersonalityKey;
   mindset: MindsetKey;
   label: string;
-  code: string; // e.g. "A1".."D5"
+  code: string; // e.g. "F1".."D5"
 };
 
 type CellCategory = "primary" | "secondary" | "related" | "other";
@@ -105,10 +104,6 @@ const MINDSETS: { key: MindsetKey; label: string; level: number }[] = [
   { key: "ORBIT", label: "ORBIT", level: 4 },
   { key: "QUANTUM", label: "QUANTUM", level: 5 },
 ];
-
-// ---------------------------------------------------------------------------
-// Helpers for matrix
-// ---------------------------------------------------------------------------
 
 function buildMatrix(): MatrixCell[] {
   const cells: MatrixCell[] = [];
@@ -174,19 +169,11 @@ function categoryClasses(cat: CellCategory): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Percentage helpers
-// ---------------------------------------------------------------------------
-
-// DB stores fractions (0–1). We want 0–100 in the UI.
-function toPercent(raw: number | undefined | null): number {
-  const fraction = typeof raw === "number" && isFinite(raw) ? raw : 0;
-  return Math.max(0, Math.min(100, fraction * 100));
-}
-
-function percentLabelFromFraction(value: number | undefined | null): string {
-  const pct = toPercent(value);
-  return `${pct.toFixed(1).replace(/\.0$/, "")}%`;
+// IMPORTANT: this matches the *original*, working report.
+// We assume values are already 0–100 and just format them.
+function percentLabel(value: number | undefined | null): string {
+  const v = typeof value === "number" ? value : 0;
+  return `${v.toFixed(1).replace(/\.0$/, "")}%`;
 }
 
 function Bar({ pct }: { pct: number }) {
@@ -206,7 +193,7 @@ function Bar({ pct }: { pct: number }) {
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number; // 0–100
+  value: number; // we treat this as 0–100, same as original
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
@@ -218,7 +205,10 @@ const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
 
 function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
   const total =
-    data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
+    data.reduce(
+      (sum, d) => sum + (isFinite(d.value) ? d.value : 0),
+      0
+    ) || 1;
 
   const radius = 60;
   const strokeWidth = 20;
@@ -265,7 +255,12 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
       })}
 
       {/* Inner circle */}
-      <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
+      <circle
+        cx={center}
+        cy={center}
+        r={radius - strokeWidth}
+        fill="#020617"
+      />
 
       <text
         x={center}
@@ -342,7 +337,7 @@ export default function QscResultPage({
               results?: QscResultsRow;
               profile?: QscProfileRow | null;
               persona?: QscPersonaRow | null;
-            } & Record<string, any>)
+            } & QscPayload)
           | { ok?: boolean; error?: string };
 
         if (!res.ok || (j as any).ok === false) {
@@ -393,7 +388,9 @@ export default function QscResultPage({
           <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
           </p>
-          <h1 className="mt-3 text-3xl font-bold">Loading your results…</h1>
+          <h1 className="mt-3 text-3xl font-bold">
+            Loading your results…
+          </h1>
         </main>
       </div>
     );
@@ -429,15 +426,20 @@ export default function QscResultPage({
     persona?.profile_label || profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data for Buyer Frequency (fractions → 0–100)
-  const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
-    key: p.key,
-    label: p.label,
-    value: toPercent(personalityPerc[p.key]),
-  }));
+  // Donut data for Buyer Frequency – EXACTLY like the original working file:
+  // we assume personalityPerc values are already 0–100.
+  const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map(
+    (p) => ({
+      key: p.key,
+      label: p.label,
+      value: personalityPerc[p.key] ?? 0,
+    })
+  );
 
   const extendedReportHref = tid
-    ? `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`
+    ? `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(
+        tid
+      )}`
     : `/qsc/${encodeURIComponent(token)}/report`;
 
   // ---------------------------------------------------------------------------
@@ -459,9 +461,14 @@ export default function QscResultPage({
               </h1>
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 This view combines your{" "}
-                <span className="font-semibold">Buyer Frequency Type</span> and{" "}
-                <span className="font-semibold">Buyer Mindset Level</span> into
-                one Quantum Source Code profile.
+                <span className="font-semibold">
+                  Buyer Frequency Type
+                </span>{" "}
+                and{" "}
+                <span className="font-semibold">
+                  Buyer Mindset Level
+                </span>{" "}
+                into one Quantum Source Code profile.
               </p>
             </div>
 
@@ -646,9 +653,7 @@ export default function QscResultPage({
                       </span>
                     </div>
                     <span className="text-sm text-slate-300">
-                      {percentLabelFromFraction(
-                        (personalityPerc[d.key] ?? 0) as number
-                      )}
+                      {percentLabel(d.value)}
                     </span>
                   </div>
                 ))}
@@ -665,8 +670,8 @@ export default function QscResultPage({
 
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
-                const frac = mindsetPerc[m.key] ?? 0;
-                const pct = toPercent(frac);
+                // Exactly like the old, working file – treat as 0–100
+                const pct = mindsetPerc[m.key] ?? 0;
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -674,7 +679,7 @@ export default function QscResultPage({
                         {m.label}
                       </span>
                       <span className="text-slate-400">
-                        {percentLabelFromFraction(frac)}
+                        {percentLabel(pct)}
                       </span>
                     </div>
                     <Bar pct={pct} />
@@ -696,8 +701,11 @@ export default function QscResultPage({
                 This grid maps your{" "}
                 <span className="font-semibold">Buyer Frequency Type</span>{" "}
                 (left to right) against your{" "}
-                <span className="font-semibold">Buyer Mindset Level</span> (top
-                to bottom). Your combined profile sits at the intersection.
+                <span className="font-semibold">
+                  Buyer Mindset Level
+                </span>{" "}
+                (top to bottom). Your combined profile sits at the
+                intersection.
               </p>
             </div>
           </div>
