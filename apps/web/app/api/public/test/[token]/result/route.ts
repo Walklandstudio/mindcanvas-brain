@@ -390,6 +390,25 @@ export async function GET(
     profileLabels[0]?.name ||
     "Top Profile";
 
+  // 🔁 Fallback: if orgSlug is still null, infer Competency Coach by frequency names
+  if (!orgSlug) {
+    const freqNames = frequencyLabels
+      .map((f) => (f.name || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    const looksLikeCompetencyCoach =
+      freqNames.includes("innovation") &&
+      freqNames.includes("influence") &&
+      freqNames.includes("implementation") &&
+      freqNames.includes("insight");
+
+    if (looksLikeCompetencyCoach) {
+      orgSlug = "competency-coach";
+      if (!orgName) orgName = "Competency Coach";
+      if (!testName) testName = "Competency Coach";
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     data: {
@@ -433,4 +452,5 @@ export async function GET(
     },
   });
 }
+
 
