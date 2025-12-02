@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -13,9 +15,9 @@ type QscResultsRow = {
   test_id: string;
   token: string;
   personality_totals: Record<string, number> | null;
-  personality_percentages: PersonalityPercMap | null;
+  personality_percentages: PersonalityPercMap | null; // 0–100
   mindset_totals: Record<string, number> | null;
-  mindset_percentages: MindsetPercMap | null;
+  mindset_percentages: MindsetPercMap | null; // 0–100
   primary_personality: PersonalityKey | null;
   secondary_personality: PersonalityKey | null;
   primary_mindset: MindsetKey | null;
@@ -39,9 +41,44 @@ type QscProfileRow = {
   sale_blockers: string | null;
 };
 
+type QscPersonaRow = {
+  id: string;
+  test_id: string;
+  personality_code: string | null;
+  mindset_level: number | null;
+  profile_code: string | null;
+  profile_label: string | null;
+
+  show_up_summary: string | null;
+  energisers: string | null;
+  drains: string | null;
+  communication_long: string | null;
+  admired_for: string | null;
+  stuck_points: string | null;
+
+  one_page_strengths: string | null;
+  one_page_risks: string | null;
+
+  combined_strengths: string | null;
+  combined_risks: string | null;
+  combined_big_lever: string | null;
+
+  emotional_stabilises: string | null;
+  emotional_destabilises: string | null;
+  emotional_patterns_to_watch: string | null;
+
+  decision_style_long: string | null;
+  support_yourself: string | null;
+
+  strategic_priority_1: string | null;
+  strategic_priority_2: string | null;
+  strategic_priority_3: string | null;
+};
+
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
+  persona: QscPersonaRow | null;
 };
 
 type MatrixCell = {
@@ -72,7 +109,7 @@ function buildMatrix(): MatrixCell[] {
   const cells: MatrixCell[] = [];
   for (const m of MINDSETS) {
     for (const p of PERSONALITIES) {
-      const code = `${p.code}${m.level}`; // A1..D5 etc – internal helper
+      const code = `${p.code}${m.level}`;
       const label = `${p.label} ${m.label}`;
       cells.push({ personality: p.key, mindset: m.key, label, code });
     }
@@ -82,10 +119,7 @@ function buildMatrix(): MatrixCell[] {
 
 const MATRIX = buildMatrix();
 
-function classifyCell(
-  result: QscResultsRow | null,
-  cell: MatrixCell
-): CellCategory {
+function classifyCell(result: QscResultsRow | null, cell: MatrixCell): CellCategory {
   if (!result) return "other";
 
   const combined = (result.combined_profile_code || "").toUpperCase(); // e.g. "FIELD_ORBIT"
@@ -114,7 +148,6 @@ function classifyCell(
 
   if (matchesPersonality || matchesMindset) return "related";
 
-  // 4) Everything else
   return "other";
 }
 
@@ -132,35 +165,7 @@ function categoryClasses(cat: CellCategory): string {
   }
 }
 
-/**
- * Normalise any set of scores so they add up to 100.
- * Works whether the incoming values are:
- *  - 0–1 fractions
- *  - 0–100 percentages
- *  - 0–10000 or arbitrary "points"
- */
-function normalisePercentages<K extends string>(
-  map: Partial<Record<K, number>> | null | undefined,
-  keys: K[]
-): Record<K, number> {
-  const out = {} as Record<K, number>;
-
-  const rawValues = keys.map((k) => {
-    const v =
-      map && typeof map[k] === "number" ? (map[k] as number) : 0;
-    return Number.isFinite(v) ? v : 0;
-  });
-
-  const total = rawValues.reduce((sum, v) => sum + v, 0);
-  const factor = total > 0 ? 100 / total : 0;
-
-  keys.forEach((k, idx) => {
-    out[k] = rawValues[idx] * factor;
-  });
-
-  return out;
-}
-
+// 🔴 IMPORTANT: values from DB are 0–100 already
 function percentLabel(value: number | undefined | null): string {
   const v = typeof value === "number" ? value : 0;
   return `${v.toFixed(1).replace(/\.0$/, "")}%`;
@@ -183,7 +188,7 @@ function Bar({ pct }: { pct: number }) {
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number; // always 0–100 after normalisation
+  value: number; // 0–100
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
@@ -195,10 +200,7 @@ const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
 
 function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
   const total =
-    data.reduce(
-      (sum, d) => sum + (isFinite(d.value) ? d.value : 0),
-      0
-    ) || 1;
+    data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
 
   const radius = 60;
   const strokeWidth = 20;
@@ -222,8 +224,9 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         strokeWidth={strokeWidth}
         fill="transparent"
       />
-      {data.map((d: FrequencyDonutDatum) => {
-        const fraction = (isFinite(d.value) ? d.value : 0) / total;
+      {data.map((d) => {
+        const value = isFinite(d.value) ? d.value : 0;
+        const fraction = value / total;
         const dash = circumference * fraction;
         const dashArray = `${dash} ${circumference}`;
         const strokeDashoffset = offset;
@@ -245,12 +248,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
       })}
 
       {/* Inner circle */}
-      <circle
-        cx={center}
-        cy={center}
-        r={radius - strokeWidth}
-        fill="#020617"
-      />
+      <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
 
       <text
         x={center}
@@ -286,12 +284,10 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function QscResultPage({
-  params,
-}: {
-  params: { token: string };
-}) {
+export default function QscResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
+  const searchParams = useSearchParams();
+  const tid = searchParams?.get("tid") ?? "";
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -318,15 +314,24 @@ export default function QscResultPage({
           );
         }
 
-        const j = (await res.json()) as { ok?: boolean; error?: string } & QscPayload;
-        if (!res.ok || j.ok === false) {
-          throw new Error(j.error || `HTTP ${res.status}`);
+        const j = (await res.json()) as
+          | ({ ok?: boolean; error?: string } & {
+              results?: QscResultsRow;
+              profile?: QscProfileRow | null;
+              persona?: QscPersonaRow | null;
+            })
+          | { ok?: boolean; error?: string };
+
+        if (!res.ok || (j as any).ok === false) {
+          throw new Error((j as any).error || `HTTP ${res.status}`);
         }
 
+        const cast = j as any;
         if (alive) {
           setPayload({
-            results: j.results,
-            profile: j.profile ?? null,
+            results: cast.results,
+            profile: cast.profile ?? null,
+            persona: cast.persona ?? null,
           });
         }
       } catch (e: any) {
@@ -343,34 +348,15 @@ export default function QscResultPage({
 
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
+  const persona = payload?.persona ?? null;
 
-  // RAW maps from DB (whatever scale they use)
-  const rawPersonalityMap = useMemo<PersonalityPercMap>(
+  const personalityPerc = useMemo<PersonalityPercMap>(
     () => result?.personality_percentages || {},
     [result]
   );
-  const rawMindsetMap = useMemo<MindsetPercMap>(
+  const mindsetPerc = useMemo<MindsetPercMap>(
     () => result?.mindset_percentages || {},
     [result]
-  );
-
-  // NORMALISED 0–100% for display
-  const personalityPerc = useMemo(
-    () =>
-      normalisePercentages<PersonalityKey>(
-        rawPersonalityMap,
-        PERSONALITIES.map((p) => p.key)
-      ),
-    [rawPersonalityMap]
-  );
-
-  const mindsetPerc = useMemo(
-    () =>
-      normalisePercentages<MindsetKey>(
-        rawMindsetMap,
-        MINDSETS.map((m) => m.key)
-      ),
-    [rawMindsetMap]
   );
 
   // ---------------------------------------------------------------------------
@@ -416,17 +402,20 @@ export default function QscResultPage({
   }
 
   // Helper labels
-  const primaryPersonaLabel = profile?.profile_label || "Combined profile";
+  const primaryPersonaLabel =
+    persona?.profile_label || profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data using the normalised 0–100 values
-  const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map(
-    (p) => ({
-      key: p.key,
-      label: p.label,
-      value: personalityPerc[p.key],
-    })
-  );
+  // Donut data for Buyer Frequency – values are 0–100 already
+  const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
+    key: p.key,
+    label: p.label,
+    value: personalityPerc[p.key] ?? 0,
+  }));
+
+  const extendedReportHref = tid
+    ? `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`
+    : `/qsc/${encodeURIComponent(token)}/report`;
 
   // ---------------------------------------------------------------------------
   // Main layout
@@ -437,19 +426,31 @@ export default function QscResultPage({
       <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
         {/* Snapshot header */}
         <section className="space-y-6">
-          <div>
-            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-              Quantum Source Code
-            </p>
-            <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
-              Your Buyer Persona Snapshot
-            </h1>
-            <p className="mt-2 text-sm text-slate-300">
-              This view combines your{" "}
-              <span className="font-semibold">Buyer Frequency Type</span>{" "}
-              and <span className="font-semibold">Buyer Mindset Level</span>{" "}
-              into one Quantum Source Code profile.
-            </p>
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+                Quantum Source Code
+              </p>
+              <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
+                Your Buyer Persona Snapshot
+              </h1>
+              <p className="mt-2 text-sm text-slate-300 max-w-2xl">
+                This view combines your{" "}
+                <span className="font-semibold">Buyer Frequency Type</span> and{" "}
+                <span className="font-semibold">Buyer Mindset Level</span> into
+                one Quantum Source Code profile.
+              </p>
+            </div>
+
+            {/* Extended Source Code button */}
+            <div className="flex md:items-end">
+              <Link
+                href={extendedReportHref}
+                className="inline-flex items-center rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-slate-50 shadow-md shadow-sky-900/60 hover:bg-sky-500 hover:border-sky-400 transition"
+              >
+                View Extended Source Code →
+              </Link>
+            </div>
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
@@ -467,6 +468,12 @@ export default function QscResultPage({
                   {result.combined_profile_code || "—"}
                 </span>
               </p>
+
+              {persona?.show_up_summary && (
+                <p className="mt-4 text-sm text-slate-200 whitespace-pre-line">
+                  {persona.show_up_summary}
+                </p>
+              )}
 
               <dl className="mt-5 grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
                 <div>
@@ -556,8 +563,7 @@ export default function QscResultPage({
                       Trust signals
                     </h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.trust_signals ||
-                        "[todo: trust signals]"}
+                      {profile?.trust_signals || "[todo: trust signals]"}
                     </p>
                   </div>
                 </div>
@@ -602,7 +608,7 @@ export default function QscResultPage({
               </div>
 
               <div className="space-y-3 text-sm">
-                {frequencyDonutData.map((d: FrequencyDonutDatum) => (
+                {frequencyDonutData.map((d) => (
                   <div
                     key={d.key}
                     className="flex items-center justify-between gap-3"
@@ -634,7 +640,7 @@ export default function QscResultPage({
 
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
-                const pct = mindsetPerc[m.key] ?? 0;
+                const pct = mindsetPerc[m.key] ?? 0; // 0–100
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -664,8 +670,8 @@ export default function QscResultPage({
                 This grid maps your{" "}
                 <span className="font-semibold">Buyer Frequency Type</span>{" "}
                 (left to right) against your{" "}
-                <span className="font-semibold">Buyer Mindset Level</span>{" "}
-                (top to bottom). Your combined profile sits at the intersection.
+                <span className="font-semibold">Buyer Mindset Level</span> (top
+                to bottom). Your combined profile sits at the intersection.
               </p>
             </div>
           </div>
