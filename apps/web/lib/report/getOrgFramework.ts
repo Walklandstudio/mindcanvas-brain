@@ -19,9 +19,11 @@ function normalise(value: string | null | undefined): string {
 
 // Map org slugs to their framework JSON using *normalised* keys.
 const FRAMEWORKS_BY_SLUG: Record<string, OrgFramework> = {
-  
+  // Team Puzzle variants
   "team-puzzle": teamPuzzle,
   "life-puzzle": teamPuzzle,
+
+  // Competency Coach variants
   "competency-coach": competencyCoach,
 };
 
@@ -42,7 +44,7 @@ export function getOrgFramework(
 ): OrgFramework {
   if (!orgSlug) return GENERIC_FALLBACK;
 
-const key = normalise(orgSlug);
+  const key = normalise(orgSlug);
 
   // 1) Exact normalised match (preferred)
   if (FRAMEWORKS_BY_SLUG[key]) {
@@ -58,6 +60,6 @@ const key = normalise(orgSlug);
     return competencyCoach;
   }
 
-  // 3) Last resort – generic fallback (Team Puzzle)
+  // 3) Last resort – generic fallback
   return GENERIC_FALLBACK;
 }

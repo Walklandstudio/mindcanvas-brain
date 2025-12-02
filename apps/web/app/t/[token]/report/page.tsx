@@ -1,3 +1,4 @@
+// apps/web/app/t/[token]/report/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import PersonalityMapSection from "./PersonalityMapSection";
@@ -100,7 +101,9 @@ function getOrgAssets(orgSlug?: string | null, orgName?: string | null) {
   };
 }
 
-function getTeamPuzzleProfileImage(profileName: string | undefined): string | null {
+function getTeamPuzzleProfileImage(
+  profileName: string | undefined
+): string | null {
   if (!profileName) return null;
   const key = profileName.trim().toLowerCase();
 
@@ -184,6 +187,17 @@ type OrgReportCopy = OrgFramework["framework"]["report"] & {
   >;
 };
 
+// Defaults for frequencies section
+const DEFAULT_FREQUENCIES_INTRO =
+  "Frequencies describe the way you naturally think, decide, and take action. You can think of them as four types of work energy that show where you feel most at home.";
+
+const DEFAULT_FREQUENCY_DESCRIPTIONS: Record<FrequencyCode, string> = {
+  A: "Ideas, creation, momentum, and challenging the status quo.",
+  B: "People, communication, motivation, and activation.",
+  C: "Rhythm, process, structure, and reliable delivery.",
+  D: "Pattern recognition, analysis, and perspective.",
+};
+
 // --- Page ------------------------------------------------------------------
 
 export default async function ReportPage({
@@ -251,7 +265,9 @@ export default async function ReportPage({
         `${base}/api/public/test/${encodeURIComponent(token)}`,
         { cache: "no-store" }
       );
-      const metaJson = await metaRes.json().catch(() => null as any);
+      const metaJson = (await metaRes.json().catch(
+        () => null as any
+      )) as any;
       const link = (metaJson?.data ?? metaJson ?? {}) as any;
 
       variant =
@@ -316,7 +332,17 @@ export default async function ReportPage({
   }
 
   const fw = orgFw?.framework;
-  const reportCopy: OrgReportCopy | null = fw?.report ?? null;
+  const reportCopy: OrgReportCopy | null = (fw as any)?.report ?? null;
+
+  // Extra report configuration (per-org, from JSON)
+  const frequenciesCopy: any = reportCopy?.frequencies_copy ?? null;
+  const profilesCopyMeta: any = reportCopy?.profiles_copy ?? null;
+  const imageConfig: any = reportCopy?.images ?? {};
+
+  const frequencyDiagramSrc =
+    imageConfig.frequency_diagram || orgAssets?.frequenciesSrc || null;
+  const profilesDiagramSrc =
+    imageConfig.profile_grid || orgAssets?.profilesDiagramSrc || null;
 
   const reportTitle =
     reportCopy?.report_title || `${orgName} Profile Assessment`;
@@ -499,68 +525,60 @@ export default async function ReportPage({
             {/* Understanding Frequencies */}
             <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
               <h3 className="text-base font-semibold text-slate-900">
-                Understanding the four Frequencies
+                {frequenciesCopy?.title || "Understanding the four Frequencies"}
               </h3>
               <p className="mt-2 text-sm text-slate-700">
-                Frequencies describe the way you naturally think, decide, and
-                take action. You can think of them as four types of work energy
-                that show where you feel most at home.
+                {frequenciesCopy?.intro || DEFAULT_FREQUENCIES_INTRO}
               </p>
 
-              {orgAssets?.frequenciesSrc && (
+              {frequencyDiagramSrc && (
                 <div className="mt-4 flex justify-center">
                   <img
-                    src={orgAssets.frequenciesSrc}
-                    alt="Team Puzzle Frequencies"
+                    src={frequencyDiagramSrc}
+                    alt="Frequencies"
                     className="max-h-64 w-auto rounded-xl"
                   />
                 </div>
               )}
 
               <dl className="mt-4 space-y-2 text-sm text-slate-800">
-                <div>
-                  <dt className="font-semibold">Innovation (A)</dt>
-                  <dd className="text-slate-700">
-                    Ideas, creation, momentum, and challenging the status quo.
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-semibold">Influence (B)</dt>
-                  <dd className="text-slate-700">
-                    People, communication, motivation, and activation.
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-semibold">Implementation (C)</dt>
-                  <dd className="text-slate-700">
-                    Rhythm, process, and reliable delivery.
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-semibold">Insight (D)</dt>
-                  <dd className="text-slate-700">
-                    Pattern recognition, analysis, and perspective.
-                  </dd>
-                </div>
+                {data.frequency_labels.map((f) => {
+                  const freqMeta =
+                    frequenciesCopy?.items?.[
+                      f.code as FrequencyCode
+                    ] ?? null;
+                  const name = freqMeta?.name || f.name;
+                  const description =
+                    freqMeta?.description ||
+                    DEFAULT_FREQUENCY_DESCRIPTIONS[f.code as FrequencyCode];
+
+                  return (
+                    <div key={f.code}>
+                      <dt className="font-semibold">
+                        {name} ({f.code})
+                      </dt>
+                      <dd className="text-slate-700">{description}</dd>
+                    </div>
+                  );
+                })}
               </dl>
             </div>
 
             {/* Understanding Profiles */}
             <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
               <h3 className="text-base font-semibold text-slate-900">
-                Understanding the eight Profiles
+                {profilesCopyMeta?.title || "Understanding the eight Profiles"}
               </h3>
               <p className="mt-2 text-sm text-slate-700">
-                Profiles blend these Frequencies into distinct patterns of
-                contribution. A profile is simply a pattern that shows how you
-                like to contribute in a team.
+                {profilesCopyMeta?.intro ||
+                  "Profiles blend these Frequencies into distinct patterns of contribution. A profile is simply a pattern that shows how you like to contribute in your work."}
               </p>
 
-              {orgAssets?.profilesDiagramSrc && (
+              {profilesDiagramSrc && (
                 <div className="mt-4 flex justify-center">
                   <img
-                    src={orgAssets.profilesDiagramSrc}
-                    alt="Team Puzzle Profiles"
+                    src={profilesDiagramSrc}
+                    alt="Profiles"
                     className="max-h-72 w-auto rounded-xl"
                   />
                 </div>
@@ -1007,4 +1025,3 @@ export default async function ReportPage({
     </div>
   );
 }
-

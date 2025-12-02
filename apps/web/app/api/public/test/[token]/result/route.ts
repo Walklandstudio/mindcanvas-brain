@@ -27,12 +27,14 @@ function toPercentages(t: TotalsAB): Record<AB, number> {
   }
   return out;
 }
+
 function sumAB(t: TotalsAB) {
   return AB_VALUES.reduce(
     (acc, k) => acc + Number(t?.[k] ?? 0),
     0
   );
 }
+
 function normalizeFreqTotals(input: any): TotalsAB {
   if (!input || typeof input !== "object")
     return { A: 0, B: 0, C: 0, D: 0 };
@@ -47,6 +49,7 @@ function normalizeFreqTotals(input: any): TotalsAB {
     D: Number(t?.D ?? 0),
   };
 }
+
 function normalizeProfileTotals(
   input: any
 ): Record<string, number> {
@@ -61,6 +64,7 @@ function normalizeProfileTotals(
   }
   return {};
 }
+
 function zeroTotals(
   freq: TotalsAB,
   prof: Record<string, number>
@@ -125,7 +129,6 @@ export async function GET(
     .eq("id", testId)
     .maybeSingle();
   if (testRes.error) {
-    // Non-fatal; we still return scores
     console.warn(
       "[test result] error loading test metadata",
       testRes.error
@@ -272,8 +275,10 @@ export async function GET(
   }));
 
   // 4) Recompute if needed (zero totals + we have answers)
-  if (zeroTotals(frequencyTotals, profileTotals) &&
-      rawAnswers.length > 0) {
+  if (
+    zeroTotals(frequencyTotals, profileTotals) &&
+    rawAnswers.length > 0
+  ) {
     const nameToCode = new Map<string, string>();
     const codeToFreq = new Map<string, AB>();
     for (const p of profileLabels) {
@@ -388,12 +393,12 @@ export async function GET(
   return NextResponse.json({
     ok: true,
     data: {
-      // NEW: org + test metadata for the report page
+      // org + test metadata for the report page
       org_slug: orgSlug,
       org_name: orgName,
       test_name: testName,
 
-      // NEW: taker names for the header
+      // taker names for the header
       taker: {
         id: tid,
         first_name: takerFirst,
