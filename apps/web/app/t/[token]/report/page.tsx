@@ -11,7 +11,7 @@ import {
 } from "@/lib/report/getOrgFramework";
 import AppBackground from "@/components/ui/AppBackground";
 
-// Direct import of Competency Coach framework JSON so we can override
+// Direct import of Competency Coach framework JSON so we can override when needed
 import competencyCoachFramework from "@/data/frameworks/competency-coach.json";
 
 export const dynamic = "force-dynamic";
@@ -201,28 +201,68 @@ const DEFAULT_FREQUENCY_DESCRIPTIONS: Record<FrequencyCode, string> = {
   D: "Pattern recognition, analysis, and perspective.",
 };
 
-// Detect if this looks like a Competency Coach test based on labels,
-// independent of org metadata.
+// Detect if this looks like a Competency Coach test.
+// Make this *very* forgiving so we don't miss it.
 function looksLikeCompetencyCoachResult(data: ResultData): boolean {
-  const freqNames = data.frequency_labels
-    .map((f) => (f.name || "").trim().toLowerCase())
-    .filter(Boolean);
+  const topName = (data.top_profile_name || "").trim().toLowerCase();
+  const testName = (data.test_name || "").trim().toLowerCase();
 
-  const hasAllCcFrequencies = ["innovation", "influence", "implementation", "insight"].every(
-    (name) => freqNames.includes(name)
-  );
+  // 1) Strong signal: top profile is one of the CC profiles
+  if (
+    topName.includes("heart-centered coach") ||
+    topName.includes("heart-centred coach") ||
+    topName.includes("innovator") ||
+    topName.includes("change agent") ||
+    topName.includes("grounded guide") ||
+    topName.includes("storyteller") ||
+    topName.includes("mastermind") ||
+    topName.includes("thinker")
+  ) {
+    return true;
+  }
 
+  // 2) Strong signal: test name itself says Competency Coach
+  if (testName.includes("competency coach")) {
+    return true;
+  }
+
+  // 3) Fallback: any of the profile labels looks like CC
   const profileNames = data.profile_labels
     .map((p) => (p.name || "").trim().toLowerCase())
     .filter(Boolean);
 
-  const hasHeartCentered =
-    profileNames.includes("the heart-centered coach") ||
-    profileNames.includes("the heart-centred coach");
-  const hasInnovator = profileNames.includes("the innovator");
-  const hasChangeAgent = profileNames.includes("the change agent");
+  const anyCcProfile = profileNames.some((name) =>
+    [
+      "the heart-centered coach",
+      "the heart-centred coach",
+      "the innovator",
+      "the storyteller",
+      "the grounded guide",
+      "the mastermind",
+      "the thinker",
+      "the change agent",
+      "the negotiator",
+    ].some((needle) => name.includes(needle))
+  );
 
-  return hasAllCcFrequencies && hasHeartCentered && hasInnovator && hasChangeAgent;
+  if (anyCcProfile) {
+    return true;
+  }
+
+  // 4) Extra fallback: frequency names match the CC set
+  const freqNames = data.frequency_labels
+    .map((f) => (f.name || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  const hasCcFreqs = ["innovation", "influence", "implementation", "insight"].every(
+    (name) => freqNames.some((n) => n.includes(name))
+  );
+
+  if (hasCcFreqs) {
+    return true;
+  }
+
+  return false;
 }
 
 // --- Page ------------------------------------------------------------------
@@ -361,8 +401,7 @@ export default async function ReportPage({
   if (isCompetencyCoachByData) {
     // Force Competency Coach framework + names when the data matches,
     // even if org_slug is null in the API.
-  
-    orgFw = competencyCoachFramework as OrgFramework;
+    orgFw = competencyCoachFramework as unknown as OrgFramework;
     if (!orgSlug) orgSlug = "competency-coach";
     if (!data.org_name && orgName === "Your Organisation") {
       orgName = "Competency Coach";
@@ -476,7 +515,6 @@ export default async function ReportPage({
 
             <div className="flex items-center gap-3">
               <PrintButton className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800" />
-              {/* PDF button is wired but UI-only for now */}
               <Link
                 href={downloadPdfHref}
                 className="hidden md:inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
@@ -1084,8 +1122,7 @@ export default async function ReportPage({
                 <code>{(fw as any)?.key ?? "unknown"}</code>
               </div>
               <div>
-                report_title:{" "}
-                <code>{reportTitle}</code>
+                report_title: <code>{reportTitle}</code>
               </div>
               <div>
                 isCompetencyCoachByData:{" "}
@@ -1103,4 +1140,5 @@ export default async function ReportPage({
     </div>
   );
 }
+
 

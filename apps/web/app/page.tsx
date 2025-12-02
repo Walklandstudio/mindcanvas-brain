@@ -1,3 +1,4 @@
+// apps/web/app/page.tsx
 import Link from "next/link";
 
 const P = { c1: "#64bae2", c2: "#2d8fc4", c3: "#015a8b" }; // your palette
@@ -46,17 +47,21 @@ export default function Landing() {
           <div className="flex items-center gap-3">
             <div
               className="h-9 w-9 rounded-xl shadow-[0_8px_30px_rgba(100,186,226,0.35)]"
-              style={{ background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})` }}
+              style={{
+                background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})`,
+              }}
             />
-            <span className="text-base font-semibold tracking-tight">MindCanvas</span>
+            <span className="text-base font-semibold tracking-tight">
+              MindCanvas
+            </span>
           </div>
 
-          {/* Header nav: Login + Admin (for testing) */}
+          {/* Header nav: Login + Admin (Admin is server-gated via /admin layout) */}
           <nav className="hidden md:flex items-center gap-4 text-sm">
             <Link href="/login" className="text-slate-300 hover:text-white">
               Login
             </Link>
-            <Link href="/portal/admin" className="text-slate-300 hover:text-white">
+            <Link href="/admin" className="text-slate-300 hover:text-white">
               Admin
             </Link>
           </nav>
@@ -88,7 +93,9 @@ export default function Landing() {
             <Link
               href="/onboarding/create-account"
               className="group inline-flex items-center justify-center rounded-2xl px-6 py-3 text-[15px] font-medium transition-transform hover:scale-[1.02] active:scale-100 shine"
-              style={{ background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})` }}
+              style={{
+                background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})`,
+              }}
             >
               Create Account
               <span className="ml-2 block h-[1px] w-4 translate-y-[1px] bg-white/70 group-hover:w-6 transition-all" />
@@ -111,4 +118,5 @@ export default function Landing() {
     </main>
   );
 }
+
 
