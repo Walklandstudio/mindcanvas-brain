@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { QscMatrix } from "../../QscMatrix";
 
@@ -93,21 +93,20 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   QUANTUM: "Quantum",
 };
 
-// Normalise values that might be 0–1 or 0–100 into a safe 0–100 percentage
-function toPercent(raw: number | undefined | null): number {
+// --- Helpers ---------------------------------------------------------------
+
+function normalisePercent(raw: number | undefined | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
-  const n = Number(raw);
-  if (n > 0 && n <= 1.5) {
-    // Looks like a 0–1 fraction
-    return Math.round(n * 100);
+
+  // If it looks like a 0–1 fraction, convert to 0–100.
+  if (raw > 0 && raw <= 1.5) {
+    return Math.min(100, Math.max(0, raw * 100));
   }
-  // Already in a 0–100-ish range
-  return Math.round(Math.min(100, Math.max(0, n)));
+
+  // Otherwise assume it's already 0–100 and clamp to [0, 100].
+  return Math.min(100, Math.max(0, raw));
 }
 
-// -----------------------------
-// Donut chart for Frequency
-// -----------------------------
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
@@ -147,6 +146,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         strokeWidth={strokeWidth}
         fill="transparent"
       />
+
       {data.map((d) => {
         const fraction = (isFinite(d.value) ? d.value : 0) / total;
         const dash = circumference * fraction;
@@ -201,6 +201,8 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
     </svg>
   );
 }
+
+// --- Main page -------------------------------------------------------------
 
 export default function QscEntrepreneurStrategicReportPage({
   params,
@@ -271,6 +273,8 @@ export default function QscEntrepreneurStrategicReportPage({
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
 
+  // --- Loading / error states ---------------------------------------------
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -306,6 +310,8 @@ export default function QscEntrepreneurStrategicReportPage({
     );
   }
 
+  // --- Derived values ------------------------------------------------------
+
   const createdAt = new Date(result.created_at);
   const personaName =
     persona?.profile_label ||
@@ -327,33 +333,33 @@ export default function QscEntrepreneurStrategicReportPage({
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
-  // These are stored as either fractions (0–1) or percentages (0–100).
-  const rawPersonality =
+  // Percentages (normalised)
+  const rawPersonalityPerc =
     (result.personality_percentages ?? {}) as PersonalityPercMap;
-  const rawMindset = (result.mindset_percentages ?? {}) as MindsetPercMap;
+  const rawMindsetPerc =
+    (result.mindset_percentages ?? {}) as MindsetPercMap;
 
-  const personalityPerc = useMemo<PersonalityPercMap>(() => {
-    const out: PersonalityPercMap = {};
-    (["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).forEach((k) => {
-      out[k] = toPercent(rawPersonality[k] ?? 0);
-    });
-    return out;
-  }, [rawPersonality]);
+  const personalityPerc: PersonalityPercMap = {
+    FIRE: normalisePercent(rawPersonalityPerc.FIRE ?? 0),
+    FLOW: normalisePercent(rawPersonalityPerc.FLOW ?? 0),
+    FORM: normalisePercent(rawPersonalityPerc.FORM ?? 0),
+    FIELD: normalisePercent(rawPersonalityPerc.FIELD ?? 0),
+  };
 
-  const mindsetPerc = useMemo<MindsetPercMap>(() => {
-    const out: MindsetPercMap = {};
-    (
-      ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
-    ).forEach((k) => {
-      out[k] = toPercent(rawMindset[k] ?? 0);
-    });
-    return out;
-  }, [rawMindset]);
+  const mindsetPerc: MindsetPercMap = {
+    ORIGIN: normalisePercent(rawMindsetPerc.ORIGIN ?? 0),
+    MOMENTUM: normalisePercent(rawMindsetPerc.MOMENTUM ?? 0),
+    VECTOR: normalisePercent(rawMindsetPerc.VECTOR ?? 0),
+    ORBIT: normalisePercent(rawMindsetPerc.ORBIT ?? 0),
+    QUANTUM: normalisePercent(rawMindsetPerc.QUANTUM ?? 0),
+  };
 
-  // Donut data for frequency
-  const frequencyDonutData: FrequencyDonutDatum[] = (
-    ["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]
-  ).map((key) => ({
+  const frequencyDonutData: FrequencyDonutDatum[] = ([
+    "FIRE",
+    "FLOW",
+    "FORM",
+    "FIELD",
+  ] as PersonalityKey[]).map((key) => ({
     key,
     label: PERSONALITY_LABELS[key],
     value: personalityPerc[key] ?? 0,
@@ -375,6 +381,8 @@ export default function QscEntrepreneurStrategicReportPage({
   const strategic1 = persona?.strategic_priority_1 || "—";
   const strategic2 = persona?.strategic_priority_2 || "—";
   const strategic3 = persona?.strategic_priority_3 || "—";
+
+  // --- Render --------------------------------------------------------------
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -541,32 +549,29 @@ export default function QscEntrepreneurStrategicReportPage({
 
         {/* FREQUENCY + MINDSET + MATRIX */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
-          {/* Buyer Frequency Type with donut */}
+          {/* Buyer Frequency Type – donut */}
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
             <p className="text-sm text-slate-300">
-              Your emotional & energetic style across Fire, Flow, Form and
-              Field.
+              Your emotional & energetic style across Fire, Flow, Form and Field.
             </p>
-            <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
+
+            <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
               <div className="flex justify-center">
                 <FrequencyDonut data={frequencyDonutData} />
               </div>
               <div className="space-y-3 text-sm">
-                {(
-                  ["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]
-                ).map((key) => {
-                  const pct = personalityPerc[key] ?? 0;
-                  return (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between gap-3"
-                    >
-                      <span>{PERSONALITY_LABELS[key]}</span>
-                      <span className="tabular-nums">{pct}%</span>
-                    </div>
-                  );
-                })}
+                {frequencyDonutData.map((d) => (
+                  <div
+                    key={d.key}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span>{d.label}</span>
+                    <span className="tabular-nums">
+                      {Math.round(d.value)}%
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -582,7 +587,7 @@ export default function QscEntrepreneurStrategicReportPage({
               {(
                 ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
               ).map((key) => {
-                const pct = mindsetPerc[key] ?? 0;
+                const pct = Math.round(mindsetPerc[key] ?? 0);
                 return (
                   <div key={key} className="space-y-1">
                     <div className="flex justify-between">
