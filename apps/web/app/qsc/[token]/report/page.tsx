@@ -68,19 +68,34 @@ type MatrixCell = {
 type CellCategory = "primary" | "secondary" | "related" | "other";
 
 const PERSONALITIES: { key: PersonalityKey; label: string; code: string }[] = [
-  { key: "FIRE", label: "FIRE", code: "A" },
-  { key: "FLOW", label: "FLOW", code: "B" },
-  { key: "FORM", label: "FORM", code: "C" },
-  { key: "FIELD", label: "FIELD", code: "D" },
+  { key: "FIRE", label: "Fire", code: "A" },
+  { key: "FLOW", label: "Flow", code: "B" },
+  { key: "FORM", label: "Form", code: "C" },
+  { key: "FIELD", label: "Field", code: "D" },
 ];
 
 const MINDSETS: { key: MindsetKey; label: string; level: number }[] = [
-  { key: "ORIGIN", label: "ORIGIN", level: 1 },
-  { key: "MOMENTUM", label: "MOMENTUM", level: 2 },
-  { key: "VECTOR", label: "VECTOR", level: 3 },
-  { key: "ORBIT", label: "ORBIT", level: 4 },
-  { key: "QUANTUM", label: "QUANTUM", level: 5 },
+  { key: "ORIGIN", label: "Origin", level: 1 },
+  { key: "MOMENTUM", label: "Momentum", level: 2 },
+  { key: "VECTOR", label: "Vector", level: 3 },
+  { key: "ORBIT", label: "Orbit", level: 4 },
+  { key: "QUANTUM", label: "Quantum", level: 5 },
 ];
+
+const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
+  FIRE: "Fire",
+  FLOW: "Flow",
+  FORM: "Form",
+  FIELD: "Field",
+};
+
+const MINDSET_LABELS: Record<MindsetKey, string> = {
+  ORIGIN: "Origin",
+  MOMENTUM: "Momentum",
+  VECTOR: "Vector",
+  ORBIT: "Orbit",
+  QUANTUM: "Quantum",
+};
 
 function buildMatrix(): MatrixCell[] {
   const cells: MatrixCell[] = [];
@@ -375,7 +390,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
   const primaryPersonaLabel = profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data for Buyer Frequency (normalised)
+  // Donut data for Buyer Frequency
   const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
     key: p.key,
     label: p.label,
@@ -383,8 +398,10 @@ export default function QscResultPage({ params }: { params: { token: string } })
   }));
 
   const extendedReportHref = tid
-    ? `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`
-    : `/qsc/${encodeURIComponent(token)}/report`;
+    ? `/qsc/${encodeURIComponent(token)}/entrepreneur?tid=${encodeURIComponent(
+        tid
+      )}`
+    : `/qsc/${encodeURIComponent(token)}/entrepreneur`;
 
   // ---------------------------------------------------------------------------
   // Main layout
@@ -582,7 +599,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                         style={{ backgroundColor: FREQUENCY_COLORS[d.key] }}
                       />
                       <span className="font-medium text-slate-100">
-                        {d.label.charAt(0) + d.label.slice(1).toLowerCase()}
+                        {d.label}
                       </span>
                     </div>
                     <span className="text-sm text-slate-300">
@@ -603,8 +620,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
-                const raw = mindsetPerc[m.key] ?? 0;
-                const pct = normalisePercent(raw);
+                const pct = normalisePercent(mindsetPerc[m.key]);
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -746,3 +762,4 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
+
