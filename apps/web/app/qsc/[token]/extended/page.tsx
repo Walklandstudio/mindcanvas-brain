@@ -321,7 +321,7 @@ export default function QscExtendedSourceCodePage({
             Profile summary
           </p>
           <h2 className="text-xl font-semibold text-slate-50">
-            How to sell to this Quantum buyer
+            How to sell to this buyer
           </h2>
           <p className="text-sm text-slate-300 max-w-3xl">
             This page is for you as the{" "}
