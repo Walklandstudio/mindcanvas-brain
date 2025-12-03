@@ -38,9 +38,40 @@ type QscProfileRow = {
   sale_blockers: string | null;
 };
 
+type QscPersonaRow = {
+  id: string;
+  test_id: string;
+  personality_code: string | null;
+  mindset_level: number | null;
+  profile_code: string | null;
+  profile_label: string | null;
+
+  show_up_summary: string | null;
+  energisers: string | null;
+  drains: string | null;
+  communication_long: string | null;
+  admired_for: string | null;
+  stuck_points: string | null;
+
+  one_page_strengths: string | null;
+  one_page_risks: string | null;
+  combined_strengths: string | null;
+  combined_risks: string | null;
+  combined_big_lever: string | null;
+  emotional_stabilises: string | null;
+  emotional_destabilises: string | null;
+  emotional_patterns_to_watch: string | null;
+  decision_style_long: string | null;
+  support_yourself: string | null;
+  strategic_priority_1: string | null;
+  strategic_priority_2: string | null;
+  strategic_priority_3: string | null;
+};
+
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
+  persona: QscPersonaRow | null;
 };
 
 const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
@@ -97,6 +128,7 @@ export default function QscExtendedSourceCodePage({
           error?: string;
           results?: QscResultsRow;
           profile?: QscProfileRow | null;
+          persona?: QscPersonaRow | null;
         };
 
         if (!res.ok || j.ok === false) {
@@ -107,6 +139,7 @@ export default function QscExtendedSourceCodePage({
           setPayload({
             results: j.results,
             profile: j.profile ?? null,
+            persona: j.persona ?? null,
           });
         }
       } catch (e: any) {
@@ -123,6 +156,7 @@ export default function QscExtendedSourceCodePage({
 
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
+  const persona = payload?.persona ?? null;
 
   if (loading) {
     return (
@@ -162,12 +196,27 @@ export default function QscExtendedSourceCodePage({
   const createdAt = new Date(result.created_at);
 
   const personaLabel =
-    profile?.profile_label || result.combined_profile_code || "Quantum profile";
+    persona?.profile_label ||
+    profile?.profile_label ||
+    result.combined_profile_code ||
+    "Quantum profile";
+
+  const primaryPersonalityLabel =
+    (result.primary_personality &&
+      PERSONALITY_LABELS[result.primary_personality]) ||
+    result.primary_personality ||
+    "—";
+
+  const primaryMindsetLabel =
+    (result.primary_mindset && MINDSET_LABELS[result.primary_mindset]) ||
+    result.primary_mindset ||
+    "—";
 
   const backHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
+  // These six are still sourced from qsc_profiles
   const howToCommunicate =
     profile?.how_to_communicate || "No communication guidance is available yet.";
   const decisionStyle =
@@ -223,6 +272,12 @@ export default function QscExtendedSourceCodePage({
                 {personaLabel}
               </span>
             </span>
+            {tid && (
+              <span className="text-[11px] text-slate-500">
+                Test taker ID:{" "}
+                <span className="font-mono text-slate-200">{tid}</span>
+              </span>
+            )}
           </div>
         </header>
 
@@ -235,11 +290,26 @@ export default function QscExtendedSourceCodePage({
             How to sell to this Quantum buyer
           </h2>
           <p className="text-sm text-slate-300 max-w-3xl">
-            This page is for you as the <span className="font-semibold">test owner</span>. It
-            gives you the core sales, messaging and offer-fit insights you need
-            to convert this profile — without needing to read their entire
-            Strategic Growth Report.
+            This page is for you as the{" "}
+            <span className="font-semibold">test owner</span>. It gives you the
+            core sales, messaging and offer-fit insights you need to convert
+            this profile — without needing to read their entire Strategic Growth
+            Report.
           </p>
+          <div className="mt-3 text-sm text-slate-300 space-y-1">
+            <p>
+              <span className="font-semibold">Quantum Profile:</span>{" "}
+              {personaLabel}
+            </p>
+            <p>
+              <span className="font-semibold">Personality:</span>{" "}
+              {primaryPersonalityLabel}
+            </p>
+            <p>
+              <span className="font-semibold">Mindset stage:</span>{" "}
+              {primaryMindsetLabel}
+            </p>
+          </div>
         </section>
 
         {/* 1. HOW TO COMMUNICATE */}

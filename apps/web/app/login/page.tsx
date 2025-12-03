@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 export default function Login() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -24,6 +26,17 @@ export default function Login() {
     'chandell@lifepuzzle.com.au',
   ];
 
+  // Decide where to go after auth for NON–Team Puzzle users
+  const getRedirectPath = () => {
+    const redirectParam = searchParams?.get('redirect');
+    if (redirectParam && redirectParam.startsWith('/')) {
+      // Only allow internal paths for safety
+      return redirectParam;
+    }
+    // Default behaviour if no redirect is provided
+    return '/dashboard';
+  };
+
   /**
    * Central redirect logic:
    *
@@ -31,7 +44,7 @@ export default function Login() {
    *    → FULL PAGE NAVIGATION to /portal/team-puzzle/dashboard
    *
    * 2) Everyone else
-   *    → original /api/bootstrap + /dashboard behaviour
+   *    → /api/bootstrap + redirect (or /dashboard)
    */
   async function redirectAfterAuth(explicitEmail?: string) {
     let userEmail = explicitEmail?.toLowerCase();
@@ -53,7 +66,7 @@ export default function Login() {
       return;
     }
 
-    // 🧩 Case 2: everyone else – existing bootstrap → /dashboard behaviour
+    // 🧩 Case 2: everyone else – bootstrap and then redirect
     const { data: sessionData } = await supabase.auth.getSession();
     const session = sessionData.session;
     const token = session?.access_token;
@@ -65,7 +78,8 @@ export default function Login() {
       });
     }
 
-    router.replace('/dashboard');
+    const redirectPath = getRedirectPath();
+    router.replace(redirectPath);
   }
 
   // If already logged in and user hits /login, redirect them appropriately
