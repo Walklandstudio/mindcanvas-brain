@@ -18,14 +18,27 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string>('');
 
-  // ✅ Team Puzzle client emails
-  const teamPuzzleEmails = [
-    'stevep@teba.com.au',
-    'info@lifepuzzle.com.au',
-    'chandell@lifepuzzle.com.au',
-  ];
+  /**
+   * Org-specific redirects by email.
+   *
+   * Any email listed here will skip the generic /dashboard flow
+   * and go straight to the specified portal dashboard.
+   *
+   * 🔹 Team Puzzle
+   * 🔹 Competency Coach (add your emails below)
+   */
+  const orgRedirectByEmail: Record<string, string> = {
+    // Team Puzzle
+    'stevep@teba.com.au': '/portal/team-puzzle/dashboard',
+    'info@lifepuzzle.com.au': '/portal/team-puzzle/dashboard',
+    'chandell@lifepuzzle.com.au': '/portal/team-puzzle/dashboard',
 
-  // Decide where to go after auth for NON–Team Puzzle users
+    // Competency Coach — 👇 replace these example addresses with the real ones
+    'terri@tcb.rocks': '/portal/competency-coach/dashboard',
+    // 'someone@competencycoach.com': '/portal/competency-coach/dashboard',
+  };
+
+  // Decide where to go after auth for NON–org-redirect users
   const getRedirectPath = () => {
     if (typeof window === 'undefined') {
       return '/dashboard';
@@ -33,7 +46,7 @@ export default function Login() {
     const url = new URL(window.location.href);
     let redirectParam = url.searchParams.get('redirect');
 
-    // 🩹 If anything asked for /admin, send them to the real admin page
+    // If anything asked for /admin, send them to the real admin page
     if (redirectParam === '/admin') {
       redirectParam = '/portal/admin';
     }
@@ -49,8 +62,8 @@ export default function Login() {
   /**
    * Central redirect logic:
    *
-   * 1) If email is one of the Team Puzzle client emails
-   *    → FULL PAGE NAVIGATION to /portal/team-puzzle/dashboard
+   * 1) If email is listed in orgRedirectByEmail
+   *    → FULL PAGE NAVIGATION to its portal dashboard
    *
    * 2) Everyone else
    *    → /api/bootstrap + redirect (or /dashboard)
@@ -67,10 +80,11 @@ export default function Login() {
       userEmail = data.user.email.toLowerCase();
     }
 
-    // 🎯 Case 1: Team Puzzle – do a FULL reload into the portal
-    if (teamPuzzleEmails.includes(userEmail)) {
+    // 🎯 Case 1: Special org emails (Team Puzzle, Competency Coach, etc.)
+    const orgRedirect = orgRedirectByEmail[userEmail];
+    if (orgRedirect) {
       // Full page navigation so auth cookies are guaranteed to be present
-      window.location.href = '/portal/team-puzzle/dashboard';
+      window.location.href = orgRedirect;
       return;
     }
 

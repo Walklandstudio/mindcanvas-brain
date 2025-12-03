@@ -1043,23 +1043,8 @@ function ReportPage({
             </div>
           </section>
 
-          {/* DEBUG */}
-          <details className="mt-2 rounded-lg border border-slate-700 bg-slate-950/80 p-3 text-xs text-slate-100">
-            <summary className="cursor-pointer font-medium">
-              Debug – framework + org
-            </summary>
-            <div className="mt-2 space-y-1">
-              <div>org_slug: {orgSlug || "null"}</div>
-              <div>org_name: {orgName}</div>
-              <div>framework.key: {frameworkKey}</div>
-              <div>report_title: {reportTitle}</div>
-              <div>isTeamPuzzle: {isTeamPuzzle ? "true" : "false"}</div>
-            </div>
-          </details>
-
           <footer className="mt-4 border-t border-slate-800 pt-4 text-xs text-slate-400">
-            © {new Date().getFullYear()} MindCanvas — this report is generated
-            based on the {orgName} profiling framework.
+            © {new Date().getFullYear()} MindCanvas
           </footer>
         </div>
       </div>
