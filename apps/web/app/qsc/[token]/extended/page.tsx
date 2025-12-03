@@ -30,16 +30,13 @@ type QscProfileRow = {
   mindset_level: number | null;
   profile_code: string | null;
   profile_label: string | null;
-
-  // Extended Source Code – core sales/messaging blocks
   how_to_communicate: string | null;
   decision_style: string | null;
   business_challenges: string | null;
   trust_signals: string | null;
   offer_fit: string | null;
   sale_blockers: string | null;
-
-  // NEW: full internal extended code (matches the client report)
+  // 🆕 new column you’ve populated
   full_internal_insights: string | null;
 };
 
@@ -62,6 +59,74 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   ORBIT: "Orbit",
   QUANTUM: "Quantum",
 };
+
+// ---------------------------------------------------------------------------
+// Helper to parse full_internal_insights into sections
+// ---------------------------------------------------------------------------
+
+type ParsedInsights = {
+  howToCommunicate?: string;
+  decisionStyle?: string;
+  businessChallenges?: string;
+  trustSignals?: string;
+  offerFit?: string;
+  saleBlockers?: string;
+};
+
+function parseFullInternalInsights(
+  text: string | null | undefined
+): ParsedInsights {
+  if (!text) return {};
+
+  const lower = text.toLowerCase();
+
+  const headings: { label: string; key: keyof ParsedInsights }[] = [
+    { label: "How to Communicate", key: "howToCommunicate" },
+    { label: "How They Decide", key: "decisionStyle" },
+    { label: "Core Business Challenges", key: "businessChallenges" },
+    { label: "Trust Signals", key: "trustSignals" },
+    { label: "What They Need to Feel Safe Buying", key: "offerFit" },
+    { label: "Best Offer Fit", key: "offerFit" },
+    { label: "Biggest Sale Blockers", key: "saleBlockers" },
+  ];
+
+  const result: ParsedInsights = {};
+
+  for (let i = 0; i < headings.length; i++) {
+    const { label, key } = headings[i];
+    const startIdxLower = lower.indexOf(label.toLowerCase());
+    if (startIdxLower === -1) continue;
+
+    const contentStart = startIdxLower + label.length;
+
+    // find the next heading (if any) to know where to stop
+    let endIndex = text.length;
+    for (let j = i + 1; j < headings.length; j++) {
+      const nextLabel = headings[j].label;
+      const nextIdxLower = lower.indexOf(nextLabel.toLowerCase());
+      if (nextIdxLower !== -1 && nextIdxLower > startIdxLower) {
+        endIndex = nextIdxLower;
+        break;
+      }
+    }
+
+    const raw = text.slice(contentStart, endIndex).trim();
+    if (raw) {
+      // If multiple headings map to same key (offerFit), append with spacing
+      if (result[key]) {
+        result[key] = (result[key] as string) + "\n\n" + raw;
+      } else {
+        result[key] = raw;
+      }
+    }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function QscExtendedSourceCodePage({
   params,
@@ -173,31 +238,38 @@ export default function QscExtendedSourceCodePage({
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
+  // 🧠 NEW: parse the full_internal_insights text
+  const parsed = parseFullInternalInsights(profile?.full_internal_insights);
+
   const howToCommunicate =
-    profile?.how_to_communicate || "No communication guidance is available yet.";
+    parsed.howToCommunicate ||
+    profile?.how_to_communicate ||
+    "No communication guidance is available yet.";
+
   const decisionStyle =
-    profile?.decision_style || "No decision style has been defined yet.";
+    parsed.decisionStyle ||
+    profile?.decision_style ||
+    "No decision style has been defined yet.";
+
   const businessChallenges =
+    parsed.businessChallenges ||
     profile?.business_challenges ||
     "Core business challenges have not been defined yet.";
+
   const trustSignals =
-    profile?.trust_signals || "Trust signals are not yet defined.";
+    parsed.trustSignals ||
+    profile?.trust_signals ||
+    "Trust signals are not yet defined.";
+
   const offerFit =
-    profile?.offer_fit || "Offer fit guidance has not been defined yet.";
+    parsed.offerFit ||
+    profile?.offer_fit ||
+    "Offer fit guidance has not been defined yet.";
+
   const saleBlockers =
-    profile?.sale_blockers || "Sale blockers are not yet defined.";
-
-  const fullInsights =
-    profile?.full_internal_insights &&
-    profile.full_internal_insights.trim().length > 0
-      ? profile.full_internal_insights
-      : null;
-
-  const primaryPersonalityLabel =
-    result.primary_personality &&
-    PERSONALITY_LABELS[result.primary_personality];
-  const primaryMindsetLabel =
-    result.primary_mindset && MINDSET_LABELS[result.primary_mindset];
+    parsed.saleBlockers ||
+    profile?.sale_blockers ||
+    "Sale blockers are not yet defined.";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -243,7 +315,7 @@ export default function QscExtendedSourceCodePage({
           </div>
         </header>
 
-        {/* PROFILE SUMMARY CARD */}
+        {/* PROFILE SUMMARY */}
         <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-8 space-y-3">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/90">
             Profile summary
@@ -258,21 +330,6 @@ export default function QscExtendedSourceCodePage({
             this profile — without needing to read their entire Strategic Growth
             Report.
           </p>
-
-          <dl className="mt-4 grid gap-y-1 text-sm text-slate-200">
-            <div className="flex gap-2">
-              <dt className="font-semibold">Quantum Profile:</dt>
-              <dd>{personaLabel}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="font-semibold">Personality:</dt>
-              <dd>{primaryPersonalityLabel || result.primary_personality || "—"}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="font-semibold">Mindset stage:</dt>
-              <dd>{primaryMindsetLabel || result.primary_mindset || "—"}</dd>
-            </div>
-          </dl>
         </section>
 
         {/* 1. HOW TO COMMUNICATE */}
@@ -326,8 +383,12 @@ export default function QscExtendedSourceCodePage({
             Trust signals, proof, emotional safety and strategic reassurance
             that reduces risk in their mind.
           </p>
+          {/* You still have a separate Trust Signals section; we combine them here */}
           <p className="mt-3 text-sm text-slate-100 whitespace-pre-line">
             {trustSignals}
+          </p>
+          <p className="mt-3 text-sm text-slate-100 whitespace-pre-line">
+            {offerFit}
           </p>
         </section>
 
@@ -358,24 +419,6 @@ export default function QscExtendedSourceCodePage({
             {saleBlockers}
           </p>
         </section>
-
-        {/* 7. FULL EXTENDED SOURCE CODE (matches your doc) */}
-        {fullInsights && (
-          <section className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-8 space-y-3">
-            <h2 className="text-lg font-semibold text-slate-50">
-              Full Extended Source Code for this profile
-            </h2>
-            <p className="text-sm text-slate-300">
-              This is the full internal insight block for this Quantum buyer
-              profile, matching the Extended Source Code section of your client
-              report. Use it as your deep reference when writing campaigns or
-              planning launches.
-            </p>
-            <p className="mt-3 text-sm text-slate-100 whitespace-pre-line">
-              {fullInsights}
-            </p>
-          </section>
-        )}
 
         <footer className="pt-4 pb-6 text-xs text-slate-500">
           © {new Date().getFullYear()} MindCanvas — Profiletest.ai

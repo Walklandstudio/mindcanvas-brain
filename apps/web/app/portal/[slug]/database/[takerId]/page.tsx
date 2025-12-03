@@ -142,18 +142,32 @@ export default async function TakerDetail({
   const latest = (results ?? [])[0] || null;
   const totalsRaw = parseTotals(latest?.totals);
 
+  // ----- Meta + framework lookup ------------------------------------------
   const meta: any = (test?.meta as any) ?? {};
+  const framework: any = meta?.framework || meta || {};
+
+  const profilesSource: any[] = Array.isArray(framework?.profiles)
+    ? framework.profiles
+    : Array.isArray(meta?.profiles)
+    ? meta.profiles
+    : [];
+
   const profiles: Array<{ name: string; code?: string; frequency?: string }> =
-    Array.isArray(meta?.profiles)
-      ? meta.profiles.map((p: any) => ({
-          name: String(p?.name ?? ""),
-          code: p?.code ?? null,
-          frequency: p?.frequency ?? null,
-        }))
-      : [];
-  const freqLabels: Record<string, string> = Array.isArray(meta?.frequencies)
+    profilesSource.map((p: any) => ({
+      name: String(p?.name ?? ""),
+      code: p?.code ?? null,
+      frequency: p?.frequency ?? null,
+    }));
+
+  const freqSource: any[] = Array.isArray(framework?.frequencies)
+    ? framework.frequencies
+    : Array.isArray(meta?.frequencies)
+    ? meta.frequencies
+    : [];
+
+  const freqLabels: Record<string, string> = freqSource.length
     ? Object.fromEntries(
-        meta.frequencies.map((f: any) => [
+        freqSource.map((f: any) => [
           String(f?.code ?? "").toUpperCase(),
           String(f?.label ?? ""),
         ])
@@ -253,9 +267,7 @@ export default async function TakerDetail({
   const freqDec = asDecimalMap(frequencyScores);
   const profileDec = asDecimalMap(profileScores);
 
-  const freqLabelArray = (
-    ["A", "B", "C", "D"] as const
-  ).map((code) => ({
+  const freqLabelArray = (["A", "B", "C", "D"] as const).map((code) => ({
     code,
     name: freqLabels[code] || code,
   }));
@@ -370,6 +382,8 @@ export default async function TakerDetail({
     // Fallback: if for some reason we don't have a token, at least use the stored URL
     reportUrl = String(taker.last_result_url);
   }
+
+  const freqDefs: any[] = freqSource || [];
 
   return (
     <div className="space-y-6">
@@ -490,9 +504,11 @@ export default async function TakerDetail({
             <BarRow
               key={f}
               label={
-                (meta?.frequencies?.find?.(
+                (freqDefs.find(
                   (x: any) => String(x?.code).toUpperCase() === f
-                )?.label as string) ?? freqLabels[f] ?? f
+                )?.label as string) ||
+                freqLabels[f] ||
+                f
               }
               note={`(${f})`}
               pct={freqPct[f] ?? 0}
@@ -568,3 +584,4 @@ export default async function TakerDetail({
     </div>
   );
 }
+
