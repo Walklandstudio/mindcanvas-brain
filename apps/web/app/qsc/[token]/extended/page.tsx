@@ -30,58 +30,22 @@ type QscProfileRow = {
   mindset_level: number | null;
   profile_code: string | null;
   profile_label: string | null;
+
+  // Extended Source Code – core sales/messaging blocks
   how_to_communicate: string | null;
   decision_style: string | null;
   business_challenges: string | null;
   trust_signals: string | null;
   offer_fit: string | null;
   sale_blockers: string | null;
-};
 
-type QscPersonaRow = {
-  id: string;
-  test_id: string;
-  personality_code: string | null;
-  mindset_level: number | null;
-  profile_code: string | null;
-  profile_label: string | null;
-
-  show_up_summary: string | null;
-  energisers: string | null;
-  drains: string | null;
-  communication_long: string | null;
-  admired_for: string | null;
-  stuck_points: string | null;
-
-  one_page_strengths: string | null;
-  one_page_risks: string | null;
-  combined_strengths: string | null;
-  combined_risks: string | null;
-  combined_big_lever: string | null;
-  emotional_stabilises: string | null;
-  emotional_destabilises: string | null;
-  emotional_patterns_to_watch: string | null;
-  decision_style_long: string | null;
-  support_yourself: string | null;
-  strategic_priority_1: string | null;
-  strategic_priority_2: string | null;
-  strategic_priority_3: string | null;
-};
-
-type QscTakerRow = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  company: string | null;
-  role_title: string | null;
+  // NEW: full internal extended code (matches the client report)
+  full_internal_insights: string | null;
 };
 
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
-  persona: QscPersonaRow | null;
-  taker: QscTakerRow | null;
 };
 
 const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
@@ -138,8 +102,6 @@ export default function QscExtendedSourceCodePage({
           error?: string;
           results?: QscResultsRow;
           profile?: QscProfileRow | null;
-          persona?: QscPersonaRow | null;
-          taker?: QscTakerRow | null;
         };
 
         if (!res.ok || j.ok === false) {
@@ -150,8 +112,6 @@ export default function QscExtendedSourceCodePage({
           setPayload({
             results: j.results,
             profile: j.profile ?? null,
-            persona: j.persona ?? null,
-            taker: j.taker ?? null,
           });
         }
       } catch (e: any) {
@@ -168,8 +128,6 @@ export default function QscExtendedSourceCodePage({
 
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
-  const persona = payload?.persona ?? null;
-  const taker = payload?.taker ?? null;
 
   if (loading) {
     return (
@@ -209,33 +167,12 @@ export default function QscExtendedSourceCodePage({
   const createdAt = new Date(result.created_at);
 
   const personaLabel =
-    persona?.profile_label ||
-    profile?.profile_label ||
-    result.combined_profile_code ||
-    "Quantum profile";
-
-  const primaryPersonalityLabel =
-    (result.primary_personality &&
-      PERSONALITY_LABELS[result.primary_personality]) ||
-    result.primary_personality ||
-    "—";
-
-  const primaryMindsetLabel =
-    (result.primary_mindset && MINDSET_LABELS[result.primary_mindset]) ||
-    result.primary_mindset ||
-    "—";
+    profile?.profile_label || result.combined_profile_code || "Quantum profile";
 
   const backHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
-  const takerDisplayName =
-    taker &&
-    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
-      taker.email ||
-      "Test taker");
-
-  // These six are still sourced from qsc_profiles
   const howToCommunicate =
     profile?.how_to_communicate || "No communication guidance is available yet.";
   const decisionStyle =
@@ -249,6 +186,18 @@ export default function QscExtendedSourceCodePage({
     profile?.offer_fit || "Offer fit guidance has not been defined yet.";
   const saleBlockers =
     profile?.sale_blockers || "Sale blockers are not yet defined.";
+
+  const fullInsights =
+    profile?.full_internal_insights &&
+    profile.full_internal_insights.trim().length > 0
+      ? profile.full_internal_insights
+      : null;
+
+  const primaryPersonalityLabel =
+    result.primary_personality &&
+    PERSONALITY_LABELS[result.primary_personality];
+  const primaryMindsetLabel =
+    result.primary_mindset && MINDSET_LABELS[result.primary_mindset];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -291,24 +240,10 @@ export default function QscExtendedSourceCodePage({
                 {personaLabel}
               </span>
             </span>
-            {takerDisplayName && (
-              <span className="text-[11px] text-slate-500">
-                Test taker:{" "}
-                <span className="font-semibold text-slate-100">
-                  {takerDisplayName}
-                </span>
-              </span>
-            )}
-            {tid && (
-              <span className="text-[11px] text-slate-500">
-                Test taker ID:{" "}
-                <span className="font-mono text-slate-200">{tid}</span>
-              </span>
-            )}
           </div>
         </header>
 
-        {/* PROFILE SUMMARY */}
+        {/* PROFILE SUMMARY CARD */}
         <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-8 space-y-3">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/90">
             Profile summary
@@ -323,20 +258,21 @@ export default function QscExtendedSourceCodePage({
             this profile — without needing to read their entire Strategic Growth
             Report.
           </p>
-          <div className="mt-3 text-sm text-slate-300 space-y-1">
-            <p>
-              <span className="font-semibold">Quantum Profile:</span>{" "}
-              {personaLabel}
-            </p>
-            <p>
-              <span className="font-semibold">Personality:</span>{" "}
-              {primaryPersonalityLabel}
-            </p>
-            <p>
-              <span className="font-semibold">Mindset stage:</span>{" "}
-              {primaryMindsetLabel}
-            </p>
-          </div>
+
+          <dl className="mt-4 grid gap-y-1 text-sm text-slate-200">
+            <div className="flex gap-2">
+              <dt className="font-semibold">Quantum Profile:</dt>
+              <dd>{personaLabel}</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-semibold">Personality:</dt>
+              <dd>{primaryPersonalityLabel || result.primary_personality || "—"}</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-semibold">Mindset stage:</dt>
+              <dd>{primaryMindsetLabel || result.primary_mindset || "—"}</dd>
+            </div>
+          </dl>
         </section>
 
         {/* 1. HOW TO COMMUNICATE */}
@@ -422,6 +358,24 @@ export default function QscExtendedSourceCodePage({
             {saleBlockers}
           </p>
         </section>
+
+        {/* 7. FULL EXTENDED SOURCE CODE (matches your doc) */}
+        {fullInsights && (
+          <section className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-8 space-y-3">
+            <h2 className="text-lg font-semibold text-slate-50">
+              Full Extended Source Code for this profile
+            </h2>
+            <p className="text-sm text-slate-300">
+              This is the full internal insight block for this Quantum buyer
+              profile, matching the Extended Source Code section of your client
+              report. Use it as your deep reference when writing campaigns or
+              planning launches.
+            </p>
+            <p className="mt-3 text-sm text-slate-100 whitespace-pre-line">
+              {fullInsights}
+            </p>
+          </section>
+        )}
 
         <footer className="pt-4 pb-6 text-xs text-slate-500">
           © {new Date().getFullYear()} MindCanvas — Profiletest.ai

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 
@@ -52,8 +52,7 @@ export default function Login() {
   async function redirectAfterAuth(explicitEmail?: string) {
     let userEmail = explicitEmail?.toLowerCase();
 
-    // If no email passed in (eg. user hits /login while already signed in),
-    // look it up from Supabase.
+    // If no email passed in, look it up from Supabase.
     if (!userEmail) {
       const { data, error } = await supabase.auth.getUser();
       if (error || !data.user?.email) {
@@ -85,16 +84,6 @@ export default function Login() {
     router.replace(redirectPath);
   }
 
-  // If already logged in and user hits /login, redirect them appropriately
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) return;
-      await redirectAfterAuth();
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg('');
@@ -121,7 +110,9 @@ export default function Login() {
 
         // If email confirmations are ON, user must verify before they can sign in
         if (data.user && !data.session) {
-          setMsg('✅ Account created. Please check your email to verify, then sign in.');
+          setMsg(
+            '✅ Account created. Please check your email to verify, then sign in.'
+          );
         } else if (data.user && data.session) {
           const userEmail = data.user.email?.toLowerCase();
           await redirectAfterAuth(userEmail);
