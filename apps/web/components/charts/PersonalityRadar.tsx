@@ -40,16 +40,16 @@ type PersonalityRadarProps = {
 };
 
 const labels = [
-  'Innovation A',
+  'A',
   'P1',
   'P2',
-  'Influence B',
+  'B',
   'P3',
   'P4',
-  'Implementation C',
+  'C',
   'P5',
   'P6',
-  'Insight D',
+  'D',
   'P7',
   'P8',
 ];

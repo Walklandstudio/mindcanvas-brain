@@ -31,7 +31,13 @@ export default function Login() {
       return '/dashboard';
     }
     const url = new URL(window.location.href);
-    const redirectParam = url.searchParams.get('redirect');
+    let redirectParam = url.searchParams.get('redirect');
+
+    // 🩹 If anything asked for /admin, send them to the real admin page
+    if (redirectParam === '/admin') {
+      redirectParam = '/portal/admin';
+    }
+
     if (redirectParam && redirectParam.startsWith('/')) {
       // Only allow internal paths for safety
       return redirectParam;
