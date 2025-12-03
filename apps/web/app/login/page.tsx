@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
 
 export default function Login() {
   const router = useRouter();
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -17,24 +18,90 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string>('');
 
-  // If already logged in, go straight to dashboard
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) router.replace('/dashboard');
-    })();
-  }, [router, supabase]);
+  /**
+   * Org-specific redirects by email.
+   *
+   * Any email listed here will skip the generic /dashboard flow
+   * and go straight to the specified portal dashboard.
+   *
+   * 🔹 Team Puzzle
+   * 🔹 Competency Coach (add your emails below)
+   */
+  const orgRedirectByEmail: Record<string, string> = {
+    // Team Puzzle
+    'stevep@teba.com.au': '/portal/team-puzzle/dashboard',
+    'info@lifepuzzle.com.au': '/portal/team-puzzle/dashboard',
+    'chandell@lifepuzzle.com.au': '/portal/team-puzzle/dashboard',
 
-  async function afterAuth() {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
+    // Competency Coach — 👇 replace these example addresses with the real ones
+    'terri@tcb.rocks': '/portal/competency-coach/dashboard',
+    // 'someone@competencycoach.com': '/portal/competency-coach/dashboard',
+  };
+
+  // Decide where to go after auth for NON–org-redirect users
+  const getRedirectPath = () => {
+    if (typeof window === 'undefined') {
+      return '/dashboard';
+    }
+    const url = new URL(window.location.href);
+    let redirectParam = url.searchParams.get('redirect');
+
+    // If anything asked for /admin, send them to the real admin page
+    if (redirectParam === '/admin') {
+      redirectParam = '/portal/admin';
+    }
+
+    if (redirectParam && redirectParam.startsWith('/')) {
+      // Only allow internal paths for safety
+      return redirectParam;
+    }
+    // Default behaviour if no redirect is provided
+    return '/dashboard';
+  };
+
+  /**
+   * Central redirect logic:
+   *
+   * 1) If email is listed in orgRedirectByEmail
+   *    → FULL PAGE NAVIGATION to its portal dashboard
+   *
+   * 2) Everyone else
+   *    → /api/bootstrap + redirect (or /dashboard)
+   */
+  async function redirectAfterAuth(explicitEmail?: string) {
+    let userEmail = explicitEmail?.toLowerCase();
+
+    // If no email passed in, look it up from Supabase.
+    if (!userEmail) {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user?.email) {
+        return;
+      }
+      userEmail = data.user.email.toLowerCase();
+    }
+
+    // 🎯 Case 1: Special org emails (Team Puzzle, Competency Coach, etc.)
+    const orgRedirect = orgRedirectByEmail[userEmail];
+    if (orgRedirect) {
+      // Full page navigation so auth cookies are guaranteed to be present
+      window.location.href = orgRedirect;
+      return;
+    }
+
+    // 🧩 Case 2: everyone else – bootstrap and then redirect
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    const token = session?.access_token;
+
     if (token) {
       await fetch('/api/bootstrap', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
     }
-    router.replace('/dashboard');
+
+    const redirectPath = getRedirectPath();
+    router.replace(redirectPath);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -44,18 +111,31 @@ export default function Login() {
 
     try {
       if (mode === 'signin') {
-        const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+        const { error, data } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
         if (error) throw error;
-        if (data.user) await afterAuth();
+
+        if (data.user) {
+          const userEmail = data.user.email?.toLowerCase();
+          await redirectAfterAuth(userEmail);
+        }
       } else {
-        const { error, data } = await supabase.auth.signUp({ email, password });
+        const { error, data } = await supabase.auth.signUp({
+          email,
+          password,
+        });
         if (error) throw error;
 
         // If email confirmations are ON, user must verify before they can sign in
         if (data.user && !data.session) {
-          setMsg('✅ Account created. Please check your email to verify, then sign in.');
-        } else {
-          await afterAuth();
+          setMsg(
+            '✅ Account created. Please check your email to verify, then sign in.'
+          );
+        } else if (data.user && data.session) {
+          const userEmail = data.user.email?.toLowerCase();
+          await redirectAfterAuth(userEmail);
         }
       }
     } catch (err: any) {
@@ -67,20 +147,26 @@ export default function Login() {
 
   return (
     <main className="mx-auto max-w-md p-8 space-y-6">
-      <h1 className="text-2xl font-semibold">Sign {mode === 'signin' ? 'in' : 'up'}</h1>
+      <h1 className="text-2xl font-semibold">
+        Sign {mode === 'signin' ? 'in' : 'up'}
+      </h1>
 
       <div className="flex gap-2 text-sm">
         <button
           type="button"
           onClick={() => setMode('signin')}
-          className={`rounded px-3 py-1 border ${mode === 'signin' ? 'bg-black text-white' : ''}`}
+          className={`rounded px-3 py-1 border ${
+            mode === 'signin' ? 'bg-black text-white' : ''
+          }`}
         >
           Sign in
         </button>
         <button
           type="button"
           onClick={() => setMode('signup')}
-          className={`rounded px-3 py-1 border ${mode === 'signup' ? 'bg-black text-white' : ''}`}
+          className={`rounded px-3 py-1 border ${
+            mode === 'signup' ? 'bg-black text-white' : ''
+          }`}
         >
           Create account
         </button>
@@ -107,15 +193,25 @@ export default function Login() {
           disabled={loading}
           className="rounded-md bg-black px-4 py-2 text-white disabled:opacity-60"
         >
-          {loading ? (mode === 'signin' ? 'Signing in…' : 'Creating…') : (mode === 'signin' ? 'Sign in' : 'Create account')}
+          {loading
+            ? mode === 'signin'
+              ? 'Signing in…'
+              : 'Creating…'
+            : mode === 'signin'
+            ? 'Sign in'
+            : 'Create account'}
         </button>
       </form>
 
       {msg && <div className="text-sm">{msg}</div>}
 
       <div className="text-sm">
-        <a className="underline" href="/logout">Sign out</a>
+        <a className="underline" href="/logout">
+          Sign out
+        </a>
       </div>
     </main>
   );
 }
+
+

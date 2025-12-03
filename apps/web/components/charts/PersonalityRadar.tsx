@@ -22,10 +22,10 @@ ChartJS.register(
 
 type PersonalityRadarProps = {
   frequencies: {
-    innovationA: number; // 0–1 or 0–100
-    influenceB: number;
-    implementationC: number;
-    insightD: number;
+    A: number; // 0–1 or 0–100
+    B: number;
+    C: number;
+    D: number;
   };
   profiles: {
     p1: number;
@@ -40,16 +40,16 @@ type PersonalityRadarProps = {
 };
 
 const labels = [
-  'Innovation A',
+  'A',
   'P1',
   'P2',
-  'Influence B',
+  'B',
   'P3',
   'P4',
-  'Implementation C',
+  'C',
   'P5',
   'P6',
-  'Insight D',
+  'D',
   'P7',
   'P8',
 ];
@@ -71,16 +71,16 @@ export default function PersonalityRadar({
       {
         label: 'Frequencies',
         data: [
-          toPercent(frequencies.innovationA),
+          toPercent(frequencies.A),
           null,
           null,
-          toPercent(frequencies.influenceB),
+          toPercent(frequencies.B),
           null,
           null,
-          toPercent(frequencies.implementationC),
+          toPercent(frequencies.C),
           null,
           null,
-          toPercent(frequencies.insightD),
+          toPercent(frequencies.D),
           null,
           null,
         ],

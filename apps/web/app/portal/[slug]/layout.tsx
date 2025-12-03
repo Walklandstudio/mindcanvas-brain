@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
 import PortalChrome from "@/components/portal/PortalChrome";
-import AppBackground from "@/components/ui/AppBackground";
+import BackgroundGrid from "@/components/ui/BackgroundGrid";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,12 +24,14 @@ async function loadOrg(slug: string): Promise<Org | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
+
   const supabase = createClient(url, key);
   const { data } = await supabase
     .from("portal.orgs")
     .select("*")
     .eq("slug", slug)
     .maybeSingle();
+
   return (data as Org) ?? null;
 }
 
@@ -57,10 +59,10 @@ export default async function OrgLayout({
         style={{ fontFamily: "var(--report-font-family)" }}
         className="relative min-h-screen bg-[#050914] text-white overflow-x-hidden"
       >
-        {/* Shared MindCanvas background */}
-        <AppBackground />
+        {/* 🔵 MindCanvas dark grid background */}
+        <BackgroundGrid />
 
-        {/* Portal chrome/nav + the page content */}
+        {/* Portal nav + content */}
         <div className="relative z-10">
           <PortalChrome orgSlug={params.slug} orgName={org?.brand_name ?? org?.name}>
             {children}
@@ -70,4 +72,3 @@ export default async function OrgLayout({
     </html>
   );
 }
-

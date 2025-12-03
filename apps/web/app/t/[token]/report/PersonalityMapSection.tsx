@@ -19,10 +19,10 @@ export default function PersonalityMapSection({
 }: PersonalityMapSectionProps) {
   // Convert frequency decimals to 0–100 percentages for the chart
   const frequencies = {
-    innovationA: (frequencyPercentages.A ?? 0) * 100,
-    influenceB: (frequencyPercentages.B ?? 0) * 100,
-    implementationC: (frequencyPercentages.C ?? 0) * 100,
-    insightD: (frequencyPercentages.D ?? 0) * 100,
+    A: (frequencyPercentages.A ?? 0) * 100,
+    B: (frequencyPercentages.B ?? 0) * 100,
+    C: (frequencyPercentages.C ?? 0) * 100,
+    D: (frequencyPercentages.D ?? 0) * 100,
   };
 
   // Normalise profile keys:

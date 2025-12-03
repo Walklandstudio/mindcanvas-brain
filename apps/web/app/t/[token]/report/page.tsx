@@ -1,5 +1,11 @@
+"use client";
+
 import Link from "next/link";
+import { redirect, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+
 import PersonalityMapSection from "./PersonalityMapSection";
+import PrintButton from "./PrintButton";
 
 import { getBaseUrl } from "@/lib/server-url";
 import {
@@ -7,8 +13,6 @@ import {
   type OrgFramework,
 } from "@/lib/report/getOrgFramework";
 import AppBackground from "@/components/ui/AppBackground";
-
-export const dynamic = "force-dynamic";
 
 type FrequencyCode = "A" | "B" | "C" | "D";
 
@@ -23,7 +27,6 @@ type ResultData = {
     id: string;
     first_name?: string | null;
     last_name?: string | null;
-    // safety for older shapes
     firstName?: string | null;
     lastName?: string | null;
   };
@@ -38,7 +41,7 @@ type ResultData = {
 
 type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
 
-// --- Helpers ---------------------------------------------------------------
+// ---------- helpers --------------------------------------------------------
 
 function formatPercent(v: number | undefined): string {
   if (!v || Number.isNaN(v)) return "0%";
@@ -46,7 +49,6 @@ function formatPercent(v: number | undefined): string {
 }
 
 function getFullName(taker: ResultData["taker"]): string {
-  // Support both snake_case and camelCase just in case
   const rawFirst =
     (typeof taker.first_name === "string" && taker.first_name) ||
     (typeof taker.firstName === "string" && taker.firstName) ||
@@ -62,22 +64,15 @@ function getFullName(taker: ResultData["taker"]): string {
   return full || "Participant";
 }
 
-// Normalise org strings so we can match variants like `team-puzzle`, `team_puzzle`, etc.
-function normaliseOrgSlug(value: string | undefined | null): string {
+function normaliseOrg(value: string | null | undefined): string {
   if (!value) return "";
-  return value.toLowerCase().replace(/[_\s]+/g, "-");
+  return value.trim().toLowerCase().replace(/[_\s]+/g, "-");
 }
 
-// Central place to decide if this report is for Team Puzzle
-function isTeamPuzzleOrg(
-  orgSlug?: string | null,
-  orgName?: string | null
-): boolean {
-  const slugNorm = normaliseOrgSlug(orgSlug);
-  const nameNorm = normaliseOrgSlug(orgName);
-
-  const haystack = `${slugNorm} ${nameNorm}`;
-  // match things like "team-puzzle", "team_puzzle", "team puzzle discovery", etc.
+function isTeamPuzzleOrg(orgSlug?: string | null, orgName?: string | null) {
+  const slug = normaliseOrg(orgSlug);
+  const name = normaliseOrg(orgName);
+  const haystack = `${slug} ${name}`;
   return (
     haystack.includes("team-puzzle") ||
     (haystack.includes("team") && haystack.includes("puzzle"))
@@ -87,7 +82,6 @@ function isTeamPuzzleOrg(
 function getOrgAssets(orgSlug?: string | null, orgName?: string | null) {
   if (!isTeamPuzzleOrg(orgSlug, orgName)) return null;
 
-  // Team Puzzle assets
   return {
     logoSrc: "/org-graphics/tp-logo.png",
     frequenciesSrc: "/org-graphics/tp-4frequencies.png",
@@ -98,7 +92,7 @@ function getOrgAssets(orgSlug?: string | null, orgName?: string | null) {
   };
 }
 
-function getTeamPuzzleProfileImage(profileName: string | undefined): string | null {
+function getTeamPuzzleProfileImage(profileName?: string): string | null {
   if (!profileName) return null;
   const key = profileName.trim().toLowerCase();
 
@@ -111,19 +105,15 @@ function getTeamPuzzleProfileImage(profileName: string | undefined): string | nu
     coordinator: "coordinator",
     controller: "controller",
     optimiser: "optimiser",
-    optimizer: "optimiser", // just in case
+    optimizer: "optimiser",
   };
 
   const slug = map[key];
   if (!slug) return null;
-
   return `/profile-cards/tp-${slug}.png`;
 }
 
-// Generic fallbacks – work for *any* org
-function getDefaultWelcome(
-  orgName: string
-): { title: string; body: string[] } {
+function getDefaultWelcome(orgName: string) {
   return {
     title: "Welcome",
     body: [
@@ -143,12 +133,12 @@ function getDefaultFrameworkIntro(orgName: string): string[] {
 function defaultHowToUse() {
   return {
     summary:
-      "This report is a snapshot of how you naturally like to work, not a label. Use it as a guide, not a rule book.",
+      "This report is a snapshot of your natural patterns, not a fixed identity. Use it as a starting point for reflection, coaching and conversation.",
     bullets: [
-      "Find simple words for how you like to work.",
-      "Spot where your strengths add the most value to your team and organisation.",
-      "Notice growth areas without labelling or limiting yourself.",
-      "Have better conversations with leaders, colleagues, or a coach about how you work best.",
+      "Highlight 2–3 sentences that feel most true for you.",
+      "Notice one strength you want to bring forward more deliberately.",
+      "Identify one development area you would like to work on in the next month.",
+      "Discuss this report with a coach, supervisor or trusted peer.",
     ],
   };
 }
@@ -157,9 +147,9 @@ function defaultHowToReadScores() {
   return {
     title: "How to read these scores",
     bullets: [
-      "Higher percentages show patterns you use a lot.",
-      "Lower percentages show styles you can use, but they may cost more energy.",
-      "Anything above about 30% will usually feel very natural to you.",
+      "Higher percentages highlight patterns you use frequently and with ease.",
+      "Lower percentages highlight backup styles you can use when needed, but they may take more energy.",
+      "Anything above roughly 30% will usually feel very natural for you.",
     ],
   };
 }
@@ -182,23 +172,142 @@ type OrgReportCopy = OrgFramework["framework"]["report"] & {
   >;
 };
 
-// --- Page ------------------------------------------------------------------
+const DEFAULT_FREQUENCIES_INTRO =
+  "Frequencies describe the way you naturally think, decide and take action – your working energy.";
 
-export default async function ReportPage({
+const DEFAULT_FREQUENCY_DESCRIPTIONS: Record<FrequencyCode, string> = {
+  A: "Ideas, creation, momentum and challenging the status quo.",
+  B: "People, communication, motivation and activation.",
+  C: "Rhythm, process, structure and reliable delivery.",
+  D: "Observation, reflection, analysis and deeper understanding.",
+};
+
+// ---------- client wrapper (because we call useSearchParams etc) -----------
+
+export default function ReportPageWrapper({
   params,
-  searchParams,
 }: {
   params: { token: string };
-  searchParams: { tid?: string };
+}) {
+ const searchParams = useSearchParams();
+  const tid = searchParams?.get("tid") ?? ""; 
+
+  return <ReportPage params={params} tid={tid} />;
+}
+
+// ---------- actual page (logic) -------------------------------------------
+
+function ReportPage({
+  params,
+  tid,
+}: {
+  params: { token: string };
+  tid: string;
 }) {
   const token = params.token;
-  const tid = searchParams?.tid || "";
+
+  const [loading, setLoading] = useState(true);
+  const [resultData, setResultData] = useState<ResultData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [base, setBase] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const b = await getBaseUrl();
+        if (cancelled) return;
+        setBase(b);
+
+        if (!tid) {
+          setLoadError("Missing tid");
+          setLoading(false);
+          return;
+        }
+
+        const resultUrl = `${b}/api/public/test/${encodeURIComponent(
+          token
+        )}/result?tid=${encodeURIComponent(tid)}`;
+
+        const res = await fetch(resultUrl, { cache: "no-store" });
+        const ct = res.headers.get("content-type") ?? "";
+        if (!ct.includes("application/json")) {
+          const text = await res.text();
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
+          );
+        }
+        const json = (await res.json()) as ResultAPI;
+
+        if (!res.ok || json.ok === false || !json.data) {
+          throw new Error(json.error || `HTTP ${res.status}`);
+        }
+
+        if (cancelled) return;
+        setResultData(json.data);
+        setLoading(false);
+      } catch (e: any) {
+        if (cancelled) return;
+        setLoadError(String(e?.message || e));
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, tid]);
+
+  // QSC redirect if needed – we do this client-side using the error
+  useEffect(() => {
+    async function maybeRedirectQSC() {
+      if (!loadError || !base) return;
+      if (
+        !loadError
+          .toLowerCase()
+          .includes("labels_missing_for_test_frequency")
+      ) {
+        return;
+      }
+
+      let variant = "entrepreneur";
+      try {
+        const metaRes = await fetch(
+          `${base}/api/public/test/${encodeURIComponent(token)}`,
+          { cache: "no-store" }
+        );
+        const metaJson = (await metaRes.json().catch(() => null as any)) as any;
+        const link = (metaJson?.data ?? metaJson ?? {}) as any;
+
+        variant =
+          link?.meta?.qsc_variant ||
+          link?.qsc_variant ||
+          link?.meta?.variant ||
+          link?.variant ||
+          "entrepreneur";
+      } catch {
+        variant = "entrepreneur";
+      }
+
+      const qscHref = `/qsc/${encodeURIComponent(
+        token
+      )}/${encodeURIComponent(variant)}${
+        tid ? `?tid=${encodeURIComponent(tid)}` : ""
+      }`;
+
+      redirect(qscHref);
+    }
+
+    maybeRedirectQSC();
+  }, [loadError, base, token, tid]);
 
   if (!tid) {
     return (
       <div className="mx-auto max-w-4xl p-6">
-        <h1 className="text-2xl font-semibold">Personalised report</h1>
-        <p className="mt-4 text-sm text-muted-foreground">
+        <h1 className="text-2xl font-semibold text-white">Personalised report</h1>
+        <p className="mt-4 text-sm text-slate-300">
           This page expects a <code>?tid=</code> parameter so we know which test
           taker’s report to load.
         </p>
@@ -206,77 +315,56 @@ export default async function ReportPage({
     );
   }
 
-  const base = await getBaseUrl();
-
-  // ---- Fetch result data (public API) ------------------------------------
-  const resultUrl = `${base}/api/public/test/${encodeURIComponent(
-    token
-  )}/result?tid=${encodeURIComponent(tid)}`;
-
-  let resultData: ResultData | null = null;
-  let loadError: string | null = null;
-
-  try {
-    const res = await fetch(resultUrl, { cache: "no-store" });
-    const ct = res.headers.get("content-type") ?? "";
-    if (!ct.includes("application/json")) {
-      const text = await res.text();
-      throw new Error(
-        `Non-JSON response (${res.status}): ${text.slice(0, 300)}`
-      );
-    }
-    const json = (await res.json()) as ResultAPI;
-    if (!res.ok || json.ok === false || !json.data) {
-      throw new Error(json.error || `HTTP ${res.status}`);
-    }
-    resultData = json.data;
-  } catch (e: any) {
-    loadError = String(e?.message || e);
-  }
-
-  if (!resultData || loadError) {
-    return (
-      <div className="mx-auto max-w-4xl p-6 space-y-4">
-        <h1 className="text-2xl font-semibold">Personalised report</h1>
-        <p className="text-sm text-destructive">
-          Could not load your report. Please refresh or contact support.
-        </p>
-
-        <details className="mt-4 rounded-lg border bg-slate-950 p-4 text-xs text-slate-50">
-          <summary className="cursor-pointer font-medium">
-            Debug information (for developer)
-          </summary>
-          <div className="mt-2 space-y-2">
-            <div>
-              <div className="font-semibold">Result API</div>
-              <div className="break-all">URL: {resultUrl}</div>
+  if (loading || !resultData) {
+    if (loadError) {
+      return (
+        <div className="mx-auto max-w-4xl p-6 space-y-4 text-white">
+          <h1 className="text-2xl font-semibold">Personalised report</h1>
+          <p className="text-sm text-red-400">
+            Could not load your report. Please refresh or contact support.
+          </p>
+          <details className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-4 text-xs text-slate-50">
+            <summary className="cursor-pointer font-medium">
+              Debug information (for developer)
+            </summary>
+            <div className="mt-2 space-y-2">
               <div>Error: {loadError ?? "Unknown"}</div>
             </div>
-          </div>
-        </details>
+          </details>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mx-auto max-w-4xl p-6 text-white">
+        <h1 className="text-2xl font-semibold">Personalised report</h1>
+        <p className="mt-4 text-sm text-slate-300">Loading your report…</p>
       </div>
     );
   }
 
-const data = resultData;
-const orgSlug = data.org_slug;
-const orgName = data.org_name || data.test_name || "Your Organisation";
-const participantName = getFullName(data.taker);
+  const data = resultData;
+  const orgSlug = data.org_slug;
+  const orgName = data.org_name || data.test_name || "Your Organisation";
+  const participantName = getFullName(data.taker);
 
-// org-specific assets (logo, graphics, founder photo)
-const orgAssets = getOrgAssets(orgSlug, orgName);
-const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
+  const orgAssets = getOrgAssets(orgSlug, orgName);
+  const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
 
-  // ---- Load org framework JSON (for copy) --------------------------------
-  let orgFw: OrgFramework | null = null;
-  try {
-    orgFw = getOrgFramework(orgSlug);
-  } catch {
-    orgFw = null;
-  }
+  // --- framework + copy (this is where we MUST rely on slug only) ----------
+  const orgFw: OrgFramework = getOrgFramework(orgSlug);
+  const fw = orgFw.framework;
+  const reportCopy: OrgReportCopy | null = (fw as any)?.report ?? null;
+  const frameworkKey = (fw as any)?.key ?? "unknown";
 
-  const fw = orgFw?.framework;
-  const reportCopy: OrgReportCopy | null = fw?.report ?? null;
+  const frequenciesCopy: any = reportCopy?.frequencies_copy ?? null;
+  const profilesCopyMeta: any = reportCopy?.profiles_copy ?? null;
+  const imageConfig: any = reportCopy?.images ?? {};
+
+  const frequencyDiagramSrc =
+    imageConfig.frequency_diagram || orgAssets?.frequenciesSrc || null;
+  const profilesDiagramSrc =
+    imageConfig.profile_grid || orgAssets?.profilesDiagramSrc || null;
 
   const reportTitle =
     reportCopy?.report_title || `${orgName} Profile Assessment`;
@@ -329,9 +417,10 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
       ? getTeamPuzzleProfileImage(primary.name)
       : null;
 
+  // ---------- RENDER -------------------------------------------------------
+
   return (
     <div className="relative min-h-screen bg-[#050914] text-white overflow-hidden">
-      {/* MindCanvas background */}
       <AppBackground />
 
       <div className="relative z-10">
@@ -365,17 +454,17 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
             </div>
 
             <div className="flex items-center gap-3">
+              <PrintButton className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800" />
               <Link
                 href={downloadPdfHref}
-                prefetch={false}
-                className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+                className="inline-flex items-center rounded-lg border border-sky-500 bg-sky-600 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-sky-500"
               >
                 Download PDF
               </Link>
             </div>
           </header>
 
-          {/* Top profile image (Team Puzzle) */}
+          {/* Optional top profile image for Team Puzzle */}
           {topProfileImage && (
             <div className="flex justify-center">
               <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
@@ -388,7 +477,7 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
             </div>
           )}
 
-          {/* PART 1 ------------------------------------------------------------ */}
+          {/* PART 1 ---------------------------------------------------------- */}
           <section className="space-y-6">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
               Part 1 · About this assessment
@@ -427,9 +516,8 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
               </div>
             </div>
 
-            {/* How to use + Framework (stacked) */}
+            {/* How to use + Framework */}
             <div className="space-y-4">
-              {/* How to use */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
                 <h3 className="text-base font-semibold text-slate-900">
                   How to use this report
@@ -449,7 +537,6 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
                 </p>
               </div>
 
-              {/* Org framework */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
                 <h3 className="text-base font-semibold text-slate-900">
                   {frameworkTitle}
@@ -462,71 +549,63 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
               </div>
             </div>
 
-            {/* Understanding Frequencies */}
+            {/* Frequencies */}
             <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
               <h3 className="text-base font-semibold text-slate-900">
-                Understanding the four Frequencies
+                {frequenciesCopy?.title || "Understanding the four Frequencies"}
               </h3>
               <p className="mt-2 text-sm text-slate-700">
-                Frequencies describe the way you naturally think, decide, and
-                take action. You can think of them as four types of work energy
-                that show where you feel most at home.
+                {frequenciesCopy?.intro || DEFAULT_FREQUENCIES_INTRO}
               </p>
 
-              {orgAssets?.frequenciesSrc && (
+              {frequencyDiagramSrc && (
                 <div className="mt-4 flex justify-center">
                   <img
-                    src={orgAssets.frequenciesSrc}
-                    alt="Team Puzzle Frequencies"
+                    src={frequencyDiagramSrc}
+                    alt="Frequencies"
                     className="max-h-64 w-auto rounded-xl"
                   />
                 </div>
               )}
 
               <dl className="mt-4 space-y-2 text-sm text-slate-800">
-                <div>
-                  <dt className="font-semibold">Innovation (A)</dt>
-                  <dd className="text-slate-700">
-                    Ideas, creation, momentum, and challenging the status quo.
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-semibold">Influence (B)</dt>
-                  <dd className="text-slate-700">
-                    People, communication, motivation, and activation.
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-semibold">Implementation (C)</dt>
-                  <dd className="text-slate-700">
-                    Rhythm, process, and reliable delivery.
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-semibold">Insight (D)</dt>
-                  <dd className="text-slate-700">
-                    Pattern recognition, analysis, and perspective.
-                  </dd>
-                </div>
+                {data.frequency_labels.map((f) => {
+                  const freqMeta =
+                    frequenciesCopy?.items?.[
+                      f.code as FrequencyCode
+                    ] ?? null;
+                  const name = freqMeta?.name || f.name;
+                  const description =
+                    freqMeta?.description ||
+                    DEFAULT_FREQUENCY_DESCRIPTIONS[f.code as FrequencyCode];
+
+                  return (
+                    <div key={f.code}>
+                      <dt className="font-semibold">
+                        {name} ({f.code})
+                      </dt>
+                      <dd className="text-slate-700">{description}</dd>
+                    </div>
+                  );
+                })}
               </dl>
             </div>
 
-            {/* Understanding Profiles */}
+            {/* Profiles overview */}
             <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
               <h3 className="text-base font-semibold text-slate-900">
-                Understanding the eight Profiles
+                {profilesCopyMeta?.title || "Understanding the eight Profiles"}
               </h3>
               <p className="mt-2 text-sm text-slate-700">
-                Profiles blend these Frequencies into distinct patterns of
-                contribution. A profile is simply a pattern that shows how you
-                like to contribute in a team.
+                {profilesCopyMeta?.intro ||
+                  "Profiles blend the Frequencies into distinct patterns of contribution. Your profile mix shows how you naturally create value in sessions, relationships and results."}
               </p>
 
-              {orgAssets?.profilesDiagramSrc && (
+              {profilesDiagramSrc && (
                 <div className="mt-4 flex justify-center">
                   <img
-                    src={orgAssets.profilesDiagramSrc}
-                    alt="Team Puzzle Profiles"
+                    src={profilesDiagramSrc}
+                    alt="Profiles"
                     className="max-h-72 w-auto rounded-xl"
                   />
                 </div>
@@ -540,7 +619,7 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
                       <dt className="font-semibold">{p.name}</dt>
                       <dd className="text-slate-700">
                         {copy?.one_liner ||
-                          "A distinct way of contributing, combining the four Frequencies into a recognisable working style."}
+                          "A distinct coaching pattern that describes how you most naturally create value."}
                       </dd>
                     </div>
                   );
@@ -549,7 +628,7 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
             </div>
           </section>
 
-          {/* Personality map --------------------------------------------------- */}
+          {/* Personality Map */}
           <section className="space-y-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
               Your personality map
@@ -572,7 +651,7 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
             </div>
           </section>
 
-          {/* PART 2 ------------------------------------------------------------ */}
+          {/* PART 2 – personal profile --------------------------------------- */}
           <section className="space-y-6">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
               Part 2 · Your personal profile
@@ -730,7 +809,7 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
               </p>
             </div>
 
-            {/* Primary / Secondary / Tertiary cards */}
+            {/* Primary / secondary / tertiary cards */}
             <div className="grid gap-4 md:grid-cols-3">
               {[primary, secondary, tertiary].map((p, idx) => {
                 if (!p) return null;
@@ -815,7 +894,7 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
               <p className="mt-3 text-sm text-slate-700">{primaryExample}</p>
             </div>
 
-            {/* Strengths + Development */}
+            {/* Strengths & Development */}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
                 <h2 className="text-lg font-semibold text-slate-900">
@@ -936,9 +1015,9 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
                 Next steps
               </h2>
               <p className="mt-2 text-sm text-slate-700">
-                A profile report is most powerful when it turns into
-                conversation and action. Use these suggestions to decide what
-                you want to do with your insights:
+                A profile report is most powerful when it turns into conversation
+                and action. Use these suggestions to decide what you want to do
+                with your insights:
               </p>
               <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
                 <li>
@@ -961,24 +1040,16 @@ const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
                   development area to explore in your next session.
                 </li>
               </ul>
-              <div className="mt-4">
-                <Link
-                  href="#"
-                  className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-sky-700"
-                >
-                  Continue
-                </Link>
-              </div>
             </div>
           </section>
 
           <footer className="mt-4 border-t border-slate-800 pt-4 text-xs text-slate-400">
-            © {new Date().getFullYear()} MindCanvas — this report is generated
-            based on the {orgName} profiling framework.
+            © {new Date().getFullYear()} MindCanvas
           </footer>
         </div>
       </div>
     </div>
   );
 }
+
 
