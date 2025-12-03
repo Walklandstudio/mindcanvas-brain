@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 export default function Login() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,7 +27,11 @@ export default function Login() {
 
   // Decide where to go after auth for NON–Team Puzzle users
   const getRedirectPath = () => {
-    const redirectParam = searchParams?.get('redirect');
+    if (typeof window === 'undefined') {
+      return '/dashboard';
+    }
+    const url = new URL(window.location.href);
+    const redirectParam = url.searchParams.get('redirect');
     if (redirectParam && redirectParam.startsWith('/')) {
       // Only allow internal paths for safety
       return redirectParam;
@@ -199,4 +202,5 @@ export default function Login() {
     </main>
   );
 }
+
 
