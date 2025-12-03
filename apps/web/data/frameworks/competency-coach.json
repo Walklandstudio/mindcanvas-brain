@@ -7,10 +7,20 @@
       "report_title": "Competency Coach DNA Blueprint",
       "welcome_title": "Welcome to your DNA Blueprint",
       "welcome_body": [
-        "Welcome to your Competency Coach DNA Blueprint. This report gives you a clear and practical view of how you naturally think, communicate and create impact as a coach or leader.",
-        "Your ability to help others transform starts with understanding your own instincts, patterns and strengths. This blueprint highlights how your natural energy shows up in real situations so you can work more intentionally and sustainably.",
-        "This is not a label or a judgement. Instead, see it as a working document – a shared language you can use with clients, colleagues or mentors to clarify your strengths, stretch areas and coaching focus.",
-        "Use this report to reflect on what energises you, where you create the most impact and how you can continue developing your coaching mastery."
+        "Welcome to the Competency Coach DNA Blueprint, your roadmap to unlocking your full potential and maximizing your impact as a coach. Coaching is not just a profession; it’s a calling. To truly elevate your influence, you must first understand your coaching DNA – your strengths, challenges, and the most effective ways to create transformation. This blueprint is designed to provide clarity, strategy, and actionable steps to help you master your coaching practice.",
+    "What You Can Expect:",
+    "A deep dive into your unique coaching profile and strengths.",
+    "Growth areas and strategies for overcoming challenges.",
+    "The best environments and clients for your coaching style.",
+    "A clear roadmap for competency development and mastery.",
+    "•Real-world examples of high-performing coaches like you.",
+    "The Power of Self-Awareness",
+    "When you recognize how you naturally create impact, you gain confidence, clarity, and the ability to scale your success. This blueprint is about embracing who you are and using that awareness to drive meaningful change.",
+    "I believe great coaches are not born, they are developed. No matter where you are in your journey, you have the ability to refine your craft, elevate your influence, and build a practice that is deeply fulfilling and highly effective.",
+    "Let’s step into this journey together!",
+    "With gratitude,",
+    "Terri Vincent",
+    "Founder, Competency Coach DNA Blueprint"
       ],
       "how_to_use": {
         "summary": "This report is a snapshot of your natural patterns, not a fixed identity. Use it as a starting point for reflection, coaching and conversation.",
@@ -29,26 +39,26 @@
         "As you read through this report, notice where your DNA Blueprint is already aligned with how you work, and where there might be gaps between your natural style and the expectations of your role, environment or clients."
       ],
       "frequencies_copy": {
-        "title": "Understanding the four Frequencies",
-        "intro": "Frequencies describe the way you naturally think, decide and take action – your coaching energy.",
-        "items": {
-          "A": {
-            "name": "Innovation",
-            "description": "Ideas, models, frameworks and new ways of approaching problems."
-          },
-          "B": {
-            "name": "Influence",
-            "description": "Connection, communication, motivation and facilitation."
-          },
-          "C": {
-            "name": "Implementation",
-            "description": "Structure, process, rhythm and consistent follow-through."
-          },
-          "D": {
-            "name": "Insight",
-            "description": "Observation, reflection, analysis and deeper understanding."
-          }
-        }
+       "title": "Understanding the four Coaching Flows",
+       "intro": "Your Coaching Flow reflects your core coaching energy, how you naturally show up and create change. Each Flow is associated with one of the four classic elements, and each has its own rhythm, strength, and way of interacting with others.",
+       "items": {
+      "A": {
+      "name": "Catalyst Coaching Flow (Air Element)",
+      "description": "Dynamic, high-energy, and action-driven. Catalysts lead through momentum, disruption, and transformation. They are quick to initiate change and are most effective in environments that require rapid results."
+    },
+      "B": {
+      "name": "Communicator Coaching Flow (Fire Element)",
+      "description": "Engaging, expressive, and connection-focused. Communicators influence through storytelling, dialogue, and emotional resonance. They thrive when coaching through conversation and personal connection."
+    },
+      "C": {
+      "name": "Rhythmic Coaching Flow (Earth Element)",
+      "description": "Stable, structured, and detail-oriented. They coach through clarity, systems, and consistency. They help clients stay grounded and on track with practical, reliable guidance."
+    },
+      "D": {
+      "name": "Observer Coaching Flow (Water Element)",
+      "description": "Observant, precise, and insight-led. Strategists take a long-term view, guiding clients with deep analysis, pattern recognition, and systems thinking. They shine when building scalable strategies and leading through structure."
+    }
+  }
       },
       "profiles_copy": {
         "title": "Understanding the eight Profiles",
