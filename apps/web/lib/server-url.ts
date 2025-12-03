@@ -1,23 +1,33 @@
 // apps/web/lib/server-url.ts
-import { headers } from "next/headers";
 
 /**
- * Always produce an absolute base URL for server-side fetches.
- * Async because next/headers() must be awaited in strict TS mode.
+ * Returns an absolute base URL that works in:
+ * - server components
+ * - client components
+ * - API routes / route handlers
+ * - Vercel builds
+ *
+ * NO imports from "next/headers" so this file is safe everywhere.
  */
 export async function getBaseUrl(): Promise<string> {
+  // 1) Browser: use current origin
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  // 2) Explicit env vars always win
   const envUrl =
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     process.env.VERCEL_URL;
 
   if (envUrl) {
-    if (/^https?:\/\//i.test(envUrl)) return envUrl;
-    return `https://${envUrl}`;
+    // PREVENT double-prefixing (e.g., "https://https://...")
+    const url = envUrl.replace(/^https?:\/\//i, "");
+    return `https://${url}`;
   }
 
-  const h = await headers();
-  const host = h.get("x-forwarded-host") || h.get("host");
-  const proto = h.get("x-forwarded-proto") || "http";
-  return `${proto}://${host}`;
+  // 3) Fallback for local dev
+  return "http://localhost:3000";
 }
+

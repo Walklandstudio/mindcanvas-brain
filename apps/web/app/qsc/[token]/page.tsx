@@ -75,17 +75,27 @@ type QscPersonaRow = {
   strategic_priority_3: string | null;
 };
 
+type QscTakerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+  role_title: string | null;
+};
+
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
   persona: QscPersonaRow | null;
+  taker: QscTakerRow | null;
 };
 
 type MatrixCell = {
   personality: PersonalityKey;
   mindset: MindsetKey;
   label: string;
-  code: string; // e.g. "F1".."D5"
+  code: string; // e.g. "A1".."D5"
 };
 
 type CellCategory = "primary" | "secondary" | "related" | "other";
@@ -122,7 +132,7 @@ const MATRIX = buildMatrix();
 function classifyCell(result: QscResultsRow | null, cell: MatrixCell): CellCategory {
   if (!result) return "other";
 
-  const combined = (result.combined_profile_code || "").toUpperCase(); // e.g. "FIELD_ORBIT"
+  const combined = (result.combined_profile_code || "").toUpperCase();
   const primaryP = result.primary_personality;
   const secondaryP = result.secondary_personality;
   const primaryM = result.primary_mindset;
@@ -130,25 +140,20 @@ function classifyCell(result: QscResultsRow | null, cell: MatrixCell): CellCateg
 
   const cellCombined = `${cell.personality}_${cell.mindset}`.toUpperCase();
 
-  // 1) Primary = exact combined profile
   if (combined && cellCombined === combined) return "primary";
 
-  // 2) Secondary = any intersection of primary/secondary personality+mindset
   const matchesPrimaryCombo =
     (cell.personality === primaryP && cell.mindset === secondaryM) ||
     (cell.personality === secondaryP && cell.mindset === primaryM);
 
   if (matchesPrimaryCombo) return "secondary";
 
-  // 3) Related = shares either personality or mindset with any primary/secondary
   const matchesPersonality =
     cell.personality === primaryP || cell.personality === secondaryP;
   const matchesMindset =
     cell.mindset === primaryM || cell.mindset === secondaryM;
 
-  if (matchesPersonality || matchesMindset) return "related";
-
-  return "other";
+  return matchesPersonality || matchesMindset ? "related" : "other";
 }
 
 function categoryClasses(cat: CellCategory): string {
@@ -165,7 +170,6 @@ function categoryClasses(cat: CellCategory): string {
   }
 }
 
-// 🔴 IMPORTANT: values from DB are 0–100 already
 function percentLabel(value: number | undefined | null): string {
   const v = typeof value === "number" ? value : 0;
   return `${v.toFixed(1).replace(/\.0$/, "")}%`;
@@ -181,10 +185,6 @@ function Bar({ pct }: { pct: number }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Donut chart for Buyer Frequency Type
-// ---------------------------------------------------------------------------
-
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
@@ -192,10 +192,10 @@ type FrequencyDonutDatum = {
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
-  FIRE: "#f97316", // orange
-  FLOW: "#0ea5e9", // sky
-  FORM: "#22c55e", // green
-  FIELD: "#a855f7", // purple
+  FIRE: "#f97316",
+  FLOW: "#0ea5e9",
+  FORM: "#22c55e",
+  FIELD: "#a855f7",
 };
 
 function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
@@ -215,7 +215,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
       className="h-40 w-40 md:h-48 md:w-48"
       aria-hidden="true"
     >
-      {/* Background ring */}
       <circle
         cx={center}
         cy={center}
@@ -246,10 +245,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
           />
         );
       })}
-
-      {/* Inner circle */}
       <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
-
       <text
         x={center}
         y={center - 4}
@@ -279,10 +275,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
     </svg>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
 
 export default function QscResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
@@ -319,6 +311,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
               results?: QscResultsRow;
               profile?: QscProfileRow | null;
               persona?: QscPersonaRow | null;
+              taker?: QscTakerRow | null;
             })
           | { ok?: boolean; error?: string };
 
@@ -332,6 +325,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
             results: cast.results,
             profile: cast.profile ?? null,
             persona: cast.persona ?? null,
+            taker: cast.taker ?? null,
           });
         }
       } catch (e: any) {
@@ -349,6 +343,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
+  const taker = payload?.taker ?? null;
 
   const personalityPerc = useMemo<PersonalityPercMap>(
     () => result?.personality_percentages || {},
@@ -358,10 +353,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
     () => result?.mindset_percentages || {},
     [result]
   );
-
-  // ---------------------------------------------------------------------------
-  // Early states
-  // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
@@ -401,12 +392,16 @@ export default function QscResultPage({ params }: { params: { token: string } })
     );
   }
 
-  // Helper labels
   const primaryPersonaLabel =
     persona?.profile_label || profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data for Buyer Frequency – values are 0–100 already
+  const takerDisplayName =
+    taker &&
+    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
+      taker.email ||
+      null);
+
   const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
     key: p.key,
     label: p.label,
@@ -414,12 +409,10 @@ export default function QscResultPage({ params }: { params: { token: string } })
   }));
 
   const extendedReportHref = tid
-   ? `/qsc/${encodeURIComponent(token)}/extended?tid=${encodeURIComponent(tid)}`
-   : `/qsc/${encodeURIComponent(token)}/extended`;
-
-  // ---------------------------------------------------------------------------
-  // Main layout
-  // ---------------------------------------------------------------------------
+    ? `/qsc/${encodeURIComponent(
+        token
+      )}/extended?tid=${encodeURIComponent(tid)}`
+    : `/qsc/${encodeURIComponent(token)}/extended`;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -434,6 +427,14 @@ export default function QscResultPage({ params }: { params: { token: string } })
               <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
                 Your Buyer Persona Snapshot
               </h1>
+              {takerDisplayName && (
+                <p className="mt-1 text-sm text-slate-300">
+                  For:{" "}
+                  <span className="font-semibold text-slate-50">
+                    {takerDisplayName}
+                  </span>
+                </p>
+              )}
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 This view combines your{" "}
                 <span className="font-semibold">Buyer Frequency Type</span> and{" "}
@@ -442,7 +443,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
               </p>
             </div>
 
-            {/* Extended Source Code button */}
             <div className="flex md:items-end">
               <Link
                 href={extendedReportHref}
@@ -454,7 +454,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
-            {/* Combined profile card */}
             <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 md:p-7 shadow-xl shadow-black/50">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
                 Combined profile
@@ -468,12 +467,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
                   {result.combined_profile_code || "—"}
                 </span>
               </p>
-
-              {persona?.show_up_summary && (
-                <p className="mt-4 text-sm text-slate-200 whitespace-pre-line">
-                  {persona.show_up_summary}
-                </p>
-              )}
 
               <dl className="mt-5 grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
                 <div>
@@ -522,7 +515,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
               </p>
             </div>
 
-            {/* Sales playbook snapshot */}
             <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40 space-y-4">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
                 Snapshot for your sales playbook
@@ -594,7 +586,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
         {/* Frequency + Mindset summaries */}
         <section className="grid gap-6 md:grid-cols-2">
-          {/* Buyer Frequency Types – donut chart */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
             <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
             <p className="mt-1 text-sm text-slate-300">
@@ -619,7 +610,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                         style={{ backgroundColor: FREQUENCY_COLORS[d.key] }}
                       />
                       <span className="font-medium text-slate-100">
-                        {d.label.charAt(0) + d.label.slice(1).toLowerCase()}
+                        {d.label}
                       </span>
                     </div>
                     <span className="text-sm text-slate-300">
@@ -631,7 +622,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
             </div>
           </div>
 
-          {/* Buyer Mindset Levels – bars */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
             <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
             <p className="mt-1 text-sm text-slate-300">
@@ -640,7 +630,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
-                const pct = mindsetPerc[m.key] ?? 0; // 0–100
+                const pct = mindsetPerc[m.key] ?? 0;
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -659,7 +649,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
           </div>
         </section>
 
-        {/* Buyer Persona Matrix (heatmap) */}
+        {/* Buyer Persona Matrix */}
         <section className="space-y-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -678,10 +668,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
           <div className="mt-4 overflow-x-auto">
             <div className="inline-grid grid-cols-[auto_repeat(4,minmax(140px,1fr))] gap-3 md:gap-4 items-stretch">
-              {/* Empty corner cell */}
               <div />
 
-              {/* Column headers: personalities */}
               {PERSONALITIES.map((p) => (
                 <div
                   key={p.key}
@@ -694,10 +682,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 </div>
               ))}
 
-              {/* Rows: each mindset + 4 cells */}
               {MINDSETS.map((m) => (
                 <div key={m.key} className="contents">
-                  {/* Row header */}
                   <div className="flex flex-col justify-center text-xs font-medium text-slate-300 pr-2">
                     <span>{m.label}</span>
                     <span className="text-[11px] text-slate-500">
@@ -705,7 +691,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
                     </span>
                   </div>
 
-                  {/* Row cells */}
                   {PERSONALITIES.map((p) => {
                     const cell = MATRIX.find(
                       (c) =>
@@ -754,7 +739,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
             </div>
           </div>
 
-          {/* Legend */}
           <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-slate-300">
             <div className="inline-flex items-center gap-2">
               <span className="h-3 w-3 rounded-full bg-sky-500" />
@@ -782,5 +766,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
+
 
 

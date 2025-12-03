@@ -65,6 +65,15 @@ type QscPersonaRow = {
   strategic_priority_3: string | null;
 };
 
+type QscTakerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+  role_title: string | null;
+};
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { token: string } }
@@ -78,12 +87,12 @@ export async function GET(
     );
   }
 
-  // ✅ Use your existing admin client instance
+  // ✅ Use your existing admin client instance (portal schema)
   const supabase = supabaseAdmin;
 
   // 1) Fetch the QSC result for this token
   const { data: result, error: resultErr } = await supabase
-    .from<QscResultsRow>("qsc_results") // adjust name if your table is exposed differently
+    .from("qsc_results")
     .select("*")
     .eq("token", token)
     .single();
@@ -105,27 +114,30 @@ export async function GET(
 
   if (result.qsc_profile_id) {
     const { data, error } = await supabase
-      .from<QscProfileRow>("qsc_profiles")
+      .from("qsc_profiles")
       .select("*")
       .eq("id", result.qsc_profile_id)
       .single();
 
     if (error) {
-      console.error("Error loading qsc_profile", error);
+      console.error("Error loading qsc_profile by id", error);
     } else {
-      profile = data;
+      profile = data as QscProfileRow;
     }
   } else if (result.combined_profile_code) {
     const { data, error } = await supabase
-      .from<QscProfileRow>("qsc_profiles")
+      .from("qsc_profiles")
       .select("*")
       .eq("profile_code", result.combined_profile_code)
       .maybeSingle();
 
     if (error) {
-      console.error("Error loading qsc_profile by combined_profile_code", error);
+      console.error(
+        "Error loading qsc_profile by combined_profile_code",
+        error
+      );
     } else {
-      profile = data ?? null;
+      profile = (data as QscProfileRow) ?? null;
     }
   }
 
@@ -133,11 +145,12 @@ export async function GET(
   let persona: QscPersonaRow | null = null;
 
   const personaProfileCode =
-    profile?.profile_code || result.combined_profile_code;
+    (profile as QscProfileRow | null)?.profile_code ||
+    (result.combined_profile_code as string | null);
 
   if (personaProfileCode) {
     const { data, error } = await supabase
-      .from<QscPersonaRow>("qsc_personas")
+      .from("qsc_personas")
       .select("*")
       .eq("test_id", result.test_id)
       .eq("profile_code", personaProfileCode)
@@ -146,17 +159,39 @@ export async function GET(
     if (error) {
       console.error("Error loading qsc_persona", error);
     } else {
-      persona = data ?? null;
+      persona = (data as QscPersonaRow) ?? null;
     }
   }
 
+  // 4) Fetch the test taker (for names on reports)
+  let taker: QscTakerRow | null = null;
+
+  try {
+    const { data, error } = await supabase
+      .from("test_takers")
+      .select("id, first_name, last_name, email, company, role_title")
+      .eq("link_token", token)
+      .eq("test_id", result.test_id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error loading test_taker", error);
+    } else {
+      taker = (data as QscTakerRow) ?? null;
+    }
+  } catch (e) {
+    console.error("Unexpected error loading test_taker", e);
+  }
+
+  // Explicitly cast result so TS is happy
+  const typedResult = result as QscResultsRow;
+
   return NextResponse.json({
     ok: true,
-    results: result,
+    results: typedResult,
     profile,
     persona,
+    taker,
   });
 }
-
-
 

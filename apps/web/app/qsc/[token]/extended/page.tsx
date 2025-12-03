@@ -68,10 +68,20 @@ type QscPersonaRow = {
   strategic_priority_3: string | null;
 };
 
+type QscTakerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+  role_title: string | null;
+};
+
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
   persona: QscPersonaRow | null;
+  taker: QscTakerRow | null;
 };
 
 const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
@@ -129,6 +139,7 @@ export default function QscExtendedSourceCodePage({
           results?: QscResultsRow;
           profile?: QscProfileRow | null;
           persona?: QscPersonaRow | null;
+          taker?: QscTakerRow | null;
         };
 
         if (!res.ok || j.ok === false) {
@@ -140,6 +151,7 @@ export default function QscExtendedSourceCodePage({
             results: j.results,
             profile: j.profile ?? null,
             persona: j.persona ?? null,
+            taker: j.taker ?? null,
           });
         }
       } catch (e: any) {
@@ -157,6 +169,7 @@ export default function QscExtendedSourceCodePage({
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
+  const taker = payload?.taker ?? null;
 
   if (loading) {
     return (
@@ -216,6 +229,12 @@ export default function QscExtendedSourceCodePage({
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
+  const takerDisplayName =
+    taker &&
+    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
+      taker.email ||
+      "Test taker");
+
   // These six are still sourced from qsc_profiles
   const howToCommunicate =
     profile?.how_to_communicate || "No communication guidance is available yet.";
@@ -272,6 +291,14 @@ export default function QscExtendedSourceCodePage({
                 {personaLabel}
               </span>
             </span>
+            {takerDisplayName && (
+              <span className="text-[11px] text-slate-500">
+                Test taker:{" "}
+                <span className="font-semibold text-slate-100">
+                  {takerDisplayName}
+                </span>
+              </span>
+            )}
             {tid && (
               <span className="text-[11px] text-slate-500">
                 Test taker ID:{" "}

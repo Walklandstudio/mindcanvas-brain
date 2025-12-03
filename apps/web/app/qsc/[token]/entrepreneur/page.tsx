@@ -72,10 +72,20 @@ type QscPersonaRow = {
   strategic_priority_3: string | null;
 };
 
+type QscTakerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+  role_title: string | null;
+};
+
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
   persona?: QscPersonaRow | null;
+  taker: QscTakerRow | null;
 };
 
 const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
@@ -263,6 +273,7 @@ export default function QscEntrepreneurStrategicReportPage({
           results?: QscResultsRow;
           profile?: QscProfileRow | null;
           persona?: QscPersonaRow | null;
+          taker?: QscTakerRow | null;
         };
 
         if (!res.ok || j.ok === false) {
@@ -274,6 +285,7 @@ export default function QscEntrepreneurStrategicReportPage({
             results: j.results,
             profile: j.profile ?? null,
             persona: j.persona ?? null,
+            taker: j.taker ?? null,
           });
         }
       } catch (e: any) {
@@ -291,6 +303,7 @@ export default function QscEntrepreneurStrategicReportPage({
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
+  const taker = payload?.taker ?? null;
 
   // --- Loading / error states ---------------------------------------------
 
@@ -336,6 +349,12 @@ export default function QscEntrepreneurStrategicReportPage({
     persona?.profile_label ||
     profile?.profile_label ||
     "Your Quantum Profile";
+
+  const takerDisplayName =
+    taker &&
+    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
+      taker.email ||
+      null);
 
   const backHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
@@ -446,6 +465,12 @@ export default function QscEntrepreneurStrategicReportPage({
             <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
               QSC Entrepreneur — Strategic Growth Report
             </h1>
+            {takerDisplayName && (
+              <p className="mt-1 text-sm text-slate-700">
+                For:{" "}
+                <span className="font-semibold">{takerDisplayName}</span>
+              </p>
+            )}
             <p className="mt-2 text-sm text-slate-700 max-w-2xl">
               Your personal emotional, strategic and scaling blueprint – based
               on your Quantum buyer profile and current mindset stage.
@@ -863,3 +888,4 @@ export default function QscEntrepreneurStrategicReportPage({
     </div>
   );
 }
+
