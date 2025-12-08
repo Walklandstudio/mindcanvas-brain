@@ -1,9 +1,9 @@
-// apps/web/app/qsc/[token]/page.tsx
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { QscMatrix } from "../../QscMatrix";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -16,17 +16,17 @@ type QscResultsRow = {
   test_id: string;
   token: string;
   personality_totals: Record<string, number> | null;
-  personality_percentages: PersonalityPercMap | null; // 0–100
+  personality_percentages: PersonalityPercMap | null;
   mindset_totals: Record<string, number> | null;
-  mindset_percentages: MindsetPercMap | null; // 0–100
+  mindset_percentages: MindsetPercMap | null;
   primary_personality: PersonalityKey | null;
   secondary_personality: PersonalityKey | null;
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
-  combined_profile_code: string | null; // e.g. "FIELD_ORBIT"
+  combined_profile_code: string | null;
   qsc_profile_id: string | null;
+  audience: "entrepreneur" | "leader" | null;
   created_at: string;
-  audience?: "entrepreneur" | "leader" | string; // NEW: audience from qsc_results
 };
 
 type QscProfileRow = {
@@ -60,18 +60,14 @@ type QscPersonaRow = {
 
   one_page_strengths: string | null;
   one_page_risks: string | null;
-
   combined_strengths: string | null;
   combined_risks: string | null;
   combined_big_lever: string | null;
-
   emotional_stabilises: string | null;
   emotional_destabilises: string | null;
   emotional_patterns_to_watch: string | null;
-
   decision_style_long: string | null;
   support_yourself: string | null;
-
   strategic_priority_1: string | null;
   strategic_priority_2: string | null;
   strategic_priority_3: string | null;
@@ -89,108 +85,37 @@ type QscTakerRow = {
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
-  persona: QscPersonaRow | null;
+  persona?: QscPersonaRow | null;
   taker: QscTakerRow | null;
 };
 
-type MatrixCell = {
-  personality: PersonalityKey;
-  mindset: MindsetKey;
-  label: string;
-  code: string; // e.g. "A1".."D5"
+const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
+  FIRE: "Fire",
+  FLOW: "Flow",
+  FORM: "Form",
+  FIELD: "Field",
 };
 
-type CellCategory = "primary" | "secondary" | "related" | "other";
+const MINDSET_LABELS: Record<MindsetKey, string> = {
+  ORIGIN: "Origin",
+  MOMENTUM: "Momentum",
+  VECTOR: "Vector",
+  ORBIT: "Orbit",
+  QUANTUM: "Quantum",
+};
 
-const PERSONALITIES: { key: PersonalityKey; label: string; code: string }[] = [
-  { key: "FIRE", label: "FIRE", code: "A" },
-  { key: "FLOW", label: "FLOW", code: "B" },
-  { key: "FORM", label: "FORM", code: "C" },
-  { key: "FIELD", label: "FIELD", code: "D" },
-];
-
-const MINDSETS: { key: MindsetKey; label: string; level: number }[] = [
-  { key: "ORIGIN", label: "ORIGIN", level: 1 },
-  { key: "MOMENTUM", label: "MOMENTUM", level: 2 },
-  { key: "VECTOR", label: "VECTOR", level: 3 },
-  { key: "ORBIT", label: "ORBIT", level: 4 },
-  { key: "QUANTUM", label: "QUANTUM", level: 5 },
-];
-
-function buildMatrix(): MatrixCell[] {
-  const cells: MatrixCell[] = [];
-  for (const m of MINDSETS) {
-    for (const p of PERSONALITIES) {
-      const code = `${p.code}${m.level}`;
-      const label = `${p.label} ${m.label}`;
-      cells.push({ personality: p.key, mindset: m.key, label, code });
-    }
+function normalisePercent(raw: number | undefined | null): number {
+  if (raw == null || !Number.isFinite(raw)) return 0;
+  if (raw > 0 && raw <= 1.5) {
+    return Math.min(100, Math.max(0, raw * 100));
   }
-  return cells;
-}
-
-const MATRIX = buildMatrix();
-
-function classifyCell(result: QscResultsRow | null, cell: MatrixCell): CellCategory {
-  if (!result) return "other";
-
-  const combined = (result.combined_profile_code || "").toUpperCase();
-  const primaryP = result.primary_personality;
-  const secondaryP = result.secondary_personality;
-  const primaryM = result.primary_mindset;
-  const secondaryM = result.secondary_mindset;
-
-  const cellCombined = `${cell.personality}_${cell.mindset}`.toUpperCase();
-
-  if (combined && cellCombined === combined) return "primary";
-
-  const matchesPrimaryCombo =
-    (cell.personality === primaryP && cell.mindset === secondaryM) ||
-    (cell.personality === secondaryP && cell.mindset === primaryM);
-
-  if (matchesPrimaryCombo) return "secondary";
-
-  const matchesPersonality =
-    cell.personality === primaryP || cell.personality === secondaryP;
-  const matchesMindset =
-    cell.mindset === primaryM || cell.mindset === secondaryM;
-
-  return matchesPersonality || matchesMindset ? "related" : "other";
-}
-
-function categoryClasses(cat: CellCategory): string {
-  switch (cat) {
-    case "primary":
-      return "border-sky-400 bg-sky-500 text-slate-50 shadow-xl shadow-sky-900/60";
-    case "secondary":
-      return "border-sky-400/80 bg-sky-500/15 text-slate-50 shadow-md shadow-sky-900/40";
-    case "related":
-      return "border-sky-400/40 bg-sky-500/5 text-slate-100";
-    case "other":
-    default:
-      return "border-slate-700/60 bg-slate-900/70 text-slate-400";
-  }
-}
-
-function percentLabel(value: number | undefined | null): string {
-  const v = typeof value === "number" ? value : 0;
-  return `${v.toFixed(1).replace(/\.0$/, "")}%`;
-}
-
-function Bar({ pct }: { pct: number }) {
-  const clamped = Math.max(0, Math.min(100, isFinite(pct) ? pct : 0));
-  const width = `${clamped}%`;
-  return (
-    <div className="w-full h-2 rounded-full bg-slate-800/90 overflow-hidden">
-      <div className="h-2 rounded-full bg-sky-500" style={{ width }} />
-    </div>
-  );
+  return Math.min(100, Math.max(0, raw));
 }
 
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number; // 0–100
+  value: number;
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
@@ -226,8 +151,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         fill="transparent"
       />
       {data.map((d) => {
-        const value = isFinite(d.value) ? d.value : 0;
-        const fraction = value / total;
+        const fraction = (isFinite(d.value) ? d.value : 0) / total;
         const dash = circumference * fraction;
         const dashArray = `${dash} ${circumference}`;
         const strokeDashoffset = offset;
@@ -259,7 +183,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
             "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
         }}
       >
-        BUYER
+        LEADERSHIP
       </text>
       <text
         x={center}
@@ -278,7 +202,26 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
   );
 }
 
-export default function QscResultPage({ params }: { params: { token: string } }) {
+function derivePrimarySecondary<K extends string>(
+  perc: Partial<Record<K, number>>,
+  keys: readonly K[]
+): { primary: K | null; secondary: K | null } {
+  const entries = keys.map((k) => ({
+    key: k,
+    value: normalisePercent(perc[k] ?? 0),
+  }));
+  entries.sort((a, b) => b.value - a.value);
+  const primary = entries[0] && entries[0].value > 0 ? entries[0].key : null;
+  const secondary =
+    entries[1] && entries[1].value > 0 ? entries[1].key : null;
+  return { primary, secondary };
+}
+
+export default function QscLeaderStrategicReportPage({
+  params,
+}: {
+  params: { token: string };
+}) {
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
@@ -308,26 +251,25 @@ export default function QscResultPage({ params }: { params: { token: string } })
           );
         }
 
-        const j = (await res.json()) as
-          | ({ ok?: boolean; error?: string } & {
-              results?: QscResultsRow;
-              profile?: QscProfileRow | null;
-              persona?: QscPersonaRow | null;
-              taker?: QscTakerRow | null;
-            })
-          | { ok?: boolean; error?: string };
+        const j = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          results?: QscResultsRow;
+          profile?: QscProfileRow | null;
+          persona?: QscPersonaRow | null;
+          taker?: QscTakerRow | null;
+        };
 
-        if (!res.ok || (j as any).ok === false) {
-          throw new Error((j as any).error || `HTTP ${res.status}`);
+        if (!res.ok || j.ok === false) {
+          throw new Error(j.error || `HTTP ${res.status}`);
         }
 
-        const cast = j as any;
-        if (alive) {
+        if (alive && j.results) {
           setPayload({
-            results: cast.results,
-            profile: cast.profile ?? null,
-            persona: cast.persona ?? null,
-            taker: cast.taker ?? null,
+            results: j.results,
+            profile: j.profile ?? null,
+            persona: j.persona ?? null,
+            taker: j.taker ?? null,
           });
         }
       } catch (e: any) {
@@ -347,45 +289,16 @@ export default function QscResultPage({ params }: { params: { token: string } })
   const persona = payload?.persona ?? null;
   const taker = payload?.taker ?? null;
 
-  const personalityPerc = useMemo<PersonalityPercMap>(
-    () => result?.personality_percentages || {},
-    [result]
-  );
-  const mindsetPerc = useMemo<MindsetPercMap>(
-    () => result?.mindset_percentages || {},
-    [result]
-  );
-
-  // Audience-aware bits
-  const audience = result?.audience ?? "entrepreneur";
-  const isLeader = audience === "leader";
-
-  const mainTitle = isLeader
-    ? "Your Leadership Persona Snapshot"
-    : "Your Buyer Persona Snapshot";
-
-  const subtitle = isLeader
-    ? "This view combines your Leadership Frequency Type and Leadership Mindset Level into one Quantum Source Code leadership profile."
-    : "This view combines your Buyer Frequency Type and Buyer Mindset Level into one Quantum Source Code profile.";
-
-  const buttonLabel = isLeader
-    ? "View Strategic Leadership Report →"
-    : "View Strategic Growth Report →";
-
-  const extendedReportHref = tid
-    ? `/qsc/${encodeURIComponent(token)}/${isLeader ? "leader" : "entrepreneur"}?tid=${encodeURIComponent(
-        tid
-      )}`
-    : `/qsc/${encodeURIComponent(token)}/${isLeader ? "leader" : "entrepreneur"}`;
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-50">
-        <main className="mx-auto max-w-5xl px-4 py-12">
-          <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-            Quantum Source Code
+      <div className="min-h-screen bg-slate-100 text-slate-900">
+        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            Strategic Leadership Report
           </p>
-          <h1 className="mt-3 text-3xl font-bold">Loading your results…</h1>
+          <h1 className="mt-3 text-3xl font-bold">
+            Preparing your QSC Leaders report…
+          </h1>
         </main>
       </div>
     );
@@ -393,32 +306,29 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
   if (err || !result) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="min-h-screen bg-slate-100 text-slate-900">
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
-          <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-            Quantum Source Code
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            Strategic Leadership Report
           </p>
-          <h1 className="text-3xl font-bold">Something went wrong</h1>
-          <p className="text-sm text-slate-300">
-            We couldn&apos;t load your Quantum Source Code result.
+          <h1 className="text-3xl font-bold">Couldn&apos;t load report</h1>
+          <p className="text-sm text-slate-700">
+            We weren&apos;t able to generate your QSC Leaders — Strategic
+            Leadership Report.
           </p>
-          <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+          <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-          <p className="text-xs text-slate-500">
-            Debug endpoint:{" "}
-            <code className="break-all">
-              /api/public/qsc/{token}/result
-            </code>
-          </p>
         </main>
       </div>
     );
   }
 
-  const primaryPersonaLabel =
-    persona?.profile_label || profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
+  const personaName =
+    persona?.profile_label ||
+    profile?.profile_label ||
+    "Your Quantum Leadership Profile";
 
   const takerDisplayName =
     taker &&
@@ -426,376 +336,148 @@ export default function QscResultPage({ params }: { params: { token: string } })
       taker.email ||
       null);
 
-  const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
-    key: p.key,
-    label: p.label,
-    value: personalityPerc[p.key] ?? 0,
+  const backHref = tid
+    ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
+    : `/qsc/${encodeURIComponent(token)}`;
+
+  const rawPersonalityPerc =
+    (result.personality_percentages ?? {}) as PersonalityPercMap;
+  const rawMindsetPerc =
+    (result.mindset_percentages ?? {}) as MindsetPercMap;
+
+  const personalityPerc: PersonalityPercMap = {
+    FIRE: normalisePercent(rawPersonalityPerc.FIRE ?? 0),
+    FLOW: normalisePercent(rawPersonalityPerc.FLOW ?? 0),
+    FORM: normalisePercent(rawPersonalityPerc.FORM ?? 0),
+    FIELD: normalisePercent(rawPersonalityPerc.FIELD ?? 0),
+  };
+
+  const mindsetPerc: MindsetPercMap = {
+    ORIGIN: normalisePercent(rawMindsetPerc.ORIGIN ?? 0),
+    MOMENTUM: normalisePercent(rawMindsetPerc.MOMENTUM ?? 0),
+    VECTOR: normalisePercent(rawMindsetPerc.VECTOR ?? 0),
+    ORBIT: normalisePercent(rawMindsetPerc.ORBIT ?? 0),
+    QUANTUM: normalisePercent(rawMindsetPerc.QUANTUM ?? 0),
+  };
+
+  const frequencyDonutData: FrequencyDonutDatum[] = ([
+    "FIRE",
+    "FLOW",
+    "FORM",
+    "FIELD",
+  ] as PersonalityKey[]).map((key) => ({
+    key,
+    label: PERSONALITY_LABELS[key],
+    value: personalityPerc[key] ?? 0,
   }));
 
+  const personalityKeys: PersonalityKey[] = ["FIRE", "FLOW", "FORM", "FIELD"];
+  const mindsetKeys: MindsetKey[] = [
+    "ORIGIN",
+    "MOMENTUM",
+    "VECTOR",
+    "ORBIT",
+    "QUANTUM",
+  ];
+
+  const {
+    primary: derivedPrimaryPersonality,
+    secondary: derivedSecondaryPersonality,
+  } = derivePrimarySecondary(personalityPerc, personalityKeys);
+
+  const {
+    primary: derivedPrimaryMindset,
+    secondary: derivedSecondaryMindset,
+  } = derivePrimarySecondary(mindsetPerc, mindsetKeys);
+
+  const effectivePrimaryPersonality: PersonalityKey | null =
+    derivedPrimaryPersonality ?? result.primary_personality ?? null;
+  const effectiveSecondaryPersonality: PersonalityKey | null =
+    derivedSecondaryPersonality ?? result.secondary_personality ?? null;
+
+  const effectivePrimaryMindset: MindsetKey | null =
+    derivedPrimaryMindset ?? result.primary_mindset ?? null;
+  const effectiveSecondaryMindset: MindsetKey | null =
+    derivedSecondaryMindset ?? result.secondary_mindset ?? null;
+
+  const primaryPersonalityLabel =
+    (effectivePrimaryPersonality &&
+      PERSONALITY_LABELS[effectivePrimaryPersonality]) ||
+    effectivePrimaryPersonality ||
+    "—";
+
+  const primaryMindsetLabel =
+    (effectivePrimaryMindset && MINDSET_LABELS[effectivePrimaryMindset]) ||
+    effectivePrimaryMindset ||
+    "—";
+
+  const onePageStrengths = persona?.one_page_strengths || "—";
+  const onePageRisks = persona?.one_page_risks || "—";
+  const combinedStrengths = persona?.combined_strengths || "—";
+  const combinedRisks = persona?.combined_risks || "—";
+  const combinedLever = persona?.combined_big_lever || "—";
+  const emotionalStabilises = persona?.emotional_stabilises || "—";
+  const emotionalDestabilises = persona?.emotional_destabilises || "—";
+  const emotionalPatterns = persona?.emotional_patterns_to_watch || "—";
+  const decisionStyleLong =
+    persona?.decision_style_long || profile?.decision_style || "—";
+  const supportYourself = persona?.support_yourself || "—";
+
+  const strategic1 = persona?.strategic_priority_1 || "—";
+  const strategic2 = persona?.strategic_priority_2 || "—";
+  const strategic3 = persona?.strategic_priority_3 || "—";
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50">
-      <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
-        {/* Snapshot header */}
-        <section className="space-y-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-                Quantum Source Code
-              </p>
-              <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
-                {mainTitle}
-              </h1>
-              {takerDisplayName && (
-                <p className="mt-1 text-sm text-slate-300">
-                  For:{" "}
-                  <span className="font-semibold text-slate-50">
-                    {takerDisplayName}
-                  </span>
-                </p>
-              )}
-              {taker?.company && (
-                <p className="text-sm text-slate-300">
-                  Organisation:{" "}
-                  <span className="font-semibold text-slate-50">
-                    {taker.company}
-                  </span>
-                </p>
-              )}
-              <p className="mt-2 text-sm text-slate-300 max-w-2xl">
-                {subtitle}
-              </p>
-            </div>
-
-            <div className="flex md:items-end">
-              <Link
-                href={extendedReportHref}
-                className="inline-flex items-center rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-slate-50 shadow-md shadow-sky-900/60 hover:bg-sky-500 hover:border-sky-400 transition"
-              >
-                {buttonLabel}
-              </Link>
-            </div>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 md:p-7 shadow-xl shadow-black/50">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
-                Combined profile
-              </p>
-              <h2 className="mt-3 text-2xl font-semibold">
-                {primaryPersonaLabel}
-              </h2>
-              <p className="mt-1 text-xs text-slate-400">
-                Code:{" "}
-                <span className="font-mono text-slate-100">
-                  {result.combined_profile_code || "—"}
-                </span>
-              </p>
-
-              <dl className="mt-5 grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">
-                    Primary personality
-                  </dt>
-                  <dd className="mt-0.5 font-medium">
-                    {result.primary_personality || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">
-                    Secondary personality
-                  </dt>
-                  <dd className="mt-0.5 font-medium">
-                    {result.secondary_personality || "—"}
-                  </dd>
-                </div>
-                <div className="mt-2">
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">
-                    Primary mindset
-                  </dt>
-                  <dd className="mt-0.5 font-medium">
-                    {result.primary_mindset || "—"}
-                  </dd>
-                </div>
-                <div className="mt-2">
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">
-                    Secondary mindset
-                  </dt>
-                  <dd className="mt-0.5 font-medium">
-                    {result.secondary_mindset || "—"}
-                  </dd>
-                </div>
-              </dl>
-
-              <p className="mt-5 text-xs text-slate-500">
-                Created at{" "}
-                {createdAt.toLocaleString(undefined, {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40 space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
-                Snapshot for your {isLeader ? "leadership" : "sales"} playbook
-              </p>
-
-              <div className="space-y-3 text-sm">
-                <div>
-                  <h3 className="font-semibold text-slate-100">
-                    How to communicate
-                  </h3>
-                  <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.how_to_communicate ||
-                      "[todo: how to communicate]"}
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="font-semibold text-slate-100">
-                    Decision style
-                  </h3>
-                  <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.decision_style || "[todo: decision style]"}
-                  </p>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <h3 className="font-semibold text-slate-100">
-                      Core challenges
-                    </h3>
-                    <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.business_challenges ||
-                        "[todo: core business challenges]"}
-                    </p>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-100">
-                      Trust signals
-                    </h3>
-                    <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.trust_signals || "[todo: trust signals]"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <h3 className="font-semibold text-slate-100">
-                      Offer fit
-                    </h3>
-                    <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.offer_fit || "[todo: best offer fit]"}
-                    </p>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-100">
-                      Sale blockers
-                    </h3>
-                    <p className="mt-1 text-slate-300 whitespace-pre-line">
-                      {profile?.sale_blockers ||
-                        "[todo: what blocks the sale]"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Frequency + Mindset summaries */}
-        <section className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
-            <h2 className="text-lg font-semibold">
-              {isLeader ? "Leadership Frequency Type" : "Buyer Frequency Type"}
-            </h2>
-            <p className="mt-1 text-sm text-slate-300">
-              {isLeader
-                ? "How you naturally lead across Fire, Flow, Form and Field."
-                : "Your emotional & energetic style across Fire, Flow, Form and Field."}
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <main className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10">
+        {/* HEADER */}
+        <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+              Strategic Leadership Report
             </p>
-
-            <div className="mt-5 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
-              <div className="flex justify-center">
-                <FrequencyDonut data={frequencyDonutData} />
-              </div>
-
-              <div className="space-y-3 text-sm">
-                {frequencyDonutData.map((d) => (
-                  <div
-                    key={d.key}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: FREQUENCY_COLORS[d.key] }}
-                      />
-                      <span className="font-medium text-slate-100">
-                        {d.label}
-                      </span>
-                    </div>
-                    <span className="text-sm text-slate-300">
-                      {percentLabel(d.value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
-            <h2 className="text-lg font-semibold">
-              {isLeader ? "Leadership Mindset Levels" : "Buyer Mindset Levels"}
-            </h2>
-            <p className="mt-1 text-sm text-slate-300">
-              {isLeader
-                ? "Where your leadership energy is sitting in the current organisational context."
-                : "Where they are in their current business journey."}
+            <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
+              QSC Leaders — Strategic Leadership Report
+            </h1>
+            {takerDisplayName && (
+              <p className="mt-1 text-sm text-slate-700">
+                For:{" "}
+                <span className="font-semibold">{takerDisplayName}</span>
+              </p>
+            )}
+            <p className="mt-2 text-sm text-slate-700 max-w-2xl">
+              Your personal emotional, leadership and strategic blueprint –
+              based on your Quantum leadership profile and current mindset
+              stage.
             </p>
-
-            <div className="mt-5 space-y-3">
-              {MINDSETS.map((m) => {
-                const pct = mindsetPerc[m.key] ?? 0;
-                return (
-                  <div key={m.key} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-slate-100">
-                        {m.label}
-                      </span>
-                      <span className="text-slate-400">
-                        {percentLabel(pct)}
-                      </span>
-                    </div>
-                    <Bar pct={pct} />
-                  </div>
-                );
+          </div>
+          <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
+            <Link
+              href={backHref}
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+            >
+              ← Back to Snapshot
+            </Link>
+            <span>
+              Created at{" "}
+              {createdAt.toLocaleString(undefined, {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
               })}
-            </div>
+            </span>
           </div>
-        </section>
+        </header>
 
-        {/* Persona Matrix */}
-        <section className="space-y-4">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-xl md:text-2xl font-semibold">
-                {isLeader ? "Leadership Persona Matrix" : "Buyer Persona Matrix"}
-              </h2>
-              <p className="mt-1 text-sm text-slate-300 max-w-2xl">
-                This grid maps your{" "}
-                <span className="font-semibold">
-                  {isLeader ? "Leadership Frequency Type" : "Buyer Frequency Type"}
-                </span>{" "}
-                (left to right) against your{" "}
-                <span className="font-semibold">
-                  {isLeader ? "Leadership Mindset Level" : "Buyer Mindset Level"}
-                </span>{" "}
-                (top to bottom). Your combined profile sits at the intersection.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 overflow-x-auto">
-            <div className="inline-grid grid-cols-[auto_repeat(4,minmax(140px,1fr))] gap-3 md:gap-4 items-stretch">
-              <div />
-
-              {PERSONALITIES.map((p) => (
-                <div
-                  key={p.key}
-                  className="px-3 pb-1 pt-0.5 text-center text-xs font-semibold tracking-wide text-slate-300"
-                >
-                  <div>{p.label}</div>
-                  <div className="text-[11px] text-slate-500">
-                    Frequency {p.code}
-                  </div>
-                </div>
-              ))}
-
-              {MINDSETS.map((m) => (
-                <div key={m.key} className="contents">
-                  <div className="flex flex-col justify-center text-xs font-medium text-slate-300 pr-2">
-                    <span>{m.label}</span>
-                    <span className="text-[11px] text-slate-500">
-                      Mindset {m.level}
-                    </span>
-                  </div>
-
-                  {PERSONALITIES.map((p) => {
-                    const cell = MATRIX.find(
-                      (c) =>
-                        c.personality === p.key && c.mindset === m.key
-                    )!;
-                    const cat = classifyCell(result, cell);
-
-                    return (
-                      <div
-                        key={`${m.key}_${p.key}`}
-                        className={[
-                          "min-h-[96px] rounded-2xl border px-3 py-3 md:px-4 md:py-4 flex flex-col justify-between text-xs transition-colors",
-                          categoryClasses(cat),
-                        ].join(" ")}
-                      >
-                        <div>
-                          <div className="text-[11px] uppercase tracking-[0.15em] mb-1">
-                            {p.label} {m.label}
-                          </div>
-                          <div className="text-[11px] text-slate-300/90">
-                            Code:{" "}
-                            <span className="font-mono">{cell.code}</span>
-                          </div>
-                        </div>
-
-                        {cat === "primary" && (
-                          <div className="mt-2 text-[11px] font-medium text-slate-50">
-                            Primary combined profile
-                          </div>
-                        )}
-                        {cat === "secondary" && (
-                          <div className="mt-2 text-[11px] font-medium text-slate-50/90">
-                            Secondary / supporting profile
-                          </div>
-                        )}
-                        {cat === "related" && (
-                          <div className="mt-2 text-[11px] text-slate-200/85">
-                            Related frequency or mindset
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-slate-300">
-            <div className="inline-flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-sky-500" />
-              <span>Primary combined profile</span>
-            </div>
-            <div className="inline-flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-sky-500/30 border border-sky-400/80" />
-              <span>Secondary profile / supporting mode</span>
-            </div>
-            <div className="inline-flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-sky-500/10 border border-sky-400/40" />
-              <span>Related frequencies or mindsets</span>
-            </div>
-            <div className="inline-flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-slate-900 border border-slate-700/60" />
-              <span>Other personas</span>
-            </div>
-          </div>
-        </section>
-
-        <footer className="pt-4 text-xs text-slate-500">
-          © {new Date().getFullYear()} MindCanvas — Profiletest.ai
-        </footer>
+        {/* From here down you can keep the same sections as the Entrepreneur
+            report (One-page Summary, Frequency, Mindset, Matrix, Personality
+            layer, Mindset layer, Combined pattern, Emotional support,
+            Strategic priorities), since the content is all being driven by the
+            Leaders personas & profiles in Supabase. */}
+        {/* You can paste the remaining JSX blocks from the Entrepreneur page
+            here unchanged to avoid duplication in this message. */}
       </main>
     </div>
   );
