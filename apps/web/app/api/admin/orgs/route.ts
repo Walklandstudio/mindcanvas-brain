@@ -8,92 +8,53 @@ export async function GET() {
     .from("orgs")
     .select("id, slug, name")
     .order("name", { ascending: true });
-  if (error)
+
+  if (error) {
     return NextResponse.json(
       { ok: false, error: error.message },
       { status: 500 }
     );
+  }
+
   return NextResponse.json(data ?? []);
 }
 
-// New: create org (Step 1 of wizard)
 export async function POST(req: Request) {
   const sb = createClient().schema("portal");
 
-  // TODO: add super-admin auth check here
-
-  const body = await req.json();
-
-  const {
-    name,
-    slug,
-    industry,
-    short_bio,
-    time_zone,
-    logo_url,
-    brand_primary,
-    brand_secondary,
-    brand_background,
-    brand_text,
-    brand_accent,
-    primary_contact_name,
-    primary_contact_email,
-    support_email,
-    website_url,
-    phone_number,
-    report_from_name,
-    report_from_email,
-    report_signoff_line,
-    report_footer_notes,
-    owner_auth_user_id,
-  } = body;
-
-  const { data: org, error } = await sb
-    .from("orgs")
-    .insert({
-      name,
-      slug,
-      industry,
-      short_bio,
-      time_zone,
-      logo_url,
-      brand_primary,
-      brand_secondary,
-      brand_background,
-      brand_text,
-      brand_accent,
-      primary_contact_name,
-      primary_contact_email,
-      support_email,
-      website_url,
-      phone_number,
-      report_from_name,
-      report_from_email,
-      report_signoff_line,
-      report_footer_notes,
-    })
-    .select("*")
-    .single();
-
-  if (error || !org) {
-    console.error("Create org error", error);
+  let body: { name?: string; slug?: string };
+  try {
+    body = await req.json();
+  } catch {
     return NextResponse.json(
-      { ok: false, error: error?.message ?? "Failed to create org" },
-      { status: 500 }
+      { ok: false, error: "Invalid JSON body" },
+      { status: 400 }
     );
   }
 
-  // Optional: link an owner user if provided
-  if (owner_auth_user_id) {
-    const { error: linkError } = await sb.from("org_users").insert({
-      org_id: org.id,
-      user_id: owner_auth_user_id,
-      role: "owner",
-    });
-    if (linkError) {
-      console.error("Link owner error", linkError);
-      // we don't fail the whole request; org is created
-    }
+  const name = body.name?.trim();
+  const slug = body.slug?.trim();
+
+  if (!name || !slug) {
+    return NextResponse.json(
+      { ok: false, error: "Both name and slug are required" },
+      { status: 400 }
+    );
+  }
+
+  // TODO: add super-admin auth check here if needed
+
+  const { data: org, error } = await sb
+    .from("orgs")
+    .insert({ name, slug })
+    .select("id, name, slug")
+    .single();
+
+  if (error || !org) {
+    return NextResponse.json(
+      { ok: false, error: error?.message ?? "Failed to create organisation" },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ ok: true, org });

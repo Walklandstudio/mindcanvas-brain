@@ -2,7 +2,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 
 export default function NewOrgClient() {
   const router = useRouter();
@@ -11,7 +11,7 @@ export default function NewOrgClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
@@ -28,7 +28,7 @@ export default function NewOrgClient() {
         throw new Error(json.error || "Failed to create organisation");
       }
 
-      // Go back to the org list
+      // After creating, go back to the org list
       router.push("/portal/admin");
     } catch (e: any) {
       console.error(e);
