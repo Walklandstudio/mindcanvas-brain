@@ -28,7 +28,7 @@ export default function NewOrgClient() {
         throw new Error(json.error || "Failed to create organisation");
       }
 
-      // After creating, go back to the portal admin org list
+      // Go back to the org list
       router.push("/portal/admin");
     } catch (e: any) {
       console.error(e);
