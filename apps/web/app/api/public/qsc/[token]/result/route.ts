@@ -1,4 +1,3 @@
-// apps/web/app/api/public/qsc/[token]/result/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -18,9 +17,9 @@ function supa() {
  * GET /api/public/qsc/[token]/result
  *
  * Returns:
- * - results → row from qsc_results (scores, primary/secondary, combined profile, audience)
+ * - results → row from qsc_results (scores, primary/secondary, combined profile)
  * - profile → row from qsc_profiles (Extended Source Code / internal insights)
- * - persona → row from qsc_personas (Strategic Growth Report / Leadership Report copy)
+ * - persona → row from qsc_personas (Strategic Report copy)
  * - taker   → row from test_takers (name/email/company/role)
  */
 export async function GET(
@@ -86,23 +85,6 @@ export async function GET(
       resultRow.combined_profile_code ?? null;
 
     // -----------------------------------------------------------------------
-    // 1b) Override created_at with latest submission timestamp for this token
-    // -----------------------------------------------------------------------
-    const { data: latestSubmission, error: subErr } = await sb
-      .from("test_submissions")
-      .select("created_at")
-      .eq("test_id", testId)
-      .eq("token", token)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!subErr && latestSubmission?.created_at) {
-      // Use the most recent submission time as the "created_at" shown on reports
-      (resultRow as any).created_at = latestSubmission.created_at;
-    }
-
-    // -----------------------------------------------------------------------
     // 2) Load the test taker (for name/email on reports)
     // -----------------------------------------------------------------------
     const { data: takerRow, error: takerErr } = await sb
@@ -159,7 +141,7 @@ export async function GET(
     }
 
     // -----------------------------------------------------------------------
-    // 4) Load Persona (Strategic Growth / Leadership Report content)
+    // 4) Load Persona (Strategic Report content)
     //
     // First try: persona for this specific test_id + profile_code.
     // Fallback: any persona with the same profile_code (global library),

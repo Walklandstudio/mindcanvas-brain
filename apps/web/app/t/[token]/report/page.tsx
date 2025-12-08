@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { redirect, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import PersonalityMapSection from "./PersonalityMapSection";
-import PrintButton from "./PrintButton";
 
 import { getBaseUrl } from "@/lib/server-url";
 import {
@@ -189,8 +188,8 @@ export default function ReportPageWrapper({
 }: {
   params: { token: string };
 }) {
- const searchParams = useSearchParams();
-  const tid = searchParams?.get("tid") ?? ""; 
+  const searchParams = useSearchParams();
+  const tid = searchParams?.get("tid") ?? "";
 
   return <ReportPage params={params} tid={tid} />;
 }
@@ -453,11 +452,13 @@ function ReportPage({
               </p>
             </div>
 
+            {/* Single canonical Download PDF button */}
             <div className="flex items-center gap-3">
-              <PrintButton className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800" />
               <Link
                 href={downloadPdfHref}
-                className="inline-flex items-center rounded-lg border border-sky-500 bg-sky-600 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-sky-500"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
               >
                 Download PDF
               </Link>

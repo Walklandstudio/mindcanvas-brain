@@ -60,14 +60,18 @@ type QscPersonaRow = {
 
   one_page_strengths: string | null;
   one_page_risks: string | null;
+
   combined_strengths: string | null;
   combined_risks: string | null;
   combined_big_lever: string | null;
+
   emotional_stabilises: string | null;
   emotional_destabilises: string | null;
   emotional_patterns_to_watch: string | null;
+
   decision_style_long: string | null;
   support_yourself: string | null;
+
   strategic_priority_1: string | null;
   strategic_priority_2: string | null;
   strategic_priority_3: string | null;
@@ -104,25 +108,31 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   QUANTUM: "Quantum",
 };
 
+// --- Helpers ---------------------------------------------------------------
+
 function normalisePercent(raw: number | undefined | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
+
+  // If it looks like a 0–1 fraction, convert to 0–100.
   if (raw > 0 && raw <= 1.5) {
     return Math.min(100, Math.max(0, raw * 100));
   }
+
+  // Otherwise assume it's already 0–100 and clamp to [0, 100].
   return Math.min(100, Math.max(0, raw));
 }
 
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number;
+  value: number; // 0–100
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
-  FIRE: "#f97316",
-  FLOW: "#0ea5e9",
-  FORM: "#22c55e",
-  FIELD: "#a855f7",
+  FIRE: "#f97316", // orange
+  FLOW: "#0ea5e9", // sky
+  FORM: "#22c55e", // green
+  FIELD: "#a855f7", // purple
 };
 
 function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
@@ -142,6 +152,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
       className="h-40 w-40 md:h-48 md:w-48"
       aria-hidden="true"
     >
+      {/* Background ring */}
       <circle
         cx={center}
         cy={center}
@@ -150,6 +161,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         strokeWidth={strokeWidth}
         fill="transparent"
       />
+
       {data.map((d) => {
         const fraction = (isFinite(d.value) ? d.value : 0) / total;
         const dash = circumference * fraction;
@@ -171,7 +183,10 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
           />
         );
       })}
+
+      {/* Inner circle */}
       <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
+
       <text
         x={center}
         y={center - 4}
@@ -202,6 +217,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
   );
 }
 
+// derive primary + secondary from percentages, instead of trusting DB fields
 function derivePrimarySecondary<K extends string>(
   perc: Partial<Record<K, number>>,
   keys: readonly K[]
@@ -210,12 +226,17 @@ function derivePrimarySecondary<K extends string>(
     key: k,
     value: normalisePercent(perc[k] ?? 0),
   }));
+
   entries.sort((a, b) => b.value - a.value);
+
   const primary = entries[0] && entries[0].value > 0 ? entries[0].key : null;
   const secondary =
     entries[1] && entries[1].value > 0 ? entries[1].key : null;
+
   return { primary, secondary };
 }
+
+// --- Main page -------------------------------------------------------------
 
 export default function QscLeaderStrategicReportPage({
   params,
@@ -289,6 +310,8 @@ export default function QscLeaderStrategicReportPage({
   const persona = payload?.persona ?? null;
   const taker = payload?.taker ?? null;
 
+  // --- Loading / error states ---------------------------------------------
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -324,6 +347,8 @@ export default function QscLeaderStrategicReportPage({
     );
   }
 
+  // --- Derived values ------------------------------------------------------
+
   const createdAt = new Date(result.created_at);
   const personaName =
     persona?.profile_label ||
@@ -340,6 +365,7 @@ export default function QscLeaderStrategicReportPage({
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
+  // Percentages (normalised)
   const rawPersonalityPerc =
     (result.personality_percentages ?? {}) as PersonalityPercMap;
   const rawMindsetPerc =
@@ -371,6 +397,7 @@ export default function QscLeaderStrategicReportPage({
     value: personalityPerc[key] ?? 0,
   }));
 
+  // 🔑 Derive primary/secondary from percentages
   const personalityKeys: PersonalityKey[] = ["FIRE", "FLOW", "FORM", "FIELD"];
   const mindsetKeys: MindsetKey[] = [
     "ORIGIN",
@@ -390,6 +417,7 @@ export default function QscLeaderStrategicReportPage({
     secondary: derivedSecondaryMindset,
   } = derivePrimarySecondary(mindsetPerc, mindsetKeys);
 
+  // Fallback to DB values only if percentages are all zero
   const effectivePrimaryPersonality: PersonalityKey | null =
     derivedPrimaryPersonality ?? result.primary_personality ?? null;
   const effectiveSecondaryPersonality: PersonalityKey | null =
@@ -411,6 +439,7 @@ export default function QscLeaderStrategicReportPage({
     effectivePrimaryMindset ||
     "—";
 
+  // Convenience helpers with graceful fallbacks
   const onePageStrengths = persona?.one_page_strengths || "—";
   const onePageRisks = persona?.one_page_risks || "—";
   const combinedStrengths = persona?.combined_strengths || "—";
@@ -426,6 +455,8 @@ export default function QscLeaderStrategicReportPage({
   const strategic1 = persona?.strategic_priority_1 || "—";
   const strategic2 = persona?.strategic_priority_2 || "—";
   const strategic3 = persona?.strategic_priority_3 || "—";
+
+  // --- Render --------------------------------------------------------------
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -446,9 +477,8 @@ export default function QscLeaderStrategicReportPage({
               </p>
             )}
             <p className="mt-2 text-sm text-slate-700 max-w-2xl">
-              Your personal emotional, leadership and strategic blueprint –
-              based on your Quantum leadership profile and current mindset
-              stage.
+              Your personal emotional, leadership and strategic blueprint – based
+              on your Quantum leadership profile and current mindset stage.
             </p>
           </div>
           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
@@ -471,13 +501,407 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </header>
 
-        {/* From here down you can keep the same sections as the Entrepreneur
-            report (One-page Summary, Frequency, Mindset, Matrix, Personality
-            layer, Mindset layer, Combined pattern, Emotional support,
-            Strategic priorities), since the content is all being driven by the
-            Leaders personas & profiles in Supabase. */}
-        {/* You can paste the remaining JSX blocks from the Entrepreneur page
-            here unchanged to avoid duplication in this message. */}
+        {/* QUANTUM PROFILE HERO */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            Quantum leadership profile
+          </p>
+          <h2 className="text-2xl font-semibold">{personaName}</h2>
+          <p className="text-sm text-slate-700 max-w-3xl">
+            This report gives you a clear understanding of how you lead, how you
+            make decisions, and what your organisation needs next from you. It is
+            designed to be simple, practical, and focused on helping you take
+            confident strategic action.
+          </p>
+
+          <div className="grid gap-6 md:grid-cols-2 pt-4 border-t border-slate-200">
+            <div>
+              <h3 className="text-sm font-semibold mb-1">
+                Your Personality Layer
+              </h3>
+              <p className="text-sm text-slate-700">
+                How you naturally think, act and make decisions. This is your
+                emotional wiring and energetic pattern — it doesn&apos;t change
+                overnight, which is why it&apos;s such a powerful anchor for how
+                you lead.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold mb-1">
+                Your Mindset Layer
+              </h3>
+              <p className="text-sm text-slate-700">
+                Where your leadership and organisation are right now and what
+                stage of growth you&apos;re in. These needs shift as you grow —
+                which is why you can&apos;t keep leading with yesterday&apos;s
+                strategy.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* HOW TO USE THIS REPORT */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <h2 className="text-xl font-semibold">How to use this report</h2>
+          <p className="text-sm text-slate-700">
+            This is your personal strategic leadership guide — not a personality
+            box. Move through it slowly and come back often.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2 text-sm text-slate-700">
+            <ul className="list-disc pl-5 space-y-1">
+              <li>
+                Start with the Profile Summary to understand your core leadership
+                pattern.
+              </li>
+              <li>
+                Study the Personality Layer to see why you respond and decide the
+                way you do under pressure.
+              </li>
+              <li>
+                Read the Mindset Layer to understand what your team and company
+                need from you at this stage.
+              </li>
+              <li>
+                Pay close attention to the Combined Pattern — this is where the
+                real leadership leverage lives.
+              </li>
+            </ul>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>
+                Use the Strategic Priorities to decide what actually matters in
+                the next 90 days.
+              </li>
+              <li>
+                Use the Reflection Prompts to stay emotionally and strategically
+                aligned.
+              </li>
+              <li>
+                Keep the One Page Summary handy as your quick reference in
+                reviews, planning sessions and leadership conversations.
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        {/* ONE-PAGE SUMMARY */}
+        <section className="rounded-3xl bg-[#f5eddc] border border-amber-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
+            One-page Quantum Leadership Summary
+          </p>
+          <h2 className="text-xl font-semibold">
+            Your at-a-glance leadership profile
+          </h2>
+          <p className="text-sm text-slate-800">
+            This is the snapshot you can keep open while planning strategy,
+            running performance reviews, or making big resourcing decisions.
+          </p>
+
+          <div className="grid gap-6 md:grid-cols-3 pt-4">
+            <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
+              <h3 className="font-semibold">Quantum Leadership Profile</h3>
+              <p className="font-medium">{personaName}</p>
+              <p className="text-slate-700">
+                Personality: {primaryPersonalityLabel}.
+                <br />
+                Mindset Stage: {primaryMindsetLabel}.
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
+              <h3 className="font-semibold">Strengths</h3>
+              <p className="text-slate-700 whitespace-pre-line">
+                {onePageStrengths}
+              </p>
+              <h4 className="mt-2 font-semibold">Risks</h4>
+              <p className="text-slate-700 whitespace-pre-line">
+                {onePageRisks}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
+              <h3 className="font-semibold">Top strategic priorities</h3>
+              <p className="text-slate-700">
+                Use the three Strategic Leadership Priorities at the end of this
+                report as your 90-day focus:
+              </p>
+              <ul className="mt-2 list-disc pl-4 text-slate-800 space-y-1">
+                <li>{strategic1}</li>
+                <li>{strategic2}</li>
+                <li>{strategic3}</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        {/* FREQUENCY + MINDSET + MATRIX */}
+        <section className="grid gap-6 md:grid-cols-2 items-start">
+          {/* Leadership Frequency Type – donut */}
+          <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
+            <h2 className="text-lg font-semibold">Leadership Frequency Type</h2>
+            <p className="text-sm text-slate-300">
+              Your emotional & energetic style across Fire, Flow, Form and Field
+              when you&apos;re leading others.
+            </p>
+
+            <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
+              <div className="flex justify-center">
+                <FrequencyDonut data={frequencyDonutData} />
+              </div>
+              <div className="space-y-3 text-sm">
+                {frequencyDonutData.map((d) => (
+                  <div
+                    key={d.key}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span>{d.label}</span>
+                    <span className="tabular-nums">
+                      {Math.round(d.value)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Leadership Mindset Levels */}
+          <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
+            <h2 className="text-lg font-semibold">Leadership Mindset Levels</h2>
+            <p className="text-sm text-slate-300">
+              How your focus and energy are distributed across the 5 Quantum
+              stages when you&apos;re making leadership decisions.
+            </p>
+
+            <div className="space-y-2 pt-2 text-xs">
+              {(
+                ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
+              ).map((key) => {
+                const pct = Math.round(mindsetPerc[key] ?? 0);
+                return (
+                  <div key={key} className="space-y-1">
+                    <div className="flex justify-between">
+                      <span>{MINDSET_LABELS[key]}</span>
+                      <span className="tabular-nums">{pct}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-900">
+                      <div
+                        className="h-2 rounded-full bg-emerald-400"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* Leadership Persona Matrix */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            Leadership Persona Matrix
+          </p>
+          <h2 className="text-xl font-semibold">
+            Where your leadership frequency meets your mindset level
+          </h2>
+          <p className="text-sm text-slate-700">
+            Each cell represents a different Quantum leadership persona. Your
+            primary pattern is highlighted — this is where your emotional wiring
+            and current stage of responsibility meet.
+          </p>
+
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50">
+            <QscMatrix
+              primaryPersonality={effectivePrimaryPersonality}
+              primaryMindset={effectivePrimaryMindset}
+            />
+          </div>
+        </section>
+
+        {/* PERSONALITY LAYER */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-indigo-700">
+            Personality layer
+          </p>
+          <h2 className="text-xl font-semibold">
+            How you show up emotionally & behaviourally as a leader
+          </h2>
+          <p className="text-sm text-slate-700">
+            Your Personality Layer describes how you naturally think, act, and
+            make decisions — especially when others are looking to you for
+            direction.
+          </p>
+
+          <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">
+                Core pattern ({primaryPersonalityLabel})
+              </h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {combinedStrengths}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">What energises you</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {persona?.energisers || "—"}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">What drains you</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {persona?.drains || "—"}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* MINDSET LAYER */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-emerald-700">
+            Mindset layer
+          </p>
+          <h2 className="text-xl font-semibold">
+            Your current Quantum leadership stage — and what it asks of you
+          </h2>
+          <p className="text-sm text-slate-700">
+            Your Mindset Layer describes the reality your leadership and
+            organisation are currently operating in. Each stage has different
+            requirements — what worked at an earlier stage can now quietly block
+            growth.
+          </p>
+
+          <div className="grid gap-6 md:grid-cols-2 pt-2 text-sm">
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">Your stage</h3>
+              <p className="mt-1 text-slate-700">{primaryMindsetLabel}</p>
+              <p className="mt-2 text-slate-700 whitespace-pre-line">
+                {persona?.show_up_summary || "—"}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">
+                How your leadership energy is spread
+              </h3>
+              <p className="mt-1 text-slate-700">
+                You&apos;ll always have some energy spread across multiple
+                stages. The goal is not to force yourself into a perfect box,
+                but to understand where your centre of gravity is right now.
+              </p>
+              <p className="mt-2 text-slate-700 whitespace-pre-line">
+                {emotionalPatterns}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* COMBINED PATTERN */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-rose-700">
+            Combined pattern
+          </p>
+          <h2 className="text-xl font-semibold">
+            {personaName} — what happens when your leadership style meets your
+            current stage
+          </h2>
+          <p className="text-sm text-slate-700">
+            This is where the real QSC leadership magic lives. Your personality
+            pattern and Quantum stage combine into one strategic blueprint for
+            how you show up and where you have the most leverage.
+          </p>
+
+          <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">Strategic strengths</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {combinedStrengths}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">Growth risks & loops</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {combinedRisks}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">Your biggest leadership lever</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {combinedLever}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm">
+            <h3 className="font-semibold mb-2">
+              Reflection prompts for your Quantum leadership pattern
+            </h3>
+            <ul className="list-disc pl-5 space-y-1 text-slate-700">
+              <li>
+                Where am I expecting my team to move faster than the systems
+                and support I&apos;ve actually built?
+              </li>
+              <li>
+                Which leadership decisions am I delaying that would actually
+                create more stability and clarity?
+              </li>
+              <li>
+                What am I still trying to “carry myself” that really needs a
+                system or a person?
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        {/* EMOTIONAL & OPERATIONAL SUPPORT */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-purple-700">
+            Emotional & operational alignment
+          </p>
+          <h2 className="text-xl font-semibold">
+            How to support yourself as a leader inside this pattern
+          </h2>
+
+          <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">What stabilises you</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {emotionalStabilises}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">What destabilises you</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {emotionalDestabilises}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">Support yourself better</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {supportYourself}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* STRATEGIC PRIORITIES */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-orange-700">
+            Strategic leadership priorities (next 90 days)
+          </p>
+          <h2 className="text-xl font-semibold">
+            The three levers that shift your leadership faster
+          </h2>
+          <p className="text-sm text-slate-700">
+            Based on your current Quantum Leadership Profile, these are the most
+            leveraged actions you can focus on in the next 90 days.
+          </p>
+          <ol className="list-decimal pl-5 space-y-1 text-sm text-slate-700 whitespace-pre-line">
+            <li>{strategic1}</li>
+            <li>{strategic2}</li>
+            <li>{strategic3}</li>
+          </ol>
+        </section>
+
+        <footer className="pt-4 pb-6 text-xs text-slate-500">
+          © {new Date().getFullYear()} MindCanvas — Profiletest.ai
+        </footer>
       </main>
     </div>
   );

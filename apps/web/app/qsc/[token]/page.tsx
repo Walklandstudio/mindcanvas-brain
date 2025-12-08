@@ -24,7 +24,7 @@ type QscResultsRow = {
   secondary_mindset: MindsetKey | null;
   combined_profile_code: string | null; // e.g. "FIELD_ORBIT"
   qsc_profile_id: string | null;
-  audience: "entrepreneur" | "leader" | null; // 👈 NEW
+  audience: "entrepreneur" | "leader" | null;
   created_at: string;
 };
 
@@ -409,9 +409,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
     value: personalityPerc[p.key] ?? 0,
   }));
 
-  // 👇 decide which extended report to use
+  // Decide which extended report to use
   const audience: "entrepreneur" | "leader" =
-    (result.audience as "entrepreneur" | "leader" | null) || "entrepreneur";
+    result.audience === "leader" ? "leader" : "entrepreneur";
 
   const baseExtendedPath =
     audience === "leader"
@@ -445,7 +445,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
               )}
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 This view combines your{" "}
-                <span className="font-semibold">Buyer Frequency Type</span> and{" "}
+                <span className="font-semibold">Buyer Frequency Type</span>{" "}
+                and{" "}
                 <span className="font-semibold">Buyer Mindset Level</span> into
                 one Quantum Source Code profile.
               </p>
@@ -463,10 +464,310 @@ export default function QscResultPage({ params }: { params: { token: string } })
             </div>
           </div>
 
-          {/* (rest of your snapshot layout – unchanged) */}
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 md:p-7 shadow-xl shadow-black/50">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
+                Combined profile
+              </p>
+              <h2 className="mt-3 text-2xl font-semibold">
+                {primaryPersonaLabel}
+              </h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Code:{" "}
+                <span className="font-mono text-slate-100">
+                  {result.combined_profile_code || "—"}
+                </span>
+              </p>
 
-          {/* ... keep all the existing sections below this line as they are ... */}
+              <dl className="mt-5 grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Primary personality
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.primary_personality || "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Secondary personality
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.secondary_personality || "—"}
+                  </dd>
+                </div>
+                <div className="mt-2">
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Primary mindset
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.primary_mindset || "—"}
+                  </dd>
+                </div>
+                <div className="mt-2">
+                  <dt className="text-xs uppercase tracking-wide text-slate-400">
+                    Secondary mindset
+                  </dt>
+                  <dd className="mt-0.5 font-medium">
+                    {result.secondary_mindset || "—"}
+                  </dd>
+                </div>
+              </dl>
 
+              <p className="mt-5 text-xs text-slate-500">
+                Created at{" "}
+                {createdAt.toLocaleString(undefined, {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+            </div>
+
+            <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40 space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
+                Snapshot for your sales playbook
+              </p>
+
+              <div className="space-y-3 text-sm">
+                <div>
+                  <h3 className="font-semibold text-slate-100">
+                    How to communicate
+                  </h3>
+                  <p className="mt-1 text-slate-300 whitespace-pre-line">
+                    {profile?.how_to_communicate ||
+                      "[todo: how to communicate]"}
+                  </p>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-slate-100">
+                    Decision style
+                  </h3>
+                  <p className="mt-1 text-slate-300 whitespace-pre-line">
+                    {profile?.decision_style || "[todo: decision style]"}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <h3 className="font-semibold text-slate-100">
+                      Core challenges
+                    </h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile?.business_challenges ||
+                        "[todo: core business challenges]"}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-100">
+                      Trust signals
+                    </h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile?.trust_signals || "[todo: trust signals]"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <h3 className="font-semibold text-slate-100">
+                      Offer fit
+                    </h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile?.offer_fit || "[todo: best offer fit]"}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-100">
+                      Sale blockers
+                    </h3>
+                    <p className="mt-1 text-slate-300 whitespace-pre-line">
+                      {profile?.sale_blockers ||
+                        "[todo: what blocks the sale]"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Frequency + Mindset summaries */}
+        <section className="grid gap-6 md:grid-cols-2">
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
+            <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
+            <p className="mt-1 text-sm text-slate-300">
+              Your emotional & energetic style across Fire, Flow, Form and
+              Field.
+            </p>
+
+            <div className="mt-5 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
+              <div className="flex justify-center">
+                <FrequencyDonut data={frequencyDonutData} />
+              </div>
+
+              <div className="space-y-3 text-sm">
+                {frequencyDonutData.map((d) => (
+                  <div
+                    key={d.key}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: FREQUENCY_COLORS[d.key] }}
+                      />
+                      <span className="font-medium text-slate-100">
+                        {d.label}
+                      </span>
+                    </div>
+                    <span className="text-sm text-slate-300">
+                      {percentLabel(d.value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
+            <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
+            <p className="mt-1 text-sm text-slate-300">
+              Where they are in their current business journey.
+            </p>
+
+            <div className="mt-5 space-y-3">
+              {MINDSETS.map((m) => {
+                const pct = personalityPerc ? mindsetPerc[m.key] ?? 0 : 0;
+                return (
+                  <div key={m.key} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-100">
+                        {m.label}
+                      </span>
+                      <span className="text-slate-400">
+                        {percentLabel(pct)}
+                      </span>
+                    </div>
+                    <Bar pct={pct} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* Buyer Persona Matrix */}
+        <section className="space-y-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-xl md:text-2xl font-semibold">
+                Buyer Persona Matrix
+              </h2>
+              <p className="mt-1 text-sm text-slate-300 max-w-2xl">
+                This grid maps your{" "}
+                <span className="font-semibold">Buyer Frequency Type</span>{" "}
+                (left to right) against your{" "}
+                <span className="font-semibold">Buyer Mindset Level</span> (top
+                to bottom). Your combined profile sits at the intersection.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <div className="inline-grid grid-cols-[auto_repeat(4,minmax(140px,1fr))] gap-3 md:gap-4 items-stretch">
+              <div />
+
+              {PERSONALITIES.map((p) => (
+                <div
+                  key={p.key}
+                  className="px-3 pb-1 pt-0.5 text-center text-xs font-semibold tracking-wide text-slate-300"
+                >
+                  <div>{p.label}</div>
+                  <div className="text-[11px] text-slate-500">
+                    Frequency {p.code}
+                  </div>
+                </div>
+              ))}
+
+              {MINDSETS.map((m) => (
+                <div key={m.key} className="contents">
+                  <div className="flex flex-col justify-center text-xs font-medium text-slate-300 pr-2">
+                    <span>{m.label}</span>
+                    <span className="text-[11px] text-slate-500">
+                      Mindset {m.level}
+                    </span>
+                  </div>
+
+                  {PERSONALITIES.map((p) => {
+                    const cell = MATRIX.find(
+                      (c) =>
+                        c.personality === p.key && c.mindset === m.key
+                    )!;
+                    const cat = classifyCell(result, cell);
+
+                    return (
+                      <div
+                        key={`${m.key}_${p.key}`}
+                        className={[
+                          "min-h-[96px] rounded-2xl border px-3 py-3 md:px-4 md:py-4 flex flex-col justify-between text-xs transition-colors",
+                          categoryClasses(cat),
+                        ].join(" ")}
+                      >
+                        <div>
+                          <div className="text-[11px] uppercase tracking-[0.15em] mb-1">
+                            {p.label} {m.label}
+                          </div>
+                          <div className="text-[11px] text-slate-300/90">
+                            Code:{" "}
+                            <span className="font-mono">{cell.code}</span>
+                          </div>
+                        </div>
+
+                        {cat === "primary" && (
+                          <div className="mt-2 text-[11px] font-medium text-slate-50">
+                            Primary combined profile
+                          </div>
+                        )}
+                        {cat === "secondary" && (
+                          <div className="mt-2 text-[11px] font-medium text-slate-50/90">
+                            Secondary / supporting profile
+                          </div>
+                        )}
+                        {cat === "related" && (
+                          <div className="mt-2 text-[11px] text-slate-200/85">
+                            Related frequency or mindset
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-slate-300">
+            <div className="inline-flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-sky-500" />
+              <span>Primary combined profile</span>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-sky-500/30 border border-sky-400/80" />
+              <span>Secondary profile / supporting mode</span>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-sky-500/10 border border-sky-400/40" />
+              <span>Related frequencies or mindsets</span>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-slate-900 border border-slate-700/60" />
+              <span>Other personas</span>
+            </div>
+          </div>
         </section>
 
         <footer className="pt-4 text-xs text-slate-500">
