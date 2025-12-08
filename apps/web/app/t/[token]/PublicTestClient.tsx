@@ -49,6 +49,8 @@ export default function PublicTestClient({ token }: { token: string }) {
   const [phone, setPhone] = useState('');
   const [company, setCompany] = useState('');
   const [roleTitle, setRoleTitle] = useState('');
+  const [dataConsent, setDataConsent] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
 
   const [takerId, setTakerId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -117,6 +119,7 @@ export default function PublicTestClient({ token }: { token: string }) {
               setPhone(o.phone || '');
               setCompany(o.company || '');
               setRoleTitle(o.roleTitle || '');
+              setDataConsent(Boolean(o.dataConsent));
             } catch {
               // ignore
             }
@@ -152,10 +155,18 @@ export default function PublicTestClient({ token }: { token: string }) {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(
         `mc_details_${token}`,
-        JSON.stringify({ firstName, lastName, email, phone, company, roleTitle })
+        JSON.stringify({
+          firstName,
+          lastName,
+          email,
+          phone,
+          company,
+          roleTitle,
+          dataConsent,
+        })
       );
     }
-  }, [firstName, lastName, email, phone, company, roleTitle, token]);
+  }, [firstName, lastName, email, phone, company, roleTitle, dataConsent, token]);
 
   const q = questions[i];
 
@@ -169,21 +180,51 @@ export default function PublicTestClient({ token }: { token: string }) {
   const setChoice = (qid: string, val: number) =>
     setAnswers((a) => ({ ...a, [qid]: val }));
 
+  const validateDetails = (): string | null => {
+    const fn = firstName.trim();
+    const ln = lastName.trim();
+    const em = email.trim();
+
+    if (!fn || !ln || !em) {
+      return 'Please fill in your first name, last name, and email to begin.';
+    }
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(em)) {
+      return 'Please enter a valid email address.';
+    }
+
+    if (!dataConsent) {
+      return 'Please confirm that you agree to the use of your data before starting.';
+    }
+
+    return null;
+  };
+
   const proceedToQuestions = async () => {
+    const validationError = validateDetails();
+    if (validationError) {
+      setDetailsError(validationError);
+      return;
+    }
+
     try {
       setSavingDetails(true);
       setError('');
+      setDetailsError(null);
 
       const res: any = await fetchJson(`/api/public/test/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          first_name: firstName || null,
-          last_name: lastName || null,
-          email: email || null,
+          first_name: firstName.trim() || null,
+          last_name: lastName.trim() || null,
+          email: email.trim().toLowerCase() || null,
           phone: phone || null,
           company: company || null,
           role_title: roleTitle || null,
+          // Store consent flag for this taker
+          data_consent: true,
         }),
       });
 
@@ -285,6 +326,12 @@ export default function PublicTestClient({ token }: { token: string }) {
   }
 
   const noQuestions = questions.length === 0 || !q;
+  const canProceedDetails =
+    firstName.trim().length > 0 &&
+    lastName.trim().length > 0 &&
+    email.trim().length > 0 &&
+    dataConsent &&
+    !savingDetails;
 
   return (
     <div className="min-h-screen mc-bg text-white p-6 space-y-6">
@@ -298,33 +345,44 @@ export default function PublicTestClient({ token }: { token: string }) {
       </div>
 
       {step === 'details' ? (
-        <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
-          <div className="text-lg font-semibold mb-3">
+        <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl space-y-4">
+          <div className="text-lg font-semibold">
             Before we start, tell us about you
           </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="block">
-              <span className="text-sm text-white/80">First name</span>
+              <span className="text-sm text-white/80">First name *</span>
               <input
                 className="w-full rounded-xl bg-white text-black p-3 mt-1"
                 value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                onChange={(e) => {
+                  setFirstName(e.target.value);
+                  setDetailsError(null);
+                }}
               />
             </label>
             <label className="block">
-              <span className="text-sm text-white/80">Last name</span>
+              <span className="text-sm text-white/80">Last name *</span>
               <input
                 className="w-full rounded-xl bg-white text-black p-3 mt-1"
                 value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                onChange={(e) => {
+                  setLastName(e.target.value);
+                  setDetailsError(null);
+                }}
               />
             </label>
             <label className="block md:col-span-2">
-              <span className="text-sm text-white/80">Email</span>
+              <span className="text-sm text-white/80">Email *</span>
               <input
+                type="email"
                 className="w-full rounded-xl bg-white text-black p-3 mt-1"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setDetailsError(null);
+                }}
               />
             </label>
             <label className="block">
@@ -354,10 +412,44 @@ export default function PublicTestClient({ token }: { token: string }) {
               />
             </label>
           </div>
-          <div className="mt-4 flex gap-3">
+
+          <div className="rounded-xl bg-white/5 border border-white/15 p-3 flex flex-col gap-2">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-slate-300"
+                checked={dataConsent}
+                onChange={(e) => {
+                  setDataConsent(e.target.checked);
+                  setDetailsError(null);
+                }}
+              />
+              <span className="text-sm text-white/90">
+                I agree that my responses can be used to build my profile and
+                report.
+              </span>
+            </label>
+            <p className="text-xs text-white/70">
+              You can read our{' '}
+              <a href="/privacy" className="underline">
+                Privacy Policy
+              </a>{' '}
+              and{' '}
+              <a href="/terms" className="underline">
+                Terms &amp; Conditions
+              </a>{' '}
+              for more details on how we handle your data.
+            </p>
+          </div>
+
+          {detailsError && (
+            <p className="text-sm text-red-300">{detailsError}</p>
+          )}
+
+          <div className="mt-2 flex gap-3">
             <button
               onClick={proceedToQuestions}
-              disabled={savingDetails}
+              disabled={!canProceedDetails}
               className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 disabled:opacity-60"
             >
               {savingDetails ? 'Saving…' : 'Start the test'}
@@ -431,7 +523,7 @@ export default function PublicTestClient({ token }: { token: string }) {
             )}
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify_between">
             <button
               onClick={() => setI(Math.max(0, i - 1))}
               disabled={i === 0}
@@ -465,5 +557,6 @@ export default function PublicTestClient({ token }: { token: string }) {
     </div>
   );
 }
+
 
 
