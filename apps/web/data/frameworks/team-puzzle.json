@@ -214,9 +214,9 @@
   },
 
   "images": {
-    "framework_banner": "/images/team-puzzle/report-header.png",
-    "frequency_diagram": "/images/team-puzzle/frequency-wheel.png",
-    "profile_grid": "/images/team-puzzle/profile-grid.png"
+    "framework_banner": "/images/org-graphics/tp-logo.png",
+    "frequency_diagram": "/images/org-graphics/tp-4frequencies.png",
+    "profile_grid": "/images/org-graphics/tp-main-graphic.png"
   },
 
   "profiles": {
