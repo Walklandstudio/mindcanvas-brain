@@ -1,32 +1,34 @@
 // apps/web/app/portal/[slug]/profile/ProfileClient.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { OrgProfile } from '@/types/org';
+import { useEffect, useState } from "react";
+import type { OrgSettings } from "@/types/orgSettings";
 
 export default function ProfileClient({ slug }: { slug: string }) {
-  const [org, setOrg] = useState<OrgProfile | null>(null);
+  const [org, setOrg] = useState<OrgSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+
     async function loadOrg() {
       setBusy(true);
       setError(null);
       try {
         const res = await fetch(`/api/portal/org/profile?slug=${slug}`);
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Failed to load profile');
+        if (!res.ok) throw new Error(json.error || "Failed to load profile");
         if (!cancelled) setOrg(json.org);
       } catch (e: any) {
         console.error(e);
-        if (!cancelled) setError(e.message || 'Something went wrong');
+        if (!cancelled) setError(e.message || "Something went wrong");
       } finally {
         if (!cancelled) setBusy(false);
       }
     }
+
     loadOrg();
     return () => {
       cancelled = true;
@@ -40,24 +42,27 @@ export default function ProfileClient({ slug }: { slug: string }) {
     setSaved(false);
 
     try {
-      const res = await fetch('/api/portal/org/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/portal/org/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(org),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to save profile');
+      if (!res.ok) throw new Error(json.error || "Failed to save profile");
       setOrg(json.org);
       setSaved(true);
     } catch (e: any) {
       console.error(e);
-      setError(e.message || 'Something went wrong');
+      setError(e.message || "Something went wrong");
     } finally {
       setBusy(false);
     }
   }
 
-  function updateField<K extends keyof OrgProfile>(key: K, value: OrgProfile[K]) {
+  function updateField<K extends keyof OrgSettings>(
+    key: K,
+    value: OrgSettings[K]
+  ) {
     if (!org) return;
     setOrg({ ...org, [key]: value });
     setSaved(false);
@@ -92,180 +97,115 @@ export default function ProfileClient({ slug }: { slug: string }) {
         </div>
       )}
 
+      {/* Basic info */}
       <section className="space-y-4">
         <h2 className="text-lg font-medium">Basic Info</h2>
-        <div>
-          <label className="block text-sm font-medium mb-1">Name</label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.name}
-            onChange={(e) => updateField('name', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Slug</label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.slug}
-            disabled
-          />
-          <p className="mt-1 text-xs text-slate-400">
-            This is used in URLs and cannot be changed.
-          </p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Industry</label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.industry ?? ''}
-            onChange={(e) => updateField('industry', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Short Bio</label>
-          <textarea
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            rows={3}
-            value={org.short_bio ?? ''}
-            onChange={(e) => updateField('short_bio', e.target.value)}
-          />
-        </div>
+        <Field
+          label="Name"
+          value={org.name}
+          onChange={(v) => updateField("name", v)}
+        />
+        <Field
+          label="Slug"
+          value={org.slug}
+          disabled
+          help="Used in URLs; cannot be changed."
+        />
+        <Field
+          label="Industry"
+          value={org.industry ?? ""}
+          onChange={(v) => updateField("industry", v)}
+        />
+        <TextareaField
+          label="Short Bio"
+          value={org.short_bio ?? ""}
+          onChange={(v) => updateField("short_bio", v)}
+          rows={3}
+        />
       </section>
 
+      {/* Branding */}
       <section className="space-y-4">
         <h2 className="text-lg font-medium">Branding</h2>
-        <div>
-          <label className="block text-sm font-medium mb-1">Logo URL</label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.logo_url ?? ''}
-            onChange={(e) => updateField('logo_url', e.target.value)}
-          />
-        </div>
+        <Field
+          label="Logo URL"
+          value={org.logo_url ?? ""}
+          onChange={(v) => updateField("logo_url", v)}
+        />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <ColorField
             label="Primary"
-            value={org.brand_primary ?? '#0F172A'}
-            onChange={(v) => updateField('brand_primary', v)}
+            value={org.brand_primary ?? "#0F172A"}
+            onChange={(v) => updateField("brand_primary", v)}
           />
           <ColorField
             label="Secondary"
-            value={org.brand_secondary ?? '#38BDF8'}
-            onChange={(v) => updateField('brand_secondary', v)}
+            value={org.brand_secondary ?? "#38BDF8"}
+            onChange={(v) => updateField("brand_secondary", v)}
           />
           <ColorField
             label="Background"
-            value={org.brand_background ?? '#020617'}
-            onChange={(v) => updateField('brand_background', v)}
+            value={org.brand_background ?? "#020617"}
+            onChange={(v) => updateField("brand_background", v)}
           />
           <ColorField
             label="Text"
-            value={org.brand_text ?? '#FFFFFF'}
-            onChange={(v) => updateField('brand_text', v)}
+            value={org.brand_text ?? "#FFFFFF"}
+            onChange={(v) => updateField("brand_text", v)}
           />
         </div>
       </section>
 
+      {/* Contact */}
       <section className="space-y-4">
         <h2 className="text-lg font-medium">Contact</h2>
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Primary Contact Name
-          </label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.primary_contact_name ?? ''}
-            onChange={(e) =>
-              updateField('primary_contact_name', e.target.value)
-            }
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Primary Contact Email
-          </label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.primary_contact_email ?? ''}
-            onChange={(e) =>
-              updateField('primary_contact_email', e.target.value)
-            }
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Support Email
-          </label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.support_email ?? ''}
-            onChange={(e) => updateField('support_email', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Website URL
-          </label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.website_url ?? ''}
-            onChange={(e) => updateField('website_url', e.target.value)}
-          />
-        </div>
+        <Field
+          label="Primary Contact Name"
+          value={org.primary_contact_name ?? ""}
+          onChange={(v) => updateField("primary_contact_name", v)}
+        />
+        <Field
+          label="Primary Contact Email"
+          value={org.primary_contact_email ?? ""}
+          onChange={(v) => updateField("primary_contact_email", v)}
+        />
+        <Field
+          label="Support Email"
+          value={org.support_email ?? ""}
+          onChange={(v) => updateField("support_email", v)}
+        />
+        <Field
+          label="Website URL"
+          value={org.website_url ?? ""}
+          onChange={(v) => updateField("website_url", v)}
+        />
       </section>
 
+      {/* Report defaults */}
       <section className="space-y-4">
         <h2 className="text-lg font-medium">Report Defaults</h2>
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Report From Name
-          </label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.report_from_name ?? ''}
-            onChange={(e) =>
-              updateField('report_from_name', e.target.value)
-            }
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Report From Email
-          </label>
-          <input
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            value={org.report_from_email ?? ''}
-            onChange={(e) =>
-              updateField('report_from_email', e.target.value)
-            }
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Sign-off Line
-          </label>
-          <textarea
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            rows={2}
-            value={org.report_signoff_line ?? ''}
-            onChange={(e) =>
-              updateField('report_signoff_line', e.target.value)
-            }
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Footer Notes
-          </label>
-          <textarea
-            className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
-            rows={2}
-            value={org.report_footer_notes ?? ''}
-            onChange={(e) =>
-              updateField('report_footer_notes', e.target.value)
-            }
-          />
-        </div>
+        <Field
+          label="Report From Name"
+          value={org.report_from_name ?? ""}
+          onChange={(v) => updateField("report_from_name", v)}
+        />
+        <Field
+          label="Report From Email"
+          value={org.report_from_email ?? ""}
+          onChange={(v) => updateField("report_from_email", v)}
+        />
+        <TextareaField
+          label="Sign-off Line"
+          value={org.report_signoff_line ?? ""}
+          onChange={(v) => updateField("report_signoff_line", v)}
+          rows={2}
+        />
+        <TextareaField
+          label="Footer Notes"
+          value={org.report_footer_notes ?? ""}
+          onChange={(v) => updateField("report_footer_notes", v)}
+          rows={2}
+        />
       </section>
 
       <div className="flex justify-end">
@@ -275,9 +215,60 @@ export default function ProfileClient({ slug }: { slug: string }) {
           onClick={handleSave}
           className="inline-flex items-center rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-60"
         >
-          {busy ? 'Saving…' : 'Save Changes'}
+          {busy ? "Saving…" : "Save Changes"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  disabled,
+  help,
+}: {
+  label: string;
+  value: string;
+  onChange?: (v: string) => void;
+  disabled?: boolean;
+  help?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      <input
+        className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
+        value={value}
+        disabled={disabled}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+      />
+      {help && <p className="mt-1 text-xs text-slate-400">{help}</p>}
+    </div>
+  );
+}
+
+function TextareaField({
+  label,
+  value,
+  onChange,
+  rows,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      <textarea
+        className="w-full rounded-md border bg-slate-900/60 border-slate-700 px-3 py-2 text-sm"
+        rows={rows ?? 3}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }

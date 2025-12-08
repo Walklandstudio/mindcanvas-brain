@@ -1,19 +1,28 @@
 // apps/web/app/api/admin/orgs/route.ts
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/server/supabaseAdmin";
 
-function supaAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { db: { schema: 'portal' } });
+export async function GET() {
+  const sb = createClient().schema("portal");
+  const { data, error } = await sb
+    .from("orgs")
+    .select("id, slug, name")
+    .order("name", { ascending: true });
+  if (error)
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 }
+    );
+  return NextResponse.json(data ?? []);
 }
 
+// New: create org (Step 1 of wizard)
 export async function POST(req: Request) {
-  const body = await req.json();
-  const supa = supaAdmin();
+  const sb = createClient().schema("portal");
 
-  // TODO: replace with your real super-admin auth check
-  // if (!isSuperAdmin(req)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // TODO: add super-admin auth check here
+
+  const body = await req.json();
 
   const {
     name,
@@ -39,8 +48,8 @@ export async function POST(req: Request) {
     owner_auth_user_id,
   } = body;
 
-  const { data: org, error } = await supa
-    .from('orgs')
+  const { data: org, error } = await sb
+    .from("orgs")
     .insert({
       name,
       slug,
@@ -63,30 +72,30 @@ export async function POST(req: Request) {
       report_signoff_line,
       report_footer_notes,
     })
-    .select('*')
+    .select("*")
     .single();
 
   if (error || !org) {
-    console.error('Create org error', error);
+    console.error("Create org error", error);
     return NextResponse.json(
-      { error: error?.message ?? 'Failed to create org' },
-      { status: 500 },
+      { ok: false, error: error?.message ?? "Failed to create org" },
+      { status: 500 }
     );
   }
 
+  // Optional: link an owner user if provided
   if (owner_auth_user_id) {
-    const { error: linkError } = await supa.from('org_users').insert({
+    const { error: linkError } = await sb.from("org_users").insert({
       org_id: org.id,
       user_id: owner_auth_user_id,
-      role: 'owner',
+      role: "owner",
     });
-
     if (linkError) {
-      console.error('Link owner error', linkError);
-      // continue; org exists even if mapping fails
+      console.error("Link owner error", linkError);
+      // we don't fail the whole request; org is created
     }
   }
 
-  return NextResponse.json({ org });
+  return NextResponse.json({ ok: true, org });
 }
 

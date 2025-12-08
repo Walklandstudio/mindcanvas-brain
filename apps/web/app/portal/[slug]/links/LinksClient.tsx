@@ -255,11 +255,11 @@ export default function LinksClient(props: {
           </label>
 
           <label className="block text-sm">
-            <span className="block mb-1">Name Test</span>
+            <span className="block mb-1">Test name / Test purpose</span>
             <input
               type="text"
               className="w-full rounded border p-2"
-              placeholder="e.g. Team Puzzle — Sales intake"
+              placeholder="e.g. QSC Leaders — Sales team intake"
               value={testDisplayName}
               onChange={(e) => setTestDisplayName(e.target.value)}
             />
@@ -514,4 +514,5 @@ export default function LinksClient(props: {
     </div>
   );
 }
+
 
