@@ -295,7 +295,7 @@ export default function PublicTestClient({ token }: { token: string }) {
     return (
       <div className="min-h-screen mc-bg text-white p-6 space-y-4">
         <h1 className="text-2xl font-semibold">Couldn’t load test</h1>
-        <pre className="p-3 rounded bg-white text-black whitespace-pre-wrap border">
+        <pre className="p-3 rounded bg.white text-black whitespace-pre-wrap border">
           {error}
         </pre>
         <div className="text-white/70 text-sm">
@@ -336,7 +336,7 @@ export default function PublicTestClient({ token }: { token: string }) {
   return (
     <div className="min-h-screen mc-bg text-white p-6 space-y-6">
       <h1 className="text-3xl font-bold">{testName || 'Profile Test'}</h1>
-      <div className="text-white/70">
+      <div className="text.white/70">
         Token:{' '}
         <code className="text-white">
           {token}
@@ -431,11 +431,21 @@ export default function PublicTestClient({ token }: { token: string }) {
             </label>
             <p className="text-xs text-white/70">
               You can read our{' '}
-              <a href="/privacy" className="underline">
+              <a
+                href="https://profiletest.ai/privacy-policy"
+                target="_blank"
+                className="underline"
+                rel="noopener noreferrer"
+              >
                 Privacy Policy
               </a>{' '}
               and{' '}
-              <a href="/terms" className="underline">
+              <a
+                href="https://profiletest.ai/terms--conditions"
+                target="_blank"
+                className="underline"
+                rel="noopener noreferrer"
+              >
                 Terms &amp; Conditions
               </a>{' '}
               for more details on how we handle your data.
@@ -523,7 +533,7 @@ export default function PublicTestClient({ token }: { token: string }) {
             )}
           </div>
 
-          <div className="flex items-center justify_between">
+          <div className="flex items-center justify-between">
             <button
               onClick={() => setI(Math.max(0, i - 1))}
               disabled={i === 0}
