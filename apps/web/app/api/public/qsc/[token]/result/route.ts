@@ -20,16 +20,8 @@ function supa() {
  * Returns:
  * - results → row from qsc_results (scores, primary/secondary, combined profile, audience)
  * - profile → row from qsc_profiles (Extended Source Code / internal insights)
- * - persona → row from qsc_personas (Strategic Growth Report copy)
+ * - persona → row from qsc_personas (Strategic Growth Report / Leadership Report copy)
  * - taker   → row from test_takers (name/email/company/role)
- *
- * This endpoint is audience-aware via qsc_results.audience:
- * - 'entrepreneur'
- * - 'leader'
- *
- * The persona copy is still resolved via qsc_personas (test-specific first,
- * then global fallback by profile_code). Leaders vs Entrepreneur persona
- * uniqueness is handled by test_id.
  */
 export async function GET(
   req: Request,
@@ -66,8 +58,8 @@ export async function GET(
         secondary_mindset,
         combined_profile_code,
         qsc_profile_id,
-        created_at,
-        audience
+        audience,
+        created_at
       `
       )
       .eq("token", token)
@@ -92,7 +84,23 @@ export async function GET(
     const qscProfileId: string | null = resultRow.qsc_profile_id ?? null;
     const combinedProfileCode: string | null =
       resultRow.combined_profile_code ?? null;
-    const audience: string = resultRow.audience; // 'entrepreneur' | 'leader'
+
+    // -----------------------------------------------------------------------
+    // 1b) Override created_at with latest submission timestamp for this token
+    // -----------------------------------------------------------------------
+    const { data: latestSubmission, error: subErr } = await sb
+      .from("test_submissions")
+      .select("created_at")
+      .eq("test_id", testId)
+      .eq("token", token)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!subErr && latestSubmission?.created_at) {
+      // Use the most recent submission time as the "created_at" shown on reports
+      (resultRow as any).created_at = latestSubmission.created_at;
+    }
 
     // -----------------------------------------------------------------------
     // 2) Load the test taker (for name/email on reports)
@@ -119,10 +127,6 @@ export async function GET(
 
     // -----------------------------------------------------------------------
     // 3) Load the QSC profile (Extended Source Code / internal insights)
-    //
-    // We rely on qsc_results.qsc_profile_id → qsc_profiles.id, which already
-    // encodes the correct audience ('entrepreneur' | 'leader'). If qsc_profile_id
-    // is null, profile will remain null and the UI can show placeholders.
     // -----------------------------------------------------------------------
     let profile: any = null;
     if (qscProfileId) {
@@ -155,16 +159,11 @@ export async function GET(
     }
 
     // -----------------------------------------------------------------------
-    // 4) Load Persona (Strategic Growth Report content)
+    // 4) Load Persona (Strategic Growth / Leadership Report content)
     //
     // First try: persona for this specific test_id + profile_code.
     // Fallback: any persona with the same profile_code (global library),
-    // so multiple QSC tests (entrepreneur / leader / org variants) can
-    // share the same personas when desired.
-    //
-    // Leaders-vs-Entrepreneur uniqueness:
-    // - Handled at data layer by seeding qsc_personas with rows for each
-    //   test_id (entrepreneur core test_id vs leaders test_id).
+    // so multiple QSC tests can share the same personas.
     // -----------------------------------------------------------------------
     let persona: any = null;
 
@@ -254,9 +253,6 @@ export async function GET(
 
     // -----------------------------------------------------------------------
     // 5) Return combined payload
-    //
-    // Note: `results` now includes `audience` so frontends (or future routes)
-    // can distinguish QSC Entrepreneur vs QSC Leaders if needed.
     // -----------------------------------------------------------------------
     return NextResponse.json(
       {

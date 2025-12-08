@@ -91,6 +91,19 @@ export default async function AdminPage() {
               >
                 Open portal
               </Link>
+              <Link
+                href={`/admin/orgs/${o.id}/import-test`}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #334155",
+                  textDecoration: "none",
+                  color: "#38bdf8",
+                  fontSize: 12,
+                }}
+              >
+                Import test
+              </Link>
             </form>
           ))}
         </div>
@@ -141,5 +154,6 @@ export default async function AdminPage() {
     </main>
   );
 }
+
 
 

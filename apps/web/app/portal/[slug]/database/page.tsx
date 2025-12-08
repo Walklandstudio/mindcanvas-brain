@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 type SearchParams = {
   q?: string;
   testId?: string;
+  purpose?: string;
   sort?: string;
   page?: string;
 };
@@ -20,6 +21,7 @@ type Row = {
   email: string;
   company: string;
   testName: string;
+  testPurpose: string;
   created: string;
 };
 
@@ -47,6 +49,7 @@ export default async function DatabasePage({
 
     const q = (searchParams.q || "").trim().toLowerCase();
     const selectedTestId = (searchParams.testId || "").trim();
+    const selectedPurpose = (searchParams.purpose || "").trim();
     const sortKey = (searchParams.sort || "created_desc") as
       | "created_desc"
       | "created_asc"
@@ -65,13 +68,41 @@ export default async function DatabasePage({
 
     if (testErr) throw new Error(testErr.message);
 
-    // Make a simple id → name map
+    // Map: test_id → test name
     const testNameById = new Map<string, string>();
     (tests ?? []).forEach((t: any) => {
       testNameById.set(t.id, t.name || t.slug || "Untitled test");
     });
 
-    // --- 3) Build base taker query ----------------------------------------
+    // --- 3) Load link names / purposes for this org -----------------------
+    const { data: linkRows, error: linkErr } = await sb
+      .from("test_links")
+      .select("token, name")
+      .eq("org_id", org.id);
+
+    if (linkErr) {
+      console.warn("test_links load error on database page:", linkErr.message);
+    }
+
+    // Map: link token → name (your "Test name / Test purpose")
+    const linkNameByToken = new Map<string, string>();
+    const purposeSet = new Set<string>();
+
+    (linkRows ?? []).forEach((r: any) => {
+      const token = (r.token || "").trim();
+      const name = (r.name || "").trim();
+      if (!token) return;
+      if (name) {
+        linkNameByToken.set(token, name);
+        purposeSet.add(name);
+      }
+    });
+
+    const purposeOptions = Array.from(purposeSet).sort((a, b) =>
+      a.localeCompare(b),
+    );
+
+    // --- 4) Build base taker query ----------------------------------------
     let orderColumn = "created_at";
     let ascending = false;
 
@@ -89,7 +120,7 @@ export default async function DatabasePage({
     let takerQuery = sb
       .from("test_takers")
       .select(
-        "id, first_name, last_name, email, company, created_at, test_id",
+        "id, first_name, last_name, email, company, created_at, test_id, link_token",
         { count: "exact" }
       )
       .eq("org_id", org.id)
@@ -102,31 +133,49 @@ export default async function DatabasePage({
     const { data: takers, error: tkErr } = await takerQuery.range(from, to);
     if (tkErr) throw new Error(tkErr.message);
 
-    // --- 4) In-memory search filter (name/email/company) ------------------
+    // --- 5) In-memory search + purpose filter -----------------------------
     const filtered = (takers ?? []).filter((t: any) => {
-      if (!q) return true;
-      const name = [t.first_name, t.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const email = (t.email || "").toLowerCase();
-      const company = (t.company || "").toLowerCase();
-      return (
-        name.includes(q) || email.includes(q) || company.includes(q)
-      );
+      // Free-text search
+      if (q) {
+        const name = [t.first_name, t.last_name]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        const email = (t.email || "").toLowerCase();
+        const company = (t.company || "").toLowerCase();
+        const matchesSearch =
+          name.includes(q) || email.includes(q) || company.includes(q);
+        if (!matchesSearch) return false;
+      }
+
+      // Purpose filter (based on link_token -> name)
+      if (selectedPurpose) {
+        const linkToken = (t.link_token || "").trim();
+        const purpose = (linkNameByToken.get(linkToken) || "").trim();
+        if (purpose !== selectedPurpose) return false;
+      }
+
+      return true;
     });
 
-    const rows: Row[] = filtered.map((t: any) => ({
-      id: t.id,
-      name:
-        [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || "—",
-      email: t.email || "—",
-      company: t.company || "—",
-      testName: testNameById.get(t.test_id) || "—",
-      created: t.created_at
-        ? new Date(t.created_at as any).toISOString().slice(0, 10)
-        : "—",
-    }));
+    const rows: Row[] = filtered.map((t: any) => {
+      const linkToken = (t.link_token || "").trim();
+      const testPurpose =
+        linkNameByToken.get(linkToken) || "—";
+
+      return {
+        id: t.id,
+        name:
+          [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || "—",
+        email: t.email || "—",
+        company: t.company || "—",
+        testName: testNameById.get(t.test_id) || "—",
+        testPurpose,
+        created: t.created_at
+          ? new Date(t.created_at as any).toISOString().slice(0, 10)
+          : "—",
+      };
+    });
 
     const hasNext = filtered.length > pageSize;
 
@@ -135,12 +184,17 @@ export default async function DatabasePage({
       const usp = new URLSearchParams();
       if (q) usp.set("q", q);
       if (selectedTestId) usp.set("testId", selectedTestId);
+      if (selectedPurpose) usp.set("purpose", selectedPurpose);
       if (sortKey) usp.set("sort", sortKey);
+
       const newPage = extra.page || String(page);
       usp.set("page", newPage);
+
       if (extra.q !== undefined) usp.set("q", extra.q);
       if (extra.testId !== undefined) usp.set("testId", extra.testId);
+      if (extra.purpose !== undefined) usp.set("purpose", extra.purpose);
       if (extra.sort !== undefined) usp.set("sort", extra.sort);
+
       const qs = usp.toString();
       return `/portal/${slug}/database${qs ? `?${qs}` : ""}`;
     };
@@ -154,6 +208,7 @@ export default async function DatabasePage({
             <input type="hidden" name="org" value={slug} />
             <input type="hidden" name="q" value={q} />
             <input type="hidden" name="testId" value={selectedTestId} />
+            {/* CSV export still filters by test + search; we can add purpose later if needed */}
             <button
               type="submit"
               className="rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-slate-100 hover:bg-white/10 transition"
@@ -165,7 +220,7 @@ export default async function DatabasePage({
 
         {/* Filters row */}
         <form
-          className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_auto]"
+          className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_auto]"
           action={`/portal/${slug}/database`}
           method="GET"
         >
@@ -177,7 +232,7 @@ export default async function DatabasePage({
             className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
           />
 
-          {/* test filter */}
+          {/* test filter (by base test) */}
           <select
             name="testId"
             defaultValue={selectedTestId}
@@ -187,6 +242,20 @@ export default async function DatabasePage({
             {(tests ?? []).map((t: any) => (
               <option key={t.id} value={t.id}>
                 {t.name || t.slug || "Untitled"}
+              </option>
+            ))}
+          </select>
+
+          {/* purpose filter */}
+          <select
+            name="purpose"
+            defaultValue={selectedPurpose}
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+          >
+            <option value="">All test names / purposes</option>
+            {purposeOptions.map((p) => (
+              <option key={p} value={p}>
+                {p}
               </option>
             ))}
           </select>
@@ -229,6 +298,9 @@ export default async function DatabasePage({
                   Test
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Test name / purpose
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                   Created
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -250,6 +322,7 @@ export default async function DatabasePage({
                   <td className="px-4 py-2">{r.email}</td>
                   <td className="px-4 py-2">{r.company}</td>
                   <td className="px-4 py-2">{r.testName}</td>
+                  <td className="px-4 py-2">{r.testPurpose}</td>
                   <td className="px-4 py-2 whitespace-nowrap">
                     {r.created}
                   </td>
@@ -267,7 +340,7 @@ export default async function DatabasePage({
                 <tr>
                   <td
                     className="px-4 py-6 text-center text-slate-500"
-                    colSpan={6}
+                    colSpan={7}
                   >
                     No test takers found.
                   </td>
@@ -314,4 +387,5 @@ export default async function DatabasePage({
     );
   }
 }
+
 
