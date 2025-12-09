@@ -79,7 +79,8 @@ function parseFullInternalInsights(
 
   const lower = text.toLowerCase();
 
-  // Use the real headings from your document, plus some older labels as fallbacks.
+  // Headings we know appear in the Extended doc.
+  // Order matters: we sort by actual index later.
   const headings: { label: string; key: keyof ParsedInsights }[] = [
     // 1. How to communicate with this profile
     { label: "how to communicate with this profile", key: "howToCommunicate" },
@@ -93,6 +94,11 @@ function parseFullInternalInsights(
     { label: "their core business challenges", key: "businessChallenges" },
     { label: "core business challenges", key: "businessChallenges" },
 
+    // 7. What Builds Trust With <Profile>
+    // (this lives after business challenges; treat as part of trust/safety)
+    { label: "7. what builds trust", key: "trustSignals" },
+    { label: "what builds trust with", key: "trustSignals" },
+
     // 4. What they need to feel safe buying
     { label: "what they need to feel safe buying", key: "trustSignals" },
 
@@ -100,9 +106,20 @@ function parseFullInternalInsights(
     { label: "what offer type fits them best", key: "offerFit" },
     { label: "best offer fit", key: "offerFit" },
 
-    // 6. What will block the sale
+    // 9. What Blocks the Sale (appears inside the extended doc)
+    { label: "9. what blocks the sale", key: "saleBlockers" },
+    { label: "what blocks the sale", key: "saleBlockers" },
+
+    // 6. What will block the sale (card heading text)
     { label: "what will block the sale", key: "saleBlockers" },
     { label: "biggest sale blockers", key: "saleBlockers" },
+
+    // 10. Pre-Call Questions – we can treat as part of sale blockers / objections
+    { label: "10. pre-call questions", key: "saleBlockers" },
+
+    // 13. Real-Life Example – also useful context for objections
+    { label: "13. real-life example", key: "saleBlockers" },
+    { label: "real-life example", key: "saleBlockers" },
   ];
 
   const result: ParsedInsights = {};
@@ -117,10 +134,15 @@ function parseFullInternalInsights(
     }
   }
 
-  // Sort headings by position in the text
+  if (found.length === 0) {
+    // No headings matched – just bail out and let the fallback fields handle it.
+    return {};
+  }
+
+  // Sort headings by their position in the text
   found.sort((a, b) => a.index - b.index);
 
-  // Slice out sections
+  // Slice each section from the end of the heading text up to the next heading
   for (let i = 0; i < found.length; i++) {
     const { label, key, index } = found[i];
     const contentStart = index + label.length;
@@ -168,7 +190,6 @@ export default function QscExtendedSourceCodePage({
         setLoading(true);
         setErr(null);
 
-        // 🔁 IMPORTANT: use the new /extended endpoint, not /result
         const res = await fetch(
           `/api/public/qsc/${encodeURIComponent(token)}/extended`,
           { cache: "no-store" }
