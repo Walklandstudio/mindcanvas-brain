@@ -13,29 +13,11 @@ import { assembleNarrative } from "@/lib/report/assembleNarrative";
 
 type Params = { takerId: string };
 
+// Very simple styles – this is the version that we *know* works
 const styles = PDF.StyleSheet.create({
-  page: {
-    paddingTop: 40,
-    paddingHorizontal: 40,
-    paddingBottom: 40,
-    fontSize: 12,
-  },
-  heading: {
-    fontSize: 22,
-    marginBottom: 16,
-  },
-  subheading: {
-    fontSize: 14,
-    marginBottom: 6,
-  },
-  line: {
-    marginBottom: 4,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    marginTop: 18,
-    marginBottom: 8,
-  },
+  page: { padding: 24 },
+  h1: { fontSize: 18, marginBottom: 12 },
+  p: { fontSize: 12, marginBottom: 8 },
 });
 
 function formatDateLabel(iso: string | null | undefined): string {
@@ -71,7 +53,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     const url = new URL(req.url);
     const debug = url.searchParams.get("debug") === "1";
     const wantsJson = url.searchParams.get("json") === "1";
-    // we still accept ?mini=1 but treat it the same as full for now
+    // ?mini=1 is accepted but uses the same PDF for now
     const _mini = url.searchParams.get("mini") === "1";
 
     const portal = getServerSupabase().schema("portal");
@@ -120,6 +102,9 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .maybeSingle();
 
     const latestResult = latestResultQ.data ?? null;
+    const latestLabel = latestResult
+      ? formatDateLabel(latestResult.created_at)
+      : "N/A";
 
     if (debug) {
       return NextResponse.json(
@@ -144,7 +129,6 @@ export async function GET(req: Request, { params }: { params: Params }) {
       )[0];
       const top_profile_name = topProfileEntry?.[0] ?? null;
 
-      // Use assembleNarrative to keep your narrative JSON available
       const narrative =
         latestResult &&
         assembleNarrative({
@@ -180,32 +164,13 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // --- PDF path (used by the portal "Download" button) ---
-    if (!latestResult) {
-      return NextResponse.json(
-        { ok: false, error: "no results for taker yet" },
-        { status: 404 }
-      );
-    }
-
-    const totals: any = latestResult.totals ?? {};
-    const profileTotals: Record<string, number> = totals.profiles ?? {};
-    const freqTotals: Record<string, number> = totals.frequencies ?? {};
-
-    const latestLabel = formatDateLabel(latestResult.created_at);
-
-    const profileLines = Object.entries(profileTotals).map(
-      ([code, value]) => `${code}: ${value}`
-    );
-    const freqLines = Object.entries(freqTotals).map(
-      ([code, value]) => `${code}: ${value}`
-    );
-
+    // --- PDF path (used by portal “Download” + ?mini=1) ---
     const fullName = `${taker.first_name ?? ""} ${
       taker.last_name ?? ""
     }`.trim();
 
-    const ReportDoc = React.createElement(
+    // This is the same shape that already worked in your earlier mini PDF
+    const Doc = React.createElement(
       PDF.Document,
       null,
       React.createElement(
@@ -216,72 +181,34 @@ export async function GET(req: Request, { params }: { params: Params }) {
           null,
           React.createElement(
             PDF.Text,
-            { style: styles.heading },
-            "MindCanvas Report"
+            { style: styles.h1 },
+            "MindCanvas Report (Mini)"
           ),
           React.createElement(
             PDF.Text,
-            { style: styles.line },
+            { style: styles.p },
             `Org: ${org.name ?? ""}`
           ),
           React.createElement(
             PDF.Text,
-            { style: styles.line },
+            { style: styles.p },
             `Taker: ${fullName || "Unknown"}`
           ),
           React.createElement(
             PDF.Text,
-            { style: styles.line },
+            { style: styles.p },
             `Has result: ${latestResult ? "yes" : "no"}`
           ),
           React.createElement(
             PDF.Text,
-            { style: styles.line },
+            { style: styles.p },
             `Latest result: ${latestLabel}`
-          ),
-
-          React.createElement(
-            PDF.Text,
-            { style: styles.sectionTitle },
-            "Profile scores"
-          ),
-          profileLines.length
-            ? profileLines.map((line, idx) =>
-                React.createElement(
-                  PDF.Text,
-                  { key: `profile-${idx}`, style: styles.line },
-                  line
-                )
-              )
-            : React.createElement(
-                PDF.Text,
-                { style: styles.line },
-                "No profile totals available."
-              ),
-
-          React.createElement(
-            PDF.Text,
-            { style: styles.sectionTitle },
-            "Frequency scores"
-          ),
-          freqLines.length
-            ? freqLines.map((line, idx) =>
-                React.createElement(
-                  PDF.Text,
-                  { key: `freq-${idx}`, style: styles.line },
-                  line
-                )
-              )
-            : React.createElement(
-                PDF.Text,
-                { style: styles.line },
-                "No frequency totals available."
-              )
+          )
         )
       )
     );
 
-    const instance: any = PDF.pdf(ReportDoc);
+    const instance: any = PDF.pdf(Doc);
     const pdfBytes: Uint8Array = await instance.toBuffer();
 
     return new Response(Buffer.from(pdfBytes), {
