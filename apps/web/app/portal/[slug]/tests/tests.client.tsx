@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 function appUrl(path: string) {
-  // If you later add NEXT_PUBLIC_APP_URL, you can swap this to use it.
+  // if you have NEXT_PUBLIC_APP_URL, prefer that; otherwise relative
   return path;
 }
 
@@ -18,48 +18,42 @@ async function createLink(testId: string, label?: string | null) {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ label: label ?? undefined }),
+    body: JSON.stringify({
+      label: label ?? undefined,
+    }),
   });
 
-  if (!res.ok) {
-    throw new Error(await res.text());
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.ok === false) {
+    throw new Error(json.error || `HTTP ${res.status}`);
   }
-  return res.json(); // expect { id, token, label?, ... }
+
+  // API returns { ok: true, link: {...} }
+  return json.link || json;
 }
 
 export default function TestsClient({ org, tests, linksByTest }: any) {
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [state, setState] = useState<Record<string, any[]>>(
-    linksByTest || {}
-  );
+  const [state, setState] = useState<Record<string, any[]>>(linksByTest || {});
 
-  const onGenerate = async (test: any) => {
-    // Ask the user to name this link / campaign
-    const defaultLabel = test.test_name || "";
-    const promptText =
-      "Name this link so you can recognise it later (e.g. 'Onboarding cohort 1', 'Website footer', 'Email campaign').";
-    const labelInput = window.prompt(promptText, defaultLabel);
-
-    // If user cancels the prompt, don’t create anything.
-    if (labelInput === null) return;
-
-    const finalLabel = (labelInput || defaultLabel || "").trim();
-    if (!finalLabel) {
-      alert("Please provide a name for this link.");
-      return;
-    }
-
+  const onGenerate = async (testId: string) => {
     try {
-      setBusyId(test.test_id);
-      const link = await createLink(test.test_id, finalLabel);
+      // Ask for a human-friendly label (Test Name / Purpose)
+      const label = window.prompt(
+        "Name this link (e.g. 'Leaders cohort Jan', 'Team A onboarding'):",
+        ""
+      );
+      if (label === null) {
+        // user cancelled
+        return;
+      }
 
-      // Ensure the label we just captured is present on the link object,
-      // even if the backend doesn’t echo it yet.
-      const enrichedLink = { ...link, label: link.label ?? finalLabel };
+      setBusyId(testId);
+      const link = await createLink(testId, label.trim() || null);
 
       setState((s) => ({
         ...s,
-        [test.test_id]: [enrichedLink, ...(s[test.test_id] || [])],
+        [testId]: [link, ...(s[testId] || [])],
       }));
     } catch (e: any) {
       alert(`Failed to create link: ${e.message}`);
@@ -74,110 +68,108 @@ export default function TestsClient({ org, tests, linksByTest }: any) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-white">Tests</h2>
+      <h2 className="text-xl font-semibold">
+        Tests for {org?.name ?? org?.slug ?? "this organisation"}
+      </h2>
 
       {tests.length === 0 && (
-        <div className="text-sm text-white/60">No tests found.</div>
+        <div className="text-gray-500">No tests found.</div>
       )}
 
       <ul className="space-y-4">
         {tests.map((t: any) => {
           const links = state[t.test_id] || [];
-          const testTitle = t.test_name || "Untitled test";
-          const testPurpose =
-            t.test_purpose || t.purpose || t.description || null;
 
           return (
             <li
               key={t.test_id}
-              className="rounded-2xl border border-white/15 bg-black/40 p-4 space-y-3"
+              className="border border-white/10 rounded-xl bg-white/5 p-4 space-y-3"
             >
-              {/* Header row: test name + generate button */}
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              {/* Test header */}
+              <div className="flex items-center justify-between gap-4">
                 <div>
-                  <div className="text-sm font-semibold text-white">
-                    {testTitle}
+                  <div className="text-sm font-medium text-white">
+                    {t.test_name}
                   </div>
-                  {testPurpose && (
-                    <div className="mt-1 text-xs text-white/60">
-                      {testPurpose}
-                    </div>
-                  )}
+                  {/* No raw test_id shown to clients */}
+                  <div className="text-xs text-white/50">
+                    Quantum Source Code assessment
+                  </div>
                 </div>
 
                 <button
-                  onClick={() => onGenerate(t)}
+                  onClick={() => onGenerate(t.test_id)}
                   disabled={busyId === t.test_id}
-                  className="inline-flex items-center justify-center rounded-lg bg-white text-black px-3 py-2 text-xs font-medium shadow-sm hover:bg-slate-100 disabled:opacity-50"
+                  className="px-3 py-2 rounded-lg bg-black text-white text-sm border border-white/20 hover:bg-white/10 disabled:opacity-50"
                 >
-                  {busyId === t.test_id ? "Creating link…" : "Generate link"}
+                  {busyId === t.test_id ? "Generating…" : "Generate link"}
                 </button>
               </div>
 
-              {/* Existing links for this test */}
+              {/* Links for this test */}
               {links.length > 0 && (
-                <div className="mt-3 space-y-3">
+                <div className="space-y-3 pt-2">
                   {links.map((l: any) => {
                     const testUrl = appUrl(`/t/${l.token}`);
-                    const label =
-                      l.label ||
-                      l.link_label ||
-                      l.purpose ||
-                      testTitle;
+                    const resultUrlHint = appUrl(`/t/${l.token}/result`);
                     const embed = embedCode(l.token);
+                    const label =
+                      (typeof l.label === "string" && l.label.trim()) ||
+                      "Untitled link";
 
                     return (
                       <div
                         key={l.id}
-                        className="rounded-xl border border-white/15 bg-black/60 p-3 space-y-2"
+                        className="rounded-lg border border-white/15 bg-black/20 p-3 space-y-2"
                       >
-                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                          <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs uppercase tracking-[0.16em] text-white/50">
+                              Link
+                            </div>
                             <div className="text-sm font-medium text-white">
                               {label}
                             </div>
-                            <div className="text-xs text-white/60 break-all">
-                              {testUrl}
-                            </div>
-                            {typeof l.use_count === "number" && (
-                              <div className="text-[11px] text-white/50">
-                                Responses: {l.use_count}
-                                {l.max_uses
-                                  ? ` of ${l.max_uses} allowed`
-                                  : ""}
-                              </div>
-                            )}
                           </div>
 
-                          <div className="flex flex-wrap gap-2">
-                            <a
-                              href={testUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center rounded-lg border border-white/30 px-3 py-1.5 text-xs text-white hover:bg-white/10"
-                            >
-                              Open test
-                            </a>
-                            <button
-                              className="inline-flex items-center rounded-lg border border-white/30 px-3 py-1.5 text-xs text-white hover:bg-white/10"
-                              onClick={() => copy(testUrl)}
-                            >
-                              Copy link
-                            </button>
-                            <button
-                              className="inline-flex items-center rounded-lg border border-white/30 px-3 py-1.5 text-xs text-white hover:bg-white/10"
-                              onClick={() => copy(embed)}
-                            >
-                              Copy embed
-                            </button>
-                          </div>
+                          {typeof l.use_count === "number" && (
+                            <div className="text-xs text-white/50">
+                              Uses: {l.use_count}
+                              {l.max_uses ? ` / ${l.max_uses}` : ""}
+                            </div>
+                          )}
                         </div>
 
-                        <p className="text-[11px] text-white/50">
-                          Use this link in emails, landing pages, or campaigns.
-                          The name above is just for your reporting and will
-                          also be stored with the link.
-                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <a
+                            className="px-3 py-2 rounded-lg border border-white/20 text-xs text-white hover:bg-white/10"
+                            href={testUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open test
+                          </a>
+                          <button
+                            className="px-3 py-2 rounded-lg border border-white/20 text-xs text-white hover:bg-white/10"
+                            onClick={() => copy(testUrl)}
+                          >
+                            Copy link
+                          </button>
+                          <button
+                            className="px-3 py-2 rounded-lg border border-white/20 text-xs text-white hover:bg-white/10"
+                            onClick={() => copy(embed)}
+                          >
+                            Copy embed
+                          </button>
+                          <button
+                            className="px-3 py-2 rounded-lg border border-white/20 text-xs text-white hover:bg-white/10"
+                            onClick={() => copy(resultUrlHint)}
+                          >
+                            Copy result URL (hint)
+                          </button>
+                        </div>
+
+                        {/* No token / test_id printed out to the client anymore */}
                       </div>
                     );
                   })}
@@ -190,4 +182,3 @@ export default function TestsClient({ org, tests, linksByTest }: any) {
     </div>
   );
 }
-
