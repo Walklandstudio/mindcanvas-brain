@@ -105,18 +105,18 @@ function SectionCard({
       <div className="flex items-start gap-3">
         <div
           className={[
-            "mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+            "mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
             isDanger
               ? "bg-rose-500/20 text-rose-100 border border-rose-400/60"
-              : "bg-sky-500/15 text-sky-200 border border-sky-400/50",
+              : "bg-sky-500/15 text-sky-100 border border-sky-400/50",
           ].join(" ")}
         >
           {number}
         </div>
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <h2
             className={[
-              "text-lg font-semibold",
+              "text-[1.05rem] font-semibold",
               isDanger ? "text-rose-50" : "text-slate-50",
             ].join(" ")}
           >
@@ -125,7 +125,7 @@ function SectionCard({
           {kicker && (
             <p
               className={[
-                "text-sm",
+                "text-[13px] leading-relaxed",
                 isDanger ? "text-rose-100/80" : "text-slate-300",
               ].join(" ")}
             >
@@ -136,7 +136,7 @@ function SectionCard({
       </div>
       <div
         className={[
-          "pt-3 text-sm whitespace-pre-line",
+          "pt-3 text-[14px] leading-relaxed whitespace-pre-line",
           isDanger ? "text-rose-50" : "text-slate-100",
         ].join(" ")}
       >
@@ -288,10 +288,10 @@ export default function QscExtendedSourceCodePage({
             <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
               Quantum Source Code
             </p>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
+            <h1 className="text-[2.1rem] md:text-[2.4rem] font-bold tracking-tight">
               Extended Source Code — Internal Insights
             </h1>
-            <p className="text-sm text-slate-300 max-w-2xl">
+            <p className="text-[14px] leading-relaxed text-slate-300 max-w-2xl">
               Deep sales and messaging insights for this Quantum buyer profile.
               Use this as your reference when designing offers, sales pages,
               email sequences, and live launch scripts.
@@ -335,76 +335,97 @@ export default function QscExtendedSourceCodePage({
           </div>
         </header>
 
-        {/* SNAPSHOT INTRO CARD */}
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-8 space-y-4">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/90">
+        {/* PROFILE SUMMARY + INDEX (side by side on desktop) */}
+        <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-8">
+          <div className="grid gap-6 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)] md:items-start">
+            {/* Left: copy, close to Strategic Growth vibe */}
+            <div className="space-y-3">
+              <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-300/90">
                 Profile summary
               </p>
-              <h2 className="text-xl font-semibold text-slate-50">
+              <h2 className="text-[1.25rem] font-semibold text-slate-50">
                 How to sell to this buyer
               </h2>
-              <p className="text-sm text-slate-300 max-w-3xl">
+              <p className="text-[14px] leading-relaxed text-slate-200">
                 This page is for you as the{" "}
                 <span className="font-semibold">test owner</span>. It gives you
                 the core sales, messaging and offer-fit insights you need to
                 convert this profile — without needing to read their entire
                 Strategic Growth Report.
               </p>
-            </div>
-            {extended && (
-              <div className="rounded-2xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 text-xs text-slate-100 max-w-xs">
-                <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-sky-300/90">
-                  Quantum pattern
-                </p>
-                <p className="mt-1 text-sm font-semibold">
-                  {extended.personality_label} • {extended.mindset_label}
-                </p>
-                <p className="mt-1 text-[11px] text-slate-300">
-                  Use this as your anchor when making decisions about
-                  positioning, pacing, and offer structure.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
 
-        {/* QUICK INDEX */}
-        <section className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5 md:p-6 space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
-                Quick index
-              </p>
-              <p className="text-xs text-slate-300">
-                Jump straight to the section you need during calls, campaigns or
-                copywriting.
-              </p>
+              {extended && (
+                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-[13px] text-slate-100 md:grid-cols-2">
+                  <div>
+                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                      Personality Layer
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      {extended.personality_label}
+                    </p>
+                    <p className="mt-1 text-[12px] text-slate-300">
+                      How they naturally think, lead and relate.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                      Mindset Layer
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      {extended.mindset_label}
+                    </p>
+                    <p className="mt-1 text-[12px] text-slate-300">
+                      Where their business is right now, and what it needs to
+                      grow sustainably.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {SECTION_INDEX.map((s) => (
-              <a
-                key={s.id}
-                href={`#${s.id}`}
-                className="group inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs hover:border-sky-500/70 hover:bg-slate-900"
-              >
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px] font-semibold text-slate-200 group-hover:bg-sky-500/80 group-hover:text-slate-950">
-                  {s.number}
-                </span>
-                <span className="text-[11px] text-slate-200 group-hover:text-sky-100">
-                  {s.title}
-                </span>
-              </a>
-            ))}
+
+            {/* Right: vertical quick index */}
+            <div className="space-y-3 md:pl-4 border-t border-slate-800/70 pt-4 md:border-t-0 md:border-l md:pt-0">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                    Quick index
+                  </p>
+                  <p className="text-[12px] leading-relaxed text-slate-300">
+                    Jump straight to the section you need during calls,
+                    campaigns or copywriting.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-1">
+                {SECTION_INDEX.map((s) => (
+                  <a
+                    key={s.id}
+                    href={`#${s.id}`}
+                    className="group inline-flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[13px] hover:border-sky-500/80 hover:bg-slate-900"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100 group-hover:bg-sky-500 group-hover:text-slate-950">
+                        {s.number}
+                      </span>
+                      <span className="font-medium text-slate-100 group-hover:text-sky-50">
+                        {s.title}
+                      </span>
+                    </div>
+                    <span className="hidden text-[11px] text-slate-500 group-hover:text-sky-200 md:inline">
+                      View
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 
         {/* GROUP 1: DIAGNOSTIC LAYERS */}
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold tracking-[0.22em] uppercase text-slate-400">
+            <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
               Diagnostic layers • Who they are & where they are in business
             </h2>
             <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
@@ -450,7 +471,7 @@ export default function QscExtendedSourceCodePage({
         {/* GROUP 2: SALES PLAYBOOK */}
         <div className="space-y-6">
           <div className="flex items-center justify-between pt-4">
-            <h2 className="text-sm font-semibold tracking-[0.22em] uppercase text-slate-400">
+            <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
               Sales playbook • How to communicate, position & sell
             </h2>
             <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
