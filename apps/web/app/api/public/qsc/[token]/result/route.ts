@@ -1,4 +1,9 @@
 // apps/web/app/api/public/qsc/[token]/result/route.ts
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -37,7 +42,6 @@ export async function GET(
       secondary_mindset,
       combined_profile_code,
       qsc_profile_id,
-      org_id,
       created_at
     `
     )
@@ -59,7 +63,7 @@ export async function GET(
     );
   }
 
-  // 2) Load the QSC profile row (snapshot content)
+  // 2) Load the QSC profile row (used by Snapshot + Extended)
   let profile: any = null;
 
   if (result.qsc_profile_id) {
@@ -91,7 +95,7 @@ export async function GET(
     }
   }
 
-  // Fallback: look up by combined_profile_code if no qsc_profile_id
+  // Fallback lookup if qsc_profile_id is missing
   if (!profile && result.combined_profile_code) {
     const { data, error } = await client
       .from("qsc_profiles")
@@ -115,13 +119,16 @@ export async function GET(
       .maybeSingle();
 
     if (error) {
-      console.error("[QSC result] error loading qsc_profile by profile_code:", error);
+      console.error(
+        "[QSC result] error loading qsc_profile by profile_code:",
+        error
+      );
     } else {
       profile = data;
     }
   }
 
-  // 3) NEW: overlay the full extended Internal Insights text
+  // 3) NEW: overlay the full Extended Source Code (Internal Insights)
   //    from portal.qsc_entrepreneur_owner_insights based on persona A1–D5.
   if (profile?.personality_code && profile?.mindset_level) {
     const comboCode = `${profile.personality_code}${profile.mindset_level}`;
@@ -143,9 +150,8 @@ export async function GET(
         ownerError
       );
     } else if (ownerRow?.extended_source_code) {
-      // IMPORTANT: do not touch snapshot fields.
-      // We only override / fill the extended full_internal_insights string
-      // that the Extended Source Code report uses.
+      // ⚠️ Do NOT touch snapshot fields. We only ensure that the Extended report
+      // has a rich full_internal_insights string to work from.
       profile = {
         ...profile,
         full_internal_insights: ownerRow.extended_source_code,
@@ -153,7 +159,7 @@ export async function GET(
     }
   }
 
-  // 4) Respond with exactly what the frontend expects now
+  // 4) Respond with the shape expected by both Snapshot + Extended pages
   return NextResponse.json({
     ok: true,
     results: result,
