@@ -6,25 +6,51 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
-import * as React from "react";
-import * as PDF from "@react-pdf/renderer";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
-import { generateReportBuffer } from "@/lib/pdf/generateReport";
 
 type Params = { takerId: string };
+
+function formatDateLabel(iso: string | null | undefined): string {
+  if (!iso) return "N/A";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "N/A";
+
+  const day = d.getDate();
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const month = monthNames[d.getMonth()];
+  const year = d.getFullYear();
+  const hrs = d.getHours().toString().padStart(2, "0");
+  const mins = d.getMinutes().toString().padStart(2, "0");
+
+  return `${day} ${month} ${year}, ${hrs}:${mins}`;
+}
 
 export async function GET(req: Request, { params }: { params: Params }) {
   try {
     const url = new URL(req.url);
     const debug = url.searchParams.get("debug") === "1";
-    const mini = url.searchParams.get("mini") === "1";
     const wantsJson = url.searchParams.get("json") === "1";
+    // We accept ?mini=1 but treat it the same as full PDF for now
+    const _mini = url.searchParams.get("mini") === "1";
 
-    // Use the existing server Supabase client, scoped to the portal schema
     const portal = getServerSupabase().schema("portal");
 
-    // 1) Taker (authoritative org_id)
+    // 1) Taker
     const takerQ = await portal
       .from("test_takers")
       .select("id, org_id, first_name, last_name, email, role_title")
@@ -34,12 +60,16 @@ export async function GET(req: Request, { params }: { params: Params }) {
     const taker = takerQ.data ?? null;
     if (!taker) {
       return NextResponse.json(
-        { ok: false, error: "taker not found", detail: takerQ.error?.message ?? null },
+        {
+          ok: false,
+          error: "taker not found",
+          detail: takerQ.error?.message ?? null,
+        },
         { status: 404 }
       );
     }
 
-    // 2) Org by taker.org_id (NO slug involved)
+    // 2) Org
     const orgQ = await portal
       .from("orgs")
       .select("id, slug, name, brand_primary, brand_text, logo_url")
@@ -48,10 +78,13 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const org = orgQ.data ?? null;
     if (!org) {
-      return NextResponse.json({ ok: false, error: "org not found" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "org not found" },
+        { status: 404 }
+      );
     }
 
-    // 3) Latest result (optional)
+    // 3) Latest result
     const latestResultQ = await portal
       .from("test_results")
       .select("totals, created_at")
@@ -61,10 +94,15 @@ export async function GET(req: Request, { params }: { params: Params }) {
       .maybeSingle();
 
     const latestResult = latestResultQ.data ?? null;
+    const latestLabel = latestResult
+      ? formatDateLabel(latestResult.created_at)
+      : "N/A";
 
-    // Existing debug output: JSON only, no PDF
     if (debug) {
-      return NextResponse.json({ ok: true, taker, org, latestResult }, { status: 200 });
+      return NextResponse.json(
+        { ok: true, taker, org, latestResult },
+        { status: 200 }
+      );
     }
 
     const colors = {
@@ -72,7 +110,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       text: org.brand_text || "#111827",
     };
 
-    // NEW: pure JSON path for HTML reports (no React-PDF)
+    // --- JSON path (for HTML report / debugging) ---
     if (wantsJson) {
       const totals: any = latestResult?.totals ?? {};
       const profileTotals: Record<string, number> = totals.profiles ?? {};
@@ -82,6 +120,20 @@ export async function GET(req: Request, { params }: { params: Params }) {
         (a, b) => (b[1] as number) - (a[1] as number)
       )[0];
       const top_profile_name = topProfileEntry?.[0] ?? null;
+
+      const narrative =
+        latestResult &&
+        assembleNarrative({
+          org,
+          taker: {
+            first_name: taker.first_name ?? null,
+            last_name: taker.last_name ?? null,
+            email: taker.email ?? null,
+            role: taker.role_title ?? null,
+          },
+          test: null,
+          latestResult,
+        } as any);
 
       return NextResponse.json(
         {
@@ -96,7 +148,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
             sections: {
               profiles: profileTotals,
               frequencies: freqTotals,
-              summary_text: null,
+              summary_text: narrative ?? null,
             },
           },
         },
@@ -104,68 +156,82 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // MINI sanity-PDF using @react-pdf/renderer *namespace* (no JSX)
-    if (mini) {
-      const styles = PDF.StyleSheet.create({
-        page: { padding: 24 },
-        h1: { fontSize: 18, marginBottom: 12 },
-        p: { fontSize: 12, marginBottom: 8 },
-      });
+    // --- PDF path (used by portal “Download” + ?mini=1) ---
+    const fullName = `${taker.first_name ?? ""} ${
+      taker.last_name ?? ""
+    }`.trim();
 
-      const MiniDoc = React.createElement(
-        PDF.Document,
-        null,
-        React.createElement(
-          PDF.Page,
-          { size: "A4", style: styles.page },
-          React.createElement(
-            PDF.View,
-            null,
-            React.createElement(PDF.Text, { style: styles.h1 }, "MindCanvas Report (Mini)"),
-            React.createElement(PDF.Text, { style: styles.p }, `Org: ${org.name ?? ""}`),
-            React.createElement(
-              PDF.Text,
-              { style: styles.p },
-              `Taker: ${`${taker.first_name ?? ""} ${taker.last_name ?? ""}`.trim()}`
-            ),
-            React.createElement(
-              PDF.Text,
-              { style: styles.p },
-              `Has result: ${latestResult ? "yes" : "no"}`
-            )
-          )
-        )
-      );
+    // Create a simple 1-page PDF using pdf-lib (no React at all)
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage();
+    const { width, height } = page.getSize();
 
-      const instance: any = PDF.pdf(MiniDoc);
-      const bytes: Uint8Array = await instance.toBuffer();
-      return new Response(Buffer.from(bytes), {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
-          "Cache-Control": "no-store",
-        },
-      });
-    }
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const titleFontSize = 20;
+    const bodyFontSize = 12;
 
-    // FULL pipeline: require a result to build full narrative
-    if (!latestResult) {
-      return NextResponse.json({ ok: false, error: "no results for taker yet" }, { status: 404 });
-    }
+    let y = height - 80;
 
-    const data = assembleNarrative({
-      org,
-      taker: {
-        first_name: taker.first_name ?? null,
-        last_name: taker.last_name ?? null,
-        email: taker.email ?? null,
-        role: taker.role_title ?? null,
-      },
-      test: null,
-      latestResult,
-    } as any);
+    page.drawText("MindCanvas Report", {
+      x: 60,
+      y,
+      size: titleFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
 
-    const pdfBytes = await generateReportBuffer(data as any, colors);
+    y -= 40;
+
+    page.drawText(`Org: ${org.name ?? ""}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 20;
+
+    page.drawText(`Taker: ${fullName || "Unknown"}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 20;
+
+    page.drawText(`Email: ${taker.email ?? "N/A"}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 20;
+
+    page.drawText(`Has result: ${latestResult ? "yes" : "no"}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 20;
+
+    page.drawText(`Latest result: ${latestLabel}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    const pdfBytes = await pdfDoc.save(); // Uint8Array
+
     return new Response(Buffer.from(pdfBytes), {
       headers: {
         "Content-Type": "application/pdf",
@@ -174,6 +240,11 @@ export async function GET(req: Request, { params }: { params: Params }) {
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: String(e?.message || e) },
+      { status: 500 }
+    );
   }
 }
+
+

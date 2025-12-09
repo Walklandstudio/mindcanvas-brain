@@ -1,4 +1,3 @@
-// apps/web/app/page.tsx
 import Link from "next/link";
 
 const P = { c1: "#64bae2", c2: "#2d8fc4", c3: "#015a8b" }; // your palette
@@ -112,11 +111,30 @@ export default function Landing() {
       </section>
 
       {/* --- FOOTER --- */}
-      <footer className="relative z-10 pb-10 text-center text-xs text-slate-500">
-        © {new Date().getFullYear()} MindCanvas. All rights reserved.
+      <footer className="relative z-10 pb-10 text-center text-xs text-slate-500 space-y-2">
+        <div>
+          © {new Date().getFullYear()} MindCanvas. All rights reserved.
+        </div>
+        <div className="space-x-3">
+          <a
+            href="https://profiletest.ai/privacy-policy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-slate-300"
+          >
+            Privacy Policy
+          </a>
+          <span>•</span>
+          <a
+            href="https://profiletest.ai/terms--conditions"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-slate-300"
+          >
+            Terms &amp; Conditions
+          </a>
+        </div>
       </footer>
     </main>
   );
 }
-
-

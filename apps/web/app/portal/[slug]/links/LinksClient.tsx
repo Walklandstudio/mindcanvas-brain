@@ -40,7 +40,7 @@ export default function LinksClient(props: {
   const [recipientEmail, setRecipientEmail] = useState("");
   const [sendEmail, setSendEmail] = useState(false);
 
-  // NEW: custom message when results are hidden
+  // custom message when results are hidden
   const [hiddenResultsMessage, setHiddenResultsMessage] = useState("");
 
   const [status, setStatus] = useState<string | null>(null);
@@ -133,14 +133,13 @@ export default function LinksClient(props: {
         body: JSON.stringify({
           orgId,
           testId,
-          testDisplayName,
+          testDisplayName, // ← "Test name / Test purpose"
           contactOwner,
           showResults,
           emailReport,
           hiddenResultsMessage: messageToSave,
           redirectUrl: null,
           expiresAt: expiresAt || null,
-          // NOTE: we’re handling OneSignal separately below, so no recipientEmail here.
         }),
       });
 
@@ -255,11 +254,11 @@ export default function LinksClient(props: {
           </label>
 
           <label className="block text-sm">
-            <span className="block mb-1">Name Test</span>
+            <span className="block mb-1">Test name / Test purpose</span>
             <input
               type="text"
               className="w-full rounded border p-2"
-              placeholder="e.g. Team Puzzle — Sales intake"
+              placeholder="e.g. QSC Leaders — Sales team intake"
               value={testDisplayName}
               onChange={(e) => setTestDisplayName(e.target.value)}
             />
@@ -323,7 +322,7 @@ export default function LinksClient(props: {
             Email the report
           </label>
 
-          {/* NEW: Only show when BOTH toggles are off */}
+          {/* Only show when BOTH toggles are off */}
           {showHiddenMessageField && (
             <label className="block text-sm">
               <span className="block mb-1">
@@ -390,8 +389,9 @@ export default function LinksClient(props: {
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
+                {/* Test name / purpose instead of raw test */}
                 <th className="px-3 py-2 text-left font-medium">
-                  Test
+                  Test name / Test purpose
                 </th>
                 <th className="px-3 py-2 text-left font-medium">
                   Created
@@ -428,7 +428,10 @@ export default function LinksClient(props: {
                   : false;
                 return (
                   <tr key={r.token} className="border-t">
-                    <td className="px-3 py-2">{r.test_name}</td>
+                    {/* Show your custom Test name / purpose here */}
+                    <td className="px-3 py-2">
+                      {r.test_name || "—"}
+                    </td>
                     <td className="px-3 py-2">
                       {r.created_at
                         ? new Date(
@@ -453,15 +456,14 @@ export default function LinksClient(props: {
                           }`
                         : "—"}
                     </td>
+                    {/* Cleaned up Link column: no raw token, just a button */}
                     <td className="px-3 py-2">
                       <button
                         type="button"
-                        onClick={() =>
-                          doCopy(url, "URL copied")
-                        }
+                        onClick={() => window.open(url, "_blank")}
                         className="underline text-blue-600"
                       >
-                        /t/{r.token}
+                        Open link
                       </button>
                     </td>
                     <td className="px-3 py-2">
@@ -514,4 +516,5 @@ export default function LinksClient(props: {
     </div>
   );
 }
+
 

@@ -24,6 +24,7 @@ type QscResultsRow = {
   secondary_mindset: MindsetKey | null;
   combined_profile_code: string | null; // e.g. "FIELD_ORBIT"
   qsc_profile_id: string | null;
+  audience: "entrepreneur" | "leader" | null;
   created_at: string;
 };
 
@@ -320,7 +321,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
         }
 
         const cast = j as any;
-        if (alive) {
+        if (alive && cast.results) {
           setPayload({
             results: cast.results,
             profile: cast.profile ?? null,
@@ -408,11 +409,18 @@ export default function QscResultPage({ params }: { params: { token: string } })
     value: personalityPerc[p.key] ?? 0,
   }));
 
+  // Decide which extended report to use
+  const audience: "entrepreneur" | "leader" =
+    result.audience === "leader" ? "leader" : "entrepreneur";
+
+  const baseExtendedPath =
+    audience === "leader"
+      ? `/qsc/${encodeURIComponent(token)}/leader`
+      : `/qsc/${encodeURIComponent(token)}/entrepreneur`;
+
   const extendedReportHref = tid
-    ? `/qsc/${encodeURIComponent(
-        token
-      )}/extended?tid=${encodeURIComponent(tid)}`
-    : `/qsc/${encodeURIComponent(token)}/extended`;
+    ? `${baseExtendedPath}?tid=${encodeURIComponent(tid)}`
+    : baseExtendedPath;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -437,7 +445,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
               )}
               <p className="mt-2 text-sm text-slate-300 max-w-2xl">
                 This view combines your{" "}
-                <span className="font-semibold">Buyer Frequency Type</span> and{" "}
+                <span className="font-semibold">Buyer Frequency Type</span>{" "}
+                and{" "}
                 <span className="font-semibold">Buyer Mindset Level</span> into
                 one Quantum Source Code profile.
               </p>
@@ -448,7 +457,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 href={extendedReportHref}
                 className="inline-flex items-center rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-slate-50 shadow-md shadow-sky-900/60 hover:bg-sky-500 hover:border-sky-400 transition"
               >
-                View Extended Source Code →
+                {audience === "leader"
+                  ? "View Strategic Leadership Report →"
+                  : "View Strategic Growth Report →"}
               </Link>
             </div>
           </div>
@@ -630,7 +641,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
             <div className="mt-5 space-y-3">
               {MINDSETS.map((m) => {
-                const pct = mindsetPerc[m.key] ?? 0;
+                const pct = personalityPerc ? mindsetPerc[m.key] ?? 0 : 0;
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -766,6 +777,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
+
 
 
 
