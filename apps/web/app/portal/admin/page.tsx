@@ -26,9 +26,8 @@ export default async function AdminOrgsPage() {
         <header className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Organizations</h1>
           <div className="flex items-center gap-3">
-            {/* IMPORTANT: use the existing NewClientWizard route */}
             <Link
-              href="/admin/clients/new"
+              href="/portal/admin/new"
               className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition"
             >
               + Add organisation

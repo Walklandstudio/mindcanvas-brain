@@ -5,12 +5,18 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import { Buffer } from "node:buffer";
 import * as React from "react";
-import * as PDF from "@react-pdf/renderer";
+import {
+  Document,
+  Page,
+  View,
+  Text,
+  StyleSheet,
+  pdf,
+} from "@react-pdf/renderer";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
-// ⚠️ NOTICE: we no longer import generateReportBuffer here
+import { generateReportBuffer } from "@/lib/pdf/generateReport";
 
 type Params = { takerId: string };
 
@@ -93,19 +99,6 @@ export async function GET(req: Request, { params }: { params: Params }) {
       )[0];
       const top_profile_name = topProfileEntry?.[0] ?? null;
 
-      // Still call assembleNarrative so your HTML / future uses keep working
-      const narrative = assembleNarrative({
-        org,
-        taker: {
-          first_name: taker.first_name ?? null,
-          last_name: taker.last_name ?? null,
-          email: taker.email ?? null,
-          role: taker.role_title ?? null,
-        },
-        test: null,
-        latestResult,
-      } as any);
-
       return NextResponse.json(
         {
           ok: true,
@@ -116,51 +109,55 @@ export async function GET(req: Request, { params }: { params: Params }) {
             latestResult,
             colors,
             top_profile_name,
-            profileTotals,
-            freqTotals,
-            narrative,
+            sections: {
+              profiles: profileTotals,
+              frequencies: freqTotals,
+              summary_text: null,
+            },
           },
         },
         { status: 200 }
       );
     }
 
-    // MINI sanity-PDF using @react-pdf/renderer *namespace* (no JSX)
+    // MINI sanity-PDF using @react-pdf/renderer with named imports
     if (mini) {
-      const styles = PDF.StyleSheet.create({
+      const styles = StyleSheet.create({
         page: { padding: 24 },
         h1: { fontSize: 18, marginBottom: 12 },
         p: { fontSize: 12, marginBottom: 8 },
       });
 
+      const takerName = `${taker.first_name ?? ""} ${
+        taker.last_name ?? ""
+      }`.trim();
+
       const MiniDoc = React.createElement(
-        PDF.Document,
+        Document,
         null,
         React.createElement(
-          PDF.Page,
+          Page,
           { size: "A4", style: styles.page },
           React.createElement(
-            PDF.View,
+            View,
             null,
             React.createElement(
-              PDF.Text,
+              Text,
               { style: styles.h1 },
               "MindCanvas Report (Mini)"
             ),
             React.createElement(
-              PDF.Text,
+              Text,
               { style: styles.p },
               `Org: ${org.name ?? ""}`
             ),
             React.createElement(
-              PDF.Text,
+              Text,
               { style: styles.p },
-              `Taker: ${`${taker.first_name ?? ""} ${
-                taker.last_name ?? ""
-              }`.trim()}`
+              `Taker: ${takerName}`
             ),
             React.createElement(
-              PDF.Text,
+              Text,
               { style: styles.p },
               `Has result: ${latestResult ? "yes" : "no"}`
             )
@@ -168,9 +165,10 @@ export async function GET(req: Request, { params }: { params: Params }) {
         )
       );
 
-      const instance: any = PDF.pdf(MiniDoc);
+      const instance = pdf(MiniDoc);
       const bytes: Uint8Array = await instance.toBuffer();
-      return new Response(Buffer.from(bytes), {
+
+      return new Response(bytes as any, {
         headers: {
           "Content-Type": "application/pdf",
           "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
@@ -179,7 +177,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       });
     }
 
-    // FULL pipeline: require a result to build a richer PDF
+    // FULL pipeline: require a result to build full narrative
     if (!latestResult) {
       return NextResponse.json(
         { ok: false, error: "no results for taker yet" },
@@ -187,9 +185,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // We can still use assembleNarrative to get text content,
-    // but we render it with safe React-PDF primitives.
-    const narrative = assembleNarrative({
+    const data = assembleNarrative({
       org,
       taker: {
         first_name: taker.first_name ?? null,
@@ -201,127 +197,12 @@ export async function GET(req: Request, { params }: { params: Params }) {
       latestResult,
     } as any);
 
-    const totals: any = latestResult?.totals ?? {};
-    const profileTotals: Record<string, number> = totals.profiles ?? {};
-    const freqTotals: Record<string, number> = totals.frequencies ?? {};
+    // generateReportBuffer may be typed as ReadableStream / unknown.
+    // Treat it as an opaque PDF payload and hand it directly to Response.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfPayload: any = await generateReportBuffer(data as any, colors);
 
-    const styles = PDF.StyleSheet.create({
-      page: { padding: 32 },
-      header: {
-        fontSize: 20,
-        marginBottom: 12,
-        color: colors.text,
-      },
-      subheader: {
-        fontSize: 12,
-        marginBottom: 8,
-      },
-      sectionTitle: {
-        fontSize: 14,
-        marginTop: 16,
-        marginBottom: 8,
-      },
-      p: {
-        fontSize: 11,
-        marginBottom: 4,
-      },
-    });
-
-    const FullDoc = React.createElement(
-      PDF.Document,
-      null,
-      React.createElement(
-        PDF.Page,
-        { size: "A4", style: styles.page },
-        React.createElement(
-          PDF.View,
-          null,
-          // Header
-          React.createElement(
-            PDF.Text,
-            { style: styles.header },
-            org.name || "MindCanvas Report"
-          ),
-          React.createElement(
-            PDF.Text,
-            { style: styles.subheader },
-            `Taker: ${`${taker.first_name ?? ""} ${
-              taker.last_name ?? ""
-            }`.trim()}`
-          ),
-          taker.email
-            ? React.createElement(
-                PDF.Text,
-                { style: styles.subheader },
-                `Email: ${taker.email}`
-              )
-            : null,
-          taker.role_title
-            ? React.createElement(
-                PDF.Text,
-                { style: styles.subheader },
-                `Role: ${taker.role_title}`
-              )
-            : null,
-          latestResult?.created_at
-            ? React.createElement(
-                PDF.Text,
-                { style: styles.subheader },
-                `Result date: ${new Date(
-                  latestResult.created_at
-                ).toLocaleString()}`
-              )
-            : null,
-
-          // Profiles
-          React.createElement(
-            PDF.Text,
-            { style: styles.sectionTitle },
-            "Profiles"
-          ),
-          ...Object.entries(profileTotals).map(([key, value]) =>
-            React.createElement(
-              PDF.Text,
-              { key: `profile-${key}`, style: styles.p },
-              `${key}: ${value}`
-            )
-          ),
-
-          // Frequencies
-          React.createElement(
-            PDF.Text,
-            { style: styles.sectionTitle },
-            "Frequencies"
-          ),
-          ...Object.entries(freqTotals).map(([key, value]) =>
-            React.createElement(
-              PDF.Text,
-              { key: `freq-${key}`, style: styles.p },
-              `${key}: ${value}`
-            )
-          ),
-
-          // Narrative summary (very generic – we can refine later)
-          React.createElement(
-            PDF.Text,
-            { style: styles.sectionTitle },
-            "Summary"
-          ),
-          React.createElement(
-            PDF.Text,
-            { style: styles.p },
-            typeof narrative === "string"
-              ? narrative
-              : JSON.stringify(narrative ?? {}, null, 2).slice(0, 1500)
-          )
-        )
-      )
-    );
-
-    const instance: any = PDF.pdf(FullDoc);
-    const bytes: Uint8Array = await instance.toBuffer();
-
-    return new Response(Buffer.from(bytes), {
+    return new Response(pdfPayload as any, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
@@ -335,3 +216,4 @@ export async function GET(req: Request, { params }: { params: Params }) {
     );
   }
 }
+

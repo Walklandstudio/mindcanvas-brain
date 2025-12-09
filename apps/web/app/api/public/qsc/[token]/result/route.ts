@@ -17,9 +17,9 @@ function supa() {
  * GET /api/public/qsc/[token]/result
  *
  * Returns:
- * - results → row from qsc_results (scores, primary/secondary, combined profile)
+ * - results → row from qsc_results (scores, primary/secondary, combined profile, audience)
  * - profile → row from qsc_profiles (Extended Source Code / internal insights)
- * - persona → row from qsc_personas (Strategic Report copy)
+ * - persona → row from qsc_personas (Strategic Growth Report copy)
  * - taker   → row from test_takers (name/email/company/role)
  */
 export async function GET(
@@ -141,11 +141,7 @@ export async function GET(
     }
 
     // -----------------------------------------------------------------------
-    // 4) Load Persona (Strategic Report content)
-    //
-    // First try: persona for this specific test_id + profile_code.
-    // Fallback: any persona with the same profile_code (global library),
-    // so multiple QSC tests can share the same personas.
+    // 4) Load Persona (Strategic Growth Report content)
     // -----------------------------------------------------------------------
     let persona: any = null;
 
@@ -239,7 +235,7 @@ export async function GET(
     return NextResponse.json(
       {
         ok: true,
-        results: resultRow,
+        results: resultRow, // now includes `audience`
         profile,
         persona,
         taker,
