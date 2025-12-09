@@ -1,4 +1,5 @@
-'use client';
+// web/components/portal/PortalChrome.tsx
+"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -11,9 +12,10 @@ type Props = {
 
 const tabs = [
   { label: "Dashboard", path: "dashboard" },
-  { label: "Database",  path: "database" },
-  { label: "Tests",     path: "tests" },
-  { label: "Profile Settings", path: "profile" }
+  { label: "Database", path: "database" },
+  { label: "Tests", path: "tests" },
+  { label: "Communications", path: "communications" }, // 👈 NEW TAB
+  { label: "Profile Settings", path: "profile" },
 ];
 
 export default function PortalChrome({ orgSlug, orgName, children }: Props) {
@@ -26,14 +28,17 @@ export default function PortalChrome({ orgSlug, orgName, children }: Props) {
         <h1 className="text-xl font-semibold">
           {orgName || orgSlug}
         </h1>
-        <Link href="/admin" className="text-sm underline opacity-80 hover:opacity-100">
+        <Link
+          href="/admin"
+          className="text-sm underline opacity-80 hover:opacity-100"
+        >
           Back to admin
         </Link>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-2 px-5 pb-4 flex-wrap">
-        {tabs.map(t => {
+        {tabs.map((t) => {
           const href = `/portal/${orgSlug}/${t.path}`;
           const active = pathname?.startsWith(href);
           return (
@@ -53,9 +58,8 @@ export default function PortalChrome({ orgSlug, orgName, children }: Props) {
       </div>
 
       {/* Page body */}
-      <div className="px-5 pb-10">
-        {children}
-      </div>
+      <div className="px-5 pb-10">{children}</div>
     </div>
   );
 }
+

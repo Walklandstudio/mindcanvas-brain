@@ -22,6 +22,10 @@ type QscResultsRow = {
   combined_profile_code: string | null;
   qsc_profile_id: string | null;
   created_at: string;
+
+  // Optional – if your API already returns these we’ll show them
+  taker_name?: string | null;
+  taker_email?: string | null;
 };
 
 type QscProfileRow = {
@@ -74,6 +78,7 @@ function sectionText(value: string | null | undefined, fallback: string) {
 
 /**
  * Generic card for each numbered section.
+ * Slightly larger, more “report-like” typography.
  */
 function SectionCard({
   id,
@@ -96,7 +101,7 @@ function SectionCard({
     <section
       id={id}
       className={[
-        "scroll-mt-24 rounded-3xl border p-6 md:p-8 space-y-3",
+        "scroll-mt-28 rounded-3xl border p-6 md:p-8 space-y-3",
         isDanger
           ? "border-rose-600/50 bg-gradient-to-br from-slate-950 via-slate-950 to-rose-950/40"
           : "border-slate-800 bg-slate-950/80",
@@ -116,7 +121,7 @@ function SectionCard({
         <div className="space-y-1.5">
           <h2
             className={[
-              "text-[1.05rem] font-semibold",
+              "text-[1.05rem] md:text-[1.1rem] font-semibold",
               isDanger ? "text-rose-50" : "text-slate-50",
             ].join(" ")}
           >
@@ -125,7 +130,7 @@ function SectionCard({
           {kicker && (
             <p
               className={[
-                "text-[13px] leading-relaxed",
+                "text-[13px] md:text-[14px] leading-relaxed",
                 isDanger ? "text-rose-100/80" : "text-slate-300",
               ].join(" ")}
             >
@@ -136,7 +141,7 @@ function SectionCard({
       </div>
       <div
         className={[
-          "pt-3 text-[14px] leading-relaxed whitespace-pre-line",
+          "pt-3 text-[14px] md:text-[15px] leading-relaxed whitespace-pre-line",
           isDanger ? "text-rose-50" : "text-slate-100",
         ].join(" ")}
       >
@@ -275,6 +280,8 @@ export default function QscExtendedSourceCodePage({
     result.combined_profile_code ||
     "Quantum profile";
 
+  const takerName = result.taker_name ?? null;
+
   const backHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
@@ -291,7 +298,7 @@ export default function QscExtendedSourceCodePage({
             <h1 className="text-[2.1rem] md:text-[2.4rem] font-bold tracking-tight">
               Extended Source Code — Internal Insights
             </h1>
-            <p className="text-[14px] leading-relaxed text-slate-300 max-w-2xl">
+            <p className="text-[14px] md:text-[15px] leading-relaxed text-slate-300 max-w-2xl">
               Deep sales and messaging insights for this Quantum buyer profile.
               Use this as your reference when designing offers, sales pages,
               email sequences, and live launch scripts.
@@ -315,6 +322,14 @@ export default function QscExtendedSourceCodePage({
                 minute: "2-digit",
               })}
             </span>
+            {takerName && (
+              <span className="text-[11px] text-slate-500">
+                Test-taker:{" "}
+                <span className="font-semibold text-slate-100">
+                  {takerName}
+                </span>
+              </span>
+            )}
             <div className="flex flex-col items-end gap-0.5 text-[11px]">
               <span className="text-slate-500">
                 Combined profile:{" "}
@@ -335,288 +350,290 @@ export default function QscExtendedSourceCodePage({
           </div>
         </header>
 
-        {/* PROFILE SUMMARY + INDEX (side by side on desktop) */}
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-8">
-          <div className="grid gap-6 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)] md:items-start">
-            {/* Left: copy, close to Strategic Growth vibe */}
-            <div className="space-y-3">
-              <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-300/90">
-                Profile summary
+        {/* MAIN BODY: left index, right content */}
+        <div className="grid gap-8 md:grid-cols-[260px,minmax(0,1fr)] items-start">
+          {/* LEFT: QUICK INDEX */}
+          <aside className="rounded-3xl border border-slate-800 bg-slate-950/90 p-5 md:p-6 md:sticky md:top-6 space-y-3">
+            <div>
+              <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                Quick index
               </p>
-              <h2 className="text-[1.25rem] font-semibold text-slate-50">
-                How to sell to this buyer
-              </h2>
-              <p className="text-[14px] leading-relaxed text-slate-200">
-                This page is for you as the{" "}
-                <span className="font-semibold">test owner</span>. It gives you
-                the core sales, messaging and offer-fit insights you need to
-                convert this profile — without needing to read their entire
-                Strategic Growth Report.
+              <p className="text-[12px] md:text-[13px] leading-relaxed text-slate-300">
+                Jump straight to the section you need during calls, campaigns or
+                copywriting.
               </p>
+            </div>
+            <div className="mt-2 flex flex-col gap-2">
+              {SECTION_INDEX.map((s) => (
+                <a
+                  key={s.id}
+                  href={`#${s.id}`}
+                  className="group inline-flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-[13px] md:text-[14px] hover:border-sky-500/80 hover:bg-slate-900"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100 group-hover:bg-sky-500 group-hover:text-slate-950">
+                      {s.number}
+                    </span>
+                    <span className="font-medium text-slate-100 group-hover:text-sky-50">
+                      {s.title}
+                    </span>
+                  </div>
+                  <span className="hidden text-[11px] text-slate-500 group-hover:text-sky-200 lg:inline">
+                    View
+                  </span>
+                </a>
+              ))}
+            </div>
+          </aside>
+
+          {/* RIGHT: SUMMARY + SECTIONS */}
+          <div className="space-y-8">
+            {/* PROFILE SUMMARY CARD */}
+            <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-8 space-y-4">
+              <div className="space-y-3">
+                <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-300/90">
+                  Profile summary
+                </p>
+                <h2 className="text-[1.25rem] md:text-[1.3rem] font-semibold text-slate-50">
+                  How to sell to this buyer
+                </h2>
+                <p className="text-[14px] md:text-[15px] leading-relaxed text-slate-200">
+                  This page is for you as the{" "}
+                  <span className="font-semibold">test owner</span>. It gives
+                  you the core sales, messaging and offer-fit insights you need
+                  to convert this profile — without needing to read their entire
+                  Strategic Growth Report.
+                </p>
+              </div>
 
               {extended && (
-                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-[13px] text-slate-100 md:grid-cols-2">
+                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-[13px] md:text-[14px] text-slate-100 md:grid-cols-2">
                   <div>
                     <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
-                      Personality Layer
+                      Personality layer
                     </p>
                     <p className="mt-1 font-semibold">
                       {extended.personality_label}
                     </p>
-                    <p className="mt-1 text-[12px] text-slate-300">
+                    <p className="mt-1 text-[12px] md:text-[13px] text-slate-300">
                       How they naturally think, lead and relate.
                     </p>
                   </div>
                   <div>
                     <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
-                      Mindset Layer
+                      Mindset layer
                     </p>
                     <p className="mt-1 font-semibold">
                       {extended.mindset_label}
                     </p>
-                    <p className="mt-1 text-[12px] text-slate-300">
+                    <p className="mt-1 text-[12px] md:text-[13px] text-slate-300">
                       Where their business is right now, and what it needs to
                       grow sustainably.
                     </p>
                   </div>
                 </div>
               )}
-            </div>
+            </section>
 
-            {/* Right: vertical quick index */}
-            <div className="space-y-3 md:pl-4 border-t border-slate-800/70 pt-4 md:border-t-0 md:border-l md:pt-0">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
-                    Quick index
-                  </p>
-                  <p className="text-[12px] leading-relaxed text-slate-300">
-                    Jump straight to the section you need during calls,
-                    campaigns or copywriting.
-                  </p>
-                </div>
+            {/* GROUP 1: DIAGNOSTIC LAYERS */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
+                  Diagnostic layers • Who they are & where they are in business
+                </h2>
+                <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
               </div>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-1">
-                {SECTION_INDEX.map((s) => (
-                  <a
-                    key={s.id}
-                    href={`#${s.id}`}
-                    className="group inline-flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950/90 px-3 py-2 text-[13px] hover:border-sky-500/80 hover:bg-slate-900"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100 group-hover:bg-sky-500 group-hover:text-slate-950">
-                        {s.number}
-                      </span>
-                      <span className="font-medium text-slate-100 group-hover:text-sky-50">
-                        {s.title}
-                      </span>
-                    </div>
-                    <span className="hidden text-[11px] text-slate-500 group-hover:text-sky-200 md:inline">
-                      View
-                    </span>
-                  </a>
-                ))}
-              </div>
+              <SectionCard
+                id="sec-1-personality"
+                number={1}
+                title="Personality Layer"
+                kicker="How they think, behave and decide at this stage."
+              >
+                {sectionText(
+                  extended?.personality_layer,
+                  "Personality layer details have not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-2-mindset"
+                number={2}
+                title="Mindset Layer"
+                kicker="Where they are in their current business journey."
+              >
+                {sectionText(
+                  extended?.mindset_layer,
+                  "Mindset layer details have not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-3-quantum"
+                number={3}
+                title="Combined Quantum Pattern"
+                kicker="How their behaviour and mindset interact to create specific patterns."
+              >
+                {sectionText(
+                  extended?.combined_quantum_pattern,
+                  "Combined Quantum pattern has not been defined yet."
+                )}
+              </SectionCard>
             </div>
+
+            {/* GROUP 2: SALES PLAYBOOK */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pt-4">
+                <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
+                  Sales playbook • How to communicate, position & sell
+                </h2>
+                <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
+              </div>
+
+              <SectionCard
+                id="sec-4-communicate"
+                number={4}
+                title="How to Communicate"
+                kicker="Tone, language and delivery style that makes this buyer feel understood and safe."
+              >
+                {sectionText(
+                  extended?.how_to_communicate,
+                  "No communication guidance is available yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-5-decisions"
+                number={5}
+                title="How They Make Decisions"
+                kicker="What helps them say yes, what makes them hesitate, and the decision filters they use."
+              >
+                {sectionText(
+                  extended?.how_they_make_decisions,
+                  "Decision style has not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-6-problems"
+                number={6}
+                title="Core Business Problems"
+                kicker="The recurring patterns and friction points that show up most often for this buyer."
+              >
+                {sectionText(
+                  extended?.core_business_problems,
+                  "Core business problems have not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-7-trust"
+                number={7}
+                title="What Builds Trust"
+                kicker="Signals, proof and experiences that help them feel safe moving forward with you."
+              >
+                {sectionText(
+                  extended?.what_builds_trust,
+                  "Trust-building patterns have not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-8-offer"
+                number={8}
+                title="What Offer They Are Ready For"
+                kicker="The pricing, structure and level of support most likely to help them say yes and get results."
+              >
+                {sectionText(
+                  extended?.what_offer_ready_for,
+                  "Offer readiness has not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-9-blockers"
+                number={9}
+                title="What Blocks the Sale Completely"
+                kicker="Fear triggers, misalignments and risk perceptions that stop them from moving ahead."
+                variant="danger"
+              >
+                {sectionText(
+                  extended?.what_blocks_sale,
+                  "Sale blockers have not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-10-precall"
+                number={10}
+                title="Pre-Call Questions"
+                kicker="Conversation starters that reveal both the emotional and structural gaps."
+              >
+                {sectionText(
+                  extended?.pre_call_questions,
+                  "Pre-call questions have not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-11-microscripts"
+                number={11}
+                title="Micro Scripts"
+                kicker="Short lines you can use in sales calls, emails and live launches."
+              >
+                {sectionText(
+                  extended?.micro_scripts,
+                  "Micro scripts have not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-12-flags"
+                number={12}
+                title="Green & Red Flags"
+                kicker="What tells you they are a strong fit — and what tells you to pause or reframe."
+              >
+                {sectionText(
+                  extended?.green_red_flags,
+                  "Green and red flags have not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-13-example"
+                number={13}
+                title="Real-Life Example"
+                kicker="A simple narrative you can keep in mind when speaking to this profile."
+              >
+                {sectionText(
+                  extended?.real_life_example,
+                  "Real-life example has not been defined yet."
+                )}
+              </SectionCard>
+
+              <SectionCard
+                id="sec-14-summary"
+                number={14}
+                title="Final Summary"
+                kicker="How to hold this profile in your mind when designing offers and communication."
+              >
+                {sectionText(
+                  extended?.final_summary,
+                  "Final summary has not been defined yet."
+                )}
+              </SectionCard>
+            </div>
+
+            <footer className="pt-2 pb-8 text-xs text-slate-500 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <span>
+                © {new Date().getFullYear()} MindCanvas — Profiletest.ai
+              </span>
+              <span className="text-[11px] text-slate-500">
+                Internal use only — Extended Source Code for test owners.
+              </span>
+            </footer>
           </div>
-        </section>
-
-        {/* GROUP 1: DIAGNOSTIC LAYERS */}
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
-              Diagnostic layers • Who they are & where they are in business
-            </h2>
-            <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
-          </div>
-
-          <SectionCard
-            id="sec-1-personality"
-            number={1}
-            title="Personality Layer"
-            kicker="How they think, behave and decide at this stage."
-          >
-            {sectionText(
-              extended?.personality_layer,
-              "Personality layer details have not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-2-mindset"
-            number={2}
-            title="Mindset Layer"
-            kicker="Where they are in their current business journey."
-          >
-            {sectionText(
-              extended?.mindset_layer,
-              "Mindset layer details have not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-3-quantum"
-            number={3}
-            title="Combined Quantum Pattern"
-            kicker="How their behaviour and mindset interact to create specific patterns."
-          >
-            {sectionText(
-              extended?.combined_quantum_pattern,
-              "Combined Quantum pattern has not been defined yet."
-            )}
-          </SectionCard>
         </div>
-
-        {/* GROUP 2: SALES PLAYBOOK */}
-        <div className="space-y-6">
-          <div className="flex items-center justify-between pt-4">
-            <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
-              Sales playbook • How to communicate, position & sell
-            </h2>
-            <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
-          </div>
-
-          <SectionCard
-            id="sec-4-communicate"
-            number={4}
-            title="How to Communicate"
-            kicker="Tone, language and delivery style that makes this buyer feel understood and safe."
-          >
-            {sectionText(
-              extended?.how_to_communicate,
-              "No communication guidance is available yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-5-decisions"
-            number={5}
-            title="How They Make Decisions"
-            kicker="What helps them say yes, what makes them hesitate, and the decision filters they use."
-          >
-            {sectionText(
-              extended?.how_they_make_decisions,
-              "Decision style has not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-6-problems"
-            number={6}
-            title="Core Business Problems"
-            kicker="The recurring patterns and friction points that show up most often for this buyer."
-          >
-            {sectionText(
-              extended?.core_business_problems,
-              "Core business problems have not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-7-trust"
-            number={7}
-            title="What Builds Trust"
-            kicker="Signals, proof and experiences that help them feel safe moving forward with you."
-          >
-            {sectionText(
-              extended?.what_builds_trust,
-              "Trust-building patterns have not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-8-offer"
-            number={8}
-            title="What Offer They Are Ready For"
-            kicker="The pricing, structure and level of support most likely to help them say yes and get results."
-          >
-            {sectionText(
-              extended?.what_offer_ready_for,
-              "Offer readiness has not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-9-blockers"
-            number={9}
-            title="What Blocks the Sale Completely"
-            kicker="Fear triggers, misalignments and risk perceptions that stop them from moving ahead."
-            variant="danger"
-          >
-            {sectionText(
-              extended?.what_blocks_sale,
-              "Sale blockers have not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-10-precall"
-            number={10}
-            title="Pre-Call Questions"
-            kicker="Conversation starters that reveal both the emotional and structural gaps."
-          >
-            {sectionText(
-              extended?.pre_call_questions,
-              "Pre-call questions have not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-11-microscripts"
-            number={11}
-            title="Micro Scripts"
-            kicker="Short lines you can use in sales calls, emails and live launches."
-          >
-            {sectionText(
-              extended?.micro_scripts,
-              "Micro scripts have not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-12-flags"
-            number={12}
-            title="Green & Red Flags"
-            kicker="What tells you they are a strong fit — and what tells you to pause or reframe."
-          >
-            {sectionText(
-              extended?.green_red_flags,
-              "Green and red flags have not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-13-example"
-            number={13}
-            title="Real-Life Example"
-            kicker="A simple narrative you can keep in mind when speaking to this profile."
-          >
-            {sectionText(
-              extended?.real_life_example,
-              "Real-life example has not been defined yet."
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="sec-14-summary"
-            number={14}
-            title="Final Summary"
-            kicker="How to hold this profile in your mind when designing offers and communication."
-          >
-            {sectionText(
-              extended?.final_summary,
-              "Final summary has not been defined yet."
-            )}
-          </SectionCard>
-        </div>
-
-        <footer className="pt-6 pb-8 text-xs text-slate-500 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-          <span>© {new Date().getFullYear()} MindCanvas — Profiletest.ai</span>
-          <span className="text-[11px] text-slate-500">
-            Internal use only — Extended Source Code for test owners.
-          </span>
-        </footer>
       </main>
     </div>
   );
