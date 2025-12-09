@@ -6,19 +6,11 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
-import * as React from "react";
-import * as PDF from "@react-pdf/renderer";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 
 type Params = { takerId: string };
-
-// Very simple styles – this is the version that we *know* works
-const styles = PDF.StyleSheet.create({
-  page: { padding: 24 },
-  h1: { fontSize: 18, marginBottom: 12 },
-  p: { fontSize: 12, marginBottom: 8 },
-});
 
 function formatDateLabel(iso: string | null | undefined): string {
   if (!iso) return "N/A";
@@ -53,7 +45,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
     const url = new URL(req.url);
     const debug = url.searchParams.get("debug") === "1";
     const wantsJson = url.searchParams.get("json") === "1";
-    // ?mini=1 is accepted but uses the same PDF for now
+    // We accept ?mini=1 but treat it the same as full PDF for now
     const _mini = url.searchParams.get("mini") === "1";
 
     const portal = getServerSupabase().schema("portal");
@@ -118,7 +110,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       text: org.brand_text || "#111827",
     };
 
-    // --- JSON path for HTML reports / debugging ---
+    // --- JSON path (for HTML report / debugging) ---
     if (wantsJson) {
       const totals: any = latestResult?.totals ?? {};
       const profileTotals: Record<string, number> = totals.profiles ?? {};
@@ -169,47 +161,76 @@ export async function GET(req: Request, { params }: { params: Params }) {
       taker.last_name ?? ""
     }`.trim();
 
-    // This is the same shape that already worked in your earlier mini PDF
-    const Doc = React.createElement(
-      PDF.Document,
-      null,
-      React.createElement(
-        PDF.Page,
-        { size: "A4", style: styles.page },
-        React.createElement(
-          PDF.View,
-          null,
-          React.createElement(
-            PDF.Text,
-            { style: styles.h1 },
-            "MindCanvas Report (Mini)"
-          ),
-          React.createElement(
-            PDF.Text,
-            { style: styles.p },
-            `Org: ${org.name ?? ""}`
-          ),
-          React.createElement(
-            PDF.Text,
-            { style: styles.p },
-            `Taker: ${fullName || "Unknown"}`
-          ),
-          React.createElement(
-            PDF.Text,
-            { style: styles.p },
-            `Has result: ${latestResult ? "yes" : "no"}`
-          ),
-          React.createElement(
-            PDF.Text,
-            { style: styles.p },
-            `Latest result: ${latestLabel}`
-          )
-        )
-      )
-    );
+    // Create a simple 1-page PDF using pdf-lib (no React at all)
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage();
+    const { width, height } = page.getSize();
 
-    const instance: any = PDF.pdf(Doc);
-    const pdfBytes: Uint8Array = await instance.toBuffer();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const titleFontSize = 20;
+    const bodyFontSize = 12;
+
+    let y = height - 80;
+
+    page.drawText("MindCanvas Report", {
+      x: 60,
+      y,
+      size: titleFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 40;
+
+    page.drawText(`Org: ${org.name ?? ""}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 20;
+
+    page.drawText(`Taker: ${fullName || "Unknown"}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 20;
+
+    page.drawText(`Email: ${taker.email ?? "N/A"}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 20;
+
+    page.drawText(`Has result: ${latestResult ? "yes" : "no"}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    y -= 20;
+
+    page.drawText(`Latest result: ${latestLabel}`, {
+      x: 60,
+      y,
+      size: bodyFontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    const pdfBytes = await pdfDoc.save(); // Uint8Array
 
     return new Response(Buffer.from(pdfBytes), {
       headers: {
