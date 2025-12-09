@@ -6,14 +6,7 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import * as React from "react";
-import {
-  Document,
-  Page,
-  View,
-  Text,
-  StyleSheet,
-  pdf,
-} from "@react-pdf/renderer";
+import * as PDF from "@react-pdf/renderer";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
@@ -75,7 +68,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const latestResult = latestResultQ.data ?? null;
 
-    // Existing debug output: JSON only, no PDF
+    // Debug JSON
     if (debug) {
       return NextResponse.json(
         { ok: true, taker, org, latestResult },
@@ -88,7 +81,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       text: org.brand_text || "#111827",
     };
 
-    // NEW: pure JSON path for HTML reports (no React-PDF)
+    // Pure JSON path for HTML reports
     if (wantsJson) {
       const totals: any = latestResult?.totals ?? {};
       const profileTotals: Record<string, number> = totals.profiles ?? {};
@@ -120,9 +113,9 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // MINI sanity-PDF using @react-pdf/renderer with named imports
+    // MINI sanity-PDF using @react-pdf/renderer
     if (mini) {
-      const styles = StyleSheet.create({
+      const styles = PDF.StyleSheet.create({
         page: { padding: 24 },
         h1: { fontSize: 18, marginBottom: 12 },
         p: { fontSize: 12, marginBottom: 8 },
@@ -133,31 +126,31 @@ export async function GET(req: Request, { params }: { params: Params }) {
       }`.trim();
 
       const MiniDoc = React.createElement(
-        Document,
+        PDF.Document,
         null,
         React.createElement(
-          Page,
+          PDF.Page,
           { size: "A4", style: styles.page },
           React.createElement(
-            View,
+            PDF.View,
             null,
             React.createElement(
-              Text,
+              PDF.Text,
               { style: styles.h1 },
               "MindCanvas Report (Mini)"
             ),
             React.createElement(
-              Text,
+              PDF.Text,
               { style: styles.p },
               `Org: ${org.name ?? ""}`
             ),
             React.createElement(
-              Text,
+              PDF.Text,
               { style: styles.p },
               `Taker: ${takerName}`
             ),
             React.createElement(
-              Text,
+              PDF.Text,
               { style: styles.p },
               `Has result: ${latestResult ? "yes" : "no"}`
             )
@@ -165,8 +158,8 @@ export async function GET(req: Request, { params }: { params: Params }) {
         )
       );
 
-      const instance = pdf(MiniDoc);
-      const bytes: Uint8Array = await instance.toBuffer();
+      const instance = PDF.pdf(MiniDoc);
+      const bytes = await instance.toBuffer(); // Uint8Array
 
       return new Response(bytes as any, {
         headers: {
@@ -197,12 +190,18 @@ export async function GET(req: Request, { params }: { params: Params }) {
       latestResult,
     } as any);
 
-    // generateReportBuffer may be typed as ReadableStream / unknown.
-    // Treat it as an opaque PDF payload and hand it directly to Response.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfPayload: any = await generateReportBuffer(data as any, colors);
+    // Treat generateReportBuffer’s output as an opaque PDF body
+    // It may be a Uint8Array or a ReadableStream; Response accepts both.
+    const pdfBody = (await generateReportBuffer(
+      data as any,
+      colors
+    )) as unknown as
+      | Uint8Array
+      | ArrayBuffer
+      | ReadableStream<Uint8Array>
+      | Blob;
 
-    return new Response(pdfPayload as any, {
+    return new Response(pdfBody as any, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
@@ -216,4 +215,5 @@ export async function GET(req: Request, { params }: { params: Params }) {
     );
   }
 }
+
 
