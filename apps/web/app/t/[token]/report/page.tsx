@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { redirect, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 import PersonalityMapSection from "./PersonalityMapSection";
 
@@ -209,6 +210,42 @@ function ReportPage({
   const [resultData, setResultData] = useState<ResultData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [base, setBase] = useState<string | null>(null);
+  const reportRef = useRef<HTMLDivElement | null>(null);
+
+  async function handleDownloadPdf() {
+    if (!reportRef.current) return;
+
+    const element = reportRef.current;
+
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    pdf.save(`mindcanvas-report-${token}.pdf`);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -403,10 +440,6 @@ function ReportPage({
   const secondary = sortedProfiles[1];
   const tertiary = sortedProfiles[2];
 
-  const downloadPdfHref = `/api/portal/reports/${encodeURIComponent(
-    data.taker.id
-  )}`;
-
   const primaryExample =
     profileCopy?.[primary?.code || ""]?.example ||
     "For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.";
@@ -419,7 +452,10 @@ function ReportPage({
   // ---------- RENDER -------------------------------------------------------
 
   return (
-    <div className="relative min-h-screen bg-[#050914] text-white overflow-hidden">
+    <div
+      ref={reportRef}
+      className="relative min-h-screen bg-[#050914] text-white overflow-hidden"
+    >
       <AppBackground />
 
       <div className="relative z-10">
@@ -452,16 +488,14 @@ function ReportPage({
               </p>
             </div>
 
-            {/* Single canonical Download PDF button */}
+            {/* Download PDF button */}
             <div className="flex items-center gap-3">
-              <Link
-                href={downloadPdfHref}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={handleDownloadPdf}
                 className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
               >
                 Download PDF
-              </Link>
+              </button>
             </div>
           </header>
 
@@ -1052,5 +1086,4 @@ function ReportPage({
     </div>
   );
 }
-
 
