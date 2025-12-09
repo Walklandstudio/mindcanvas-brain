@@ -3,8 +3,13 @@
 import { useState } from "react";
 
 function appUrl(path: string) {
-  // If you have NEXT_PUBLIC_APP_URL set, you can switch to that later.
+  // If you later add NEXT_PUBLIC_APP_URL, you can swap this to use it.
   return path;
+}
+
+function embedCode(token: string) {
+  const src = appUrl(`/t/${token}`);
+  return `<iframe src="${src}" width="100%" height="900" style="border:0" allow="clipboard-write; encrypted-media; fullscreen"></iframe>`;
 }
 
 async function createLink(testId: string, label?: string | null) {
@@ -31,20 +36,30 @@ export default function TestsClient({ org, tests, linksByTest }: any) {
   const onGenerate = async (test: any) => {
     // Ask the user to name this link / campaign
     const defaultLabel = test.test_name || "";
-    const label = window.prompt(
-      "Name this link so you can recognise it later (e.g. 'Onboarding cohort 1', 'Website footer', 'Email campaign').",
-      defaultLabel
-    );
+    const promptText =
+      "Name this link so you can recognise it later (e.g. 'Onboarding cohort 1', 'Website footer', 'Email campaign').";
+    const labelInput = window.prompt(promptText, defaultLabel);
 
     // If user cancels the prompt, don’t create anything.
-    if (label === null) return;
+    if (labelInput === null) return;
+
+    const finalLabel = (labelInput || defaultLabel || "").trim();
+    if (!finalLabel) {
+      alert("Please provide a name for this link.");
+      return;
+    }
 
     try {
       setBusyId(test.test_id);
-      const link = await createLink(test.test_id, label.trim() || defaultLabel);
+      const link = await createLink(test.test_id, finalLabel);
+
+      // Ensure the label we just captured is present on the link object,
+      // even if the backend doesn’t echo it yet.
+      const enrichedLink = { ...link, label: link.label ?? finalLabel };
+
       setState((s) => ({
         ...s,
-        [test.test_id]: [link, ...(s[test.test_id] || [])],
+        [test.test_id]: [enrichedLink, ...(s[test.test_id] || [])],
       }));
     } catch (e: any) {
       alert(`Failed to create link: ${e.message}`);
@@ -70,10 +85,7 @@ export default function TestsClient({ org, tests, linksByTest }: any) {
           const links = state[t.test_id] || [];
           const testTitle = t.test_name || "Untitled test";
           const testPurpose =
-            t.test_purpose ||
-            t.purpose ||
-            t.description ||
-            null;
+            t.test_purpose || t.purpose || t.description || null;
 
           return (
             <li
@@ -112,13 +124,14 @@ export default function TestsClient({ org, tests, linksByTest }: any) {
                       l.link_label ||
                       l.purpose ||
                       testTitle;
+                    const embed = embedCode(l.token);
 
                     return (
                       <div
                         key={l.id}
                         className="rounded-xl border border-white/15 bg-black/60 p-3 space-y-2"
                       >
-                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div className="space-y-1">
                             <div className="text-sm font-medium text-white">
                               {label}
@@ -151,13 +164,19 @@ export default function TestsClient({ org, tests, linksByTest }: any) {
                             >
                               Copy link
                             </button>
+                            <button
+                              className="inline-flex items-center rounded-lg border border-white/30 px-3 py-1.5 text-xs text-white hover:bg-white/10"
+                              onClick={() => copy(embed)}
+                            >
+                              Copy embed
+                            </button>
                           </div>
                         </div>
 
                         <p className="text-[11px] text-white/50">
                           Use this link in emails, landing pages, or campaigns.
                           The name above is just for your reporting and will
-                          also be saved in the database.
+                          also be stored with the link.
                         </p>
                       </div>
                     );
