@@ -5,8 +5,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import * as React from "react";
-import * as PDF from "@react-pdf/renderer";
+import { Buffer } from "node:buffer";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { assembleNarrative } from "@/lib/report/assembleNarrative";
 import { generateReportBuffer } from "@/lib/pdf/generateReport";
@@ -68,7 +68,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
 
     const latestResult = latestResultQ.data ?? null;
 
-    // Debug JSON
+    // Existing debug output: JSON only, no PDF
     if (debug) {
       return NextResponse.json(
         { ok: true, taker, org, latestResult },
@@ -81,7 +81,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       text: org.brand_text || "#111827",
     };
 
-    // Pure JSON path for HTML reports
+    // PURE JSON path for HTML/SPA reports (no PDF generation)
     if (wantsJson) {
       const totals: any = latestResult?.totals ?? {};
       const profileTotals: Record<string, number> = totals.profiles ?? {};
@@ -113,55 +113,86 @@ export async function GET(req: Request, { params }: { params: Params }) {
       );
     }
 
-    // MINI sanity-PDF using @react-pdf/renderer
+    // MINI PDF using pdf-lib (no React / no @react-pdf/renderer)
     if (mini) {
-      const styles = PDF.StyleSheet.create({
-        page: { padding: 24 },
-        h1: { fontSize: 18, marginBottom: 12 },
-        p: { fontSize: 12, marginBottom: 8 },
-      });
+      // Basic PDF document
+      const pdfDoc = await PDFDocument.create();
+      const page = pdfDoc.addPage();
+      const { width, height } = page.getSize();
 
-      const takerName = `${taker.first_name ?? ""} ${
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const headingSize = 18;
+      const bodySize = 12;
+
+      let cursorY = height - 80;
+
+      const fullName = `${taker.first_name ?? ""} ${
         taker.last_name ?? ""
       }`.trim();
 
-      const MiniDoc = React.createElement(
-        PDF.Document,
-        null,
-        React.createElement(
-          PDF.Page,
-          { size: "A4", style: styles.page },
-          React.createElement(
-            PDF.View,
-            null,
-            React.createElement(
-              PDF.Text,
-              { style: styles.h1 },
-              "MindCanvas Report (Mini)"
-            ),
-            React.createElement(
-              PDF.Text,
-              { style: styles.p },
-              `Org: ${org.name ?? ""}`
-            ),
-            React.createElement(
-              PDF.Text,
-              { style: styles.p },
-              `Taker: ${takerName}`
-            ),
-            React.createElement(
-              PDF.Text,
-              { style: styles.p },
-              `Has result: ${latestResult ? "yes" : "no"}`
-            )
-          )
-        )
+      page.drawText("MindCanvas Report (Mini)", {
+        x: 50,
+        y: cursorY,
+        size: headingSize,
+        font,
+        color: rgb(0, 0, 0),
+      });
+
+      cursorY -= 30;
+
+      page.drawText(`Org: ${org.name ?? ""}`, {
+        x: 50,
+        y: cursorY,
+        size: bodySize,
+        font,
+        color: rgb(0, 0, 0),
+      });
+
+      cursorY -= 20;
+
+      page.drawText(`Taker: ${fullName || taker.email || params.takerId}`, {
+        x: 50,
+        y: cursorY,
+        size: bodySize,
+        font,
+        color: rgb(0, 0, 0),
+      });
+
+      cursorY -= 20;
+
+      page.drawText(
+        `Has result: ${latestResult ? "yes" : "no"}`,
+        {
+          x: 50,
+          y: cursorY,
+          size: bodySize,
+          font,
+          color: rgb(0, 0, 0),
+        }
       );
 
-      const instance = PDF.pdf(MiniDoc);
-      const bytes = await instance.toBuffer(); // Uint8Array
+      if (latestResult?.created_at) {
+        cursorY -= 20;
+        page.drawText(
+          `Latest result: ${new Date(
+            latestResult.created_at
+          ).toLocaleString("en-GB", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}`,
+          {
+            x: 50,
+            y: cursorY,
+            size: bodySize,
+            font,
+            color: rgb(0, 0, 0),
+          }
+        );
+      }
 
-      return new Response(bytes as any, {
+      const pdfBytes = await pdfDoc.save();
+
+      return new Response(Buffer.from(pdfBytes), {
         headers: {
           "Content-Type": "application/pdf",
           "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
@@ -170,7 +201,7 @@ export async function GET(req: Request, { params }: { params: Params }) {
       });
     }
 
-    // FULL pipeline: require a result to build full narrative
+    // FULL pipeline: require a result to build full narrative (still uses generateReportBuffer)
     if (!latestResult) {
       return NextResponse.json(
         { ok: false, error: "no results for taker yet" },
@@ -190,18 +221,9 @@ export async function GET(req: Request, { params }: { params: Params }) {
       latestResult,
     } as any);
 
-    // Treat generateReportBuffer’s output as an opaque PDF body
-    // It may be a Uint8Array or a ReadableStream; Response accepts both.
-    const pdfBody = (await generateReportBuffer(
-      data as any,
-      colors
-    )) as unknown as
-      | Uint8Array
-      | ArrayBuffer
-      | ReadableStream<Uint8Array>
-      | Blob;
+    const pdfBytes = await generateReportBuffer(data as any, colors);
 
-    return new Response(pdfBody as any, {
+    return new Response(Buffer.from(pdfBytes), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="report-${params.takerId}.pdf"`,
