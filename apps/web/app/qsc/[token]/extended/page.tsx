@@ -76,12 +76,14 @@ function sectionText(value: string | null | undefined, fallback: string) {
  * Generic card for each numbered section.
  */
 function SectionCard({
+  id,
   number,
   title,
   kicker,
   children,
   variant = "default",
 }: {
+  id: string;
   number: number;
   title: string;
   kicker?: string;
@@ -92,8 +94,9 @@ function SectionCard({
 
   return (
     <section
+      id={id}
       className={[
-        "rounded-3xl border p-6 md:p-8 space-y-3",
+        "scroll-mt-24 rounded-3xl border p-6 md:p-8 space-y-3",
         isDanger
           ? "border-rose-600/50 bg-gradient-to-br from-slate-950 via-slate-950 to-rose-950/40"
           : "border-slate-800 bg-slate-950/80",
@@ -142,6 +145,23 @@ function SectionCard({
     </section>
   );
 }
+
+const SECTION_INDEX = [
+  { id: "sec-1-personality", number: 1, title: "Personality Layer" },
+  { id: "sec-2-mindset", number: 2, title: "Mindset Layer" },
+  { id: "sec-3-quantum", number: 3, title: "Combined Quantum Pattern" },
+  { id: "sec-4-communicate", number: 4, title: "How to Communicate" },
+  { id: "sec-5-decisions", number: 5, title: "How They Make Decisions" },
+  { id: "sec-6-problems", number: 6, title: "Core Business Problems" },
+  { id: "sec-7-trust", number: 7, title: "What Builds Trust" },
+  { id: "sec-8-offer", number: 8, title: "What Offer They Are Ready For" },
+  { id: "sec-9-blockers", number: 9, title: "What Blocks the Sale" },
+  { id: "sec-10-precall", number: 10, title: "Pre-Call Questions" },
+  { id: "sec-11-microscripts", number: 11, title: "Micro Scripts" },
+  { id: "sec-12-flags", number: 12, title: "Green & Red Flags" },
+  { id: "sec-13-example", number: 13, title: "Real-Life Example" },
+  { id: "sec-14-summary", number: 14, title: "Final Summary" },
+];
 
 export default function QscExtendedSourceCodePage({
   params,
@@ -350,6 +370,37 @@ export default function QscExtendedSourceCodePage({
           </div>
         </section>
 
+        {/* QUICK INDEX */}
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5 md:p-6 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                Quick index
+              </p>
+              <p className="text-xs text-slate-300">
+                Jump straight to the section you need during calls, campaigns or
+                copywriting.
+              </p>
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SECTION_INDEX.map((s) => (
+              <a
+                key={s.id}
+                href={`#${s.id}`}
+                className="group inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs hover:border-sky-500/70 hover:bg-slate-900"
+              >
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px] font-semibold text-slate-200 group-hover:bg-sky-500/80 group-hover:text-slate-950">
+                  {s.number}
+                </span>
+                <span className="text-[11px] text-slate-200 group-hover:text-sky-100">
+                  {s.title}
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+
         {/* GROUP 1: DIAGNOSTIC LAYERS */}
         <div className="space-y-6">
           <div className="flex items-center justify-between">
@@ -360,6 +411,7 @@ export default function QscExtendedSourceCodePage({
           </div>
 
           <SectionCard
+            id="sec-1-personality"
             number={1}
             title="Personality Layer"
             kicker="How they think, behave and decide at this stage."
@@ -371,6 +423,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-2-mindset"
             number={2}
             title="Mindset Layer"
             kicker="Where they are in their current business journey."
@@ -382,6 +435,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-3-quantum"
             number={3}
             title="Combined Quantum Pattern"
             kicker="How their behaviour and mindset interact to create specific patterns."
@@ -403,6 +457,7 @@ export default function QscExtendedSourceCodePage({
           </div>
 
           <SectionCard
+            id="sec-4-communicate"
             number={4}
             title="How to Communicate"
             kicker="Tone, language and delivery style that makes this buyer feel understood and safe."
@@ -414,6 +469,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-5-decisions"
             number={5}
             title="How They Make Decisions"
             kicker="What helps them say yes, what makes them hesitate, and the decision filters they use."
@@ -425,6 +481,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-6-problems"
             number={6}
             title="Core Business Problems"
             kicker="The recurring patterns and friction points that show up most often for this buyer."
@@ -436,6 +493,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-7-trust"
             number={7}
             title="What Builds Trust"
             kicker="Signals, proof and experiences that help them feel safe moving forward with you."
@@ -447,6 +505,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-8-offer"
             number={8}
             title="What Offer They Are Ready For"
             kicker="The pricing, structure and level of support most likely to help them say yes and get results."
@@ -458,6 +517,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-9-blockers"
             number={9}
             title="What Blocks the Sale Completely"
             kicker="Fear triggers, misalignments and risk perceptions that stop them from moving ahead."
@@ -470,6 +530,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-10-precall"
             number={10}
             title="Pre-Call Questions"
             kicker="Conversation starters that reveal both the emotional and structural gaps."
@@ -481,6 +542,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-11-microscripts"
             number={11}
             title="Micro Scripts"
             kicker="Short lines you can use in sales calls, emails and live launches."
@@ -492,6 +554,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-12-flags"
             number={12}
             title="Green & Red Flags"
             kicker="What tells you they are a strong fit — and what tells you to pause or reframe."
@@ -503,6 +566,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-13-example"
             number={13}
             title="Real-Life Example"
             kicker="A simple narrative you can keep in mind when speaking to this profile."
@@ -514,6 +578,7 @@ export default function QscExtendedSourceCodePage({
           </SectionCard>
 
           <SectionCard
+            id="sec-14-summary"
             number={14}
             title="Final Summary"
             kicker="How to hold this profile in your mind when designing offers and communication."
