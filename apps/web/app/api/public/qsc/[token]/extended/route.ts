@@ -24,7 +24,7 @@ export async function GET(
   const token = params.token;
   const client = supa();
 
-  // 1) Load the QSC result row for this token
+  // 1) Load the QSC result row
   const { data: result, error: resultError } = await client
     .from("qsc_results")
     .select(
@@ -63,7 +63,7 @@ export async function GET(
     );
   }
 
-  // 2) Load the QSC profile row (base snapshot content)
+  // 2) Load the QSC profile row (snapshot persona)
   let profile: any = null;
 
   if (result.qsc_profile_id) {
@@ -81,8 +81,7 @@ export async function GET(
         business_challenges,
         trust_signals,
         offer_fit,
-        sale_blockers,
-        full_internal_insights
+        sale_blockers
       `
       )
       .eq("id", result.qsc_profile_id)
@@ -95,7 +94,7 @@ export async function GET(
     }
   }
 
-  // Fallback lookup if qsc_profile_id is missing
+  // Fallback: lookup by combined_profile_code if needed
   if (!profile && result.combined_profile_code) {
     const { data, error } = await client
       .from("qsc_profiles")
@@ -111,8 +110,7 @@ export async function GET(
         business_challenges,
         trust_signals,
         offer_fit,
-        sale_blockers,
-        full_internal_insights
+        sale_blockers
       `
       )
       .eq("profile_code", result.combined_profile_code)
@@ -128,38 +126,96 @@ export async function GET(
     }
   }
 
-  // 3) Overlay the full Extended Source Code from entrepreneur_owner_insights
-  //    based on persona combo A1–D5.
-  if (profile?.personality_code && profile?.mindset_level) {
-    const comboCode = `${profile.personality_code}${profile.mindset_level}`;
+  // 3) Load the structured Extended Source Code row from portal.qsc_entrepreneur_extended_reports
+  let extended: any = null;
 
-    const { data: ownerRow, error: ownerError } = await client
-      .from("qsc_entrepreneur_owner_insights")
+  if (profile?.profile_code) {
+    const { data, error } = await client
+      .from("qsc_entrepreneur_extended_reports")
       .select(
         `
-        combo_code,
-        extended_source_code
+        personality_code,
+        personality_label,
+        mindset_label,
+        mindset_level,
+        profile_code,
+        persona_label,
+        personality_layer,
+        mindset_layer,
+        combined_quantum_pattern,
+        how_to_communicate,
+        how_they_make_decisions,
+        core_business_problems,
+        what_builds_trust,
+        what_offer_ready_for,
+        what_blocks_sale,
+        pre_call_questions,
+        micro_scripts,
+        green_red_flags,
+        real_life_example,
+        final_summary
       `
       )
-      .eq("combo_code", comboCode)
+      .eq("profile_code", profile.profile_code)
       .maybeSingle();
 
-    if (ownerError) {
+    if (error) {
       console.error(
-        "[QSC extended] error loading entrepreneur_owner_insights:",
-        ownerError
+        "[QSC extended] error loading entrepreneur_extended_reports by profile_code:",
+        error
       );
-    } else if (ownerRow?.extended_source_code) {
-      profile = {
-        ...profile,
-        full_internal_insights: ownerRow.extended_source_code,
-      };
+    } else {
+      extended = data;
     }
   }
 
+  // Fallback: match by personality_code + mindset_level if profile_code is missing
+  if (!extended && profile?.personality_code && profile?.mindset_level) {
+    const { data, error } = await client
+      .from("qsc_entrepreneur_extended_reports")
+      .select(
+        `
+        personality_code,
+        personality_label,
+        mindset_label,
+        mindset_level,
+        profile_code,
+        persona_label,
+        personality_layer,
+        mindset_layer,
+        combined_quantum_pattern,
+        how_to_communicate,
+        how_they_make_decisions,
+        core_business_problems,
+        what_builds_trust,
+        what_offer_ready_for,
+        what_blocks_sale,
+        pre_call_questions,
+        micro_scripts,
+        green_red_flags,
+        real_life_example,
+        final_summary
+      `
+      )
+      .eq("personality_code", profile.personality_code)
+      .eq("mindset_level", profile.mindset_level)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        "[QSC extended] error loading entrepreneur_extended_reports by persona+mindset:",
+        error
+      );
+    } else {
+      extended = data;
+    }
+  }
+
+  // 4) Respond with everything the Extended page needs
   return NextResponse.json({
     ok: true,
     results: result,
     profile,
+    extended,
   });
 }
