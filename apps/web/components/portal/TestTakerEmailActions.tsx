@@ -57,15 +57,18 @@ export default function TestTakerEmailActions({
     }
   };
 
-  const buttonClass =
-    "inline-flex items-center rounded-md border border-slate-600 bg-slate-900 px-2.5 py-1 text-xs font-medium text-slate-100 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60";
+  const btnBase =
+    "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-1";
+  const btnNeutral =
+    btnBase +
+    " border-slate-300 bg-white text-slate-800 hover:bg-slate-50 focus:ring-sky-500";
 
   return (
     <div className={compact ? "space-x-1" : "space-y-2"}>
       <div className={compact ? "flex flex-wrap gap-1" : "flex flex-wrap gap-2"}>
         <button
           type="button"
-          className={buttonClass}
+          className={btnNeutral}
           disabled={!!busyType}
           onClick={() => send("send_test_link")}
         >
@@ -74,7 +77,7 @@ export default function TestTakerEmailActions({
 
         <button
           type="button"
-          className={buttonClass}
+          className={btnNeutral}
           disabled={!!busyType}
           onClick={() => send("report")}
         >
@@ -83,7 +86,7 @@ export default function TestTakerEmailActions({
 
         <button
           type="button"
-          className={buttonClass}
+          className={btnNeutral}
           disabled={!!busyType}
           onClick={() => send("resend_report")}
         >
@@ -94,7 +97,7 @@ export default function TestTakerEmailActions({
       {(message || error) && !compact && (
         <p
           className={`text-[11px] ${
-            error ? "text-red-300" : "text-emerald-300"
+            error ? "text-red-600" : "text-emerald-600"
           }`}
         >
           {error || message}

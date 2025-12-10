@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { createClient } from "@/lib/server/supabaseAdmin";
+import TestTakerEmailActions from "@/components/portal/TestTakerEmailActions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ type SearchParams = {
 
 type Row = {
   id: string;
+  testId: string;
   name: string;
   email: string;
   company: string;
@@ -160,11 +162,11 @@ export default async function DatabasePage({
 
     const rows: Row[] = filtered.map((t: any) => {
       const linkToken = (t.link_token || "").trim();
-      const testPurpose =
-        linkNameByToken.get(linkToken) || "—";
+      const testPurpose = linkNameByToken.get(linkToken) || "—";
 
       return {
         id: t.id,
+        testId: t.test_id,
         name:
           [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || "—",
         email: t.email || "—",
@@ -273,7 +275,7 @@ export default async function DatabasePage({
           </select>
 
           <button
-            className="rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-sm text-slate-100 hover:bg-white/10 transition"
+            className="rounded-xl border border-white/20 bg.white/5 px-4 py-2 text-sm text-slate-100 hover:bg-white/10 transition"
             type="submit"
           >
             Apply
@@ -327,12 +329,20 @@ export default async function DatabasePage({
                     {r.created}
                   </td>
                   <td className="px-4 py-2">
-                    <Link
-                      className="text-sky-700 hover:text-sky-900 underline"
-                      href={`/portal/${slug}/database/${r.id}`}
-                    >
-                      View
-                    </Link>
+                    <div className="flex flex-col gap-1">
+                      <TestTakerEmailActions
+                        orgSlug={slug}
+                        testId={r.testId}
+                        takerId={r.id}
+                        compact
+                      />
+                      <Link
+                        className="text-[11px] text-sky-700 hover:text-sky-900 underline"
+                        href={`/portal/${slug}/database/${r.id}`}
+                      >
+                        View profile
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}
