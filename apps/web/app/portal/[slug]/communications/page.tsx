@@ -1,4 +1,3 @@
-// apps/web/app/portal/[slug]/communications/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -34,19 +33,33 @@ const TYPE_DESCRIPTIONS: Record<EmailTemplateType, string> = {
 };
 
 const PLACEHOLDERS: Record<EmailTemplateType, string[]> = {
-  report: ["{{first_name}}", "{{test_name}}", "{{report_link}}", "{{org_name}}"],
-  test_owner_notification: [
-    "{{owner_name}}",
+  report: [
     "{{first_name}}",
-    "{{last_name}}",
     "{{test_name}}",
     "{{report_link}}",
+    "{{next_steps_link}}",
+    "{{owner_full_name}}",
+    "{{owner_website}}",
+    "{{owner_email}}",
     "{{org_name}}",
+  ],
+  test_owner_notification: [
+    "{{owner_first_name}}",
+    "{{test_taker_full_name}}",
+    "{{test_taker_email}}",
+    "{{test_taker_mobile}}",
+    "{{test_taker_org}}",
+    "{{internal_report_link}}",
+    "{{internal_results_dashboard_link}}",
+    "{{test_name}}",
   ],
   resend_report: [
     "{{first_name}}",
     "{{test_name}}",
     "{{report_link}}",
+    "{{owner_full_name}}",
+    "{{owner_website}}",
+    "{{owner_email}}",
     "{{org_name}}",
   ],
   send_test_link: [
@@ -57,10 +70,144 @@ const PLACEHOLDERS: Record<EmailTemplateType, string[]> = {
   ],
 };
 
-async function fetchTemplates(slug: string): Promise<TemplateRow[]> {
-  const res = await fetch(`/api/portal/${slug}/communication/templates`, {
-    cache: "no-store",
-  });
+const DEFAULT_TEMPLATES: TemplateRow[] = [
+  {
+    type: "report",
+    subject: "Your {{test_name}} Results",
+    body_html: `
+<p>Dear {{first_name}},</p>
+
+<p>
+  Congratulations on completing the {{test_name}}. I wanted to take a moment to
+  share your unique results with you and your next steps.
+</p>
+
+<p><strong>Step 1:</strong>
+  <a href="{{report_link}}">CLICK HERE</a> to open your personalised report link.
+</p>
+
+<p><strong>Step 2:</strong>
+  <a href="{{next_steps_link}}">CLICK HERE</a> to explore your next steps actions.
+</p>
+
+<p>
+  I look forward to working with you further and exploring your profile results.
+</p>
+
+<p>
+  Regards,<br/>
+  {{owner_full_name}}<br/>
+  Founder @ {{test_name}}<br/>
+  {{owner_website}}
+</p>
+
+<p>
+  For any queries, please contact us at {{owner_email}}.
+</p>
+    `.trim(),
+  },
+  {
+    type: "test_owner_notification",
+    subject: "{{test_taker_full_name}} completed the {{test_name}}",
+    body_html: `
+<p>Dear {{owner_first_name}},</p>
+
+<p>Please see details below of the completed test:</p>
+
+<ul>
+  <li><strong>Test Name:</strong> {{test_name}}</li>
+  <li><strong>Name:</strong> {{test_taker_full_name}}</li>
+  <li><strong>Email:</strong> {{test_taker_email}}</li>
+  <li><strong>Mobile:</strong> {{test_taker_mobile}}</li>
+  <li><strong>Organisation:</strong> {{test_taker_org}}</li>
+</ul>
+
+<p>
+  <strong>Internal Test Taker Report:</strong>
+  <a href="{{internal_report_link}}">{{internal_report_link}}</a>
+</p>
+
+<p>
+  <strong>Internal Test Taker Results Dashboard:</strong>
+  <a href="{{internal_results_dashboard_link}}">{{internal_results_dashboard_link}}</a>
+</p>
+
+<p>
+  Regards,<br/>
+  Daniel @ profiletest.ai
+</p>
+
+<p>
+  For any queries, please contact us at support@profiletest.ai.
+</p>
+    `.trim(),
+  },
+  {
+    type: "resend_report",
+    subject: "Your {{test_name}} Results",
+    body_html: `
+<p>Dear {{first_name}},</p>
+
+<p>
+  Please find below your results and other links that you need with regards to
+  your {{test_name}} results.
+</p>
+
+<p>
+  <strong>Step 1:</strong>
+  <a href="{{report_link}}">CLICK HERE</a> to open your personalised report link.
+</p>
+
+<p>
+  I look forward to working with you further and exploring your profile results.
+</p>
+
+<p>
+  Regards,<br/>
+  {{owner_full_name}}<br/>
+  Founder @ {{test_name}}<br/>
+  {{owner_website}}
+</p>
+
+<p>
+  For any queries, please contact us at {{owner_email}}.
+</p>
+    `.trim(),
+  },
+  {
+    type: "send_test_link",
+    subject: "Your link to complete the {{test_name}}",
+    body_html: `
+<p>Hi {{first_name}},</p>
+
+<p>
+  You’ve been invited to complete the {{test_name}}.
+</p>
+
+<p>
+  <strong>Start your test here:</strong><br/>
+  <a href="{{test_link}}">{{test_link}}</a>
+</p>
+
+<p>
+  Once you’ve completed your test, you’ll receive your personalised report.
+</p>
+
+<p>
+  Warm regards,<br/>
+  {{org_name}}
+</p>
+    `.trim(),
+  },
+];
+
+async function fetchTemplatesFromApi(slug: string): Promise<TemplateRow[]> {
+  const res = await fetch(
+    `/api/portal/${slug}/communications/templates`,
+    {
+      cache: "no-store",
+    }
+  );
   if (!res.ok) {
     throw new Error("Failed to load communication templates");
   }
@@ -68,11 +215,14 @@ async function fetchTemplates(slug: string): Promise<TemplateRow[]> {
 }
 
 async function saveTemplates(slug: string, templates: TemplateRow[]) {
-  const res = await fetch(`/api/portal/${slug}/communication/templates`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ templates }),
-  });
+  const res = await fetch(
+    `/api/portal/${slug}/communications/templates`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ templates }),
+    }
+  );
   if (!res.ok) {
     throw new Error("Failed to save templates");
   }
@@ -89,22 +239,29 @@ export default function CommunicationsPage({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [usingFallback, setUsingFallback] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     setSuccess(null);
+    setUsingFallback(false);
 
-    fetchTemplates(slug)
+    fetchTemplatesFromApi(slug)
       .then((rows) => {
         if (!cancelled) {
           setTemplates(rows);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[communications/page] Failed to load from API", err);
         if (!cancelled) {
-          setError("Could not load communication templates.");
+          setTemplates(DEFAULT_TEMPLATES);
+          setUsingFallback(true);
+          setError(
+            "Could not load communication templates from the server. Showing default templates instead."
+          );
         }
       })
       .finally(() => {
@@ -137,6 +294,7 @@ export default function CommunicationsPage({
     try {
       await saveTemplates(slug, templates);
       setSuccess("Templates saved successfully.");
+      setUsingFallback(false);
     } catch (e) {
       setError("Could not save templates. Please try again.");
     } finally {
@@ -146,7 +304,6 @@ export default function CommunicationsPage({
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      {/* Header */}
       <header>
         <h1 className="text-2xl font-semibold text-slate-50">
           Communications
@@ -157,7 +314,6 @@ export default function CommunicationsPage({
         </p>
       </header>
 
-      {/* Alerts */}
       {error && (
         <div className="rounded-lg border border-red-500/40 bg-red-900/20 px-3 py-2 text-sm text-red-100">
           {error}
@@ -168,13 +324,18 @@ export default function CommunicationsPage({
           {success}
         </div>
       )}
+      {usingFallback && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 px-3 py-2 text-xs text-amber-100">
+          These templates are currently using the built-in defaults. Once the
+          backend connection is working, saving changes here will store your
+          custom versions in the database.
+        </div>
+      )}
 
-      {/* Loading */}
       {loading && (
         <div className="text-sm text-slate-400">Loading templates…</div>
       )}
 
-      {/* Content */}
       {!loading && templates && (
         <>
           <div className="space-y-6">
