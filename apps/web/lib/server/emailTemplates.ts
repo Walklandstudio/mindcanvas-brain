@@ -1,17 +1,17 @@
 // apps/web/lib/server/emailTemplates.ts
-import 'server-only';
-import { createClient } from '@supabase/supabase-js';
+import "server-only";
+import { createClient } from "@supabase/supabase-js";
 import {
   sendTransactionalEmail,
   EmailTemplateType,
   EmailBranding,
-} from './onesignalEmail';
+} from "./onesignalEmail";
 
 // Service role client on the portal schema
 function supaAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { db: { schema: 'portal' } });
+  return createClient(url, key, { db: { schema: "portal" } });
 }
 
 type TemplateContext = Record<string, string | null | undefined>;
@@ -19,7 +19,7 @@ type TemplateContext = Record<string, string | null | undefined>;
 function simpleTemplateMerge(template: string, ctx: TemplateContext): string {
   return template.replace(/{{\s*([\w.]+)\s*}}/g, (match, key) => {
     const value = ctx[key];
-    if (value === null || value === undefined) return '';
+    if (value === null || value === undefined) return "";
     return String(value);
   });
 }
@@ -27,94 +27,177 @@ function simpleTemplateMerge(template: string, ctx: TemplateContext): string {
 async function loadOrgBranding(orgId: string): Promise<EmailBranding> {
   const supa = supaAdmin();
   const { data, error } = await supa
-    .from('orgs')
-    .select('name, email_logo_path, brand_primary')
-    .eq('id', orgId)
+    .from("orgs")
+    .select("name, email_logo_path, brand_primary")
+    .eq("id", orgId)
     .maybeSingle();
 
   if (error || !data) {
-    console.error('[emailTemplates] Failed to load org branding', error);
-    return { orgName: 'MindCanvas' };
+    console.error("[emailTemplates] Failed to load org branding", error);
+    return { orgName: "MindCanvas" };
   }
 
   const rawBase =
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith('http')
+    (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith("http")
       ? process.env.NEXT_PUBLIC_VERCEL_URL
       : process.env.NEXT_PUBLIC_VERCEL_URL
       ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : '');
+      : "");
 
-  const cleanBase = (rawBase || '').replace(/\/$/, '');
+  const cleanBase = (rawBase || "").replace(/\/$/, "");
 
   const logoUrl =
     data.email_logo_path && cleanBase
-      ? `${cleanBase}/${data.email_logo_path.replace(/^\//, '')}`
+      ? `${cleanBase}/${data.email_logo_path.replace(/^\//, "")}`
       : undefined;
 
   return {
-    orgName: data.name || 'MindCanvas',
+    orgName: data.name || "MindCanvas",
     logoUrl,
     primaryColor: data.brand_primary ?? undefined,
   };
 }
 
-// ✅ Exported so API routes can reuse it
+// 👇 YOUR DEFAULT TEMPLATES
 export function getDefaultTemplate(
   type: EmailTemplateType
 ): { subject: string; bodyHtml: string } {
   switch (type) {
-    case 'report':
+    case "report":
+      // Notification 1 - Test Completed - Test Taker (Email 1 - Report)
       return {
-        subject: 'Your Quantum Source Code Report – {{test_name}}',
+        subject: "Your {{test_name}} Results",
         bodyHtml: `
-<p>Hi {{first_name}},</p>
-<p>Thank you for completing the {{test_name}}.</p>
-<p>Your personal report is ready. You can view it here:</p>
-<p><a href="{{report_link}}" style="color:#38bdf8;">Open your report</a></p>
-<p>If the button does not work, copy and paste this link into your browser:</p>
-<p style="word-break:break-all;">{{report_link}}</p>
-<p>Warm regards,<br/>{{org_name}}</p>
+<p>Dear {{first_name}},</p>
+
+<p>
+  Congratulations on completing the {{test_name}}. I wanted to take a moment to
+  share your unique results with you and your next steps.
+</p>
+
+<p><strong>Step 1:</strong>
+  <a href="{{report_link}}">CLICK HERE</a> to open your personalised report link.
+</p>
+
+<p><strong>Step 2:</strong>
+  <a href="{{next_steps_link}}">CLICK HERE</a> to explore your next steps actions.
+</p>
+
+<p>
+  I look forward to working with you further and exploring your profile results.
+</p>
+
+<p>
+  Regards,<br/>
+  {{owner_full_name}}<br/>
+  Founder @ {{test_name}}<br/>
+  {{owner_website}}
+</p>
+
+<p>
+  For any queries, please contact us at {{owner_email}}.
+</p>
       `.trim(),
       };
 
-    case 'test_owner_notification':
+    case "test_owner_notification":
+      // Notification 1 - Test Completed - Test Owner (Email 2 - Test Owner Notification)
       return {
-        subject: 'New test submission – {{test_name}}',
+        subject:
+          "{{test_taker_full_name}} completed the {{test_name}}",
         bodyHtml: `
-<p>Hi {{owner_name}},</p>
-<p>{{first_name}} {{last_name}} has just completed the {{test_name}}.</p>
-<p>You can view their report here:</p>
-<p><a href="{{report_link}}" style="color:#38bdf8;">View report</a></p>
-<p>Or open the test taker inside your portal dashboard for more details.</p>
-<p>Regards,<br/>MindCanvas</p>
+<p>Dear {{owner_first_name}},</p>
+
+<p>Please see details below of the completed test:</p>
+
+<ul>
+  <li><strong>Test Name:</strong> {{test_name}}</li>
+  <li><strong>Name:</strong> {{test_taker_full_name}}</li>
+  <li><strong>Email:</strong> {{test_taker_email}}</li>
+  <li><strong>Mobile:</strong> {{test_taker_mobile}}</li>
+  <li><strong>Organisation:</strong> {{test_taker_org}}</li>
+</ul>
+
+<p>
+  <strong>Internal Test Taker Report:</strong>
+  <a href="{{internal_report_link}}">{{internal_report_link}}</a>
+</p>
+
+<p>
+  <strong>Internal Test Taker Results Dashboard:</strong>
+  <a href="{{internal_results_dashboard_link}}">{{internal_results_dashboard_link}}</a>
+</p>
+
+<p>
+  Regards,<br/>
+  Daniel @ profiletest.ai
+</p>
+
+<p>
+  For any queries, please contact us at support@profiletest.ai.
+</p>
       `.trim(),
       };
 
-    case 'resend_report':
+    case "resend_report":
+      // Notification 2 - Resend Report - Test Taker (Email 3 - Report Resend)
       return {
-        subject: 'Your Quantum Source Code Report link',
+        subject: "Your {{test_name}} Results",
         bodyHtml: `
-<p>Hi {{first_name}},</p>
-<p>Here is your report link again for the {{test_name}}:</p>
-<p><a href="{{report_link}}" style="color:#38bdf8;">Open your report</a></p>
-<p>If needed, you can save or bookmark this link for future reference.</p>
-<p>Warm regards,<br/>{{org_name}}</p>
+<p>Dear {{first_name}},</p>
+
+<p>
+  Please find below your results and other links that you need with regards to
+  your {{test_name}} results.
+</p>
+
+<p>
+  <strong>Step 1:</strong>
+  <a href="{{report_link}}">CLICK HERE</a> to open your personalised report link.
+</p>
+
+<p>
+  I look forward to working with you further and exploring your profile results.
+</p>
+
+<p>
+  Regards,<br/>
+  {{owner_full_name}}<br/>
+  Founder @ {{test_name}}<br/>
+  {{owner_website}}
+</p>
+
+<p>
+  For any queries, please contact us at {{owner_email}}.
+</p>
       `.trim(),
       };
 
-    case 'send_test_link':
+    case "send_test_link":
+      // Simple invite for now – we can rewrite to your exact wording later
       return {
-        subject: 'Your link to complete the {{test_name}}',
+        subject: "Your link to complete the {{test_name}}",
         bodyHtml: `
 <p>Hi {{first_name}},</p>
-<p>You have been invited to complete the {{test_name}}.</p>
-<p>Please click the link below to start your test:</p>
-<p><a href="{{test_link}}" style="color:#38bdf8;">Start your test</a></p>
-<p>If the link does not open, copy and paste this into your browser:</p>
-<p style="word-break:break-all;">{{test_link}}</p>
-<p>This assessment will help us provide you with a personalised report and insights.</p>
-<p>Warm regards,<br/>{{org_name}}</p>
+
+<p>
+  You’ve been invited to complete the {{test_name}}.
+</p>
+
+<p>
+  <strong>Start your test here:</strong><br/>
+  <a href="{{test_link}}">{{test_link}}</a>
+</p>
+
+<p>
+  Once you’ve completed your test, you’ll receive your personalised report.
+</p>
+
+<p>
+  Warm regards,<br/>
+  {{org_name}}
+</p>
       `.trim(),
       };
   }
@@ -129,22 +212,30 @@ export async function loadTemplateForOrg(opts: {
   const [branding, templateRes] = await Promise.all([
     loadOrgBranding(opts.orgId),
     supa
-      .from('email_templates')
-      .select('subject, body_html')
-      .eq('org_id', opts.orgId)
-      .eq('type', opts.type)
+      .from("email_templates")
+      .select("subject, body_html")
+      .eq("org_id", opts.orgId)
+      .eq("type", opts.type)
       .maybeSingle(),
   ]);
 
-  const defaultTpl = getDefaultTemplate(opts.type);
+  const fallback = getDefaultTemplate(opts.type);
 
   if (templateRes.error) {
-    console.error('[emailTemplates] Failed to load template', templateRes.error);
-    return { subject: defaultTpl.subject, bodyHtml: defaultTpl.bodyHtml, branding };
+    console.error("[emailTemplates] Failed to load template", templateRes.error);
+    return {
+      subject: fallback.subject,
+      bodyHtml: fallback.bodyHtml,
+      branding,
+    };
   }
 
   if (!templateRes.data) {
-    return { subject: defaultTpl.subject, bodyHtml: defaultTpl.bodyHtml, branding };
+    return {
+      subject: fallback.subject,
+      bodyHtml: fallback.bodyHtml,
+      branding,
+    };
   }
 
   return {
@@ -183,4 +274,5 @@ export async function sendTemplatedEmail(opts: {
   });
 }
 
-export type { EmailTemplateType }; // explicit re-export for clarity
+// Explicit export so other modules can import the type
+export type { EmailTemplateType };

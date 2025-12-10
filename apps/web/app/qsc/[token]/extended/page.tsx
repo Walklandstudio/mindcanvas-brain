@@ -23,9 +23,12 @@ type QscResultsRow = {
   qsc_profile_id: string | null;
   created_at: string;
 
-  // Optional – if your API already returns these we’ll show them
-  taker_name?: string | null;
-  taker_email?: string | null;
+  // ✅ matches the Snapshot report payload shape
+  taker: {
+    id: string;
+    name: string | null;
+    email: string | null;
+  } | null;
 };
 
 type QscProfileRow = {
@@ -130,7 +133,7 @@ function SectionCard({
           {kicker && (
             <p
               className={[
-                "text-[13px] md:text-[14px] leading-relaxed",
+                "text-sm md:text-[15px] leading-relaxed",
                 isDanger ? "text-rose-100/80" : "text-slate-300",
               ].join(" ")}
             >
@@ -141,7 +144,7 @@ function SectionCard({
       </div>
       <div
         className={[
-          "pt-3 text-[14px] md:text-[15px] leading-relaxed whitespace-pre-line",
+          "pt-3 text-sm md:text-[15px] leading-relaxed whitespace-pre-line",
           isDanger ? "text-rose-50" : "text-slate-100",
         ].join(" ")}
       >
@@ -280,7 +283,8 @@ export default function QscExtendedSourceCodePage({
     result.combined_profile_code ||
     "Quantum profile";
 
-  const takerName = result.taker_name ?? null;
+  // ✅ now reads from the taker object (same as Snapshot page)
+  const takerName = result?.taker?.name ?? null;
 
   const backHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
@@ -298,7 +302,7 @@ export default function QscExtendedSourceCodePage({
             <h1 className="text-[2.1rem] md:text-[2.4rem] font-bold tracking-tight">
               Extended Source Code — Internal Insights
             </h1>
-            <p className="text-[14px] md:text-[15px] leading-relaxed text-slate-300 max-w-2xl">
+            <p className="text-sm md:text-[15px] leading-relaxed text-slate-300 max-w-2xl">
               Deep sales and messaging insights for this Quantum buyer profile.
               Use this as your reference when designing offers, sales pages,
               email sequences, and live launch scripts.
@@ -358,7 +362,7 @@ export default function QscExtendedSourceCodePage({
               <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                 Quick index
               </p>
-              <p className="text-[12px] md:text-[13px] leading-relaxed text-slate-300">
+              <p className="text-xs md:text-[13px] leading-relaxed text-slate-300">
                 Jump straight to the section you need during calls, campaigns or
                 copywriting.
               </p>
@@ -368,7 +372,7 @@ export default function QscExtendedSourceCodePage({
                 <a
                   key={s.id}
                   href={`#${s.id}`}
-                  className="group inline-flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-[13px] md:text-[14px] hover:border-sky-500/80 hover:bg-slate-900"
+                  className="group inline-flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm md:text-[14px] hover:border-sky-500/80 hover:bg-slate-900"
                 >
                   <div className="flex items-center gap-2">
                     <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100 group-hover:bg-sky-500 group-hover:text-slate-950">
@@ -397,7 +401,7 @@ export default function QscExtendedSourceCodePage({
                 <h2 className="text-[1.25rem] md:text-[1.3rem] font-semibold text-slate-50">
                   How to sell to this buyer
                 </h2>
-                <p className="text-[14px] md:text-[15px] leading-relaxed text-slate-200">
+                <p className="text-sm md:text-[15px] leading-relaxed text-slate-200">
                   This page is for you as the{" "}
                   <span className="font-semibold">test owner</span>. It gives
                   you the core sales, messaging and offer-fit insights you need
@@ -407,7 +411,7 @@ export default function QscExtendedSourceCodePage({
               </div>
 
               {extended && (
-                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-[13px] md:text-[14px] text-slate-100 md:grid-cols-2">
+                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-sm md:text-[14px] text-slate-100 md:grid-cols-2">
                   <div>
                     <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                       Personality layer

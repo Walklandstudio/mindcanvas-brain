@@ -1,35 +1,38 @@
 // apps/web/app/api/portal/[slug]/communications/send/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { sendTemplatedEmail, EmailTemplateType } from '@/lib/server/emailTemplates';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import {
+  sendTemplatedEmail,
+  EmailTemplateType,
+} from "@/lib/server/emailTemplates";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 function supaAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { db: { schema: 'portal' } });
+  return createClient(url, key, { db: { schema: "portal" } });
 }
 
 type SendPayload =
   | {
-      type: 'send_test_link';
+      type: "send_test_link";
       testId: string;
       takerId: string;
     }
   | {
-      type: 'report';
+      type: "report";
       testId: string;
       takerId: string;
     }
   | {
-      type: 'resend_report';
+      type: "resend_report";
       testId: string;
       takerId: string;
     }
   | {
-      type: 'test_owner_notification';
+      type: "test_owner_notification";
       testId: string;
       takerId: string;
     };
@@ -37,13 +40,13 @@ type SendPayload =
 async function getOrgBySlug(slug: string) {
   const supa = supaAdmin();
   const { data, error } = await supa
-    .from('orgs')
-    .select('id, slug, name')
-    .eq('slug', slug)
+    .from("orgs")
+    .select("id, slug, name")
+    .eq("slug", slug)
     .maybeSingle();
 
   if (error || !data) {
-    throw new Error('ORG_NOT_FOUND');
+    throw new Error("ORG_NOT_FOUND");
   }
 
   return data;
@@ -52,13 +55,15 @@ async function getOrgBySlug(slug: string) {
 async function getTestAndTaker(testId: string, takerId: string) {
   const supa = supaAdmin();
   const { data, error } = await supa
-    .from('test_takers')
+    .from("test_takers")
     .select(
       `
       id,
       email,
       first_name,
       last_name,
+      mobile,
+      organisation,
       token,
       tests:test_id (
         id,
@@ -68,12 +73,12 @@ async function getTestAndTaker(testId: string, takerId: string) {
       )
     `
     )
-    .eq('id', takerId)
-    .eq('test_id', testId)
+    .eq("id", takerId)
+    .eq("test_id", testId)
     .maybeSingle() as any;
 
   if (error || !data) {
-    throw new Error('TAKER_NOT_FOUND');
+    throw new Error("TAKER_NOT_FOUND");
   }
 
   return data;
@@ -86,16 +91,13 @@ function buildLinks(opts: {
 }) {
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith('http')
+    (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith("http")
       ? process.env.NEXT_PUBLIC_VERCEL_URL
       : `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`);
 
-  const cleanBase = (baseUrl || '').replace(/\/$/, '');
+  const cleanBase = (baseUrl || "").replace(/\/$/, "");
 
-  // Test link (taking the test)
   const testLink = `${cleanBase}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${opts.takerToken}`;
-
-  // Report link (public result)
   const reportLink = `${cleanBase}/t/${opts.takerToken}/report`;
 
   return { testLink, reportLink };
@@ -114,7 +116,7 @@ export async function POST(
 
     if (!takerRow.email) {
       return NextResponse.json(
-        { error: 'NO_EMAIL', message: 'Test taker has no email address.' },
+        { error: "NO_EMAIL", message: "Test taker has no email address." },
         { status: 400 }
       );
     }
@@ -125,14 +127,35 @@ export async function POST(
       takerToken: takerRow.token,
     });
 
+    const fullName =
+      `${takerRow.first_name || ""} ${takerRow.last_name || ""}`.trim();
+
     const ctx = {
-      first_name: takerRow.first_name || '',
-      last_name: takerRow.last_name || '',
-      test_name: takerRow.tests?.name || 'your assessment',
+      // test taker
+      first_name: takerRow.first_name || "",
+      last_name: takerRow.last_name || "",
+      test_taker_full_name: fullName,
+      test_taker_email: takerRow.email || "",
+      test_taker_mobile: takerRow.mobile || "",
+      test_taker_org: takerRow.organisation || "",
+
+      // test
+      test_name: takerRow.tests?.name || "your assessment",
+
+      // links
       test_link: testLink,
       report_link: reportLink,
-      // owner_name can be populated if you join on owner in getTestAndTaker later
-      owner_name: '',
+      next_steps_link: reportLink, // TEMP: reuse report link until we have a real next-steps URL
+
+      // owner info – can be populated later when we join owners
+      owner_first_name: "",
+      owner_full_name: "",
+      owner_email: "",
+      owner_website: "",
+
+      // internal links for owner notification – placeholders for now
+      internal_report_link: "",
+      internal_results_dashboard_link: "",
     };
 
     const type: EmailTemplateType = body.type;
@@ -146,18 +169,19 @@ export async function POST(
 
     if (!result.ok) {
       return NextResponse.json(
-        { error: 'SEND_FAILED', detail: result },
+        { error: "SEND_FAILED", detail: result },
         { status: 500 }
       );
     }
 
     return NextResponse.json({ ok: true, data: result.data });
   } catch (err: any) {
-    console.error('[communications/send] Error', err);
-    const msg = typeof err?.message === 'string' ? err.message : 'UNKNOWN';
+    console.error("[communications/send] Error", err);
+    const msg = typeof err?.message === "string" ? err.message : "UNKNOWN";
     const status =
-      msg === 'ORG_NOT_FOUND' || msg === 'TAKER_NOT_FOUND' ? 404 : 500;
+      msg === "ORG_NOT_FOUND" || msg === "TAKER_NOT_FOUND" ? 404 : 500;
 
     return NextResponse.json({ error: msg }, { status });
   }
 }
+
