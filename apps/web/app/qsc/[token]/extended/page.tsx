@@ -21,14 +21,8 @@ type QscResultsRow = {
   secondary_mindset: MindsetKey | null;
   combined_profile_code: string | null;
   qsc_profile_id: string | null;
+  audience: "entrepreneur" | "leader" | null;
   created_at: string;
-
-  // ✅ matches the Snapshot report payload shape
-  taker: {
-    id: string;
-    name: string | null;
-    email: string | null;
-  } | null;
 };
 
 type QscProfileRow = {
@@ -52,9 +46,11 @@ type ExtendedRow = {
   mindset_level: number;
   profile_code: string;
   persona_label: string;
+
   personality_layer: string | null;
   mindset_layer: string | null;
   combined_quantum_pattern: string | null;
+
   how_to_communicate: string | null;
   how_they_make_decisions: string | null;
   core_business_problems: string | null;
@@ -68,10 +64,20 @@ type ExtendedRow = {
   final_summary: string | null;
 };
 
+type QscTakerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+  role_title: string | null;
+};
+
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
   extended: ExtendedRow | null;
+  taker: QscTakerRow | null;
 };
 
 function sectionText(value: string | null | undefined, fallback: string) {
@@ -79,10 +85,7 @@ function sectionText(value: string | null | undefined, fallback: string) {
   return v.length > 0 ? v : fallback;
 }
 
-/**
- * Generic card for each numbered section.
- * Slightly larger, more “report-like” typography.
- */
+/** Reusable card for the numbered sections */
 function SectionCard({
   id,
   number,
@@ -124,7 +127,7 @@ function SectionCard({
         <div className="space-y-1.5">
           <h2
             className={[
-              "text-[1.05rem] md:text-[1.1rem] font-semibold",
+              "text-lg font-semibold",
               isDanger ? "text-rose-50" : "text-slate-50",
             ].join(" ")}
           >
@@ -133,7 +136,7 @@ function SectionCard({
           {kicker && (
             <p
               className={[
-                "text-sm md:text-[15px] leading-relaxed",
+                "text-sm leading-relaxed",
                 isDanger ? "text-rose-100/80" : "text-slate-300",
               ].join(" ")}
             >
@@ -144,7 +147,7 @@ function SectionCard({
       </div>
       <div
         className={[
-          "pt-3 text-sm md:text-[15px] leading-relaxed whitespace-pre-line",
+          "pt-3 text-sm leading-relaxed whitespace-pre-line",
           isDanger ? "text-rose-50" : "text-slate-100",
         ].join(" ")}
       >
@@ -163,7 +166,7 @@ const SECTION_INDEX = [
   { id: "sec-6-problems", number: 6, title: "Core Business Problems" },
   { id: "sec-7-trust", number: 7, title: "What Builds Trust" },
   { id: "sec-8-offer", number: 8, title: "What Offer They Are Ready For" },
-  { id: "sec-9-blockers", number: 9, title: "What Blocks the Sale" },
+  { id: "sec-9-blockers", number: 9, title: "What Blocks the Sale Completely" },
   { id: "sec-10-precall", number: 10, title: "Pre-Call Questions" },
   { id: "sec-11-microscripts", number: 11, title: "Micro Scripts" },
   { id: "sec-12-flags", number: 12, title: "Green & Red Flags" },
@@ -205,23 +208,26 @@ export default function QscExtendedSourceCodePage({
           );
         }
 
-        const j = (await res.json()) as {
-          ok?: boolean;
-          error?: string;
-          results?: QscResultsRow;
-          profile?: QscProfileRow | null;
-          extended?: ExtendedRow | null;
-        };
+        const j = (await res.json()) as
+          | ({ ok?: boolean; error?: string } & {
+              results?: QscResultsRow;
+              profile?: QscProfileRow | null;
+              extended?: ExtendedRow | null;
+              taker?: QscTakerRow | null;
+            })
+          | { ok?: boolean; error?: string };
 
-        if (!res.ok || j.ok === false) {
-          throw new Error(j.error || `HTTP ${res.status}`);
+        if (!res.ok || (j as any).ok === false) {
+          throw new Error((j as any).error || `HTTP ${res.status}`);
         }
 
-        if (alive && j.results) {
+        const cast = j as any;
+        if (alive && cast.results) {
           setPayload({
-            results: j.results,
-            profile: j.profile ?? null,
-            extended: j.extended ?? null,
+            results: cast.results,
+            profile: cast.profile ?? null,
+            extended: cast.extended ?? null,
+            taker: cast.taker ?? null,
           });
         }
       } catch (e: any) {
@@ -239,6 +245,7 @@ export default function QscExtendedSourceCodePage({
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const extended = payload?.extended ?? null;
+  const taker = payload?.taker ?? null;
 
   if (loading) {
     return (
@@ -283,8 +290,11 @@ export default function QscExtendedSourceCodePage({
     result.combined_profile_code ||
     "Quantum profile";
 
-  // ✅ now reads from the taker object (same as Snapshot page)
-  const takerName = result?.taker?.name ?? null;
+  const takerDisplayName =
+    taker &&
+    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
+      taker.email ||
+      null);
 
   const backHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
@@ -299,10 +309,18 @@ export default function QscExtendedSourceCodePage({
             <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
               Quantum Source Code
             </p>
-            <h1 className="text-[2.1rem] md:text-[2.4rem] font-bold tracking-tight">
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
               Extended Source Code — Internal Insights
             </h1>
-            <p className="text-sm md:text-[15px] leading-relaxed text-slate-300 max-w-2xl">
+            {takerDisplayName && (
+              <p className="text-sm text-slate-300">
+                For:{" "}
+                <span className="font-semibold text-slate-50">
+                  {takerDisplayName}
+                </span>
+              </p>
+            )}
+            <p className="text-sm leading-relaxed text-slate-300 max-w-2xl">
               Deep sales and messaging insights for this Quantum buyer profile.
               Use this as your reference when designing offers, sales pages,
               email sequences, and live launch scripts.
@@ -312,7 +330,7 @@ export default function QscExtendedSourceCodePage({
           <div className="flex flex-col items-end gap-2 text-xs text-slate-400">
             <Link
               href={backHref}
-              className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800"
+              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800"
             >
               ← Back to Snapshot
             </Link>
@@ -326,31 +344,21 @@ export default function QscExtendedSourceCodePage({
                 minute: "2-digit",
               })}
             </span>
-            {takerName && (
+            <span className="text-[11px] text-slate-500">
+              Combined profile:{" "}
+              <span className="font-semibold text-slate-100">
+                {personaLabel}
+              </span>
+            </span>
+            {extended && (
               <span className="text-[11px] text-slate-500">
-                Test-taker:{" "}
+                Pattern:{" "}
                 <span className="font-semibold text-slate-100">
-                  {takerName}
+                  {extended.personality_label} • {extended.mindset_label} (
+                  {extended.profile_code})
                 </span>
               </span>
             )}
-            <div className="flex flex-col items-end gap-0.5 text-[11px]">
-              <span className="text-slate-500">
-                Combined profile:{" "}
-                <span className="font-semibold text-slate-100">
-                  {personaLabel}
-                </span>
-              </span>
-              {extended && (
-                <span className="text-slate-500">
-                  Pattern:{" "}
-                  <span className="font-semibold text-slate-100">
-                    {extended.personality_label} • {extended.mindset_label} (
-                    {extended.profile_code})
-                  </span>
-                </span>
-              )}
-            </div>
           </div>
         </header>
 
@@ -362,7 +370,7 @@ export default function QscExtendedSourceCodePage({
               <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                 Quick index
               </p>
-              <p className="text-xs md:text-[13px] leading-relaxed text-slate-300">
+              <p className="text-xs leading-relaxed text-slate-300">
                 Jump straight to the section you need during calls, campaigns or
                 copywriting.
               </p>
@@ -372,7 +380,7 @@ export default function QscExtendedSourceCodePage({
                 <a
                   key={s.id}
                   href={`#${s.id}`}
-                  className="group inline-flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm md:text-[14px] hover:border-sky-500/80 hover:bg-slate-900"
+                  className="group inline-flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm hover:border-sky-500/80 hover:bg-slate-900"
                 >
                   <div className="flex items-center gap-2">
                     <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100 group-hover:bg-sky-500 group-hover:text-slate-950">
@@ -398,10 +406,10 @@ export default function QscExtendedSourceCodePage({
                 <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-300/90">
                   Profile summary
                 </p>
-                <h2 className="text-[1.25rem] md:text-[1.3rem] font-semibold text-slate-50">
+                <h2 className="text-lg font-semibold text-slate-50">
                   How to sell to this buyer
                 </h2>
-                <p className="text-sm md:text-[15px] leading-relaxed text-slate-200">
+                <p className="text-sm leading-relaxed text-slate-200 max-w-2xl">
                   This page is for you as the{" "}
                   <span className="font-semibold">test owner</span>. It gives
                   you the core sales, messaging and offer-fit insights you need
@@ -411,7 +419,7 @@ export default function QscExtendedSourceCodePage({
               </div>
 
               {extended && (
-                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-sm md:text-[14px] text-slate-100 md:grid-cols-2">
+                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-sm text-slate-100 md:grid-cols-2">
                   <div>
                     <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                       Personality layer
@@ -419,7 +427,7 @@ export default function QscExtendedSourceCodePage({
                     <p className="mt-1 font-semibold">
                       {extended.personality_label}
                     </p>
-                    <p className="mt-1 text-[12px] md:text-[13px] text-slate-300">
+                    <p className="mt-1 text-xs text-slate-300">
                       How they naturally think, lead and relate.
                     </p>
                   </div>
@@ -430,8 +438,8 @@ export default function QscExtendedSourceCodePage({
                     <p className="mt-1 font-semibold">
                       {extended.mindset_label}
                     </p>
-                    <p className="mt-1 text-[12px] md:text-[13px] text-slate-300">
-                      Where their business is right now, and what it needs to
+                    <p className="mt-1 text-xs text-slate-300">
+                      Where their business is right now and what it needs to
                       grow sustainably.
                     </p>
                   </div>
