@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/server/supabaseAdmin";
 
+// ---------------------- Types ---------------------- //
+
 export type EmailTemplateType =
   | "report"
   | "test_owner_notification"
@@ -30,13 +32,13 @@ export type SendTemplatedEmailResult =
       body?: string;
     };
 
-// ---- Supabase helper -------------------------------------------------------
+// ---------------------- Supabase helper ---------------------- //
 
 function supaPortal() {
   return createClient().schema("portal");
 }
 
-// ---- Default templates (fallback if DB has none) ---------------------------
+// ---------------------- Default templates ---------------------- //
 
 const DEFAULT_TEMPLATES: Record<EmailTemplateType, EmailTemplate> = {
   report: {
@@ -172,9 +174,16 @@ const DEFAULT_TEMPLATES: Record<EmailTemplateType, EmailTemplate> = {
   },
 };
 
-// ---- Loading templates for an org -----------------------------------------
+// Helper so other files (templates API route) can fetch a default
+export function getDefaultTemplate(type: EmailTemplateType): EmailTemplate {
+  return DEFAULT_TEMPLATES[type];
+}
 
-export async function getOrgEmailTemplates(orgId: string): Promise<EmailTemplate[]> {
+// ---------------------- Load templates for an org ---------------------- //
+
+export async function getOrgEmailTemplates(
+  orgId: string
+): Promise<EmailTemplate[]> {
   const sb = supaPortal();
 
   const { data, error } = await sb
@@ -183,7 +192,10 @@ export async function getOrgEmailTemplates(orgId: string): Promise<EmailTemplate
     .eq("org_id", orgId);
 
   if (error) {
-    console.warn("[emailTemplates] load error, falling back to defaults:", error);
+    console.warn(
+      "[emailTemplates] load error, falling back to defaults:",
+      error
+    );
     return Object.values(DEFAULT_TEMPLATES);
   }
 
@@ -208,7 +220,7 @@ export async function getOrgEmailTemplates(orgId: string): Promise<EmailTemplate
   return Array.from(byType.values());
 }
 
-// ---- Simple {{placeholder}} replacement -----------------------------------
+// ---------------------- Simple {{placeholder}} replacement ---------------------- //
 
 function applyTemplate(
   source: string,
@@ -220,7 +232,7 @@ function applyTemplate(
   });
 }
 
-// ---- OneSignal email send using NEW API style ------------------------------
+// ---------------------- OneSignal email send (new API style) ---------------------- //
 
 export async function sendTemplatedEmail(
   args: SendTemplatedEmailArgs
@@ -241,7 +253,7 @@ export async function sendTemplatedEmail(
     };
   }
 
-  // Load templates for this org (with defaults merged in)
+  // Load templates for this org (defaults merged in)
   const templates = await getOrgEmailTemplates(orgId);
   const template =
     templates.find((t) => t.type === type) || DEFAULT_TEMPLATES[type];
@@ -262,7 +274,7 @@ export async function sendTemplatedEmail(
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        // 🔑 NEW auth scheme: "Key", not "Basic"
+        // New-style auth for os_v2_app_* keys
         Authorization: `Key ${apiKey}`,
       },
       body: JSON.stringify(payload),
