@@ -239,9 +239,13 @@ export async function sendTemplatedEmail(
 ): Promise<SendTemplatedEmailResult> {
   const { orgId, type, to, context } = args;
 
-  const appId = process.env.ONESIGNAL_APP_ID;
-  const apiKey =
-    process.env.ONESIGNAL_REST_API_KEY || process.env.ONESIGNAL_API_KEY;
+  // Trim to avoid stray spaces/newlines from env storage
+  const rawAppId = process.env.ONESIGNAL_APP_ID || "";
+  const rawKey =
+    process.env.ONESIGNAL_REST_API_KEY || process.env.ONESIGNAL_API_KEY || "";
+
+  const appId = rawAppId.trim();
+  const apiKey = rawKey.trim();
 
   if (!appId || !apiKey) {
     console.warn(
@@ -252,6 +256,13 @@ export async function sendTemplatedEmail(
       error: "missing_onesignal_env",
     };
   }
+
+  // Debug: log a short prefix so we can verify it's the key you expect
+  console.log(
+    "[sendTemplatedEmail] using appId/apiKey prefixes",
+    appId.slice(0, 8),
+    apiKey.slice(0, 16)
+  );
 
   // Load templates for this org (defaults merged in)
   const templates = await getOrgEmailTemplates(orgId);
@@ -273,7 +284,6 @@ export async function sendTemplatedEmail(
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        // 🔑 Classic REST API auth: Basic <REST_API_KEY>
         Authorization: `Basic ${apiKey}`,
       },
       body: JSON.stringify(payload),
