@@ -1,74 +1,48 @@
 // apps/web/lib/server/emailTemplates.ts
-import "server-only";
-import { createClient } from "@supabase/supabase-js";
-import {
-  sendTransactionalEmail,
-  EmailTemplateType,
-  EmailBranding,
-} from "./onesignalEmail";
 
-// Service role client on the portal schema
-function supaAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { db: { schema: "portal" } });
+import { createClient } from "@/lib/server/supabaseAdmin";
+
+export type EmailTemplateType =
+  | "report"
+  | "test_owner_notification"
+  | "resend_report"
+  | "send_test_link";
+
+export type EmailTemplate = {
+  type: EmailTemplateType;
+  subject: string;
+  body_html: string;
+};
+
+export type SendTemplatedEmailArgs = {
+  orgId: string;
+  type: EmailTemplateType;
+  to: string;
+  context: Record<string, string>;
+};
+
+export type SendTemplatedEmailResult =
+  | { ok: true; data: any }
+  | {
+      ok: false;
+      error: string;
+      status?: number;
+      body?: string;
+    };
+
+// ---- Supabase helper -------------------------------------------------------
+
+function supaPortal() {
+  return createClient().schema("portal");
 }
 
-type TemplateContext = Record<string, string | null | undefined>;
+// ---- Default templates (fallback if DB has none) ---------------------------
 
-function simpleTemplateMerge(template: string, ctx: TemplateContext): string {
-  return template.replace(/{{\s*([\w.]+)\s*}}/g, (match, key) => {
-    const value = ctx[key];
-    if (value === null || value === undefined) return "";
-    return String(value);
-  });
-}
-
-async function loadOrgBranding(orgId: string): Promise<EmailBranding> {
-  const supa = supaAdmin();
-  const { data, error } = await supa
-    .from("orgs")
-    .select("name, email_logo_path, brand_primary")
-    .eq("id", orgId)
-    .maybeSingle();
-
-  if (error || !data) {
-    console.error("[emailTemplates] Failed to load org branding", error);
-    return { orgName: "MindCanvas" };
-  }
-
-  const rawBase =
-    process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith("http")
-      ? process.env.NEXT_PUBLIC_VERCEL_URL
-      : process.env.NEXT_PUBLIC_VERCEL_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : "");
-
-  const cleanBase = (rawBase || "").replace(/\/$/, "");
-
-  const logoUrl =
-    data.email_logo_path && cleanBase
-      ? `${cleanBase}/${data.email_logo_path.replace(/^\//, "")}`
-      : undefined;
-
-  return {
-    orgName: data.name || "MindCanvas",
-    logoUrl,
-    primaryColor: data.brand_primary ?? undefined,
-  };
-}
-
-// 👇 YOUR DEFAULT TEMPLATES
-export function getDefaultTemplate(
-  type: EmailTemplateType
-): { subject: string; bodyHtml: string } {
-  switch (type) {
-    case "report":
-      // Notification 1 - Test Completed - Test Taker (Email 1 - Report)
-      return {
-        subject: "Your {{test_name}} Results",
-        bodyHtml: `
+const DEFAULT_TEMPLATES: Record<EmailTemplateType, EmailTemplate> = {
+  report: {
+    type: "report",
+    subject: "Your {{test_name}} Results",
+    body_html: `
 <p>Dear {{first_name}},</p>
 
 <p>
@@ -98,15 +72,13 @@ export function getDefaultTemplate(
 <p>
   For any queries, please contact us at {{owner_email}}.
 </p>
-      `.trim(),
-      };
+`.trim(),
+  },
 
-    case "test_owner_notification":
-      // Notification 1 - Test Completed - Test Owner (Email 2 - Test Owner Notification)
-      return {
-        subject:
-          "{{test_taker_full_name}} completed the {{test_name}}",
-        bodyHtml: `
+  test_owner_notification: {
+    type: "test_owner_notification",
+    subject: "{{test_taker_full_name}} completed the {{test_name}}",
+    body_html: `
 <p>Dear {{owner_first_name}},</p>
 
 <p>Please see details below of the completed test:</p>
@@ -137,14 +109,13 @@ export function getDefaultTemplate(
 <p>
   For any queries, please contact us at support@profiletest.ai.
 </p>
-      `.trim(),
-      };
+`.trim(),
+  },
 
-    case "resend_report":
-      // Notification 2 - Resend Report - Test Taker (Email 3 - Report Resend)
-      return {
-        subject: "Your {{test_name}} Results",
-        bodyHtml: `
+  resend_report: {
+    type: "resend_report",
+    subject: "Your {{test_name}} Results",
+    body_html: `
 <p>Dear {{first_name}},</p>
 
 <p>
@@ -171,14 +142,13 @@ export function getDefaultTemplate(
 <p>
   For any queries, please contact us at {{owner_email}}.
 </p>
-      `.trim(),
-      };
+`.trim(),
+  },
 
-    case "send_test_link":
-      // Simple invite for now – we can rewrite to your exact wording later
-      return {
-        subject: "Your link to complete the {{test_name}}",
-        bodyHtml: `
+  send_test_link: {
+    type: "send_test_link",
+    subject: "Your link to complete the {{test_name}}",
+    body_html: `
 <p>Hi {{first_name}},</p>
 
 <p>
@@ -198,81 +168,129 @@ export function getDefaultTemplate(
   Warm regards,<br/>
   {{org_name}}
 </p>
-      `.trim(),
-      };
+`.trim(),
+  },
+};
+
+// ---- Loading templates for an org -----------------------------------------
+
+export async function getOrgEmailTemplates(orgId: string): Promise<EmailTemplate[]> {
+  const sb = supaPortal();
+
+  const { data, error } = await sb
+    .from("email_templates")
+    .select("type, subject, body_html")
+    .eq("org_id", orgId);
+
+  if (error) {
+    console.warn("[emailTemplates] load error, falling back to defaults:", error);
+    return Object.values(DEFAULT_TEMPLATES);
   }
+
+  const byType = new Map<EmailTemplateType, EmailTemplate>();
+
+  // Start with defaults
+  (Object.values(DEFAULT_TEMPLATES) as EmailTemplate[]).forEach((tpl) => {
+    byType.set(tpl.type, tpl);
+  });
+
+  // Override with DB values if present
+  (data || []).forEach((row: any) => {
+    const t = row.type as EmailTemplateType;
+    if (!t) return;
+    byType.set(t, {
+      type: t,
+      subject: row.subject || DEFAULT_TEMPLATES[t].subject,
+      body_html: row.body_html || DEFAULT_TEMPLATES[t].body_html,
+    });
+  });
+
+  return Array.from(byType.values());
 }
 
-export async function loadTemplateForOrg(opts: {
-  orgId: string;
-  type: EmailTemplateType;
-}): Promise<{ subject: string; bodyHtml: string; branding: EmailBranding }> {
-  const supa = supaAdmin();
+// ---- Simple {{placeholder}} replacement -----------------------------------
 
-  const [branding, templateRes] = await Promise.all([
-    loadOrgBranding(opts.orgId),
-    supa
-      .from("email_templates")
-      .select("subject, body_html")
-      .eq("org_id", opts.orgId)
-      .eq("type", opts.type)
-      .maybeSingle(),
-  ]);
+function applyTemplate(
+  source: string,
+  context: Record<string, string>
+): string {
+  return source.replace(/{{\s*([\w.]+)\s*}}/g, (_, key: string) => {
+    const value = context[key];
+    return value != null ? String(value) : "";
+  });
+}
 
-  const fallback = getDefaultTemplate(opts.type);
+// ---- OneSignal email send using NEW API style ------------------------------
 
-  if (templateRes.error) {
-    console.error("[emailTemplates] Failed to load template", templateRes.error);
+export async function sendTemplatedEmail(
+  args: SendTemplatedEmailArgs
+): Promise<SendTemplatedEmailResult> {
+  const { orgId, type, to, context } = args;
+
+  const appId = process.env.ONESIGNAL_APP_ID;
+  const apiKey =
+    process.env.ONESIGNAL_REST_API_KEY || process.env.ONESIGNAL_API_KEY;
+
+  if (!appId || !apiKey) {
+    console.warn(
+      "[sendTemplatedEmail] Missing OneSignal env (ONESIGNAL_APP_ID / ONESIGNAL_REST_API_KEY)"
+    );
     return {
-      subject: fallback.subject,
-      bodyHtml: fallback.bodyHtml,
-      branding,
+      ok: false,
+      error: "missing_onesignal_env",
     };
   }
 
-  if (!templateRes.data) {
-    return {
-      subject: fallback.subject,
-      bodyHtml: fallback.bodyHtml,
-      branding,
-    };
-  }
+  // Load templates for this org (with defaults merged in)
+  const templates = await getOrgEmailTemplates(orgId);
+  const template =
+    templates.find((t) => t.type === type) || DEFAULT_TEMPLATES[type];
 
-  return {
-    subject: templateRes.data.subject,
-    bodyHtml: templateRes.data.body_html,
-    branding,
+  const subject = applyTemplate(template.subject, context);
+  const bodyHtml = applyTemplate(template.body_html, context);
+
+  const payload = {
+    app_id: appId,
+    target_channel: "email",
+    include_email_tokens: [to],
+    email_subject: subject,
+    email_body: bodyHtml,
   };
+
+  try {
+    const res = await fetch("https://api.onesignal.com/notifications", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        // 🔑 NEW auth scheme: "Key", not "Basic"
+        Authorization: `Key ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(
+        "[sendTemplatedEmail] OneSignal error",
+        res.status,
+        body.slice(0, 400)
+      );
+      return {
+        ok: false,
+        error: "onesignal_error",
+        status: res.status,
+        body: body.slice(0, 400),
+      };
+    }
+
+    const data = await res.json().catch(() => ({}));
+    return { ok: true, data };
+  } catch (err: any) {
+    console.error("[sendTemplatedEmail] Unexpected error", err);
+    return {
+      ok: false,
+      error: "unexpected_error",
+      body: String(err?.message || err),
+    };
+  }
 }
-
-export async function sendTemplatedEmail(opts: {
-  orgId: string;
-  type: EmailTemplateType;
-  to: string;
-  context: TemplateContext;
-}) {
-  const { subject, bodyHtml, branding } = await loadTemplateForOrg({
-    orgId: opts.orgId,
-    type: opts.type,
-  });
-
-  const mergedSubject = simpleTemplateMerge(subject, {
-    ...opts.context,
-    org_name: branding.orgName,
-  });
-
-  const mergedHtml = simpleTemplateMerge(bodyHtml, {
-    ...opts.context,
-    org_name: branding.orgName,
-  });
-
-  return await sendTransactionalEmail({
-    to: opts.to,
-    subject: mergedSubject,
-    html: mergedHtml,
-    branding,
-  });
-}
-
-// Explicit export so other modules can import the type
-export type { EmailTemplateType };
