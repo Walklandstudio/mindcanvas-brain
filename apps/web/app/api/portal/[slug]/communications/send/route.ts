@@ -1,4 +1,5 @@
 // apps/web/app/api/portal/[slug]/communications/send/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -52,7 +53,8 @@ async function getOrgBySlug(slug: string) {
   return data;
 }
 
-async function getTestAndTaker(testId: string, takerId: string) {
+// 🔧 relaxed: look up by takerId only, not takerId + testId
+async function getTakerWithTest(takerId: string) {
   const supa = supaAdmin();
 
   const { data, error } = (await supa
@@ -75,7 +77,6 @@ async function getTestAndTaker(testId: string, takerId: string) {
     `
     )
     .eq("id", takerId)
-    .eq("test_id", testId)
     .maybeSingle()) as any;
 
   if (error || !data) {
@@ -115,7 +116,7 @@ export async function POST(
     const body = (await req.json()) as SendPayload;
 
     const org = await getOrgBySlug(slug);
-    const taker = await getTestAndTaker(body.testId, body.takerId);
+    const taker = await getTakerWithTest(body.takerId);
 
     if (!taker.email) {
       return NextResponse.json(
@@ -129,6 +130,7 @@ export async function POST(
 
     const { testLink, reportLink } = buildLinks({
       orgSlug: slug,
+      // use whatever testId the client passed to build the /tests/[id]/take URL
       testId: body.testId,
       takerToken: taker.token,
     });
@@ -137,20 +139,29 @@ export async function POST(
       `${taker.first_name || ""} ${taker.last_name || ""}`.trim();
 
     const ctx = {
+      // taker info
       first_name: taker.first_name || "",
       last_name: taker.last_name || "",
       test_taker_full_name: fullName,
       test_taker_email: taker.email || "",
       test_taker_mobile: taker.mobile || "",
       test_taker_org: taker.organisation || "",
+
+      // test info
       test_name: taker.tests?.name || "your assessment",
+
+      // links
       test_link: testLink,
       report_link: reportLink,
       next_steps_link: "",
+
+      // owner info – can be enriched later
       owner_first_name: "",
       owner_full_name: "",
       owner_email: "",
       owner_website: "",
+
+      // owner notification links – placeholders for now
       internal_report_link: "",
       internal_results_dashboard_link: "",
       org_name: org.name || slug,
