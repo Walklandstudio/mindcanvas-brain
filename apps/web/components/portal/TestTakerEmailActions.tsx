@@ -42,10 +42,19 @@ export default function TestTakerEmailActions({
         }
       );
 
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        // ignore JSON parse errors
+      }
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         const detail =
-          data?.error || data?.message || "Unknown error sending email.";
+          data?.error ||
+          data?.message ||
+          data?.detail ||
+          `HTTP ${res.status}`;
         setError(detail);
       } else {
         setMessage(`"${LABELS[type]}" email sent.`);
@@ -58,13 +67,13 @@ export default function TestTakerEmailActions({
   };
 
   const btnBase =
-    "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-1";
+    "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-sky-500";
   const btnNeutral =
     btnBase +
-    " border-slate-300 bg-white text-slate-800 hover:bg-slate-50 focus:ring-sky-500";
+    " border-slate-300 bg-white text-slate-800 hover:bg-slate-50";
 
   return (
-    <div className={compact ? "space-x-1" : "space-y-2"}>
+    <div className={compact ? "space-y-1" : "space-y-2"}>
       <div className={compact ? "flex flex-wrap gap-1" : "flex flex-wrap gap-2"}>
         <button
           type="button"
@@ -94,7 +103,7 @@ export default function TestTakerEmailActions({
         </button>
       </div>
 
-      {(message || error) && !compact && (
+      {(message || error) && (
         <p
           className={`text-[11px] ${
             error ? "text-red-600" : "text-emerald-600"
