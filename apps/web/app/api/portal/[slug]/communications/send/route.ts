@@ -1,7 +1,7 @@
 // apps/web/app/api/portal/[slug]/communications/send/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/server/supabaseAdmin";
 import {
   sendTemplatedEmail,
   EmailTemplateType,
@@ -10,10 +10,9 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function supaAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { db: { schema: "portal" } });
+// Use the same helper as the Database page so we hit the same DB/schema
+function supaPortal() {
+  return createClient().schema("portal");
 }
 
 type SendPayload =
@@ -39,25 +38,26 @@ type SendPayload =
     };
 
 async function getOrgBySlug(slug: string) {
-  const supa = supaAdmin();
-  const { data, error } = await supa
+  const sb = supaPortal();
+  const { data, error } = await sb
     .from("orgs")
     .select("id, slug, name")
     .eq("slug", slug)
     .maybeSingle();
 
   if (error || !data) {
+    console.error("[communications/send] org lookup error", error);
     throw new Error("ORG_NOT_FOUND");
   }
 
   return data;
 }
 
-// 🔧 relaxed: look up by takerId only, not takerId + testId
+// 🔧 relaxed: look up taker by ID only, using same client as Database page
 async function getTakerWithTest(takerId: string) {
-  const supa = supaAdmin();
+  const sb = supaPortal();
 
-  const { data, error } = (await supa
+  const { data, error } = await sb
     .from("test_takers")
     .select(
       `
@@ -77,13 +77,19 @@ async function getTakerWithTest(takerId: string) {
     `
     )
     .eq("id", takerId)
-    .maybeSingle()) as any;
+    .maybeSingle();
 
-  if (error || !data) {
+  if (error) {
+    console.error("[communications/send] taker lookup error", error);
     throw new Error("TAKER_NOT_FOUND");
   }
 
-  return data;
+  if (!data) {
+    console.warn("[communications/send] taker not found for id", takerId);
+    throw new Error("TAKER_NOT_FOUND");
+  }
+
+  return data as any;
 }
 
 function buildLinks(opts: {
@@ -130,7 +136,7 @@ export async function POST(
 
     const { testLink, reportLink } = buildLinks({
       orgSlug: slug,
-      // use whatever testId the client passed to build the /tests/[id]/take URL
+      // for the /tests/[id]/take link we use the client-supplied testId
       testId: body.testId,
       takerToken: taker.token,
     });
@@ -155,7 +161,7 @@ export async function POST(
       report_link: reportLink,
       next_steps_link: "",
 
-      // owner info – can be enriched later
+      // owner info – to be enriched later
       owner_first_name: "",
       owner_full_name: "",
       owner_email: "",
@@ -177,6 +183,7 @@ export async function POST(
     });
 
     if (!result.ok) {
+      console.error("[communications/send] sendTemplatedEmail failed", result);
       return NextResponse.json(
         { error: "SEND_FAILED", detail: result },
         { status: 500 }
@@ -193,5 +200,3 @@ export async function POST(
     return NextResponse.json({ error: msg }, { status });
   }
 }
-
-
