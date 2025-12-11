@@ -1,5 +1,4 @@
 // apps/web/app/api/portal/[slug]/communications/send/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -101,10 +100,7 @@ function buildLinks(opts: {
 
   const cleanBase = (baseUrl || "").replace(/\/$/, "");
 
-  // Test link (taking the test)
   const testLink = `${cleanBase}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${opts.takerToken}`;
-
-  // Public report link
   const reportLink = `${cleanBase}/t/${opts.takerToken}/report`;
 
   return { testLink, reportLink };
@@ -140,31 +136,21 @@ export async function POST(
     const fullName =
       `${taker.first_name || ""} ${taker.last_name || ""}`.trim();
 
-    // Context used across all templates; some fields only matter for some templates
     const ctx = {
-      // taker info
       first_name: taker.first_name || "",
       last_name: taker.last_name || "",
       test_taker_full_name: fullName,
       test_taker_email: taker.email || "",
       test_taker_mobile: taker.mobile || "",
       test_taker_org: taker.organisation || "",
-
-      // test info
       test_name: taker.tests?.name || "your assessment",
-
-      // links
       test_link: testLink,
       report_link: reportLink,
       next_steps_link: "",
-
-      // owner info – you can enrich later
       owner_first_name: "",
       owner_full_name: "",
       owner_email: "",
       owner_website: "",
-
-      // internal links for owner notifications – placeholders for now
       internal_report_link: "",
       internal_results_dashboard_link: "",
       org_name: org.name || slug,
@@ -181,10 +167,7 @@ export async function POST(
 
     if (!result.ok) {
       return NextResponse.json(
-        {
-          error: "SEND_FAILED",
-          detail: result,
-        },
+        { error: "SEND_FAILED", detail: result },
         { status: 500 }
       );
     }
@@ -199,4 +182,5 @@ export async function POST(
     return NextResponse.json({ error: msg }, { status });
   }
 }
+
 
