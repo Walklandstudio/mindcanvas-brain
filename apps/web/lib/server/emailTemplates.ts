@@ -232,7 +232,7 @@ function applyTemplate(
   });
 }
 
-// ---------------------- OneSignal email send (new API style) ---------------------- //
+// ---------------------- OneSignal email send (v1 API, Basic auth) ---------------------- //
 
 export async function sendTemplatedEmail(
   args: SendTemplatedEmailArgs
@@ -263,19 +263,18 @@ export async function sendTemplatedEmail(
 
   const payload = {
     app_id: appId,
-    target_channel: "email",
     include_email_tokens: [to],
     email_subject: subject,
     email_body: bodyHtml,
   };
 
   try {
-    const res = await fetch("https://api.onesignal.com/notifications", {
+    const res = await fetch("https://onesignal.com/api/v1/notifications", {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        // New-style auth for os_v2_app_* keys
-        Authorization: `Key ${apiKey}`,
+        // 🔑 Classic REST API auth: Basic <REST_API_KEY>
+        Authorization: `Basic ${apiKey}`,
       },
       body: JSON.stringify(payload),
     });
