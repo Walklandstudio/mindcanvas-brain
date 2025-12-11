@@ -232,7 +232,7 @@ function applyTemplate(
   });
 }
 
-// ---------------------- OneSignal email send (v1 API, Basic auth) ---------------------- //
+// ---------------------- OneSignal email send ---------------------- //
 
 export async function sendTemplatedEmail(
   args: SendTemplatedEmailArgs
@@ -257,7 +257,7 @@ export async function sendTemplatedEmail(
     };
   }
 
-  // Debug: log a short prefix so we can verify it's the key you expect
+  // Debug prefixes
   console.log(
     "[sendTemplatedEmail] using appId/apiKey prefixes",
     appId.slice(0, 8),
@@ -280,11 +280,12 @@ export async function sendTemplatedEmail(
   };
 
   try {
-    const res = await fetch("https://onesignal.com/api/v1/notifications", {
+    const res = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        Authorization: `Basic ${apiKey}`,
+        // NOTE: OneSignal docs: Authorization: Key <REST_API_KEY>
+        Authorization: `Key ${apiKey}`,
       },
       body: JSON.stringify(payload),
     });
