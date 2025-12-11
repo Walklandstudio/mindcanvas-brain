@@ -2,8 +2,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -55,9 +57,11 @@ type QscExtendedRow = {
 
 type QscTakerRow = {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
 };
 
 type QscExtendedPayload = {
@@ -81,11 +85,7 @@ const SECTIONS: SectionMeta[] = [
   { id: "sec-5-decisions", number: 5, title: "How They Make Decisions" },
   { id: "sec-6-problems", number: 6, title: "Core Business Problems" },
   { id: "sec-7-trust", number: 7, title: "What Builds Trust" },
-  {
-    id: "sec-8-offer",
-    number: 8,
-    title: "What Offer They Are Ready For",
-  },
+  { id: "sec-8-offer", number: 8, title: "What Offer They Are Ready For" },
   {
     id: "sec-9-blockers",
     number: 9,
@@ -102,6 +102,31 @@ function fallbackCopy(value: string | null | undefined, fallback: string) {
   const trimmed = (value || "").trim();
   return trimmed.length > 0 ? trimmed : fallback;
 }
+
+// ---------- helper: taker full name ----------------------------------------
+
+function getFullName(taker: QscTakerRow | null | undefined): string | null {
+  if (!taker) return null;
+
+  const rawFirst =
+    (typeof taker.first_name === "string" && taker.first_name) ||
+    (typeof taker.firstName === "string" && taker.firstName) ||
+    "";
+  const rawLast =
+    (typeof taker.last_name === "string" && taker.last_name) ||
+    (typeof taker.lastName === "string" && taker.lastName) ||
+    "";
+
+  const first = rawFirst.trim();
+  const last = rawLast.trim();
+  const full = `${first} ${last}`.trim();
+  if (full) return full;
+
+  const email = (taker.email || "").trim();
+  return email || null;
+}
+
+// ---------- section card component -----------------------------------------
 
 type InsightSectionProps = {
   id: string;
@@ -177,6 +202,8 @@ function InsightSection({
   );
 }
 
+// ---------------------------------------------------------------------------
+
 export default function QscExtendedPage({
   params,
 }: {
@@ -190,13 +217,15 @@ export default function QscExtendedPage({
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<QscExtendedPayload | null>(null);
 
+  const reportRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     let alive = true;
 
     (async () => {
       try {
         setLoading(true);
-        setErr(null);
+      setErr(null);
 
         const res = await fetch(
           `/api/public/qsc/${encodeURIComponent(token)}/extended`,
@@ -247,6 +276,40 @@ export default function QscExtendedPage({
     };
   }, [token]);
 
+  async function handleDownloadPdf() {
+    if (!reportRef.current) return;
+
+    const element = reportRef.current;
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    pdf.save(`qsc-extended-${token}.pdf`);
+  }
+
   const results = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const extended = payload?.extended ?? null;
@@ -294,11 +357,7 @@ export default function QscExtendedPage({
     results.combined_profile_code ||
     "Quantum profile";
 
-  const takerDisplayName =
-    taker &&
-    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
-      taker.email ||
-      null);
+  const takerDisplayName = getFullName(taker);
 
   const snapshotHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
@@ -306,7 +365,10 @@ export default function QscExtendedPage({
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
-      <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
+      <main
+        ref={reportRef}
+        className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"
+      >
         {/* Header */}
         <header className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
@@ -332,6 +394,12 @@ export default function QscExtendedPage({
           </div>
 
           <div className="flex flex-col items-end gap-2 text-xs text-slate-400">
+            <button
+              onClick={handleDownloadPdf}
+              className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+            >
+              Download PDF
+            </button>
             <Link
               href={snapshotHref}
               className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800"
@@ -639,4 +707,5 @@ export default function QscExtendedPage({
     </div>
   );
 }
+
 
