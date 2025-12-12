@@ -1,4 +1,3 @@
-// apps/web/app/api/public/qsc/[token]/result/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -7,7 +6,8 @@ export const dynamic = "force-dynamic";
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
@@ -17,13 +17,10 @@ function supa() {
  * GET /api/public/qsc/[token]/result
  *
  * Returns:
- * - results → row from qsc_results (scores, primary/secondary, combined profile, audience)
- * - profile → row from qsc_profiles (snapshot report blocks)
- * - persona → row from qsc_personas (strategic report blocks)
+ * - results → row from qsc_results (scores, primary/secondary, combined profile)
+ * - profile → row from qsc_profiles (Extended Source Code / internal insights)
+ * - persona → row from qsc_personas (Strategic Growth Report copy)
  * - taker   → row from test_takers (name/email/company/role)
- *
- * NOTE:
- * - We include __api_version as a deploy marker so you can confirm Vercel is serving the latest build.
  */
 export async function GET(
   req: Request,
@@ -111,7 +108,7 @@ export async function GET(
     const taker = takerErr ? null : takerRow;
 
     // -----------------------------------------------------------------------
-    // 3) Load the QSC profile (Snapshot content + internal insights storage)
+    // 3) Load the QSC profile (Extended Source Code / internal insights)
     // -----------------------------------------------------------------------
     let profile: any = null;
     if (qscProfileId) {
@@ -130,21 +127,21 @@ export async function GET(
           trust_signals,
           offer_fit,
           sale_blockers,
-          full_internal_insights,
           created_at
         `
         )
         .eq("id", qscProfileId)
         .maybeSingle();
 
-      if (!profErr && profRow) profile = profRow;
+      if (!profErr && profRow) {
+        profile = profRow;
+      } else {
+        profile = null;
+      }
     }
 
     // -----------------------------------------------------------------------
-    // 4) Load Persona (Strategic Growth / Leadership Report content)
-    //
-    // First try: persona for this specific test_id + profile_code.
-    // Fallback: any persona with the same profile_code (global library).
+    // 4) Load Persona (Strategic Growth Report content)
     // -----------------------------------------------------------------------
     let persona: any = null;
 
@@ -224,7 +221,11 @@ export async function GET(
           .limit(1)
           .maybeSingle();
 
-        if (!globalErr && globalPersona) persona = globalPersona;
+        if (!globalErr && globalPersona) {
+          persona = globalPersona;
+        } else {
+          persona = null;
+        }
       }
     }
 

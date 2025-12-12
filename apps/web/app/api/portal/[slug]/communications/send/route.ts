@@ -52,8 +52,10 @@ async function getOrgBySlug(slug: string) {
   return data;
 }
 
-async function getTestAndTaker(testId: string, takerId: string) {
+async function getTestAndTaker(_testId: string, takerId: string) {
   const supa = supaAdmin();
+
+  // IMPORTANT: only filter by primary key `id` to avoid false TAKER_NOT_FOUND
   const { data, error } = (await supa
     .from("test_takers")
     .select(
@@ -73,7 +75,6 @@ async function getTestAndTaker(testId: string, takerId: string) {
     `
     )
     .eq("id", takerId)
-    .eq("test_id", testId)
     .maybeSingle()) as any;
 
   if (error || !data) {
@@ -98,14 +99,14 @@ function buildLinks(opts: {
 
   const cleanBase = (baseUrl || "").replace(/\/$/, "");
 
-  // Link to TAKE the test (uses the same link_token used elsewhere)
+  // Link to TAKE the test (same link_token used elsewhere)
   const testLink = `${cleanBase}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(
     opts.linkToken
   )}`;
 
   // Report link:
-  // 1) Prefer last_result_url if it looks like a URL or path
-  // 2) Fall back to /t/[token]/report based on link_token
+  // 1) Prefer last_result_url if present
+  // 2) Fall back to /t/[token]/report
   let reportLink: string;
 
   if (opts.lastResultUrl) {
@@ -115,7 +116,6 @@ function buildLinks(opts: {
     } else if (v.startsWith("/")) {
       reportLink = `${cleanBase}${v}`;
     } else {
-      // some relative path – be defensive and still try to use it
       reportLink = `${cleanBase}/${v}`;
     }
   } else {
@@ -159,7 +159,6 @@ export async function POST(
       test_link: testLink,
       report_link: reportLink,
       org_name: org.name || slug,
-      // you can extend this later with owner data when we join it
       owner_name: "",
     };
 
