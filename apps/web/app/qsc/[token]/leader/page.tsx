@@ -316,7 +316,7 @@ export default function QscLeaderStrategicReportPage({
   const persona = payload?.persona ?? null;
   const taker = payload?.taker ?? null;
 
-  if (loading) {
+  if (loading && !result) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-900">
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
@@ -326,7 +326,9 @@ export default function QscLeaderStrategicReportPage({
           <h1 className="mt-3 text-3xl font-bold">
             Preparing your QSC Leaders report…
           </h1>
-          {apiVersion && <p className="text-xs text-slate-500">API: {apiVersion}</p>}
+          {apiVersion && (
+            <p className="text-xs text-slate-500">API: {apiVersion}</p>
+          )}
         </main>
       </div>
     );
@@ -347,7 +349,9 @@ export default function QscLeaderStrategicReportPage({
           <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-          {apiVersion && <p className="text-xs text-slate-500">API: {apiVersion}</p>}
+          {apiVersion && (
+            <p className="text-xs text-slate-500">API: {apiVersion}</p>
+          )}
         </main>
       </div>
     );
@@ -469,13 +473,6 @@ export default function QscLeaderStrategicReportPage({
               Your personal emotional, leadership and strategic blueprint – based
               on your Quantum leadership profile and current mindset stage.
             </p>
-
-            {/* Debug block (remove later) */}
-            <div className="mt-3 text-xs text-slate-500 space-y-1">
-              <div>Audience: {result.audience ?? "null"}</div>
-              <div>API: {apiVersion ?? "unknown"}</div>
-              <div>created_at (raw UTC): {result.created_at}</div>
-            </div>
           </div>
 
           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
@@ -538,7 +535,9 @@ export default function QscLeaderStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
             One-page Quantum Leadership Summary
           </p>
-          <h2 className="text-xl font-semibold">Your at-a-glance leadership profile</h2>
+          <h2 className="text-xl font-semibold">
+            Your at-a-glance leadership profile
+          </h2>
 
           <div className="grid gap-6 md:grid-cols-3 pt-4">
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
@@ -553,7 +552,9 @@ export default function QscLeaderStrategicReportPage({
 
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
               <h3 className="font-semibold">Strengths</h3>
-              <p className="text-slate-700 whitespace-pre-line">{onePageStrengths}</p>
+              <p className="text-slate-700 whitespace-pre-line">
+                {onePageStrengths}
+              </p>
               <h4 className="mt-2 font-semibold">Risks</h4>
               <p className="text-slate-700 whitespace-pre-line">{onePageRisks}</p>
             </div>

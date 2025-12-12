@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
@@ -461,13 +460,15 @@ export default function QscEntrepreneurStrategicReportPage({
     "QUANTUM",
   ];
 
-  const {
-    primary: derivedPrimaryPersonality,
-    secondary: derivedSecondaryPersonality,
-  } = derivePrimarySecondary(personalityPerc, personalityKeys);
+  const { primary: derivedPrimaryPersonality } = derivePrimarySecondary(
+    personalityPerc,
+    personalityKeys
+  );
 
-  const { primary: derivedPrimaryMindset, secondary: derivedSecondaryMindset } =
-    derivePrimarySecondary(mindsetPerc, mindsetKeys);
+  const { primary: derivedPrimaryMindset } = derivePrimarySecondary(
+    mindsetPerc,
+    mindsetKeys
+  );
 
   const effectivePrimaryPersonality: PersonalityKey | null =
     derivedPrimaryPersonality ?? result.primary_personality ?? null;
@@ -527,13 +528,6 @@ export default function QscEntrepreneurStrategicReportPage({
               Your personal emotional, strategic and scaling blueprint – based
               on your Quantum buyer profile and current mindset stage.
             </p>
-
-            {/* Debug block (remove later) */}
-            <div className="mt-3 text-xs text-slate-500 space-y-1">
-              <div>Audience: {result.audience ?? "null"}</div>
-              <div>API: {apiVersion ?? "unknown"}</div>
-              <div>created_at (raw UTC): {result.created_at}</div>
-            </div>
           </div>
 
           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">

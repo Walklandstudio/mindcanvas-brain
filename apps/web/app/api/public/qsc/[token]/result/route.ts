@@ -14,13 +14,21 @@ function supa() {
 /**
  * QSC Result API
  *
- * GET /api/public/qsc/[token]/result
+ * GET /api/public/qsc/[token]/result?tid=...
+ *
+ * Tries multiple strategies:
+ * 1) qsc_results.token = token
+ * 2) if tid provided:
+ *    - qsc_results.id = tid
+ *    - qsc_results.token = tid
+ *    - qsc_results.test_id = tid
+ *    - if tid is a test_taker id: load test_takers.id = tid -> link_token -> qsc_results.token = link_token
  *
  * Returns:
- * - results → row from qsc_results (scores, primary/secondary, combined profile)
- * - profile → row from qsc_profiles (Extended Source Code / internal insights)
- * - persona → row from qsc_personas (Strategic Growth Report copy)
- * - taker   → row from test_takers (name/email/company/role)
+ * - results → row from qsc_results
+ * - profile → row from qsc_profiles
+ * - persona → row from qsc_personas
+ * - taker   → row from test_takers
  */
 export async function GET(
   req: Request,
@@ -35,46 +43,107 @@ export async function GET(
       );
     }
 
+    const url = new URL(req.url);
+    const tid = (url.searchParams.get("tid") || "").trim();
+
     const sb = supa();
 
     // -----------------------------------------------------------------------
-    // 1) Load the QSC results row for this token (latest if multiple)
+    // Helper: load result row by a provided where clause
     // -----------------------------------------------------------------------
-    const { data: resultRow, error: resErr } = await sb
-      .from("qsc_results")
-      .select(
+    async function loadResultBy(where: { col: string; val: string }) {
+      const { data, error } = await sb
+        .from("qsc_results")
+        .select(
+          `
+          id,
+          test_id,
+          token,
+          personality_totals,
+          personality_percentages,
+          mindset_totals,
+          mindset_percentages,
+          primary_personality,
+          secondary_personality,
+          primary_mindset,
+          secondary_mindset,
+          combined_profile_code,
+          qsc_profile_id,
+          audience,
+          created_at
         `
-        id,
-        test_id,
-        token,
-        personality_totals,
-        personality_percentages,
-        mindset_totals,
-        mindset_percentages,
-        primary_personality,
-        secondary_personality,
-        primary_mindset,
-        secondary_mindset,
-        combined_profile_code,
-        qsc_profile_id,
-        audience,
-        created_at
-      `
-      )
-      .eq("token", token)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+        )
+        // @ts-ignore - dynamic column
+        .eq(where.col, where.val)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (resErr) {
-      return NextResponse.json(
-        { ok: false, error: `qsc_results load failed: ${resErr.message}` },
-        { status: 500 }
-      );
+      if (error) return { row: null as any, error };
+      return { row: data, error: null as any };
     }
+
+    // -----------------------------------------------------------------------
+    // 1) Primary lookup: qsc_results.token === token
+    // -----------------------------------------------------------------------
+    let resultRow: any = null;
+    {
+      const { row, error } = await loadResultBy({ col: "token", val: token });
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
+      }
+      resultRow = row;
+    }
+
+    // -----------------------------------------------------------------------
+    // 1b) Fallbacks using tid (if provided)
+    // -----------------------------------------------------------------------
+    if (!resultRow && tid) {
+      // Try: tid is qsc_results.id
+      let attempt = await loadResultBy({ col: "id", val: tid });
+      if (!attempt.error && attempt.row) resultRow = attempt.row;
+
+      // Try: tid is actually the token
+      if (!resultRow) {
+        attempt = await loadResultBy({ col: "token", val: tid });
+        if (!attempt.error && attempt.row) resultRow = attempt.row;
+      }
+
+      // Try: tid is test_id
+      if (!resultRow) {
+        attempt = await loadResultBy({ col: "test_id", val: tid });
+        if (!attempt.error && attempt.row) resultRow = attempt.row;
+      }
+
+      // Try: tid is a test_taker id -> resolve its link_token -> use that as qsc_results.token
+      if (!resultRow) {
+        const { data: takerById, error: takerByIdErr } = await sb
+          .from("test_takers")
+          .select(`id, link_token`)
+          .eq("id", tid)
+          .maybeSingle();
+
+        if (!takerByIdErr && takerById?.link_token) {
+          const resolvedToken = String(takerById.link_token);
+          const { row } = await loadResultBy({
+            col: "token",
+            val: resolvedToken,
+          });
+          if (row) resultRow = row;
+        }
+      }
+    }
+
     if (!resultRow) {
       return NextResponse.json(
-        { ok: false, error: "No QSC result found for this token" },
+        {
+          ok: false,
+          error: "No QSC result found for this token",
+          debug: { token, tid: tid || null },
+        },
         { status: 404 }
       );
     }
@@ -85,8 +154,10 @@ export async function GET(
       resultRow.combined_profile_code ?? null;
 
     // -----------------------------------------------------------------------
-    // 2) Load the test taker (for name/email on reports)
+    // 2) Load test taker (try by link_token; if not found and tid exists, try id)
     // -----------------------------------------------------------------------
+    let taker: any = null;
+
     const { data: takerRow, error: takerErr } = await sb
       .from("test_takers")
       .select(
@@ -99,16 +170,34 @@ export async function GET(
         role_title
       `
       )
-      .eq("link_token", token)
+      .eq("link_token", resultRow.token) // IMPORTANT: use the resolved result token
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    // If there's an error here, it's not fatal for the report
-    const taker = takerErr ? null : takerRow;
+    if (!takerErr && takerRow) {
+      taker = takerRow;
+    } else if (tid) {
+      const { data: takerById, error: takerByIdErr } = await sb
+        .from("test_takers")
+        .select(
+          `
+          id,
+          first_name,
+          last_name,
+          email,
+          company,
+          role_title
+        `
+        )
+        .eq("id", tid)
+        .maybeSingle();
+
+      if (!takerByIdErr && takerById) taker = takerById;
+    }
 
     // -----------------------------------------------------------------------
-    // 3) Load the QSC profile (Extended Source Code / internal insights)
+    // 3) Load QSC profile (Extended Source Code / internal insights)
     // -----------------------------------------------------------------------
     let profile: any = null;
     if (qscProfileId) {
@@ -127,26 +216,23 @@ export async function GET(
           trust_signals,
           offer_fit,
           sale_blockers,
-          created_at
+          created_at,
+          full_internal_insights
         `
         )
         .eq("id", qscProfileId)
         .maybeSingle();
 
-      if (!profErr && profRow) {
-        profile = profRow;
-      } else {
-        profile = null;
-      }
+      if (!profErr && profRow) profile = profRow;
     }
 
     // -----------------------------------------------------------------------
-    // 4) Load Persona (Strategic Growth Report content)
+    // 4) Load Persona (Strategic Growth / Leadership report content)
     // -----------------------------------------------------------------------
     let persona: any = null;
 
     if (combinedProfileCode) {
-      // 4a) Try test-specific persona
+      // 4a) test-specific
       const { data: personaRow, error: personaErr } = await sb
         .from("qsc_personas")
         .select(
@@ -185,7 +271,7 @@ export async function GET(
       if (!personaErr && personaRow) {
         persona = personaRow;
       } else {
-        // 4b) Fallback: global persona for this profile_code (any test_id)
+        // 4b) global fallback
         const { data: globalPersona, error: globalErr } = await sb
           .from("qsc_personas")
           .select(
@@ -221,21 +307,16 @@ export async function GET(
           .limit(1)
           .maybeSingle();
 
-        if (!globalErr && globalPersona) {
-          persona = globalPersona;
-        } else {
-          persona = null;
-        }
+        if (!globalErr && globalPersona) persona = globalPersona;
       }
     }
 
     // -----------------------------------------------------------------------
-    // 5) Return combined payload
+    // 5) Return payload
     // -----------------------------------------------------------------------
     return NextResponse.json(
       {
         ok: true,
-        __api_version: "qsc-result-audience-2025-12-12",
         results: resultRow,
         profile,
         persona,
