@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -253,10 +255,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         textAnchor="middle"
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
-        style={{
-          fontFamily:
-            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        }}
       >
         BUYER
       </text>
@@ -266,16 +264,26 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         textAnchor="middle"
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
-        style={{
-          fontFamily:
-            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        }}
       >
         FREQUENCY
       </text>
     </svg>
   );
 }
+
+// ---------- helper: taker full name ----------------------------------------
+
+function getFullName(taker: QscTakerRow | null | undefined): string | null {
+  if (!taker) return null;
+  const first = (taker.first_name || "").trim();
+  const last = (taker.last_name || "").trim();
+  const full = `${first} ${last}`.trim();
+  if (full) return full;
+  const email = (taker.email || "").trim();
+  return email || null;
+}
+
+// ---------------------------------------------------------------------------
 
 export default function QscResultPage({ params }: { params: { token: string } }) {
   const token = params.token;
@@ -285,6 +293,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<QscPayload | null>(null);
+
+  const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -340,6 +350,40 @@ export default function QscResultPage({ params }: { params: { token: string } })
       alive = false;
     };
   }, [token]);
+
+  async function handleDownloadPdf() {
+    if (!reportRef.current) return;
+
+    const element = reportRef.current;
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    pdf.save(`qsc-snapshot-${token}.pdf`);
+  }
 
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
@@ -397,11 +441,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
     persona?.profile_label || profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  const takerDisplayName =
-    taker &&
-    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
-      taker.email ||
-      null);
+  const takerDisplayName = getFullName(taker);
 
   const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
     key: p.key,
@@ -424,7 +464,10 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
-      <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
+      <main
+        ref={reportRef}
+        className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"
+      >
         {/* Snapshot header */}
         <section className="space-y-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -452,7 +495,13 @@ export default function QscResultPage({ params }: { params: { token: string } })
               </p>
             </div>
 
-            <div className="flex md:items-end">
+            <div className="flex flex-col gap-2 md:items-end">
+              <button
+                onClick={handleDownloadPdf}
+                className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+              >
+                Download PDF
+              </button>
               <Link
                 href={extendedReportHref}
                 className="inline-flex items-center rounded-xl border border-sky-500/70 bg-sky-600/80 px-4 py-2 text-sm font-medium text-slate-50 shadow-md shadow-sky-900/60 hover:bg-sky-500 hover:border-sky-400 transition"
@@ -777,6 +826,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
+
 
 
 

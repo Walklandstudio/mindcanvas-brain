@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import { QscMatrix } from "../../QscMatrix";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
@@ -189,10 +191,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         textAnchor="middle"
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
-        style={{
-          fontFamily:
-            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        }}
       >
         BUYER
       </text>
@@ -202,10 +200,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         textAnchor="middle"
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
-        style={{
-          fontFamily:
-            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        }}
       >
         FREQUENCY
       </text>
@@ -231,6 +225,16 @@ function derivePrimarySecondary<K extends string>(
   return { primary, secondary };
 }
 
+function getFullName(taker: QscTakerRow | null | undefined): string | null {
+  if (!taker) return null;
+  const first = (taker.first_name || "").trim();
+  const last = (taker.last_name || "").trim();
+  const full = `${first} ${last}`.trim();
+  if (full) return full;
+  const email = (taker.email || "").trim();
+  return email || null;
+}
+
 // ------------------------------------------------------
 // Page
 // ------------------------------------------------------
@@ -248,6 +252,8 @@ export default function QscEntrepreneurStrategicReportPage({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<QscPayload | null>(null);
+
+  const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -317,6 +323,40 @@ export default function QscEntrepreneurStrategicReportPage({
     };
   }, [token, tid, router]);
 
+  async function handleDownloadPdf() {
+    if (!reportRef.current) return;
+
+    const element = reportRef.current;
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    pdf.save(`qsc-entrepreneur-strategic-${token}.pdf`);
+  }
+
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
@@ -371,15 +411,7 @@ export default function QscEntrepreneurStrategicReportPage({
     profile?.profile_label ||
     "Your Quantum Buyer Profile";
 
-  const takerDisplayName =
-    taker &&
-    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
-      taker.email ||
-      null);
-
-  const backHref = tid
-    ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
-    : `/qsc/${encodeURIComponent(token)}`;
+  const takerDisplayName = getFullName(taker);
 
   const rawPersonalityPerc =
     (result.personality_percentages ?? {}) as PersonalityPercMap;
@@ -474,7 +506,10 @@ export default function QscEntrepreneurStrategicReportPage({
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10">
+      <main
+        ref={reportRef}
+        className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10"
+      >
         {/* HEADER */}
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
@@ -496,12 +531,12 @@ export default function QscEntrepreneurStrategicReportPage({
             </p>
           </div>
           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
-            <Link
-              href={backHref}
+            <button
+              onClick={handleDownloadPdf}
               className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
             >
-              ← Back to Snapshot
-            </Link>
+              Download PDF
+            </button>
             <span>
               Created at{" "}
               {createdAt.toLocaleString(undefined, {
