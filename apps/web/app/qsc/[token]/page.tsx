@@ -132,7 +132,10 @@ function buildMatrix(): MatrixCell[] {
 
 const MATRIX = buildMatrix();
 
-function classifyCell(result: QscResultsRow | null, cell: MatrixCell): CellCategory {
+function classifyCell(
+  result: QscResultsRow | null,
+  cell: MatrixCell
+): CellCategory {
   if (!result) return "other";
 
   const combined = (result.combined_profile_code || "").toUpperCase();
@@ -153,8 +156,7 @@ function classifyCell(result: QscResultsRow | null, cell: MatrixCell): CellCateg
 
   const matchesPersonality =
     cell.personality === primaryP || cell.personality === secondaryP;
-  const matchesMindset =
-    cell.mindset === primaryM || cell.mindset === secondaryM;
+  const matchesMindset = cell.mindset === primaryM || cell.mindset === secondaryM;
 
   return matchesPersonality || matchesMindset ? "related" : "other";
 }
@@ -281,7 +283,11 @@ function getFullName(taker: QscTakerRow | null | undefined): string | null {
   return email || null;
 }
 
-export default function QscResultPage({ params }: { params: { token: string } }) {
+export default function QscResultPage({
+  params,
+}: {
+  params: { token: string };
+}) {
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
@@ -290,9 +296,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<QscPayload | null>(null);
 
-  const [audienceResolved, setAudienceResolved] = useState<"entrepreneur" | "leader">(
-    "entrepreneur"
-  );
+  const [audienceResolved, setAudienceResolved] = useState<
+    "entrepreneur" | "leader"
+  >("entrepreneur");
   const [audienceSource, setAudienceSource] = useState<string>("default");
   const [metaApiVersion, setMetaApiVersion] = useState<string | null>(null);
 
@@ -307,7 +313,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
         setErr(null);
 
         const resultUrl = tid
-          ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(tid)}`
+          ? `/api/public/qsc/${encodeURIComponent(
+              token
+            )}/result?tid=${encodeURIComponent(tid)}`
           : `/api/public/qsc/${encodeURIComponent(token)}/result`;
 
         const res = await fetch(resultUrl, { cache: "no-store" });
@@ -337,21 +345,29 @@ export default function QscResultPage({ params }: { params: { token: string } })
           setPayload(nextPayload);
 
           // First preference: results.audience if present
-          if (j.results.audience === "leader" || j.results.audience === "entrepreneur") {
+          if (
+            j.results.audience === "leader" ||
+            j.results.audience === "entrepreneur"
+          ) {
             setAudienceResolved(j.results.audience);
             setAudienceSource("qsc_results.audience");
           } else {
             // Fallback: derive from meta endpoint
             try {
               const metaUrl = tid
-                ? `/api/public/qsc/${encodeURIComponent(token)}/meta?tid=${encodeURIComponent(tid)}`
+                ? `/api/public/qsc/${encodeURIComponent(
+                    token
+                  )}/meta?tid=${encodeURIComponent(tid)}`
                 : `/api/public/qsc/${encodeURIComponent(token)}/meta`;
 
               const mres = await fetch(metaUrl, { cache: "no-store" });
               const mct = mres.headers.get("content-type") || "";
               if (mct.includes("application/json")) {
                 const mj = await mres.json();
-                if (mj?.ok && (mj.audience === "leader" || mj.audience === "entrepreneur")) {
+                if (
+                  mj?.ok &&
+                  (mj.audience === "leader" || mj.audience === "entrepreneur")
+                ) {
                   setAudienceResolved(mj.audience);
                   setAudienceSource(mj.source || "meta");
                   setMetaApiVersion(mj.__api_version ?? null);
@@ -619,7 +635,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
                     How to communicate
                   </h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.how_to_communicate || "[todo: how to communicate]"}
+                    {profile?.how_to_communicate ||
+                      "[todo: how to communicate]"}
                   </p>
                 </div>
 
@@ -632,14 +649,18 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <h3 className="font-semibold text-slate-100">Core challenges</h3>
+                    <h3 className="font-semibold text-slate-100">
+                      Core challenges
+                    </h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
                       {profile?.business_challenges ||
                         "[todo: core business challenges]"}
                     </p>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-100">Trust signals</h3>
+                    <h3 className="font-semibold text-slate-100">
+                      Trust signals
+                    </h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
                       {profile?.trust_signals || "[todo: trust signals]"}
                     </p>
@@ -654,7 +675,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
                     </p>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-100">Sale blockers</h3>
+                    <h3 className="font-semibold text-slate-100">
+                      Sale blockers
+                    </h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
                       {profile?.sale_blockers || "[todo: what blocks the sale]"}
                     </p>
@@ -688,7 +711,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
                         className="inline-block h-2.5 w-2.5 rounded-full"
                         style={{ backgroundColor: FREQUENCY_COLORS[d.key] }}
                       />
-                      <span className="font-medium text-slate-100">{d.label}</span>
+                      <span className="font-medium text-slate-100">
+                        {d.label}
+                      </span>
                     </div>
                     <span className="text-sm text-slate-300">
                       {percentLabel(d.value)}
@@ -836,3 +861,4 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
+

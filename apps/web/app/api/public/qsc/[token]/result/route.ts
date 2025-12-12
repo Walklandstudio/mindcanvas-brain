@@ -5,10 +5,13 @@ export const dynamic = "force-dynamic";
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_ANON_KEY!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
+}
+
+// Small helper
+function isUuidLike(s: string) {
+  return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(s);
 }
 
 /**
@@ -16,31 +19,22 @@ function supa() {
  *
  * GET /api/public/qsc/[token]/result?tid=...
  *
- * Tries multiple strategies:
- * 1) qsc_results.token = token
- * 2) if tid provided:
- *    - qsc_results.id = tid
- *    - qsc_results.token = tid
- *    - qsc_results.test_id = tid
- *    - if tid is a test_taker id: load test_takers.id = tid -> link_token -> qsc_results.token = link_token
+ * Resolves results robustly because [token] can be:
+ * - qsc_results.token (link token)
+ * - qsc_results.id
+ * - test_takers.id (UUID) -> test_takers.link_token -> qsc_results.token
  *
- * Returns:
- * - results → row from qsc_results
- * - profile → row from qsc_profiles
- * - persona → row from qsc_personas
- * - taker   → row from test_takers
+ * tid (optional) can be:
+ * - qsc_results.id
+ * - qsc_results.token
+ * - qsc_results.test_id
+ * - test_takers.id -> link_token -> qsc_results.token
  */
-export async function GET(
-  req: Request,
-  { params }: { params: { token: string } }
-) {
+export async function GET(req: Request, { params }: { params: { token: string } }) {
   try {
-    const token = params.token;
-    if (!token) {
-      return NextResponse.json(
-        { ok: false, error: "Missing token in URL" },
-        { status: 400 }
-      );
+    const tokenParam = (params.token || "").trim();
+    if (!tokenParam) {
+      return NextResponse.json({ ok: false, error: "Missing token in URL" }, { status: 400 });
     }
 
     const url = new URL(req.url);
@@ -48,10 +42,7 @@ export async function GET(
 
     const sb = supa();
 
-    // -----------------------------------------------------------------------
-    // Helper: load result row by a provided where clause
-    // -----------------------------------------------------------------------
-    async function loadResultBy(where: { col: string; val: string }) {
+    async function loadResultBy(col: string, val: string) {
       const { data, error } = await sb
         .from("qsc_results")
         .select(
@@ -73,133 +64,162 @@ export async function GET(
           created_at
         `
         )
-        // @ts-ignore - dynamic column
-        .eq(where.col, where.val)
+        // @ts-ignore
+        .eq(col, val)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (error) return { row: null as any, error };
-      return { row: data, error: null as any };
+      return { row: data ?? null, error: error ?? null };
+    }
+
+    async function resolveViaTestTakerId(maybeId: string) {
+      const { data: takerRow, error } = await sb
+        .from("test_takers")
+        .select("id, link_token")
+        .eq("id", maybeId)
+        .maybeSingle();
+
+      if (error || !takerRow?.link_token) return { resolvedToken: null as string | null, takerRow: null as any };
+      return { resolvedToken: String(takerRow.link_token), takerRow };
     }
 
     // -----------------------------------------------------------------------
-    // 1) Primary lookup: qsc_results.token === token
+    // Resolve resultRow
     // -----------------------------------------------------------------------
     let resultRow: any = null;
+    let resolution: any = { method: null as string | null };
+
+    // A) direct: qsc_results.token === tokenParam
     {
-      const { row, error } = await loadResultBy({ col: "token", val: token });
-      if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
-        );
+      const r = await loadResultBy("token", tokenParam);
+      if (r.error) {
+        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${r.error.message}` }, { status: 500 });
       }
-      resultRow = row;
+      if (r.row) {
+        resultRow = r.row;
+        resolution.method = "qsc_results.token=tokenParam";
+      }
     }
 
-    // -----------------------------------------------------------------------
-    // 1b) Fallbacks using tid (if provided)
-    // -----------------------------------------------------------------------
+    // B) tokenParam might be qsc_results.id
+    if (!resultRow) {
+      const r = await loadResultBy("id", tokenParam);
+      if (r.error) {
+        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${r.error.message}` }, { status: 500 });
+      }
+      if (r.row) {
+        resultRow = r.row;
+        resolution.method = "qsc_results.id=tokenParam";
+      }
+    }
+
+    // C) tokenParam might be test_takers.id -> link_token -> qsc_results.token
+    if (!resultRow && isUuidLike(tokenParam)) {
+      const { resolvedToken } = await resolveViaTestTakerId(tokenParam);
+      if (resolvedToken) {
+        const r = await loadResultBy("token", resolvedToken);
+        if (r.error) {
+          return NextResponse.json({ ok: false, error: `qsc_results load failed: ${r.error.message}` }, { status: 500 });
+        }
+        if (r.row) {
+          resultRow = r.row;
+          resolution.method = "test_takers.id=tokenParam -> qsc_results.token=link_token";
+          resolution.resolvedToken = resolvedToken;
+        }
+      }
+    }
+
+    // D) If still not found, use tid fallbacks (ONLY if provided)
     if (!resultRow && tid) {
-      // Try: tid is qsc_results.id
-      let attempt = await loadResultBy({ col: "id", val: tid });
-      if (!attempt.error && attempt.row) resultRow = attempt.row;
-
-      // Try: tid is actually the token
-      if (!resultRow) {
-        attempt = await loadResultBy({ col: "token", val: tid });
-        if (!attempt.error && attempt.row) resultRow = attempt.row;
+      // D1) tid is qsc_results.id
+      let r = await loadResultBy("id", tid);
+      if (r.row) {
+        resultRow = r.row;
+        resolution.method = "qsc_results.id=tid";
       }
 
-      // Try: tid is test_id
+      // D2) tid is qsc_results.token
       if (!resultRow) {
-        attempt = await loadResultBy({ col: "test_id", val: tid });
-        if (!attempt.error && attempt.row) resultRow = attempt.row;
+        r = await loadResultBy("token", tid);
+        if (r.row) {
+          resultRow = r.row;
+          resolution.method = "qsc_results.token=tid";
+        }
       }
 
-      // Try: tid is a test_taker id -> resolve its link_token -> use that as qsc_results.token
+      // D3) tid is qsc_results.test_id
       if (!resultRow) {
-        const { data: takerById, error: takerByIdErr } = await sb
-          .from("test_takers")
-          .select(`id, link_token`)
-          .eq("id", tid)
-          .maybeSingle();
+        r = await loadResultBy("test_id", tid);
+        if (r.row) {
+          resultRow = r.row;
+          resolution.method = "qsc_results.test_id=tid";
+        }
+      }
 
-        if (!takerByIdErr && takerById?.link_token) {
-          const resolvedToken = String(takerById.link_token);
-          const { row } = await loadResultBy({
-            col: "token",
-            val: resolvedToken,
-          });
-          if (row) resultRow = row;
+      // D4) tid is test_takers.id -> link_token -> qsc_results.token
+      if (!resultRow && isUuidLike(tid)) {
+        const { resolvedToken } = await resolveViaTestTakerId(tid);
+        if (resolvedToken) {
+          r = await loadResultBy("token", resolvedToken);
+          if (r.row) {
+            resultRow = r.row;
+            resolution.method = "test_takers.id=tid -> qsc_results.token=link_token";
+            resolution.resolvedToken = resolvedToken;
+          }
         }
       }
     }
 
     if (!resultRow) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "No QSC result found for this token",
-          debug: { token, tid: tid || null },
-        },
+        { ok: false, error: "No QSC result found for this token", debug: { token: tokenParam, tid: tid || null } },
         { status: 404 }
       );
     }
 
     const testId: string = resultRow.test_id;
     const qscProfileId: string | null = resultRow.qsc_profile_id ?? null;
-    const combinedProfileCode: string | null =
-      resultRow.combined_profile_code ?? null;
+    const combinedProfileCode: string | null = resultRow.combined_profile_code ?? null;
 
     // -----------------------------------------------------------------------
-    // 2) Load test taker (try by link_token; if not found and tid exists, try id)
+    // Load test taker (prefer link_token match; else try tokenParam/tid as id)
     // -----------------------------------------------------------------------
     let taker: any = null;
 
     const { data: takerRow, error: takerErr } = await sb
       .from("test_takers")
-      .select(
-        `
-        id,
-        first_name,
-        last_name,
-        email,
-        company,
-        role_title
-      `
-      )
-      .eq("link_token", resultRow.token) // IMPORTANT: use the resolved result token
+      .select(`id, first_name, last_name, email, company, role_title`)
+      .eq("link_token", resultRow.token)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (!takerErr && takerRow) {
-      taker = takerRow;
-    } else if (tid) {
-      const { data: takerById, error: takerByIdErr } = await sb
+    if (!takerErr && takerRow) taker = takerRow;
+
+    if (!taker && isUuidLike(tokenParam)) {
+      const { data, error } = await sb
         .from("test_takers")
-        .select(
-          `
-          id,
-          first_name,
-          last_name,
-          email,
-          company,
-          role_title
-        `
-        )
+        .select(`id, first_name, last_name, email, company, role_title`)
+        .eq("id", tokenParam)
+        .maybeSingle();
+      if (!error && data) taker = data;
+    }
+
+    if (!taker && tid && isUuidLike(tid)) {
+      const { data, error } = await sb
+        .from("test_takers")
+        .select(`id, first_name, last_name, email, company, role_title`)
         .eq("id", tid)
         .maybeSingle();
-
-      if (!takerByIdErr && takerById) taker = takerById;
+      if (!error && data) taker = data;
     }
 
     // -----------------------------------------------------------------------
-    // 3) Load QSC profile (Extended Source Code / internal insights)
+    // Load QSC profile (extended/internal)
     // -----------------------------------------------------------------------
     let profile: any = null;
+
     if (qscProfileId) {
       const { data: profRow, error: profErr } = await sb
         .from("qsc_profiles")
@@ -227,12 +247,11 @@ export async function GET(
     }
 
     // -----------------------------------------------------------------------
-    // 4) Load Persona (Strategic Growth / Leadership report content)
+    // Load persona (strategic report content) – prefer test-specific
     // -----------------------------------------------------------------------
     let persona: any = null;
 
     if (combinedProfileCode) {
-      // 4a) test-specific
       const { data: personaRow, error: personaErr } = await sb
         .from("qsc_personas")
         .select(
@@ -271,7 +290,6 @@ export async function GET(
       if (!personaErr && personaRow) {
         persona = personaRow;
       } else {
-        // 4b) global fallback
         const { data: globalPersona, error: globalErr } = await sb
           .from("qsc_personas")
           .select(
@@ -311,9 +329,6 @@ export async function GET(
       }
     }
 
-    // -----------------------------------------------------------------------
-    // 5) Return payload
-    // -----------------------------------------------------------------------
     return NextResponse.json(
       {
         ok: true,
@@ -321,15 +336,13 @@ export async function GET(
         profile,
         persona,
         taker,
+        __resolution: resolution,
       },
       { status: 200 }
     );
   } catch (err: any) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: err?.message || "Unexpected error in QSC result endpoint",
-      },
+      { ok: false, error: err?.message || "Unexpected error in QSC result endpoint" },
       { status: 500 }
     );
   }
