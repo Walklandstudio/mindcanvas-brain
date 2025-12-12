@@ -186,8 +186,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
         style={{
-          fontFamily:
-            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
         }}
       >
         LEADERSHIP
@@ -199,8 +198,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
         style={{
-          fontFamily:
-            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
         }}
       >
         FREQUENCY
@@ -221,8 +219,7 @@ function derivePrimarySecondary<K extends string>(
   entries.sort((a, b) => b.value - a.value);
 
   const primary = entries[0] && entries[0].value > 0 ? entries[0].key : null;
-  const secondary =
-    entries[1] && entries[1].value > 0 ? entries[1].key : null;
+  const secondary = entries[1] && entries[1].value > 0 ? entries[1].key : null;
 
   return { primary, secondary };
 }
@@ -252,10 +249,14 @@ export default function QscLeaderStrategicReportPage({
         setLoading(true);
         setErr(null);
 
-        const res = await fetch(
-          `/api/public/qsc/${encodeURIComponent(token)}/result`,
-          { cache: "no-store" }
-        );
+        // ✅ IMPORTANT FIX: pass tid through so API can resolve tokens correctly
+        const apiUrl = tid
+          ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(
+              tid
+            )}`
+          : `/api/public/qsc/${encodeURIComponent(token)}/result`;
+
+        const res = await fetch(apiUrl, { cache: "no-store" });
 
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
@@ -283,7 +284,7 @@ export default function QscLeaderStrategicReportPage({
 
         if (!j.results) throw new Error("No QSC results found");
 
-        // 🔁 Safety: if someone hits /leader but the result is entrepreneur, bounce them
+        // Safety: if someone hits /leader but the result is entrepreneur, bounce them
         if (j.results.audience === "entrepreneur") {
           const base = `/qsc/${encodeURIComponent(token)}/entrepreneur`;
           const href = tid ? `${base}?tid=${encodeURIComponent(tid)}` : base;
@@ -316,7 +317,7 @@ export default function QscLeaderStrategicReportPage({
   const persona = payload?.persona ?? null;
   const taker = payload?.taker ?? null;
 
-  if (loading && !result) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-900">
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
@@ -326,9 +327,7 @@ export default function QscLeaderStrategicReportPage({
           <h1 className="mt-3 text-3xl font-bold">
             Preparing your QSC Leaders report…
           </h1>
-          {apiVersion && (
-            <p className="text-xs text-slate-500">API: {apiVersion}</p>
-          )}
+          {apiVersion && <p className="text-xs text-slate-500">API: {apiVersion}</p>}
         </main>
       </div>
     );
@@ -349,9 +348,7 @@ export default function QscLeaderStrategicReportPage({
           <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-          {apiVersion && (
-            <p className="text-xs text-slate-500">API: {apiVersion}</p>
-          )}
+          {apiVersion && <p className="text-xs text-slate-500">API: {apiVersion}</p>}
         </main>
       </div>
     );
@@ -473,6 +470,12 @@ export default function QscLeaderStrategicReportPage({
               Your personal emotional, leadership and strategic blueprint – based
               on your Quantum leadership profile and current mindset stage.
             </p>
+
+            <div className="mt-3 text-xs text-slate-500 space-y-1">
+              <div>Audience: {result.audience ?? "null"}</div>
+              <div>API: {apiVersion ?? "unknown"}</div>
+              <div>created_at (raw UTC): {result.created_at}</div>
+            </div>
           </div>
 
           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">

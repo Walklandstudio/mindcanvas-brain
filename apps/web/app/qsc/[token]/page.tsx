@@ -290,7 +290,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<QscPayload | null>(null);
 
-  const [audienceResolved, setAudienceResolved] = useState<"entrepreneur" | "leader">("entrepreneur");
+  const [audienceResolved, setAudienceResolved] = useState<"entrepreneur" | "leader">(
+    "entrepreneur"
+  );
   const [audienceSource, setAudienceSource] = useState<string>("default");
   const [metaApiVersion, setMetaApiVersion] = useState<string | null>(null);
 
@@ -304,10 +306,11 @@ export default function QscResultPage({ params }: { params: { token: string } })
         setLoading(true);
         setErr(null);
 
-        const res = await fetch(
-          `/api/public/qsc/${encodeURIComponent(token)}/result`,
-          { cache: "no-store" }
-        );
+        const resultUrl = tid
+          ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(tid)}`
+          : `/api/public/qsc/${encodeURIComponent(token)}/result`;
+
+        const res = await fetch(resultUrl, { cache: "no-store" });
 
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
@@ -340,10 +343,11 @@ export default function QscResultPage({ params }: { params: { token: string } })
           } else {
             // Fallback: derive from meta endpoint
             try {
-              const mres = await fetch(
-                `/api/public/qsc/${encodeURIComponent(token)}/meta`,
-                { cache: "no-store" }
-              );
+              const metaUrl = tid
+                ? `/api/public/qsc/${encodeURIComponent(token)}/meta?tid=${encodeURIComponent(tid)}`
+                : `/api/public/qsc/${encodeURIComponent(token)}/meta`;
+
+              const mres = await fetch(metaUrl, { cache: "no-store" });
               const mct = mres.headers.get("content-type") || "";
               if (mct.includes("application/json")) {
                 const mj = await mres.json();
@@ -375,7 +379,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
     return () => {
       alive = false;
     };
-  }, [token]);
+  }, [token, tid]);
 
   async function handleDownloadPdf() {
     if (!reportRef.current) return;
@@ -454,7 +458,9 @@ export default function QscResultPage({ params }: { params: { token: string } })
           </pre>
           <p className="text-xs text-slate-500">
             Debug endpoint:{" "}
-            <code className="break-all">/api/public/qsc/{token}/result</code>
+            <code className="break-all">
+              /api/public/qsc/{token}/result{tid ? `?tid=${tid}` : ""}
+            </code>
           </p>
         </main>
       </div>
@@ -613,15 +619,12 @@ export default function QscResultPage({ params }: { params: { token: string } })
                     How to communicate
                   </h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
-                    {profile?.how_to_communicate ||
-                      "[todo: how to communicate]"}
+                    {profile?.how_to_communicate || "[todo: how to communicate]"}
                   </p>
                 </div>
 
                 <div>
-                  <h3 className="font-semibold text-slate-100">
-                    Decision style
-                  </h3>
+                  <h3 className="font-semibold text-slate-100">Decision style</h3>
                   <p className="mt-1 text-slate-300 whitespace-pre-line">
                     {profile?.decision_style || "[todo: decision style]"}
                   </p>
@@ -629,18 +632,14 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <h3 className="font-semibold text-slate-100">
-                      Core challenges
-                    </h3>
+                    <h3 className="font-semibold text-slate-100">Core challenges</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
                       {profile?.business_challenges ||
                         "[todo: core business challenges]"}
                     </p>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-100">
-                      Trust signals
-                    </h3>
+                    <h3 className="font-semibold text-slate-100">Trust signals</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
                       {profile?.trust_signals || "[todo: trust signals]"}
                     </p>
@@ -655,9 +654,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                     </p>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-100">
-                      Sale blockers
-                    </h3>
+                    <h3 className="font-semibold text-slate-100">Sale blockers</h3>
                     <p className="mt-1 text-slate-300 whitespace-pre-line">
                       {profile?.sale_blockers || "[todo: what blocks the sale]"}
                     </p>
@@ -691,9 +688,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                         className="inline-block h-2.5 w-2.5 rounded-full"
                         style={{ backgroundColor: FREQUENCY_COLORS[d.key] }}
                       />
-                      <span className="font-medium text-slate-100">
-                        {d.label}
-                      </span>
+                      <span className="font-medium text-slate-100">{d.label}</span>
                     </div>
                     <span className="text-sm text-slate-300">
                       {percentLabel(d.value)}
@@ -716,9 +711,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 return (
                   <div key={m.key} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-slate-100">
-                        {m.label}
-                      </span>
+                      <span className="font-medium text-slate-100">{m.label}</span>
                       <span className="text-slate-400">{percentLabel(pct)}</span>
                     </div>
                     <Bar pct={pct} />
