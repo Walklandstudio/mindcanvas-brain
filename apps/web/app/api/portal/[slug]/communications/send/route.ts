@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function supaAdmin() {
-  // Use our existing server helper and portal schema, same as the rest of the app
+  // Use shared server client in portal schema
   return createClient().schema("portal");
 }
 
@@ -49,12 +49,11 @@ async function getOrgBySlug(slug: string) {
     throw new Error("ORG_NOT_FOUND");
   }
 
-  return data;
+  return data as { id: string; slug: string; name: string | null };
 }
 
 /**
- * Fetch the taker ONLY by primary key id.
- * We deliberately do NOT filter on test_id here to avoid false TAKER_NOT_FOUND.
+ * Fetch taker by primary key only.
  */
 async function getTakerById(takerId: string) {
   const supa = supaAdmin();
@@ -69,7 +68,9 @@ async function getTakerById(takerId: string) {
       first_name,
       last_name,
       link_token,
-      last_result_url
+      last_result_url,
+      phone,
+      company
     `
     )
     .eq("id", takerId)
@@ -91,12 +92,13 @@ async function getTakerById(takerId: string) {
     last_name: string | null;
     link_token: string;
     last_result_url: string | null;
+    phone: string | null;
+    company: string | null;
   };
 }
 
 /**
- * Fetch the base test info by id (for the test name).
- * If anything fails, we just fall back to a generic name.
+ * Fetch base test info by id (for test name).
  */
 async function getTestById(testId: string) {
   const supa = supaAdmin();
@@ -111,52 +113,76 @@ async function getTestById(testId: string) {
       testId,
       error,
     });
-    return { id: testId, name: "your assessment" };
+    return { id: testId, name: "your assessment" as string | null };
   }
 
   return data as { id: string; name: string | null };
 }
 
+function getBaseUrl() {
+  const explicit = process.env.NEXT_PUBLIC_APP_BASE_URL;
+  if (explicit && explicit.trim().length > 0) {
+    return explicit.replace(/\/$/, "");
+  }
+
+  const vercel = process.env.NEXT_PUBLIC_VERCEL_URL || "";
+  if (!vercel) return "";
+  return vercel.startsWith("http")
+    ? vercel.replace(/\/$/, "")
+    : `https://${vercel.replace(/\/$/, "")}`;
+}
+
+/**
+ * Build all important links used in templates.
+ */
 function buildLinks(opts: {
   orgSlug: string;
   testId: string;
   linkToken: string;
   lastResultUrl?: string | null;
+  takerId: string;
 }) {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_BASE_URL ||
-    (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith("http")
-      ? process.env.NEXT_PUBLIC_VERCEL_URL
-      : `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`);
+  const base = getBaseUrl();
 
-  const cleanBase = (baseUrl || "").replace(/\/$/, "");
+  // 1) Public test link (for send_test_link emails)
+  const testLink = base
+    ? `${base}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(
+        opts.linkToken
+      )}`
+    : "";
 
-  // Link to TAKE the test (uses the same link_token used in your test links)
-  const testLink = `${cleanBase}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(
-    opts.linkToken
-  )}`;
-
-  // Report link:
-  // 1) Prefer last_result_url if present
-  // 2) Fall back to /t/[link_token]/report
-  let reportLink: string;
+  // 2) Public report link for the test-taker
+  let reportLink = "";
 
   if (opts.lastResultUrl) {
     const v = opts.lastResultUrl;
     if (v.startsWith("http://") || v.startsWith("https://")) {
       reportLink = v;
     } else if (v.startsWith("/")) {
-      reportLink = `${cleanBase}${v}`;
+      reportLink = base ? `${base}${v}` : v;
     } else {
-      reportLink = `${cleanBase}/${v}`;
+      reportLink = base ? `${base}/${v}` : v;
     }
-  } else {
-    reportLink = `${cleanBase}/t/${encodeURIComponent(
-      opts.linkToken
-    )}/report`;
+  } else if (base) {
+    // fallback to token-based report route
+    reportLink = `${base}/t/${encodeURIComponent(opts.linkToken)}/report`;
   }
 
-  return { testLink, reportLink };
+  // 3) “Next steps” link – for now, send them to the org’s Links page
+  const nextStepsLink = base
+    ? `${base}/portal/${opts.orgSlug}/links`
+    : "";
+
+  // 4) Internal links (for test owner notification)
+  const internalReportLink = base
+    ? `${base}/portal/${opts.orgSlug}/database/${opts.takerId}`
+    : "";
+
+  const internalResultsDashboardLink = base
+    ? `${base}/portal/${opts.orgSlug}/dashboard?testId=${opts.testId}`
+    : "";
+
+  return { testLink, reportLink, nextStepsLink, internalReportLink, internalResultsDashboardLink };
 }
 
 export async function POST(
@@ -178,21 +204,52 @@ export async function POST(
       );
     }
 
-    const { testLink, reportLink } = buildLinks({
+    const {
+      testLink,
+      reportLink,
+      nextStepsLink,
+      internalReportLink,
+      internalResultsDashboardLink,
+    } = buildLinks({
       orgSlug: slug,
       testId: body.testId,
       linkToken: takerRow.link_token,
       lastResultUrl: takerRow.last_result_url,
+      takerId: takerRow.id,
     });
 
+    const firstName = takerRow.first_name || "";
+    const lastName = takerRow.last_name || "";
+    const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+
+    // Context for all templates
     const ctx = {
-      first_name: takerRow.first_name || "",
-      last_name: takerRow.last_name || "",
+      // generic person fields
+      first_name: firstName,
+      last_name: lastName,
+      test_taker_full_name: fullName || takerRow.email || "",
+      test_taker_email: takerRow.email || "",
+      test_taker_mobile: takerRow.phone || "",
+      test_taker_org: takerRow.company || "",
+
+      // test & org
       test_name: testRow.name || "your assessment",
+      org_name: org.name || slug,
+
+      // public links
       test_link: testLink,
       report_link: reportLink,
-      org_name: org.name || slug,
-      owner_name: "",
+      next_steps_link: nextStepsLink,
+
+      // internal links
+      internal_report_link: internalReportLink,
+      internal_results_dashboard_link: internalResultsDashboardLink,
+
+      // owner fields (can be filled properly later when we join the owner)
+      owner_first_name: "",
+      owner_full_name: "",
+      owner_email: "",
+      owner_website: "",
     };
 
     const type: EmailTemplateType = body.type;
