@@ -62,7 +62,8 @@ async function getTestAndTaker(testId: string, takerId: string) {
       email,
       first_name,
       last_name,
-      token,
+      link_token,
+      last_result_url,
       tests:test_id (
         id,
         name,
@@ -76,6 +77,7 @@ async function getTestAndTaker(testId: string, takerId: string) {
     .maybeSingle()) as any;
 
   if (error || !data) {
+    console.error("[communications/send] getTestAndTaker error", error);
     throw new Error("TAKER_NOT_FOUND");
   }
 
@@ -85,7 +87,8 @@ async function getTestAndTaker(testId: string, takerId: string) {
 function buildLinks(opts: {
   orgSlug: string;
   testId: string;
-  takerToken: string;
+  linkToken: string;
+  lastResultUrl?: string | null;
 }) {
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
@@ -95,11 +98,31 @@ function buildLinks(opts: {
 
   const cleanBase = (baseUrl || "").replace(/\/$/, "");
 
-  // Test link (taking the test)
-  const testLink = `${cleanBase}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${opts.takerToken}`;
+  // Link to TAKE the test (uses the same link_token used elsewhere)
+  const testLink = `${cleanBase}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(
+    opts.linkToken
+  )}`;
 
-  // Report link (public result)
-  const reportLink = `${cleanBase}/t/${opts.takerToken}/report`;
+  // Report link:
+  // 1) Prefer last_result_url if it looks like a URL or path
+  // 2) Fall back to /t/[token]/report based on link_token
+  let reportLink: string;
+
+  if (opts.lastResultUrl) {
+    const v = opts.lastResultUrl;
+    if (v.startsWith("http://") || v.startsWith("https://")) {
+      reportLink = v;
+    } else if (v.startsWith("/")) {
+      reportLink = `${cleanBase}${v}`;
+    } else {
+      // some relative path – be defensive and still try to use it
+      reportLink = `${cleanBase}/${v}`;
+    }
+  } else {
+    reportLink = `${cleanBase}/t/${encodeURIComponent(
+      opts.linkToken
+    )}/report`;
+  }
 
   return { testLink, reportLink };
 }
@@ -125,7 +148,8 @@ export async function POST(
     const { testLink, reportLink } = buildLinks({
       orgSlug: slug,
       testId: body.testId,
-      takerToken: takerRow.token,
+      linkToken: takerRow.link_token,
+      lastResultUrl: takerRow.last_result_url,
     });
 
     const ctx = {
@@ -134,9 +158,9 @@ export async function POST(
       test_name: takerRow.tests?.name || "your assessment",
       test_link: testLink,
       report_link: reportLink,
-      // owner_name / org_name etc. can be added later if we join more data
-      owner_name: "",
       org_name: org.name || slug,
+      // you can extend this later with owner data when we join it
+      owner_name: "",
     };
 
     const type: EmailTemplateType = body.type;
@@ -155,7 +179,6 @@ export async function POST(
       );
     }
 
-    // No data payload from sendTemplatedEmail – just acknowledge success
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     console.error("[communications/send] Error", err);
@@ -166,4 +189,5 @@ export async function POST(
     return NextResponse.json({ error: msg }, { status });
   }
 }
+
 
