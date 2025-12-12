@@ -1,6 +1,6 @@
 // apps/web/app/api/portal/[slug]/communications/send/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/server/supabaseAdmin";
 import {
   sendTemplatedEmail,
   EmailTemplateType,
@@ -10,9 +10,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function supaAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { db: { schema: "portal" } });
+  // Use our existing server helper and portal schema, same as the rest of the app
+  return createClient().schema("portal");
 }
 
 type SendPayload =
@@ -46,43 +45,76 @@ async function getOrgBySlug(slug: string) {
     .maybeSingle();
 
   if (error || !data) {
+    console.error("[communications/send] getOrgBySlug error", error);
     throw new Error("ORG_NOT_FOUND");
   }
 
   return data;
 }
 
-async function getTestAndTaker(_testId: string, takerId: string) {
+/**
+ * Fetch the taker ONLY by primary key id.
+ * We deliberately do NOT filter on test_id here to avoid false TAKER_NOT_FOUND.
+ */
+async function getTakerById(takerId: string) {
   const supa = supaAdmin();
-
-  // IMPORTANT: only filter by primary key `id` to avoid false TAKER_NOT_FOUND
-  const { data, error } = (await supa
+  const { data, error } = await supa
     .from("test_takers")
     .select(
       `
       id,
+      org_id,
+      test_id,
       email,
       first_name,
       last_name,
       link_token,
-      last_result_url,
-      tests:test_id (
-        id,
-        name,
-        public_result_enabled,
-        public_result_path
-      )
+      last_result_url
     `
     )
     .eq("id", takerId)
-    .maybeSingle()) as any;
+    .maybeSingle();
 
   if (error || !data) {
-    console.error("[communications/send] getTestAndTaker error", error);
+    console.error("[communications/send] getTakerById error", error, {
+      takerId,
+    });
     throw new Error("TAKER_NOT_FOUND");
   }
 
-  return data;
+  return data as {
+    id: string;
+    org_id: string;
+    test_id: string;
+    email: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    link_token: string;
+    last_result_url: string | null;
+  };
+}
+
+/**
+ * Fetch the base test info by id (for the test name).
+ * If anything fails, we just fall back to a generic name.
+ */
+async function getTestById(testId: string) {
+  const supa = supaAdmin();
+  const { data, error } = await supa
+    .from("tests")
+    .select("id, name")
+    .eq("id", testId)
+    .maybeSingle();
+
+  if (error || !data) {
+    console.warn("[communications/send] getTestById missing test", {
+      testId,
+      error,
+    });
+    return { id: testId, name: "your assessment" };
+  }
+
+  return data as { id: string; name: string | null };
 }
 
 function buildLinks(opts: {
@@ -99,14 +131,14 @@ function buildLinks(opts: {
 
   const cleanBase = (baseUrl || "").replace(/\/$/, "");
 
-  // Link to TAKE the test (same link_token used elsewhere)
+  // Link to TAKE the test (uses the same link_token used in your test links)
   const testLink = `${cleanBase}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(
     opts.linkToken
   )}`;
 
   // Report link:
   // 1) Prefer last_result_url if present
-  // 2) Fall back to /t/[token]/report
+  // 2) Fall back to /t/[link_token]/report
   let reportLink: string;
 
   if (opts.lastResultUrl) {
@@ -136,7 +168,8 @@ export async function POST(
     const body = (await req.json()) as SendPayload;
 
     const org = await getOrgBySlug(slug);
-    const takerRow = await getTestAndTaker(body.testId, body.takerId);
+    const takerRow = await getTakerById(body.takerId);
+    const testRow = await getTestById(body.testId);
 
     if (!takerRow.email) {
       return NextResponse.json(
@@ -155,7 +188,7 @@ export async function POST(
     const ctx = {
       first_name: takerRow.first_name || "",
       last_name: takerRow.last_name || "",
-      test_name: takerRow.tests?.name || "your assessment",
+      test_name: testRow.name || "your assessment",
       test_link: testLink,
       report_link: reportLink,
       org_name: org.name || slug,
@@ -188,5 +221,3 @@ export async function POST(
     return NextResponse.json({ error: msg }, { status });
   }
 }
-
-
