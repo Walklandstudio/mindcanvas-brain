@@ -18,7 +18,7 @@ function supaAdmin() {
 async function getTakerWithTest(takerId: string) {
   const supa = supaAdmin();
 
-  const { data, error } = await supa
+  const { data, error } = (await supa
     .from("test_takers")
     .select(
       `
@@ -38,19 +38,13 @@ async function getTakerWithTest(takerId: string) {
     `
     )
     .eq("id", takerId)
-    .maybeSingle() as any;
+    .maybeSingle()) as any;
 
-  if (error || !data) {
-    throw new Error("TAKER_NOT_FOUND");
-  }
-
+  if (error || !data) throw new Error("TAKER_NOT_FOUND");
   return data;
 }
 
-function buildLinks(opts: {
-  orgSlug: string | null;
-  takerToken: string;
-}) {
+function buildLinks(opts: { orgSlug: string | null; takerToken: string }) {
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_BASE_URL ||
     (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith("http")
@@ -60,11 +54,7 @@ function buildLinks(opts: {
       : "");
 
   const cleanBase = (baseUrl || "").replace(/\/$/, "");
-
-  // Public report link
   const reportLink = `${cleanBase}/t/${opts.takerToken}/report`;
-
-  // If we ever want an internal link, we can add it here later
   return { reportLink };
 }
 
@@ -90,45 +80,31 @@ export async function POST(
 
     if (!taker.email) {
       return NextResponse.json(
-        {
-          error: "NO_EMAIL",
-          message: "Test taker has no email address.",
-        },
+        { ok: false, error: "NO_EMAIL", message: "Test taker has no email address." },
         { status: 400 }
       );
     }
 
     const orgSlug = await getOrgSlug(taker.org_id);
-    const { reportLink } = buildLinks({
-      orgSlug,
-      takerToken: taker.token,
-    });
+    const { reportLink } = buildLinks({ orgSlug, takerToken: taker.token });
 
-    const fullName =
-      `${taker.first_name || ""} ${taker.last_name || ""}`.trim();
+    const fullName = `${taker.first_name || ""} ${taker.last_name || ""}`.trim();
 
     const ctx = {
-      // test taker
       first_name: taker.first_name || "",
       last_name: taker.last_name || "",
       test_taker_full_name: fullName,
       test_taker_email: taker.email || "",
       test_taker_mobile: taker.mobile || "",
       test_taker_org: taker.organisation || "",
-
-      // test
       test_name: taker.tests?.name || "your assessment",
-
-      // links
       report_link: reportLink,
 
-      // owner info – you can join this later
       owner_first_name: "",
       owner_full_name: "",
       owner_email: "",
       owner_website: "",
 
-      // internal links for owner notification – placeholders for now
       internal_report_link: "",
       internal_results_dashboard_link: "",
     };
@@ -143,21 +119,19 @@ export async function POST(
     });
 
     if (!result.ok) {
-      // Bubble up more detail so you can see OneSignal's message
       return NextResponse.json(
-        {
-          error: "SEND_FAILED",
-          detail: result,
-        },
+        { ok: false, error: "SEND_FAILED", detail: result },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, data: result.data });
+    // ✅ don't access result.data (TS type doesn't include it)
+    return NextResponse.json({ ok: true, detail: result });
   } catch (err: any) {
     console.error("[takers/resend-report] Error", err);
     const msg = typeof err?.message === "string" ? err.message : "UNKNOWN";
     const status = msg === "TAKER_NOT_FOUND" ? 404 : 500;
-    return NextResponse.json({ error: msg }, { status });
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+

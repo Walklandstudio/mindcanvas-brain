@@ -24,6 +24,13 @@ type TakerRow = {
   data_consent_at?: string | null;
 };
 
+type EditState = {
+  takerId: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+};
+
 export default function TestDetailsClient({
   slug,
   testId,
@@ -39,6 +46,10 @@ export default function TestDetailsClient({
   const [loadingTakers, setLoadingTakers] = useState(true);
   const [copied, setCopied] = useState<string>('');
   const [showOnlyConsented, setShowOnlyConsented] = useState(false);
+
+  // inline edit
+  const [editing, setEditing] = useState<EditState | null>(null);
+  const [savingTaker, setSavingTaker] = useState<string>(''); // takerId being saved
 
   const base = useMemo(() => {
     const env = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '');
@@ -57,6 +68,22 @@ export default function TestDetailsClient({
     }
   };
 
+  const downloadTxt = (content: string, filename: string) => {
+    try {
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+
+      URL.revokeObjectURL(url);
+    } catch {
+      // silent
+    }
+  };
+
   const loadLinks = useCallback(async () => {
     try {
       setLoadingLinks(true);
@@ -65,9 +92,7 @@ export default function TestDetailsClient({
       if (!r.ok) {
         const text = await r.text().catch(() => '');
         setError(
-          `Failed to load links (HTTP ${r.status})${
-            text ? ` — ${text}` : ''
-          }`
+          `Failed to load links (HTTP ${r.status})${text ? ` — ${text}` : ''}`
         );
         setLinks([]);
         return;
@@ -178,6 +203,72 @@ export default function TestDetailsClient({
     }
   };
 
+  const startEdit = (t: TakerRow) => {
+    setError(''); // keep clean
+    setEditing({
+      takerId: t.id,
+      first_name: (t.first_name ?? '').toString(),
+      last_name: (t.last_name ?? '').toString(),
+      email: (t.email ?? '').toString(),
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setSavingTaker('');
+  };
+
+  const validateEmail = (email: string) => {
+    const e = email.trim();
+    if (!e) return true; // allow blank if you want; if not, enforce below
+    // basic sanity check (not overstrict)
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+
+    const first_name = editing.first_name.trim();
+    const last_name = editing.last_name.trim();
+    const email = editing.email.trim().toLowerCase();
+
+    // required checks (name can be empty, but email must be valid if provided)
+    if (email && !validateEmail(email)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    try {
+      setSavingTaker(editing.takerId);
+      setError('');
+
+      const r = await fetch(
+        `/api/tests/${encodeURIComponent(testId)}/takers/${encodeURIComponent(
+          editing.takerId
+        )}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ first_name, last_name, email }),
+        }
+      );
+
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) {
+        setError(j?.error || `Failed to save changes (HTTP ${r.status})`);
+        return;
+      }
+
+      // refresh list (source of truth)
+      await loadTakers();
+      setEditing(null);
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    } finally {
+      setSavingTaker('');
+    }
+  };
+
   return (
     <div className="p-6 space-y-5 text-white">
       <div className="flex items-center justify-between">
@@ -191,9 +282,7 @@ export default function TestDetailsClient({
         </button>
       </div>
 
-      {!!error && (
-        <div className="text-red-300 whitespace-pre-wrap">{error}</div>
-      )}
+      {!!error && <div className="text-red-300 whitespace-pre-wrap">{error}</div>}
 
       {/* Links */}
       <section className="space-y-2">
@@ -201,9 +290,7 @@ export default function TestDetailsClient({
         {loadingLinks ? (
           <div className="text-white/70">Loading links…</div>
         ) : links.length === 0 ? (
-          <div className="text-white/70">
-            No links yet. Click “Create Link”.
-          </div>
+          <div className="text-white/70">No links yet. Click “Create Link”.</div>
         ) : (
           <ul className="space-y-2">
             {links.map((l) => {
@@ -245,10 +332,11 @@ export default function TestDetailsClient({
         </pre>
         <div className="flex gap-2">
           <button
-            onClick={() => copy(embed, 'embed')}
+            onClick={() => downloadTxt(embed, `mindcanvas-embed-${sampleToken}.txt`)}
             className="px-3 py-2 rounded border border-white/20 hover:bg-white/10 text-sm"
+            title="Download embed code as a .txt file"
           >
-            Copy Embed
+            Download embed
           </button>
           <button
             onClick={() => window.open(publicUrl, '_blank')}
@@ -291,9 +379,7 @@ export default function TestDetailsClient({
         {loadingTakers ? (
           <div className="text-white/70">Loading test takers…</div>
         ) : filteredTakers.length === 0 ? (
-          <div className="text-white/70">
-            No test takers found for this test yet.
-          </div>
+          <div className="text-white/70">No test takers found for this test yet.</div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-white/15 bg-white/5">
             <table className="min-w-full text-xs">
@@ -304,19 +390,16 @@ export default function TestDetailsClient({
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Consent</th>
                   <th className="px-3 py-2">Consent at</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTakers.map((t) => {
-                  const fullName = `${t.first_name || ''} ${
-                    t.last_name || ''
-                  }`.trim();
+                  const fullName = `${t.first_name || ''} ${t.last_name || ''}`.trim();
+
                   const consentLabel =
-                    t.data_consent === true
-                      ? 'Yes'
-                      : t.data_consent === false
-                      ? 'No'
-                      : 'Unknown';
+                    t.data_consent === true ? 'Yes' : t.data_consent === false ? 'No' : 'Unknown';
+
                   const consentClass =
                     t.data_consent === true
                       ? 'text-emerald-300'
@@ -324,25 +407,101 @@ export default function TestDetailsClient({
                       ? 'text-red-300'
                       : 'text-white/60';
 
+                  const isEditing = editing?.takerId === t.id;
+                  const isSaving = savingTaker === t.id;
+
                   return (
-                    <tr key={t.id} className="border-t border-white/10">
+                    <tr key={t.id} className="border-t border-white/10 align-top">
+                      {/* Name */}
                       <td className="px-3 py-2">
-                        {fullName || <span className="text-white/60">—</span>}
+                        {isEditing ? (
+                          <div className="flex flex-col gap-2">
+                            <input
+                              value={editing?.first_name ?? ''}
+                              onChange={(e) =>
+                                setEditing((prev) =>
+                                  prev ? { ...prev, first_name: e.target.value } : prev
+                                )
+                              }
+                              placeholder="First name"
+                              className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-white placeholder:text-white/40"
+                            />
+                            <input
+                              value={editing?.last_name ?? ''}
+                              onChange={(e) =>
+                                setEditing((prev) =>
+                                  prev ? { ...prev, last_name: e.target.value } : prev
+                                )
+                              }
+                              placeholder="Last name"
+                              className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-white placeholder:text-white/40"
+                            />
+                          </div>
+                        ) : (
+                          fullName || <span className="text-white/60">—</span>
+                        )}
                       </td>
+
+                      {/* Email */}
                       <td className="px-3 py-2">
-                        {t.email || <span className="text-white/60">—</span>}
+                        {isEditing ? (
+                          <input
+                            value={editing?.email ?? ''}
+                            onChange={(e) =>
+                              setEditing((prev) => (prev ? { ...prev, email: e.target.value } : prev))
+                            }
+                            placeholder="Email"
+                            className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-white placeholder:text-white/40"
+                          />
+                        ) : (
+                          t.email || <span className="text-white/60">—</span>
+                        )}
                       </td>
+
+                      {/* Status */}
                       <td className="px-3 py-2">
                         {t.status || <span className="text-white/60">—</span>}
                       </td>
-                      <td className={`px-3 py-2 ${consentClass}`}>
-                        {consentLabel}
-                      </td>
+
+                      {/* Consent */}
+                      <td className={`px-3 py-2 ${consentClass}`}>{consentLabel}</td>
+
+                      {/* Consent at */}
                       <td className="px-3 py-2">
                         {t.data_consent_at ? (
                           <span>{formatDateTime(t.data_consent_at)}</span>
                         ) : (
                           <span className="text-white/60">—</span>
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-3 py-2 text-right">
+                        {isEditing ? (
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={cancelEdit}
+                              disabled={isSaving}
+                              className="px-2 py-1 rounded border border-white/20 hover:bg-white/10 text-xs disabled:opacity-60"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={saveEdit}
+                              disabled={isSaving}
+                              className="px-2 py-1 rounded border border-emerald-300/40 hover:bg-emerald-500/10 text-xs disabled:opacity-60"
+                            >
+                              {isSaving ? 'Saving…' : 'Save'}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => startEdit(t)}
+                            className="px-2 py-1 rounded border border-white/20 hover:bg-white/10 text-xs"
+                            title="Edit name/email"
+                          >
+                            Edit
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -363,4 +522,5 @@ export default function TestDetailsClient({
     </div>
   );
 }
+
 

@@ -1,3 +1,4 @@
+// app/portal/[slug]/links/LinksClient.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -42,8 +43,12 @@ export default function LinksClient(props: {
   const [recipientEmail, setRecipientEmail] = useState("");
   const [sendEmail, setSendEmail] = useState(false);
 
-  // custom message when results are hidden
+  // When results are hidden
+  const [redirectUrl, setRedirectUrl] = useState("");
   const [hiddenResultsMessage, setHiddenResultsMessage] = useState("");
+
+  // When results are shown (report page CTA)
+  const [nextStepsUrl, setNextStepsUrl] = useState("");
 
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -105,11 +110,36 @@ export default function LinksClient(props: {
     }
   };
 
+  const downloadTxt = (content: string, filename: string) => {
+    try {
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setStatus("Download failed");
+      setTimeout(() => setStatus(null), 2000);
+    }
+  };
+
+  const isValidUrl = (value: string) => {
+    const v = value.trim();
+    if (!v) return false;
+    try {
+      new URL(v);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const generate = async () => {
     setLoading(true);
     setStatus(null);
 
-    // UUID sanity
     const uuidRe =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRe.test(testId)) {
@@ -118,12 +148,24 @@ export default function LinksClient(props: {
       return;
     }
 
+    // REQUIRED RULES
+    if (!showResults) {
+      if (!isValidUrl(redirectUrl)) {
+        setStatus("Redirect URL is required when results are hidden.");
+        setLoading(false);
+        return;
+      }
+    } else {
+      if (!isValidUrl(nextStepsUrl)) {
+        setStatus("Next steps URL is required when results are shown.");
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
-      // Only send a hidden message if results are off (and user wrote something)
       const messageToSave =
-        !showResults &&
-        !emailReport &&
-        hiddenResultsMessage.trim().length > 0
+        !showResults && hiddenResultsMessage.trim().length > 0
           ? hiddenResultsMessage.trim()
           : null;
 
@@ -133,12 +175,16 @@ export default function LinksClient(props: {
         body: JSON.stringify({
           orgId,
           testId,
-          testDisplayName, // ← "Test name / Test purpose"
+          testDisplayName,
           contactOwner,
           showResults,
           emailReport,
           hiddenResultsMessage: messageToSave,
-          redirectUrl: null,
+
+          // NEW
+          redirectUrl: !showResults ? redirectUrl.trim() : null,
+          nextStepsUrl: showResults ? nextStepsUrl.trim() : null,
+
           expiresAt: expiresAt || null,
         }),
       });
@@ -151,7 +197,6 @@ export default function LinksClient(props: {
       let message = "Link created!";
       const token: string | undefined = data?.token;
 
-      // Optional OneSignal email
       const shouldSendEmail = sendEmail && !!recipientEmail && !!token;
 
       if (shouldSendEmail) {
@@ -178,8 +223,7 @@ export default function LinksClient(props: {
             console.error("send-email error", emailRes.status, emailJson);
             message = "Link created, but sending the email failed.";
           } else if (emailJson?.skipped) {
-            message =
-              "Link created (email skipped — OneSignal not configured).";
+            message = "Link created (email skipped — OneSignal not configured).";
           } else {
             message = "Link created and email sent!";
           }
@@ -191,7 +235,6 @@ export default function LinksClient(props: {
 
       setStatus(message);
 
-      // small delay to avoid replica lag, then refresh (uncached)
       await new Promise((r) => setTimeout(r, 500));
       refreshLinks();
     } catch (e: any) {
@@ -228,7 +271,7 @@ export default function LinksClient(props: {
     }
   };
 
-  const showHiddenMessageField = !showResults && !emailReport;
+  const showHiddenMessageField = !showResults;
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
@@ -279,9 +322,7 @@ export default function LinksClient(props: {
           </label>
 
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">
-              Contact owner's name
-            </span>
+            <span className="mb-1 block font-medium">Contact owner's name</span>
             <input
               type="text"
               className="w-full rounded border border-gray-300 p-2 text-sm"
@@ -291,7 +332,6 @@ export default function LinksClient(props: {
             />
           </label>
 
-          {/* Recipient email + toggle */}
           <label className="block text-sm">
             <span className="mb-1 block font-medium">
               Recipient email (optional)
@@ -341,23 +381,58 @@ export default function LinksClient(props: {
             <span>Email the report</span>
           </label>
 
-          {/* Only show when BOTH toggles are off */}
+          {!showResults && (
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">
+                Redirect URL <span className="text-red-600">*</span>
+              </span>
+              <input
+                type="url"
+                className="w-full rounded border border-gray-300 p-2 text-sm"
+                placeholder="e.g. https://your-site.com/thank-you"
+                value={redirectUrl}
+                onChange={(e) => setRedirectUrl(e.target.value)}
+              />
+              <span className="mt-1 block text-xs text-gray-500">
+                If results are hidden, the test taker will be redirected here
+                after completing the test.
+              </span>
+            </label>
+          )}
+
+          {showResults && (
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">
+                Next steps URL <span className="text-red-600">*</span>
+              </span>
+              <input
+                type="url"
+                className="w-full rounded border border-gray-300 p-2 text-sm"
+                placeholder="e.g. https://your-site.com/book-a-call"
+                value={nextStepsUrl}
+                onChange={(e) => setNextStepsUrl(e.target.value)}
+              />
+              <span className="mt-1 block text-xs text-gray-500">
+                This will be used as the “Next steps” call-to-action link on the
+                report.
+              </span>
+            </label>
+          )}
+
           {showHiddenMessageField && (
             <label className="block text-sm">
               <span className="mb-1 block font-medium">
-                Message to show instead of results
+                Message to show instead of results (optional)
               </span>
               <textarea
                 className="min-h-[80px] w-full rounded border border-gray-300 p-2 text-sm"
                 placeholder="e.g. Thank you for completing this assessment. Your facilitator will share your insights during the upcoming workshop."
                 value={hiddenResultsMessage}
-                onChange={(e) =>
-                  setHiddenResultsMessage(e.target.value)
-                }
+                onChange={(e) => setHiddenResultsMessage(e.target.value)}
               />
               <span className="mt-1 block text-xs text-gray-500">
-                This message will be shown when the test taker completes
-                the test instead of their results.
+                This message may be shown to the test taker when results are
+                hidden.
               </span>
             </label>
           )}
@@ -384,18 +459,14 @@ export default function LinksClient(props: {
             {loading ? "Generating..." : "Generate link"}
           </button>
 
-          {status && (
-            <p className="mt-2 text-sm text-gray-700">{status}</p>
-          )}
+          {status && <p className="mt-2 text-sm text-gray-700">{status}</p>}
         </div>
       </div>
 
       {/* RIGHT: Recent links */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            Recent links — {orgName}
-          </h2>
+          <h2 className="text-lg font-semibold">Recent links — {orgName}</h2>
           <button
             type="button"
             onClick={refreshLinks}
@@ -414,81 +485,60 @@ export default function LinksClient(props: {
                 <th className="px-3 py-2 text-left font-medium">
                   Test name / Test purpose
                 </th>
-                <th className="px-3 py-2 text-left font-medium">
-                  Created
-                </th>
-                <th className="px-3 py-2 text-left font-medium">
-                  Results
-                </th>
-                <th className="px-3 py-2 text-left font-medium">
-                  Expiry
-                </th>
-                <th className="px-3 py-2 text-left font-medium">
-                  Link
-                </th>
-                <th className="px-3 py-2 text-left font-medium">
-                  Copy
-                </th>
-                <th className="px-3 py-2 text-left font-medium">
-                  Actions
-                </th>
+                <th className="px-3 py-2 text-left font-medium">Created</th>
+                <th className="px-3 py-2 text-left font-medium">Results</th>
+                <th className="px-3 py-2 text-left font-medium">Expiry</th>
+                <th className="px-3 py-2 text-left font-medium">Link</th>
+                <th className="px-3 py-2 text-left font-medium">Copy</th>
+                <th className="px-3 py-2 text-left font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {links.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={7}
-                    className="py-6 text-center text-gray-500"
-                  >
+                  <td colSpan={7} className="py-6 text-center text-gray-500">
                     No links yet.
                   </td>
                 </tr>
               )}
+
               {links.map((r, idx) => {
                 const url = fullLink(r.token);
                 const expired = r.expires_at
                   ? new Date(r.expires_at) < new Date()
                   : false;
-                const rowBg =
-                  idx % 2 === 0 ? "bg-white" : "bg-gray-50";
+                const rowBg = idx % 2 === 0 ? "bg-white" : "bg-gray-50";
 
                 return (
                   <tr key={r.id} className={`${rowBg} border-t`}>
                     <td className="px-3 py-2 align-top">
-                      <div className="font-medium">
-                        {r.test_name || "Untitled link"}
-                      </div>
+                      <div className="font-medium">{r.test_name || "Untitled link"}</div>
                       {r.contact_owner && (
                         <div className="text-xs text-gray-500">
                           Owner: {r.contact_owner}
                         </div>
                       )}
                     </td>
+
                     <td className="px-3 py-2 align-top">
-                      {r.created_at
-                        ? new Date(
-                            r.created_at
-                          ).toLocaleString()
-                        : "—"}
+                      {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
                     </td>
+
                     <td className="px-3 py-2 align-top">
                       {r.show_results ? "Shown" : "Hidden"}
                       {!r.email_report && (
-                        <div className="text-xs text-gray-500">
-                          Report not emailed
-                        </div>
+                        <div className="text-xs text-gray-500">Report not emailed</div>
                       )}
                     </td>
+
                     <td className="px-3 py-2 align-top">
                       {r.expires_at
-                        ? `${new Date(
-                            r.expires_at
-                          ).toLocaleString()}${
+                        ? `${new Date(r.expires_at).toLocaleString()}${
                             expired ? " (expired)" : ""
                           }`
                         : "—"}
                     </td>
+
                     <td className="px-3 py-2 align-top">
                       <button
                         type="button"
@@ -498,40 +548,38 @@ export default function LinksClient(props: {
                         Open link
                       </button>
                     </td>
+
                     <td className="px-3 py-2 align-top">
                       <div className="flex flex-wrap gap-2">
                         <button
                           className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
-                          onClick={() =>
-                            doCopy(url, "URL copied")
-                          }
+                          onClick={() => doCopy(url, "URL copied")}
                         >
                           URL
                         </button>
+
                         <button
                           className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
                           onClick={() =>
-                            doCopy(
+                            downloadTxt(
                               embedCode(url),
-                              "Embed copied"
+                              `mindcanvas-embed-${r.token}.txt`
                             )
                           }
+                          title="Download the embed code as a .txt file"
                         >
-                          Embed
+                          Download embed
                         </button>
+
                         <button
                           className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
-                          onClick={() =>
-                            doCopy(
-                              htmlButton(url),
-                              "Snippet copied"
-                            )
-                          }
+                          onClick={() => doCopy(htmlButton(url), "Snippet copied")}
                         >
                           Snippet
                         </button>
                       </div>
                     </td>
+
                     <td className="px-3 py-2 align-top">
                       <button
                         type="button"
@@ -548,9 +596,7 @@ export default function LinksClient(props: {
           </table>
         </div>
 
-        {status && (
-          <p className="mt-2 text-xs text-gray-500">{status}</p>
-        )}
+        {status && <p className="mt-2 text-xs text-gray-500">{status}</p>}
       </div>
     </div>
   );
