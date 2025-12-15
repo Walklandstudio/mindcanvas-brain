@@ -10,31 +10,14 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function supaAdmin() {
-  // Use shared server client in portal schema
   return createClient().schema("portal");
 }
 
 type SendPayload =
-  | {
-      type: "send_test_link";
-      testId: string;
-      takerId: string;
-    }
-  | {
-      type: "report";
-      testId: string;
-      takerId: string;
-    }
-  | {
-      type: "resend_report";
-      testId: string;
-      takerId: string;
-    }
-  | {
-      type: "test_owner_notification";
-      testId: string;
-      takerId: string;
-    };
+  | { type: "send_test_link"; testId: string; takerId: string }
+  | { type: "report"; testId: string; takerId: string }
+  | { type: "resend_report"; testId: string; takerId: string }
+  | { type: "test_owner_notification"; testId: string; takerId: string };
 
 async function getOrgBySlug(slug: string) {
   const supa = supaAdmin();
@@ -48,13 +31,9 @@ async function getOrgBySlug(slug: string) {
     console.error("[communications/send] getOrgBySlug error", error);
     throw new Error("ORG_NOT_FOUND");
   }
-
   return data as { id: string; slug: string; name: string | null };
 }
 
-/**
- * Fetch taker by primary key only.
- */
 async function getTakerById(takerId: string) {
   const supa = supaAdmin();
   const { data, error } = await supa
@@ -97,9 +76,6 @@ async function getTakerById(takerId: string) {
   };
 }
 
-/**
- * Fetch base test info by id (for test name + type/slug).
- */
 async function getTestById(testId: string) {
   const supa = supaAdmin();
   const { data, error } = await supa
@@ -131,9 +107,7 @@ async function getTestById(testId: string) {
 
 function getBaseUrl() {
   const explicit = process.env.NEXT_PUBLIC_APP_BASE_URL;
-  if (explicit && explicit.trim().length > 0) {
-    return explicit.replace(/\/$/, "");
-  }
+  if (explicit && explicit.trim().length > 0) return explicit.replace(/\/$/, "");
 
   const vercel = process.env.NEXT_PUBLIC_VERCEL_URL || "";
   if (!vercel) return "";
@@ -142,9 +116,6 @@ function getBaseUrl() {
     : `https://${vercel.replace(/\/$/, "")}`;
 }
 
-/**
- * Determine if this is a QSC test, and if so, which variant.
- */
 function getQscVariant(opts: { slug?: string | null; testType?: string | null }) {
   const t = (opts.testType || "").toLowerCase();
   const s = (opts.slug || "").toLowerCase();
@@ -154,28 +125,12 @@ function getQscVariant(opts: { slug?: string | null; testType?: string | null })
 
   let variant: "leader" | "entrepreneur" | null = null;
 
-  if (t.includes("leader") || s.includes("leader")) {
-    variant = "leader";
-  } else if (
-    t.includes("entrepreneur") ||
-    s.includes("entrepreneur") ||
-    s.includes("entre")
-  ) {
-    variant = "entrepreneur";
-  }
+  if (t.includes("leader") || s.includes("leader")) variant = "leader";
+  else if (t.includes("entrepreneur") || s.includes("entrepreneur") || s.includes("entre")) variant = "entrepreneur";
 
   return { isQsc: true as const, variant };
 }
 
-/**
- * Build all important links used in templates.
- *
- * Rules:
- * - If last_result_url exists, always use that as the report link.
- * - Else:
- *   - If QSC: /qsc/[token]/(leader|entrepreneur)?tid=[takerId]
- *   - Else:   /t/[token]/report?tid=[takerId]
- */
 function buildLinks(opts: {
   orgSlug: string;
   testId: string;
@@ -187,76 +142,46 @@ function buildLinks(opts: {
 }) {
   const base = getBaseUrl();
 
-  // 1) Public test link (for send_test_link emails)
   const testLink = base
     ? `${base}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(
         opts.linkToken
       )}`
     : "";
 
-  // 2) Public report link for the test-taker
   let reportLink = "";
 
   if (opts.lastResultUrl) {
     const v = opts.lastResultUrl;
-    if (v.startsWith("http://") || v.startsWith("https://")) {
-      reportLink = v;
-    } else if (v.startsWith("/")) {
-      reportLink = base ? `${base}${v}` : v;
-    } else {
-      reportLink = base ? `${base}/${v}` : v;
-    }
+    if (v.startsWith("http://") || v.startsWith("https://")) reportLink = v;
+    else if (v.startsWith("/")) reportLink = base ? `${base}${v}` : v;
+    else reportLink = base ? `${base}/${v}` : v;
   } else if (base) {
-    const { isQsc, variant } = getQscVariant({
-      slug: opts.testSlug,
-      testType: opts.testType,
-    });
+    const { isQsc, variant } = getQscVariant({ slug: opts.testSlug, testType: opts.testType });
 
     if (isQsc) {
       if (variant) {
-        // Known QSC variant
-        reportLink = `${base}/qsc/${encodeURIComponent(
-          opts.linkToken
-        )}/${variant}?tid=${encodeURIComponent(opts.takerId)}`;
+        reportLink = `${base}/qsc/${encodeURIComponent(opts.linkToken)}/${variant}?tid=${encodeURIComponent(opts.takerId)}`;
       } else {
-        // QSC but unknown variant – fall back to generic qsc route with tid
-        reportLink = `${base}/qsc/${encodeURIComponent(
-          opts.linkToken
-        )}?tid=${encodeURIComponent(opts.takerId)}`;
+        reportLink = `${base}/qsc/${encodeURIComponent(opts.linkToken)}?tid=${encodeURIComponent(opts.takerId)}`;
       }
     } else {
-      // Non-QSC legacy tests: use token-based report route WITH tid
-      reportLink = `${base}/t/${encodeURIComponent(
-        opts.linkToken
-      )}/report?tid=${encodeURIComponent(opts.takerId)}`;
+      reportLink = `${base}/t/${encodeURIComponent(opts.linkToken)}/report?tid=${encodeURIComponent(opts.takerId)}`;
     }
   }
 
-  // 3) “Next steps” link – for now, leave blank.
   const nextStepsLink = "";
 
-  // 4) Internal links (for test owner notification)
-  const internalReportLink = base
-    ? `${base}/portal/${opts.orgSlug}/database/${opts.takerId}`
-    : "";
+  const internalReportLink = base ? `${base}/portal/${opts.orgSlug}/database/${opts.takerId}` : "";
+  const internalResultsDashboardLink = base ? `${base}/portal/${opts.orgSlug}/dashboard?testId=${opts.testId}` : "";
 
-  const internalResultsDashboardLink = base
-    ? `${base}/portal/${opts.orgSlug}/dashboard?testId=${opts.testId}`
-    : "";
-
-  return {
-    testLink,
-    reportLink,
-    nextStepsLink,
-    internalReportLink,
-    internalResultsDashboardLink,
-  };
+  return { testLink, reportLink, nextStepsLink, internalReportLink, internalResultsDashboardLink };
 }
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { slug: string } }
-) {
+function getInternalNotificationsTo() {
+  return (process.env.INTERNAL_NOTIFICATIONS_EMAIL || "notifications@profiletest.ai").trim();
+}
+
+export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
   try {
     const slug = params.slug;
     const body = (await req.json()) as SendPayload;
@@ -264,13 +189,6 @@ export async function POST(
     const org = await getOrgBySlug(slug);
     const takerRow = await getTakerById(body.takerId);
     const testRow = await getTestById(body.testId);
-
-    if (!takerRow.email) {
-      return NextResponse.json(
-        { error: "NO_EMAIL", message: "Test taker has no email address." },
-        { status: 400 }
-      );
-    }
 
     const {
       testLink,
@@ -292,30 +210,25 @@ export async function POST(
     const lastName = takerRow.last_name || "";
     const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
 
-    // Context for all templates
     const ctx = {
-      // generic person fields
       first_name: firstName,
       last_name: lastName,
+
       test_taker_full_name: fullName || takerRow.email || "",
       test_taker_email: takerRow.email || "",
       test_taker_mobile: takerRow.phone || "",
       test_taker_org: takerRow.company || "",
 
-      // test & org
       test_name: testRow.name || "your assessment",
       org_name: org.name || slug,
 
-      // public links
       test_link: testLink,
       report_link: reportLink,
       next_steps_link: nextStepsLink,
 
-      // internal links
       internal_report_link: internalReportLink,
       internal_results_dashboard_link: internalResultsDashboardLink,
 
-      // owner fields (placeholder until we wire proper owner info)
       owner_first_name: "",
       owner_full_name: "",
       owner_email: "",
@@ -324,27 +237,47 @@ export async function POST(
 
     const type: EmailTemplateType = body.type;
 
+    const sentTo =
+      type === "test_owner_notification"
+        ? getInternalNotificationsTo()
+        : (takerRow.email || "").trim();
+
+    if (type !== "test_owner_notification" && !sentTo) {
+      return NextResponse.json(
+        { error: "NO_EMAIL", message: "Test taker has no email address." },
+        { status: 400 }
+      );
+    }
+
     const result = await sendTemplatedEmail({
       orgId: org.id,
       type,
-      to: takerRow.email,
+      to: sentTo,
       context: ctx,
     });
 
     if (!result.ok) {
-      return NextResponse.json(
-        { error: "SEND_FAILED", detail: result },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "SEND_FAILED", detail: result }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(
+      {
+        ok: true,
+        sent_to: sentTo,
+        type,
+        links: {
+          report_link: reportLink,
+          test_link: testLink,
+          internal_report_link: internalReportLink,
+          internal_results_dashboard_link: internalResultsDashboardLink,
+        },
+      },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error("[communications/send] Error", err);
     const msg = typeof err?.message === "string" ? err.message : "UNKNOWN";
-    const status =
-      msg === "ORG_NOT_FOUND" || msg === "TAKER_NOT_FOUND" ? 404 : 500;
-
+    const status = msg === "ORG_NOT_FOUND" || msg === "TAKER_NOT_FOUND" ? 404 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }

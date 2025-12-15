@@ -204,10 +204,7 @@ export async function GET(
 
     const testId: string = resultRow.test_id;
     const qscProfileId: string | null = resultRow.qsc_profile_id ?? null;
-    const combinedProfileCode: string | null =
-      resultRow.combined_profile_code ?? null;
-
-    const audience: "entrepreneur" | "leader" | null = resultRow.audience ?? null;
+    const combinedProfileCode: string | null = resultRow.combined_profile_code ?? null;
 
     // -----------------------------------------------------------------------
     // Load test taker (prefer link_token match; else try tokenParam/tid as id)
@@ -243,7 +240,7 @@ export async function GET(
     }
 
     // -----------------------------------------------------------------------
-    // Load QSC profile (snapshot fields)
+    // Load QSC profile (extended/internal)
     // -----------------------------------------------------------------------
     let profile: any = null;
 
@@ -275,100 +272,62 @@ export async function GET(
 
     // -----------------------------------------------------------------------
     // Load persona (strategic report content)
-    // - Entrepreneur uses portal.qsc_personas
-    // - Leader uses portal.qsc_leader_personas
-    // Prefer test-specific; fallback to global
+    // ✅ IMPORTANT: leader content comes from qsc_leader_personas
     // -----------------------------------------------------------------------
     let persona: any = null;
 
-    const personaTable =
-      audience === "leader" ? "qsc_leader_personas" : "qsc_personas";
-
     if (combinedProfileCode) {
-      // 1) Prefer test-specific (test_id = testId)
-      const { data: personaRow, error: personaErr } = await sb
-        // @ts-ignore
+      const personaTable =
+        resultRow.audience === "leader" ? "qsc_leader_personas" : "qsc_personas";
+
+      const baseSelect = `
+        id,
+        test_id,
+        personality_code,
+        mindset_level,
+        profile_code,
+        profile_label,
+        show_up_summary,
+        energisers,
+        drains,
+        communication_long,
+        admired_for,
+        stuck_points,
+        one_page_strengths,
+        one_page_risks,
+        combined_strengths,
+        combined_risks,
+        combined_big_lever,
+        emotional_stabilises,
+        emotional_destabilises,
+        emotional_patterns_to_watch,
+        decision_style_long,
+        support_yourself,
+        strategic_priority_1,
+        strategic_priority_2,
+        strategic_priority_3
+      `;
+
+      // Prefer test-specific row
+      const { data: personaRow } = await sb
         .from(personaTable)
-        .select(
-          `
-          id,
-          test_id,
-          personality_code,
-          mindset_level,
-          profile_code,
-          profile_label,
-          show_up_summary,
-          energisers,
-          drains,
-          communication_long,
-          admired_for,
-          stuck_points,
-          one_page_strengths,
-          one_page_risks,
-          combined_strengths,
-          combined_risks,
-          combined_big_lever,
-          emotional_stabilises,
-          emotional_destabilises,
-          emotional_patterns_to_watch,
-          decision_style_long,
-          support_yourself,
-          strategic_priority_1,
-          strategic_priority_2,
-          strategic_priority_3
-        `
-        )
+        .select(baseSelect)
         .eq("test_id", testId)
         .eq("profile_code", combinedProfileCode)
         .maybeSingle();
 
-      if (!personaErr && personaRow) {
+      if (personaRow) {
         persona = personaRow;
-      } else {
-        // 2) Global fallback
-        // - For leader: prefer rows where test_id IS NULL
-        // - For entrepreneur: keep existing behavior (any row with profile_code)
-        const q = sb
-          // @ts-ignore
+      } else if (personaTable !== "qsc_leader_personas") {
+        // For entrepreneur only: allow global fallback
+        const { data: globalPersona } = await sb
           .from(personaTable)
-          .select(
-            `
-            id,
-            test_id,
-            personality_code,
-            mindset_level,
-            profile_code,
-            profile_label,
-            show_up_summary,
-            energisers,
-            drains,
-            communication_long,
-            admired_for,
-            stuck_points,
-            one_page_strengths,
-            one_page_risks,
-            combined_strengths,
-            combined_risks,
-            combined_big_lever,
-            emotional_stabilises,
-            emotional_destabilises,
-            emotional_patterns_to_watch,
-            decision_style_long,
-            support_yourself,
-            strategic_priority_1,
-            strategic_priority_2,
-            strategic_priority_3
-          `
-          )
+          .select(baseSelect)
           .eq("profile_code", combinedProfileCode)
-          .limit(1);
+          .limit(1)
+          .maybeSingle();
 
-        const { data: globalPersona, error: globalErr } =
-          audience === "leader"
-            ? await q.is("test_id", null).maybeSingle()
-            : await q.maybeSingle();
-
-        if (!globalErr && globalPersona) persona = globalPersona;
+        if (globalPersona) persona = globalPersona;
       }
     }
 
@@ -385,10 +344,7 @@ export async function GET(
     );
   } catch (err: any) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: err?.message || "Unexpected error in QSC result endpoint",
-      },
+      { ok: false, error: err?.message || "Unexpected error in QSC result endpoint" },
       { status: 500 }
     );
   }
