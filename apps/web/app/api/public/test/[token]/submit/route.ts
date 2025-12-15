@@ -104,10 +104,14 @@ export async function POST(req: Request, { params }: { params: { token: string }
       frameworkTypeLower === "qsc" ||
       kindLower === "qsc" ||
       resultTypeLower === "qsc" ||
-      ["entrepreneur", "leader"].includes(qscVariantLower); // ✅ "leader" not "leaders"
+      ["entrepreneur", "leader", "leaders"].includes(qscVariantLower); // ✅ "leader" not "leaders"
 
-    const isQscEntrepreneur = isQscTest && (qscVariantLower === "entrepreneur" || slugLower.includes("core"));
-    const qscAudience: "entrepreneur" | "leader" = isQscEntrepreneur ? "entrepreneur" : "leader";
+     const isQscEntrepreneur =
+     isQscTest && (qscVariantLower === "entrepreneur" || slugLower.includes("core"));
+
+     const qscAudience: "entrepreneur" | "leader" =
+     isQscEntrepreneur ? "entrepreneur" : "leader";
+
 
     // Load questions with profile_map (drives scoring)
     const { data: questions, error: qErr } = await sb

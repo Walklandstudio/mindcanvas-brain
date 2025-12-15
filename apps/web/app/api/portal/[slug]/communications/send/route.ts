@@ -98,13 +98,13 @@ async function getTakerById(takerId: string) {
 }
 
 /**
- * Fetch base test info by id (for test name).
+ * Fetch base test info by id (for test name + type).
  */
 async function getTestById(testId: string) {
   const supa = supaAdmin();
   const { data, error } = await supa
     .from("tests")
-    .select("id, name")
+    .select("id, name, test_type")
     .eq("id", testId)
     .maybeSingle();
 
@@ -113,10 +113,10 @@ async function getTestById(testId: string) {
       testId,
       error,
     });
-    return { id: testId, name: "your assessment" as string | null };
+    return { id: testId, name: "your assessment" as string | null, test_type: null as string | null };
   }
 
-  return data as { id: string; name: string | null };
+  return data as { id: string; name: string | null; test_type: string | null };
 }
 
 function getBaseUrl() {
@@ -134,6 +134,11 @@ function getBaseUrl() {
 
 /**
  * Build all important links used in templates.
+ *
+ * Rules:
+ * - If last_result_url exists, always use that as the report link.
+ * - Else, if NOT a QSC test, fall back to /t/[token]/report.
+ * - Else (QSC with no last_result_url), leave report link empty (we can't guess).
  */
 function buildLinks(opts: {
   orgSlug: string;
@@ -141,6 +146,7 @@ function buildLinks(opts: {
   linkToken: string;
   lastResultUrl?: string | null;
   takerId: string;
+  testType?: string | null;
 }) {
   const base = getBaseUrl();
 
@@ -163,15 +169,23 @@ function buildLinks(opts: {
     } else {
       reportLink = base ? `${base}/${v}` : v;
     }
-  } else if (base) {
-    // fallback to token-based report route
-    reportLink = `${base}/t/${encodeURIComponent(opts.linkToken)}/report`;
+  } else {
+    const isQsc =
+      (opts.testType || "").toLowerCase().startsWith("qsc_") ||
+      (opts.testType || "").toLowerCase().includes("qsc");
+
+    if (!isQsc && base) {
+      // Non-QSC legacy tests: use generic token-based report route
+      reportLink = `${base}/t/${encodeURIComponent(opts.linkToken)}/report`;
+    } else {
+      // QSC without a stored last_result_url — don't guess a URL
+      reportLink = "";
+    }
   }
 
-  // 3) “Next steps” link – for now, send them to the org’s Links page
-  const nextStepsLink = base
-    ? `${base}/portal/${opts.orgSlug}/links`
-    : "";
+  // 3) “Next steps” link – for now, leave blank.
+  // You can hard-code this per org/test in the email template editor.
+  const nextStepsLink = "";
 
   // 4) Internal links (for test owner notification)
   const internalReportLink = base
@@ -182,7 +196,13 @@ function buildLinks(opts: {
     ? `${base}/portal/${opts.orgSlug}/dashboard?testId=${opts.testId}`
     : "";
 
-  return { testLink, reportLink, nextStepsLink, internalReportLink, internalResultsDashboardLink };
+  return {
+    testLink,
+    reportLink,
+    nextStepsLink,
+    internalReportLink,
+    internalResultsDashboardLink,
+  };
 }
 
 export async function POST(
@@ -216,6 +236,7 @@ export async function POST(
       linkToken: takerRow.link_token,
       lastResultUrl: takerRow.last_result_url,
       takerId: takerRow.id,
+      testType: testRow.test_type,
     });
 
     const firstName = takerRow.first_name || "";
@@ -245,7 +266,7 @@ export async function POST(
       internal_report_link: internalReportLink,
       internal_results_dashboard_link: internalResultsDashboardLink,
 
-      // owner fields (can be filled properly later when we join the owner)
+      // owner fields (placeholder until we wire proper owner info)
       owner_first_name: "",
       owner_full_name: "",
       owner_email: "",

@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import { QscMatrix } from "../../QscMatrix";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
@@ -108,7 +110,9 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   QUANTUM: "Quantum",
 };
 
-// --- Helpers ---------------------------------------------------------------
+// ------------------------------------------------------
+// Helpers
+// ------------------------------------------------------
 
 function normalisePercent(raw: number | undefined | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
@@ -185,9 +189,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         textAnchor="middle"
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
-        style={{
-          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        }}
       >
         LEADERSHIP
       </text>
@@ -197,9 +198,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         textAnchor="middle"
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
-        style={{
-          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        }}
       >
         FREQUENCY
       </text>
@@ -224,7 +222,19 @@ function derivePrimarySecondary<K extends string>(
   return { primary, secondary };
 }
 
-// --- Main page -------------------------------------------------------------
+function getFullName(taker: QscTakerRow | null | undefined): string | null {
+  if (!taker) return null;
+  const first = (taker.first_name || "").trim();
+  const last = (taker.last_name || "").trim();
+  const full = `${first} ${last}`.trim();
+  if (full) return full;
+  const email = (taker.email || "").trim();
+  return email || null;
+}
+
+// ------------------------------------------------------
+// Page
+// ------------------------------------------------------
 
 export default function QscLeaderStrategicReportPage({
   params,
@@ -239,7 +249,10 @@ export default function QscLeaderStrategicReportPage({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<QscPayload | null>(null);
+
   const [apiVersion, setApiVersion] = useState<string | null>(null);
+
+  const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -249,7 +262,6 @@ export default function QscLeaderStrategicReportPage({
         setLoading(true);
         setErr(null);
 
-        // ✅ IMPORTANT FIX: pass tid through so API can resolve tokens correctly
         const apiUrl = tid
           ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(
               tid
@@ -282,9 +294,11 @@ export default function QscLeaderStrategicReportPage({
 
         if (alive) setApiVersion(j.__api_version ?? null);
 
-        if (!j.results) throw new Error("No QSC results found");
+        if (!j.results) {
+          throw new Error("No QSC results found");
+        }
 
-        // Safety: if someone hits /leader but the result is entrepreneur, bounce them
+        // If someone hits /leader but the result is entrepreneur, bounce them
         if (j.results.audience === "entrepreneur") {
           const base = `/qsc/${encodeURIComponent(token)}/entrepreneur`;
           const href = tid ? `${base}?tid=${encodeURIComponent(tid)}` : base;
@@ -312,12 +326,46 @@ export default function QscLeaderStrategicReportPage({
     };
   }, [token, tid, router]);
 
+  async function handleDownloadPdf() {
+    if (!reportRef.current) return;
+
+    const element = reportRef.current;
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    pdf.save(`qsc-leader-strategic-${token}.pdf`);
+  }
+
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
   const taker = payload?.taker ?? null;
 
-  if (loading) {
+  if (loading && !result) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-900">
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
@@ -325,9 +373,11 @@ export default function QscLeaderStrategicReportPage({
             Strategic Leadership Report
           </p>
           <h1 className="mt-3 text-3xl font-bold">
-            Preparing your QSC Leaders report…
+            Preparing your QSC Leader report…
           </h1>
-          {apiVersion && <p className="text-xs text-slate-500">API: {apiVersion}</p>}
+          {apiVersion && (
+            <p className="text-xs text-slate-500">API: {apiVersion}</p>
+          )}
         </main>
       </div>
     );
@@ -342,13 +392,15 @@ export default function QscLeaderStrategicReportPage({
           </p>
           <h1 className="text-3xl font-bold">Couldn&apos;t load report</h1>
           <p className="text-sm text-slate-700">
-            We weren&apos;t able to generate your QSC Leaders — Strategic
+            We weren&apos;t able to generate your QSC Leader — Strategic
             Leadership Report.
           </p>
           <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-          {apiVersion && <p className="text-xs text-slate-500">API: {apiVersion}</p>}
+          {apiVersion && (
+            <p className="text-xs text-slate-500">API: {apiVersion}</p>
+          )}
         </main>
       </div>
     );
@@ -360,11 +412,7 @@ export default function QscLeaderStrategicReportPage({
     profile?.profile_label ||
     "Your Quantum Leadership Profile";
 
-  const takerDisplayName =
-    taker &&
-    ([taker.first_name, taker.last_name].filter(Boolean).join(" ") ||
-      taker.email ||
-      null);
+  const takerDisplayName = getFullName(taker);
 
   const backHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
@@ -409,21 +457,21 @@ export default function QscLeaderStrategicReportPage({
     "QUANTUM",
   ];
 
-  const { primary: derivedPrimaryPersonality, secondary: derivedSecondaryPersonality } =
-    derivePrimarySecondary(personalityPerc, personalityKeys);
+  const { primary: derivedPrimaryPersonality } = derivePrimarySecondary(
+    personalityPerc,
+    personalityKeys
+  );
 
-  const { primary: derivedPrimaryMindset, secondary: derivedSecondaryMindset } =
-    derivePrimarySecondary(mindsetPerc, mindsetKeys);
+  const { primary: derivedPrimaryMindset } = derivePrimarySecondary(
+    mindsetPerc,
+    mindsetKeys
+  );
 
   const effectivePrimaryPersonality: PersonalityKey | null =
     derivedPrimaryPersonality ?? result.primary_personality ?? null;
-  const effectiveSecondaryPersonality: PersonalityKey | null =
-    derivedSecondaryPersonality ?? result.secondary_personality ?? null;
 
   const effectivePrimaryMindset: MindsetKey | null =
     derivedPrimaryMindset ?? result.primary_mindset ?? null;
-  const effectiveSecondaryMindset: MindsetKey | null =
-    derivedSecondaryMindset ?? result.secondary_mindset ?? null;
 
   const primaryPersonalityLabel =
     (effectivePrimaryPersonality &&
@@ -443,7 +491,6 @@ export default function QscLeaderStrategicReportPage({
   const combinedLever = persona?.combined_big_lever || "—";
   const emotionalStabilises = persona?.emotional_stabilises || "—";
   const emotionalDestabilises = persona?.emotional_destabilises || "—";
-  const emotionalPatterns = persona?.emotional_patterns_to_watch || "—";
   const supportYourself = persona?.support_yourself || "—";
 
   const strategic1 = persona?.strategic_priority_1 || "—";
@@ -452,14 +499,17 @@ export default function QscLeaderStrategicReportPage({
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10">
+      <main
+        ref={reportRef}
+        className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10"
+      >
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
               Strategic Leadership Report
             </p>
             <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
-              QSC Leaders — Strategic Leadership Report
+              QSC Leader — Strategic Leadership Report
             </h1>
             {takerDisplayName && (
               <p className="mt-1 text-sm text-slate-700">
@@ -485,6 +535,12 @@ export default function QscLeaderStrategicReportPage({
             >
               ← Back to Snapshot
             </Link>
+            <button
+              onClick={handleDownloadPdf}
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+            >
+              Download PDF
+            </button>
             <span>
               Created at{" "}
               {createdAt.toLocaleString(undefined, {
@@ -498,6 +554,7 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </header>
 
+        {/* QUANTUM PROFILE HERO */}
         <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Quantum leadership profile
@@ -512,14 +569,11 @@ export default function QscLeaderStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-2 pt-4 border-t border-slate-200">
             <div>
-              <h3 className="text-sm font-semibold mb-1">
-                Your Personality Layer
-              </h3>
+              <h3 className="text-sm font-semibold mb-1">Your Personality Layer</h3>
               <p className="text-sm text-slate-700">
                 How you naturally think, act and make decisions. This is your
                 emotional wiring and energetic pattern — it doesn&apos;t change
-                overnight, which is why it&apos;s such a powerful anchor for how
-                you lead.
+                overnight, which is why it&apos;s such a powerful anchor.
               </p>
             </div>
             <div>
@@ -527,20 +581,18 @@ export default function QscLeaderStrategicReportPage({
               <p className="text-sm text-slate-700">
                 Where your leadership and organisation are right now and what
                 stage of growth you&apos;re in. These needs shift as you grow —
-                which is why you can&apos;t keep leading with yesterday&apos;s
-                strategy.
+                which is why you can&apos;t keep leading with yesterday&apos;s strategy.
               </p>
             </div>
           </div>
         </section>
 
+        {/* ONE-PAGE SUMMARY */}
         <section className="rounded-3xl bg-[#f5eddc] border border-amber-200 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
             One-page Quantum Leadership Summary
           </p>
-          <h2 className="text-xl font-semibold">
-            Your at-a-glance leadership profile
-          </h2>
+          <h2 className="text-xl font-semibold">Your at-a-glance leadership profile</h2>
 
           <div className="grid gap-6 md:grid-cols-3 pt-4">
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
@@ -552,16 +604,12 @@ export default function QscLeaderStrategicReportPage({
                 Mindset Stage: {primaryMindsetLabel}.
               </p>
             </div>
-
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
               <h3 className="font-semibold">Strengths</h3>
-              <p className="text-slate-700 whitespace-pre-line">
-                {onePageStrengths}
-              </p>
+              <p className="text-slate-700 whitespace-pre-line">{onePageStrengths}</p>
               <h4 className="mt-2 font-semibold">Risks</h4>
               <p className="text-slate-700 whitespace-pre-line">{onePageRisks}</p>
             </div>
-
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
               <h3 className="font-semibold">Top strategic priorities</h3>
               <ul className="mt-2 list-disc pl-4 text-slate-800 space-y-1">
@@ -573,12 +621,13 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </section>
 
+        {/* FREQUENCY + MINDSET + MATRIX */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Leadership Frequency Type</h2>
             <p className="text-sm text-slate-300">
               Your emotional & energetic style across Fire, Flow, Form and Field
-              when you&apos;re leading others.
+              in the way you lead and influence.
             </p>
 
             <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
@@ -587,10 +636,7 @@ export default function QscLeaderStrategicReportPage({
               </div>
               <div className="space-y-3 text-sm">
                 {frequencyDonutData.map((d) => (
-                  <div
-                    key={d.key}
-                    className="flex items-center justify-between gap-3"
-                  >
+                  <div key={d.key} className="flex items-center justify-between gap-3">
                     <span>{d.label}</span>
                     <span className="tabular-nums">{Math.round(d.value)}%</span>
                   </div>
@@ -602,8 +648,8 @@ export default function QscLeaderStrategicReportPage({
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Leadership Mindset Levels</h2>
             <p className="text-sm text-slate-300">
-              How your focus and energy are distributed across the 5 Quantum
-              stages when you&apos;re making leadership decisions.
+              Where your focus and energy are distributed across the 5 Quantum
+              stages when you&apos;re leading.
             </p>
 
             <div className="space-y-2 pt-2 text-xs">
@@ -637,6 +683,10 @@ export default function QscLeaderStrategicReportPage({
           <h2 className="text-xl font-semibold">
             Where your leadership frequency meets your mindset level
           </h2>
+          <p className="text-sm text-slate-700">
+            Each cell represents a different Quantum leadership persona. Your primary
+            pattern is highlighted — this is where your wiring and current stage meet.
+          </p>
 
           <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50">
             <QscMatrix
@@ -646,84 +696,84 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </section>
 
+        {/* PERSONALITY LAYER */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-indigo-700">
+            Personality layer
+          </p>
+          <h2 className="text-xl font-semibold">
+            How you show up emotionally & behaviourally
+          </h2>
+
+          <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">Core pattern ({primaryPersonalityLabel})</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedStrengths}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">What energises you</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {persona?.energisers || "—"}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+              <h3 className="font-semibold">What drains you</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {persona?.drains || "—"}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* COMBINED PATTERN */}
         <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-rose-700">
             Combined pattern
           </p>
           <h2 className="text-xl font-semibold">
-            {personaName} — your leadership leverage
+            {personaName} — what happens when your style meets your stage
           </h2>
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">Strategic strengths</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">
-                {combinedStrengths}
-              </p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedStrengths}</p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">Growth risks & loops</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">
-                {combinedRisks}
-              </p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedRisks}</p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Your biggest leadership lever</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">
-                {combinedLever}
-              </p>
+              <h3 className="font-semibold">Your biggest lever</h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedLever}</p>
             </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm">
-            <h3 className="font-semibold mb-2">Reflection prompts</h3>
-            <ul className="list-disc pl-5 space-y-1 text-slate-700">
-              <li>
-                Where am I expecting my team to move faster than the systems
-                and support I&apos;ve actually built?
-              </li>
-              <li>
-                Which leadership decisions am I delaying that would actually
-                create more stability and clarity?
-              </li>
-              <li>
-                What am I still trying to “carry myself” that really needs a
-                system or a person?
-              </li>
-            </ul>
           </div>
         </section>
 
+        {/* EMOTIONAL & OPERATIONAL SUPPORT */}
         <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-purple-700">
             Emotional & operational alignment
           </p>
-          <h2 className="text-xl font-semibold">
-            How to support yourself as a leader
-          </h2>
+          <h2 className="text-xl font-semibold">How to support yourself inside this pattern</h2>
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">What stabilises you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">
-                {emotionalStabilises}
-              </p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">{emotionalStabilises}</p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">What destabilises you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">
-                {emotionalDestabilises}
-              </p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">{emotionalDestabilises}</p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">Support yourself better</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">
-                {supportYourself}
-              </p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">{supportYourself}</p>
             </div>
           </div>
         </section>
 
+        {/* STRATEGIC PRIORITIES */}
         <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-orange-700">
             Strategic leadership priorities (next 90 days)
@@ -742,3 +792,4 @@ export default function QscLeaderStrategicReportPage({
     </div>
   );
 }
+

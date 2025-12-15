@@ -93,7 +93,7 @@ export async function GET(
       if (r.row) result = r.row;
     }
 
-    // B) by id
+    // B) by qsc_results.id
     if (!result) {
       const r = await loadResultBy("id", tokenParam);
       if (r.error)
@@ -104,7 +104,7 @@ export async function GET(
       if (r.row) result = r.row;
     }
 
-    // C) tokenParam is test_taker id
+    // C) tokenParam is test_taker id -> resolve link_token -> qsc_results.token
     if (!result && isUuidLike(tokenParam)) {
       const resolved = await resolveViaTestTakerId(tokenParam);
       if (resolved) {
@@ -149,7 +149,7 @@ export async function GET(
       );
     }
 
-    // 2) Load profile row
+    // 2) Load profile row (Buyer Snapshot data)
     let profile: any = null;
 
     if (result.qsc_profile_id) {
@@ -176,7 +176,7 @@ export async function GET(
       if (!error && data) profile = data;
     }
 
-    // Fallback: lookup by combined_profile_code if needed
+    // Fallback: try by combined_profile_code
     if (!profile && result.combined_profile_code) {
       const { data, error } = await client
         .from("qsc_profiles")
@@ -196,19 +196,19 @@ export async function GET(
         `
         )
         .eq("profile_code", result.combined_profile_code)
+        .limit(1)
         .maybeSingle();
 
       if (!error && data) profile = data;
     }
 
-    // 3) Load extended row: pick correct table by audience
-    const audience = String(result.audience || "").toLowerCase();
-    const extendedTable =
-      audience === "leader"
-        ? "qsc_leader_extended_reports"
-        : "qsc_entrepreneur_extended_reports";
-
+    // 3) Load extended row (Entrepreneur vs Leader)
     let extended: any = null;
+
+    const isLeader = String(result.audience || "").toLowerCase() === "leader";
+    const extendedTable = isLeader
+      ? "qsc_leader_extended_reports"
+      : "qsc_entrepreneur_extended_reports";
 
     if (profile?.profile_code) {
       const { data, error } = await client
@@ -238,6 +238,7 @@ export async function GET(
         `
         )
         .eq("profile_code", profile.profile_code)
+        .limit(1)
         .maybeSingle();
 
       if (!error && data) extended = data;
@@ -273,6 +274,7 @@ export async function GET(
         )
         .eq("personality_code", profile.personality_code)
         .eq("mindset_level", profile.mindset_level)
+        .limit(1)
         .maybeSingle();
 
       if (!error && data) extended = data;
@@ -292,3 +294,4 @@ export async function GET(
     );
   }
 }
+

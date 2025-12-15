@@ -5,13 +5,16 @@ export const dynamic = "force-dynamic";
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
 // Small helper
 function isUuidLike(s: string) {
-  return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(s);
+  return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(
+    s
+  );
 }
 
 /**
@@ -30,11 +33,17 @@ function isUuidLike(s: string) {
  * - qsc_results.test_id
  * - test_takers.id -> link_token -> qsc_results.token
  */
-export async function GET(req: Request, { params }: { params: { token: string } }) {
+export async function GET(
+  req: Request,
+  { params }: { params: { token: string } }
+) {
   try {
     const tokenParam = (params.token || "").trim();
     if (!tokenParam) {
-      return NextResponse.json({ ok: false, error: "Missing token in URL" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing token in URL" },
+        { status: 400 }
+      );
     }
 
     const url = new URL(req.url);
@@ -80,7 +89,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         .eq("id", maybeId)
         .maybeSingle();
 
-      if (error || !takerRow?.link_token) return { resolvedToken: null as string | null, takerRow: null as any };
+      if (error || !takerRow?.link_token)
+        return { resolvedToken: null as string | null, takerRow: null as any };
       return { resolvedToken: String(takerRow.link_token), takerRow };
     }
 
@@ -94,7 +104,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     {
       const r = await loadResultBy("token", tokenParam);
       if (r.error) {
-        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${r.error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${r.error.message}` },
+          { status: 500 }
+        );
       }
       if (r.row) {
         resultRow = r.row;
@@ -106,7 +119,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     if (!resultRow) {
       const r = await loadResultBy("id", tokenParam);
       if (r.error) {
-        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${r.error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${r.error.message}` },
+          { status: 500 }
+        );
       }
       if (r.row) {
         resultRow = r.row;
@@ -120,11 +136,15 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       if (resolvedToken) {
         const r = await loadResultBy("token", resolvedToken);
         if (r.error) {
-          return NextResponse.json({ ok: false, error: `qsc_results load failed: ${r.error.message}` }, { status: 500 });
+          return NextResponse.json(
+            { ok: false, error: `qsc_results load failed: ${r.error.message}` },
+            { status: 500 }
+          );
         }
         if (r.row) {
           resultRow = r.row;
-          resolution.method = "test_takers.id=tokenParam -> qsc_results.token=link_token";
+          resolution.method =
+            "test_takers.id=tokenParam -> qsc_results.token=link_token";
           resolution.resolvedToken = resolvedToken;
         }
       }
@@ -173,14 +193,21 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     if (!resultRow) {
       return NextResponse.json(
-        { ok: false, error: "No QSC result found for this token", debug: { token: tokenParam, tid: tid || null } },
+        {
+          ok: false,
+          error: "No QSC result found for this token",
+          debug: { token: tokenParam, tid: tid || null },
+        },
         { status: 404 }
       );
     }
 
     const testId: string = resultRow.test_id;
     const qscProfileId: string | null = resultRow.qsc_profile_id ?? null;
-    const combinedProfileCode: string | null = resultRow.combined_profile_code ?? null;
+    const combinedProfileCode: string | null =
+      resultRow.combined_profile_code ?? null;
+
+    const audience: "entrepreneur" | "leader" | null = resultRow.audience ?? null;
 
     // -----------------------------------------------------------------------
     // Load test taker (prefer link_token match; else try tokenParam/tid as id)
@@ -216,7 +243,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     }
 
     // -----------------------------------------------------------------------
-    // Load QSC profile (extended/internal)
+    // Load QSC profile (snapshot fields)
     // -----------------------------------------------------------------------
     let profile: any = null;
 
@@ -247,13 +274,21 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     }
 
     // -----------------------------------------------------------------------
-    // Load persona (strategic report content) – prefer test-specific
+    // Load persona (strategic report content)
+    // - Entrepreneur uses portal.qsc_personas
+    // - Leader uses portal.qsc_leader_personas
+    // Prefer test-specific; fallback to global
     // -----------------------------------------------------------------------
     let persona: any = null;
 
+    const personaTable =
+      audience === "leader" ? "qsc_leader_personas" : "qsc_personas";
+
     if (combinedProfileCode) {
+      // 1) Prefer test-specific (test_id = testId)
       const { data: personaRow, error: personaErr } = await sb
-        .from("qsc_personas")
+        // @ts-ignore
+        .from(personaTable)
         .select(
           `
           id,
@@ -290,8 +325,12 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       if (!personaErr && personaRow) {
         persona = personaRow;
       } else {
-        const { data: globalPersona, error: globalErr } = await sb
-          .from("qsc_personas")
+        // 2) Global fallback
+        // - For leader: prefer rows where test_id IS NULL
+        // - For entrepreneur: keep existing behavior (any row with profile_code)
+        const q = sb
+          // @ts-ignore
+          .from(personaTable)
           .select(
             `
             id,
@@ -322,8 +361,12 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           `
           )
           .eq("profile_code", combinedProfileCode)
-          .limit(1)
-          .maybeSingle();
+          .limit(1);
+
+        const { data: globalPersona, error: globalErr } =
+          audience === "leader"
+            ? await q.is("test_id", null).maybeSingle()
+            : await q.maybeSingle();
 
         if (!globalErr && globalPersona) persona = globalPersona;
       }
@@ -342,10 +385,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     );
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err?.message || "Unexpected error in QSC result endpoint" },
+      {
+        ok: false,
+        error: err?.message || "Unexpected error in QSC result endpoint",
+      },
       { status: 500 }
     );
   }
 }
-
-
