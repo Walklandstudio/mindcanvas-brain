@@ -23,7 +23,7 @@ async function getOrgBySlug(slug: string) {
   const supa = supaAdmin();
   const { data, error } = await supa
     .from("orgs")
-    .select("id, slug, name")
+    .select("id, slug, name, notification_email, website")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -31,7 +31,14 @@ async function getOrgBySlug(slug: string) {
     console.error("[communications/send] getOrgBySlug error", error);
     throw new Error("ORG_NOT_FOUND");
   }
-  return data as { id: string; slug: string; name: string | null };
+
+  return data as {
+    id: string;
+    slug: string;
+    name: string | null;
+    notification_email: string | null;
+    website: string | null;
+  };
 }
 
 async function getTakerById(takerId: string) {
@@ -56,9 +63,7 @@ async function getTakerById(takerId: string) {
     .maybeSingle();
 
   if (error || !data) {
-    console.error("[communications/send] getTakerById error", error, {
-      takerId,
-    });
+    console.error("[communications/send] getTakerById error", error, { takerId });
     throw new Error("TAKER_NOT_FOUND");
   }
 
@@ -85,10 +90,7 @@ async function getTestById(testId: string) {
     .maybeSingle();
 
   if (error || !data) {
-    console.warn("[communications/send] getTestById missing test", {
-      testId,
-      error,
-    });
+    console.warn("[communications/send] getTestById missing test", { testId, error });
     return {
       id: testId,
       name: "your assessment" as string | null,
@@ -97,12 +99,7 @@ async function getTestById(testId: string) {
     };
   }
 
-  return data as {
-    id: string;
-    name: string | null;
-    slug: string | null;
-    test_type: string | null;
-  };
+  return data as { id: string; name: string | null; slug: string | null; test_type: string | null };
 }
 
 function getBaseUrl() {
@@ -124,7 +121,6 @@ function getQscVariant(opts: { slug?: string | null; testType?: string | null })
   if (!hasQsc) return { isQsc: false as const, variant: null as null | "leader" | "entrepreneur" };
 
   let variant: "leader" | "entrepreneur" | null = null;
-
   if (t.includes("leader") || s.includes("leader")) variant = "leader";
   else if (t.includes("entrepreneur") || s.includes("entrepreneur") || s.includes("entre")) variant = "entrepreneur";
 
@@ -143,9 +139,7 @@ function buildLinks(opts: {
   const base = getBaseUrl();
 
   const testLink = base
-    ? `${base}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(
-        opts.linkToken
-      )}`
+    ? `${base}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(opts.linkToken)}`
     : "";
 
   let reportLink = "";
@@ -169,6 +163,7 @@ function buildLinks(opts: {
     }
   }
 
+  // Phase 2 (later): per-link next steps URL
   const nextStepsLink = "";
 
   const internalReportLink = base ? `${base}/portal/${opts.orgSlug}/database/${opts.takerId}` : "";
@@ -177,8 +172,14 @@ function buildLinks(opts: {
   return { testLink, reportLink, nextStepsLink, internalReportLink, internalResultsDashboardLink };
 }
 
-function getInternalNotificationsTo() {
-  return (process.env.INTERNAL_NOTIFICATIONS_EMAIL || "notifications@profiletest.ai").trim();
+function normalizeEmail(v: string | null | undefined) {
+  const s = (v || "").trim();
+  return s.length ? s : "";
+}
+
+function getDefaultInternalEmail() {
+  // hard default, and still env-overridable if you ever want
+  return normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) || "notifications@profiletest.ai";
 }
 
 export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
@@ -237,16 +238,21 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
 
     const type: EmailTemplateType = body.type;
 
-    const sentTo =
-      type === "test_owner_notification"
-        ? getInternalNotificationsTo()
-        : (takerRow.email || "").trim();
+    // ✅ Recipient routing:
+    // - test_owner_notification -> org.notification_email (fallback to profiletest.ai notifications inbox)
+    // - all other types -> test taker email
+    let sentTo = "";
 
-    if (type !== "test_owner_notification" && !sentTo) {
-      return NextResponse.json(
-        { error: "NO_EMAIL", message: "Test taker has no email address." },
-        { status: 400 }
-      );
+    if (type === "test_owner_notification") {
+      sentTo = normalizeEmail(org.notification_email) || getDefaultInternalEmail();
+    } else {
+      sentTo = normalizeEmail(takerRow.email);
+      if (!sentTo) {
+        return NextResponse.json(
+          { error: "NO_EMAIL", message: "Test taker has no email address." },
+          { status: 400 }
+        );
+      }
     }
 
     const result = await sendTemplatedEmail({

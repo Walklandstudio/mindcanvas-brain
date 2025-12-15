@@ -1,5 +1,5 @@
 // apps/web/app/portal/[slug]/profile/ProfileClient.tsx
-'use client';
+"use client";
 
 import { useEffect, useState } from "react";
 import type { OrgSettings } from "@/types/orgSettings";
@@ -59,10 +59,7 @@ export default function ProfileClient({ slug }: { slug: string }) {
     }
   }
 
-  function updateField<K extends keyof OrgSettings>(
-    key: K,
-    value: OrgSettings[K]
-  ) {
+  function updateField<K extends keyof OrgSettings>(key: K, value: OrgSettings[K]) {
     if (!org) return;
     setOrg({ ...org, [key]: value });
     setSaved(false);
@@ -100,22 +97,9 @@ export default function ProfileClient({ slug }: { slug: string }) {
       {/* Basic info */}
       <section className="space-y-4">
         <h2 className="text-lg font-medium">Basic Info</h2>
-        <Field
-          label="Name"
-          value={org.name}
-          onChange={(v) => updateField("name", v)}
-        />
-        <Field
-          label="Slug"
-          value={org.slug}
-          disabled
-          help="Used in URLs; cannot be changed."
-        />
-        <Field
-          label="Industry"
-          value={org.industry ?? ""}
-          onChange={(v) => updateField("industry", v)}
-        />
+        <Field label="Name" value={org.name} onChange={(v) => updateField("name", v)} />
+        <Field label="Slug" value={org.slug} disabled help="Used in URLs; cannot be changed." />
+        <Field label="Industry" value={org.industry ?? ""} onChange={(v) => updateField("industry", v)} />
         <TextareaField
           label="Short Bio"
           value={org.short_bio ?? ""}
@@ -127,11 +111,7 @@ export default function ProfileClient({ slug }: { slug: string }) {
       {/* Branding */}
       <section className="space-y-4">
         <h2 className="text-lg font-medium">Branding</h2>
-        <Field
-          label="Logo URL"
-          value={org.logo_url ?? ""}
-          onChange={(v) => updateField("logo_url", v)}
-        />
+        <Field label="Logo URL" value={org.logo_url ?? ""} onChange={(v) => updateField("logo_url", v)} />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <ColorField
             label="Primary"
@@ -178,6 +158,14 @@ export default function ProfileClient({ slug }: { slug: string }) {
           label="Website URL"
           value={org.website_url ?? ""}
           onChange={(v) => updateField("website_url", v)}
+        />
+
+        {/* ✅ NEW */}
+        <Field
+          label="Notification Email"
+          value={org.notification_email ?? ""}
+          onChange={(v) => updateField("notification_email", v)}
+          help="Where internal notifications (e.g. test completed) will be sent. If blank, we fall back to notifications@profiletest.ai."
         />
       </section>
 
