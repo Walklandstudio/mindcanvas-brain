@@ -49,8 +49,8 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const sb = createClient().schema("portal");
   const body = (await req.json().catch(() => ({}))) as any;
-
   const id = typeof body.id === "string" ? body.id : "";
+
   if (!id) {
     return NextResponse.json(
       { ok: false, error: "Missing org id" },
@@ -58,15 +58,14 @@ export async function PATCH(req: Request) {
     );
   }
 
-  // ✅ Whitelist fields we allow updating from the portal UI.
-  // (Prevents accidental updates to columns you don’t mean to touch.)
+  // ✅ Whitelist fields that portal is allowed to update
   const allow = [
     // Basic info
     "name",
     "industry",
     "short_bio",
 
-    // Branding (if stored on orgs in your schema)
+    // Branding (if your orgs table has these; if not, harmless)
     "logo_url",
     "brand_primary",
     "brand_secondary",
@@ -79,7 +78,7 @@ export async function PATCH(req: Request) {
     "support_email",
     "website_url",
 
-    // ✅ NEW internal notifications recipient
+    // ✅ NEW
     "notification_email",
 
     // Report defaults
@@ -94,7 +93,6 @@ export async function PATCH(req: Request) {
   for (const k of allow) {
     if (!(k in body)) continue;
 
-    // Normalize emails vs strings
     if (
       k === "primary_contact_email" ||
       k === "support_email" ||
@@ -107,8 +105,8 @@ export async function PATCH(req: Request) {
     }
   }
 
-  // Nothing to update
   if (Object.keys(updates).length === 0) {
+    // Nothing to update; return current org row
     const { data: org, error } = await sb
       .from("orgs")
       .select("*")
@@ -124,8 +122,6 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ ok: true, org });
   }
-
-  // TODO: check that the authenticated user actually belongs to this org
 
   const { data: org, error } = await sb
     .from("orgs")
