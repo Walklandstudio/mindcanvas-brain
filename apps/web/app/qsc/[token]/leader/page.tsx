@@ -1,10 +1,14 @@
+// apps/web/app/qsc/[token]/leader/page.tsx
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+
+// IMPORTANT: This import intentionally points to the shared QscMatrix.
+// If your QscMatrix lives elsewhere, keep the same idea: do NOT import from "./QscMatrix" here.
 import { QscMatrix } from "../../QscMatrix";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
@@ -37,46 +41,39 @@ type QscProfileRow = {
   mindset_level: number | null;
   profile_code: string | null;
   profile_label: string | null;
-  how_to_communicate: string | null;
-  decision_style: string | null;
-  business_challenges: string | null;
-  trust_signals: string | null;
-  offer_fit: string | null;
-  sale_blockers: string | null;
 };
 
-type QscPersonaRow = {
+type LeaderSections = {
+  // EXACT doc structure keys (we only render from these)
+  introduction?: string;
+  how_to_use?: string;
+  quantum_profile_summary?: string;
+  personality_layer?: string;
+  mindset_layer?: string;
+  combined_quantum_pattern?: string;
+  strategic_leadership_priorities?: string;
+  leadership_action_plan_30_day?: string;
+  leadership_roadmap?: string;
+  communication_and_decision_style?: string;
+  reflection_prompts?: string;
+  one_page_quantum_summary?: string;
+
+  // Optional helper (not displayed unless you want it)
+  _doc_profile?: string;
+};
+
+type QscLeaderPersonaRow = {
   id: string;
   test_id: string;
-  personality_code: string | null;
-  mindset_level: number | null;
   profile_code: string | null;
   profile_label: string | null;
+  personality_code: string | null;
+  mindset_level: number | null;
 
-  show_up_summary: string | null;
-  energisers: string | null;
-  drains: string | null;
-  communication_long: string | null;
-  admired_for: string | null;
-  stuck_points: string | null;
+  // We rely on sections for the report body:
+  sections?: LeaderSections | null;
 
-  one_page_strengths: string | null;
-  one_page_risks: string | null;
-
-  combined_strengths: string | null;
-  combined_risks: string | null;
-  combined_big_lever: string | null;
-
-  emotional_stabilises: string | null;
-  emotional_destabilises: string | null;
-  emotional_patterns_to_watch: string | null;
-
-  decision_style_long: string | null;
-  support_yourself: string | null;
-
-  strategic_priority_1: string | null;
-  strategic_priority_2: string | null;
-  strategic_priority_3: string | null;
+  // legacy columns may exist but we intentionally do NOT fallback to them
 };
 
 type QscTakerRow = {
@@ -91,7 +88,7 @@ type QscTakerRow = {
 type QscPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
-  persona?: QscPersonaRow | null;
+  persona?: QscLeaderPersonaRow | null;
   taker: QscTakerRow | null;
 };
 
@@ -110,9 +107,12 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   QUANTUM: "Quantum",
 };
 
-// ------------------------------------------------------
-// Helpers
-// ------------------------------------------------------
+const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
+  FIRE: "#f97316",
+  FLOW: "#0ea5e9",
+  FORM: "#22c55e",
+  FIELD: "#a855f7",
+};
 
 function normalisePercent(raw: number | undefined | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
@@ -120,17 +120,20 @@ function normalisePercent(raw: number | undefined | null): number {
   return Math.min(100, Math.max(0, raw));
 }
 
+function getFullName(taker: QscTakerRow | null | undefined): string | null {
+  if (!taker) return null;
+  const first = (taker.first_name || "").trim();
+  const last = (taker.last_name || "").trim();
+  const full = `${first} ${last}`.trim();
+  if (full) return full;
+  const email = (taker.email || "").trim();
+  return email || null;
+}
+
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number; // 0–100
-};
-
-const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
-  FIRE: "#f97316",
-  FLOW: "#0ea5e9",
-  FORM: "#22c55e",
-  FIELD: "#a855f7",
+  value: number;
 };
 
 function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
@@ -145,11 +148,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
   let offset = 0;
 
   return (
-    <svg
-      viewBox="0 0 160 160"
-      className="h-40 w-40 md:h-48 md:w-48"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 160 160" className="h-40 w-40 md:h-48 md:w-48">
       <circle
         cx={center}
         cy={center}
@@ -165,6 +164,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         const dashArray = `${dash} ${circumference}`;
         const strokeDashoffset = offset;
         offset -= dash;
+
         return (
           <circle
             key={d.key}
@@ -183,58 +183,60 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
 
       <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
 
-      <text
-        x={center}
-        y={center - 4}
-        textAnchor="middle"
-        className="text-[9px] md:text-[10px]"
-        fill="#e5e7eb"
-      >
+      <text x={center} y={center - 4} textAnchor="middle" fill="#e5e7eb">
         LEADERSHIP
       </text>
-      <text
-        x={center}
-        y={center + 10}
-        textAnchor="middle"
-        className="text-[9px] md:text-[10px]"
-        fill="#e5e7eb"
-      >
+      <text x={center} y={center + 12} textAnchor="middle" fill="#e5e7eb">
         FREQUENCY
       </text>
     </svg>
   );
 }
 
-function derivePrimarySecondary<K extends string>(
-  perc: Partial<Record<K, number>>,
-  keys: readonly K[]
-): { primary: K | null; secondary: K | null } {
-  const entries = keys.map((k) => ({
-    key: k,
-    value: normalisePercent(perc[k] ?? 0),
-  }));
-
-  entries.sort((a, b) => b.value - a.value);
-
-  const primary = entries[0] && entries[0].value > 0 ? entries[0].key : null;
-  const secondary = entries[1] && entries[1].value > 0 ? entries[1].key : null;
-
-  return { primary, secondary };
+function renderDocText(value?: string | null) {
+  const t = (value || "").trim();
+  if (!t) {
+    return (
+      <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        <div className="font-semibold">Missing content</div>
+        <div className="mt-1 text-xs text-rose-700/80">
+          This section is blank in <code>portal.qsc_leader_personas.sections</code>
+          . Fix the DB row — we’re not auto-filling anything.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">
+      {t}
+    </div>
+  );
 }
 
-function getFullName(taker: QscTakerRow | null | undefined): string | null {
-  if (!taker) return null;
-  const first = (taker.first_name || "").trim();
-  const last = (taker.last_name || "").trim();
-  const full = `${first} ${last}`.trim();
-  if (full) return full;
-  const email = (taker.email || "").trim();
-  return email || null;
-}
+function missingKeys(sections: LeaderSections | null | undefined) {
+  const s = sections || {};
+  const required: Array<keyof LeaderSections> = [
+    "introduction",
+    "how_to_use",
+    "quantum_profile_summary",
+    "personality_layer",
+    "mindset_layer",
+    "combined_quantum_pattern",
+    "strategic_leadership_priorities",
+    "leadership_action_plan_30_day",
+    "leadership_roadmap",
+    "communication_and_decision_style",
+    "reflection_prompts",
+    "one_page_quantum_summary",
+  ];
 
-// ------------------------------------------------------
-// Page
-// ------------------------------------------------------
+  const misses = required.filter((k) => {
+    const v = (s as any)[k];
+    return typeof v !== "string" || v.trim().length === 0;
+  });
+
+  return misses as string[];
+}
 
 export default function QscLeaderStrategicReportPage({
   params,
@@ -249,8 +251,6 @@ export default function QscLeaderStrategicReportPage({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<QscPayload | null>(null);
-
-  const [apiVersion, setApiVersion] = useState<string | null>(null);
 
   const reportRef = useRef<HTMLDivElement | null>(null);
 
@@ -269,36 +269,15 @@ export default function QscLeaderStrategicReportPage({
           : `/api/public/qsc/${encodeURIComponent(token)}/result`;
 
         const res = await fetch(apiUrl, { cache: "no-store" });
-
-        const ct = res.headers.get("content-type") || "";
-        if (!ct.includes("application/json")) {
-          const text = await res.text();
-          throw new Error(
-            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
-          );
-        }
-
-        const j = (await res.json()) as {
-          ok?: boolean;
-          error?: string;
-          __api_version?: string;
-          results?: QscResultsRow;
-          profile?: QscProfileRow | null;
-          persona?: QscPersonaRow | null;
-          taker?: QscTakerRow | null;
-        };
+        const j = await res.json();
 
         if (!res.ok || j.ok === false) {
           throw new Error(j.error || `HTTP ${res.status}`);
         }
 
-        if (alive) setApiVersion(j.__api_version ?? null);
+        if (!j.results) throw new Error("No QSC results found");
 
-        if (!j.results) {
-          throw new Error("No QSC results found");
-        }
-
-        // If someone hits /leader but the result is entrepreneur, bounce them
+        // Safety: if someone hits /leader but the result is entrepreneur, bounce them
         if (j.results.audience === "entrepreneur") {
           const base = `/qsc/${encodeURIComponent(token)}/entrepreneur`;
           const href = tid ? `${base}?tid=${encodeURIComponent(tid)}` : base;
@@ -330,14 +309,10 @@ export default function QscLeaderStrategicReportPage({
     if (!reportRef.current) return;
 
     const element = reportRef.current;
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-    });
-
+    const canvas = await html2canvas(element, { scale: 2, useCORS: true });
     const imgData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF("p", "mm", "a4");
 
+    const pdf = new jsPDF("p", "mm", "a4");
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
 
@@ -375,9 +350,6 @@ export default function QscLeaderStrategicReportPage({
           <h1 className="mt-3 text-3xl font-bold">
             Preparing your QSC Leader report…
           </h1>
-          {apiVersion && (
-            <p className="text-xs text-slate-500">API: {apiVersion}</p>
-          )}
         </main>
       </div>
     );
@@ -391,26 +363,13 @@ export default function QscLeaderStrategicReportPage({
             Strategic Leadership Report
           </p>
           <h1 className="text-3xl font-bold">Couldn&apos;t load report</h1>
-          <p className="text-sm text-slate-700">
-            We weren&apos;t able to generate your QSC Leader — Strategic
-            Leadership Report.
-          </p>
           <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-          {apiVersion && (
-            <p className="text-xs text-slate-500">API: {apiVersion}</p>
-          )}
         </main>
       </div>
     );
   }
-
-  const createdAt = new Date(result.created_at);
-  const personaName =
-    persona?.profile_label ||
-    profile?.profile_label ||
-    "Your Quantum Leadership Profile";
 
   const takerDisplayName = getFullName(taker);
 
@@ -418,23 +377,23 @@ export default function QscLeaderStrategicReportPage({
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
-  const rawPersonalityPerc =
+  const personalityPercRaw =
     (result.personality_percentages ?? {}) as PersonalityPercMap;
-  const rawMindsetPerc = (result.mindset_percentages ?? {}) as MindsetPercMap;
+  const mindsetPercRaw = (result.mindset_percentages ?? {}) as MindsetPercMap;
 
   const personalityPerc: PersonalityPercMap = {
-    FIRE: normalisePercent(rawPersonalityPerc.FIRE ?? 0),
-    FLOW: normalisePercent(rawPersonalityPerc.FLOW ?? 0),
-    FORM: normalisePercent(rawPersonalityPerc.FORM ?? 0),
-    FIELD: normalisePercent(rawPersonalityPerc.FIELD ?? 0),
+    FIRE: normalisePercent(personalityPercRaw.FIRE ?? 0),
+    FLOW: normalisePercent(personalityPercRaw.FLOW ?? 0),
+    FORM: normalisePercent(personalityPercRaw.FORM ?? 0),
+    FIELD: normalisePercent(personalityPercRaw.FIELD ?? 0),
   };
 
   const mindsetPerc: MindsetPercMap = {
-    ORIGIN: normalisePercent(rawMindsetPerc.ORIGIN ?? 0),
-    MOMENTUM: normalisePercent(rawMindsetPerc.MOMENTUM ?? 0),
-    VECTOR: normalisePercent(rawMindsetPerc.VECTOR ?? 0),
-    ORBIT: normalisePercent(rawMindsetPerc.ORBIT ?? 0),
-    QUANTUM: normalisePercent(rawMindsetPerc.QUANTUM ?? 0),
+    ORIGIN: normalisePercent(mindsetPercRaw.ORIGIN ?? 0),
+    MOMENTUM: normalisePercent(mindsetPercRaw.MOMENTUM ?? 0),
+    VECTOR: normalisePercent(mindsetPercRaw.VECTOR ?? 0),
+    ORBIT: normalisePercent(mindsetPercRaw.ORBIT ?? 0),
+    QUANTUM: normalisePercent(mindsetPercRaw.QUANTUM ?? 0),
   };
 
   const frequencyDonutData: FrequencyDonutDatum[] = ([
@@ -448,54 +407,18 @@ export default function QscLeaderStrategicReportPage({
     value: personalityPerc[key] ?? 0,
   }));
 
-  const personalityKeys: PersonalityKey[] = ["FIRE", "FLOW", "FORM", "FIELD"];
-  const mindsetKeys: MindsetKey[] = [
-    "ORIGIN",
-    "MOMENTUM",
-    "VECTOR",
-    "ORBIT",
-    "QUANTUM",
-  ];
+  const effectivePrimaryPersonality =
+    result.primary_personality ?? ("FIRE" as PersonalityKey);
+  const effectivePrimaryMindset =
+    result.primary_mindset ?? ("ORIGIN" as MindsetKey);
 
-  const { primary: derivedPrimaryPersonality } = derivePrimarySecondary(
-    personalityPerc,
-    personalityKeys
-  );
+  const personaName =
+    persona?.profile_label ||
+    profile?.profile_label ||
+    "Your Quantum Leadership Profile";
 
-  const { primary: derivedPrimaryMindset } = derivePrimarySecondary(
-    mindsetPerc,
-    mindsetKeys
-  );
-
-  const effectivePrimaryPersonality: PersonalityKey | null =
-    derivedPrimaryPersonality ?? result.primary_personality ?? null;
-
-  const effectivePrimaryMindset: MindsetKey | null =
-    derivedPrimaryMindset ?? result.primary_mindset ?? null;
-
-  const primaryPersonalityLabel =
-    (effectivePrimaryPersonality &&
-      PERSONALITY_LABELS[effectivePrimaryPersonality]) ||
-    effectivePrimaryPersonality ||
-    "—";
-
-  const primaryMindsetLabel =
-    (effectivePrimaryMindset && MINDSET_LABELS[effectivePrimaryMindset]) ||
-    effectivePrimaryMindset ||
-    "—";
-
-  const onePageStrengths = persona?.one_page_strengths || "—";
-  const onePageRisks = persona?.one_page_risks || "—";
-  const combinedStrengths = persona?.combined_strengths || "—";
-  const combinedRisks = persona?.combined_risks || "—";
-  const combinedLever = persona?.combined_big_lever || "—";
-  const emotionalStabilises = persona?.emotional_stabilises || "—";
-  const emotionalDestabilises = persona?.emotional_destabilises || "—";
-  const supportYourself = persona?.support_yourself || "—";
-
-  const strategic1 = persona?.strategic_priority_1 || "—";
-  const strategic2 = persona?.strategic_priority_2 || "—";
-  const strategic3 = persona?.strategic_priority_3 || "—";
+  const sections = (persona?.sections ?? null) as LeaderSections | null;
+  const misses = useMemo(() => missingKeys(sections), [sections]);
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -511,21 +434,17 @@ export default function QscLeaderStrategicReportPage({
             <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
               QSC Leader — Strategic Leadership Report
             </h1>
+
             {takerDisplayName && (
               <p className="mt-1 text-sm text-slate-700">
                 For: <span className="font-semibold">{takerDisplayName}</span>
               </p>
             )}
-            <p className="mt-2 text-sm text-slate-700 max-w-2xl">
-              Your personal emotional, leadership and strategic blueprint – based
-              on your Quantum leadership profile and current mindset stage.
-            </p>
 
-            <div className="mt-3 text-xs text-slate-500 space-y-1">
-              <div>Audience: {result.audience ?? "null"}</div>
-              <div>API: {apiVersion ?? "unknown"}</div>
-              <div>created_at (raw UTC): {result.created_at}</div>
-            </div>
+            <p className="mt-2 text-sm text-slate-700 max-w-2xl">
+              This report is rendered strictly from the Word document content stored
+              in <code>portal.qsc_leader_personas.sections</code>.
+            </p>
           </div>
 
           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
@@ -541,93 +460,41 @@ export default function QscLeaderStrategicReportPage({
             >
               Download PDF
             </button>
-            <span>
-              Created at{" "}
-              {createdAt.toLocaleString(undefined, {
-                day: "2-digit",
-                month: "short",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
           </div>
         </header>
 
-        {/* QUANTUM PROFILE HERO */}
-        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
+        {misses.length > 0 && (
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-6">
+            <div className="text-sm font-semibold text-rose-800">
+              Missing section content for {persona?.profile_code ?? "this persona"}
+            </div>
+            <div className="mt-1 text-xs text-rose-800/80">
+              Fix the DB row. We do not fill defaults.
+            </div>
+            <ul className="mt-3 list-disc pl-5 text-xs text-rose-900 space-y-1">
+              {misses.map((k) => (
+                <li key={k}>
+                  <code>{k}</code>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Title / Profile */}
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
-            Quantum leadership profile
+            Your Leadership Profile
           </p>
           <h2 className="text-2xl font-semibold">{personaName}</h2>
-          <p className="text-sm text-slate-700 max-w-3xl">
-            This report gives you a clear understanding of how you lead, how you
-            make decisions, and what your organisation needs next from you. It is
-            designed to be simple, practical, and focused on helping you take
-            confident strategic action.
-          </p>
-
-          <div className="grid gap-6 md:grid-cols-2 pt-4 border-t border-slate-200">
-            <div>
-              <h3 className="text-sm font-semibold mb-1">Your Personality Layer</h3>
-              <p className="text-sm text-slate-700">
-                How you naturally think, act and make decisions. This is your
-                emotional wiring and energetic pattern — it doesn&apos;t change
-                overnight, which is why it&apos;s such a powerful anchor.
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold mb-1">Your Mindset Layer</h3>
-              <p className="text-sm text-slate-700">
-                Where your leadership and organisation are right now and what
-                stage of growth you&apos;re in. These needs shift as you grow —
-                which is why you can&apos;t keep leading with yesterday&apos;s strategy.
-              </p>
-            </div>
-          </div>
         </section>
 
-        {/* ONE-PAGE SUMMARY */}
-        <section className="rounded-3xl bg-[#f5eddc] border border-amber-200 p-6 md:p-8 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
-            One-page Quantum Leadership Summary
-          </p>
-          <h2 className="text-xl font-semibold">Your at-a-glance leadership profile</h2>
-
-          <div className="grid gap-6 md:grid-cols-3 pt-4">
-            <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
-              <h3 className="font-semibold">Quantum Leadership Profile</h3>
-              <p className="font-medium">{personaName}</p>
-              <p className="text-slate-700">
-                Personality: {primaryPersonalityLabel}.
-                <br />
-                Mindset Stage: {primaryMindsetLabel}.
-              </p>
-            </div>
-            <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
-              <h3 className="font-semibold">Strengths</h3>
-              <p className="text-slate-700 whitespace-pre-line">{onePageStrengths}</p>
-              <h4 className="mt-2 font-semibold">Risks</h4>
-              <p className="text-slate-700 whitespace-pre-line">{onePageRisks}</p>
-            </div>
-            <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
-              <h3 className="font-semibold">Top strategic priorities</h3>
-              <ul className="mt-2 list-disc pl-4 text-slate-800 space-y-1">
-                <li>{strategic1}</li>
-                <li>{strategic2}</li>
-                <li>{strategic3}</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        {/* FREQUENCY + MINDSET + MATRIX */}
+        {/* Charts + Matrix (Entrepreneur-style visuals) */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Leadership Frequency Type</h2>
             <p className="text-sm text-slate-300">
-              Your emotional & energetic style across Fire, Flow, Form and Field
-              in the way you lead and influence.
+              Your energetic style across Fire, Flow, Form and Field in how you lead.
             </p>
 
             <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
@@ -648,8 +515,7 @@ export default function QscLeaderStrategicReportPage({
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Leadership Mindset Levels</h2>
             <p className="text-sm text-slate-300">
-              Where your focus and energy are distributed across the 5 Quantum
-              stages when you&apos;re leading.
+              Where your focus and energy sit across the 5 growth stages.
             </p>
 
             <div className="space-y-2 pt-2 text-xs">
@@ -683,11 +549,6 @@ export default function QscLeaderStrategicReportPage({
           <h2 className="text-xl font-semibold">
             Where your leadership frequency meets your mindset level
           </h2>
-          <p className="text-sm text-slate-700">
-            Each cell represents a different Quantum leadership persona. Your primary
-            pattern is highlighted — this is where your wiring and current stage meet.
-          </p>
-
           <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50">
             <QscMatrix
               primaryPersonality={effectivePrimaryPersonality}
@@ -696,93 +557,90 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </section>
 
-        {/* PERSONALITY LAYER */}
-        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-indigo-700">
-            Personality layer
-          </p>
-          <h2 className="text-xl font-semibold">
-            How you show up emotionally & behaviourally
-          </h2>
+        {/* -------- WORD DOC SECTIONS (EXACT ORDER) -------- */}
 
-          <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Core pattern ({primaryPersonalityLabel})</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedStrengths}</p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">What energises you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">
-                {persona?.energisers || "—"}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">What drains you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">
-                {persona?.drains || "—"}
-              </p>
-            </div>
-          </div>
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            INTRODUCTION
+          </p>
+          {renderDocText(sections?.introduction)}
         </section>
 
-        {/* COMBINED PATTERN */}
-        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-rose-700">
-            Combined pattern
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            HOW TO USE THIS REPORT
           </p>
-          <h2 className="text-xl font-semibold">
-            {personaName} — what happens when your style meets your stage
-          </h2>
-
-          <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Strategic strengths</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedStrengths}</p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Growth risks & loops</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedRisks}</p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Your biggest lever</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedLever}</p>
-            </div>
-          </div>
+          {renderDocText(sections?.how_to_use)}
         </section>
 
-        {/* EMOTIONAL & OPERATIONAL SUPPORT */}
-        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-purple-700">
-            Emotional & operational alignment
+        <section className="rounded-3xl bg-[#f5eddc] border border-amber-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
+            1. Your Quantum Profile Summary
           </p>
-          <h2 className="text-xl font-semibold">How to support yourself inside this pattern</h2>
-
-          <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">What stabilises you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{emotionalStabilises}</p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">What destabilises you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{emotionalDestabilises}</p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Support yourself better</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{supportYourself}</p>
-            </div>
-          </div>
+          {renderDocText(sections?.quantum_profile_summary)}
         </section>
 
-        {/* STRATEGIC PRIORITIES */}
-        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-orange-700">
-            Strategic leadership priorities (next 90 days)
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            2. Your Personality Layer
           </p>
-          <ol className="list-decimal pl-5 space-y-1 text-sm text-slate-700 whitespace-pre-line">
-            <li>{strategic1}</li>
-            <li>{strategic2}</li>
-            <li>{strategic3}</li>
-          </ol>
+          {renderDocText(sections?.personality_layer)}
+        </section>
+
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            3. Your Mindset Layer
+          </p>
+          {renderDocText(sections?.mindset_layer)}
+        </section>
+
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            4. Your Combined Quantum Pattern
+          </p>
+          {renderDocText(sections?.combined_quantum_pattern)}
+        </section>
+
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            5. Your Strategic Leadership Priorities
+          </p>
+          {renderDocText(sections?.strategic_leadership_priorities)}
+        </section>
+
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            6. 30 Day Leadership Action Plan
+          </p>
+          {renderDocText(sections?.leadership_action_plan_30_day)}
+        </section>
+
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            7. Your Leadership Roadmap
+          </p>
+          {renderDocText(sections?.leadership_roadmap)}
+        </section>
+
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            8. Communication and Decision Style
+          </p>
+          {renderDocText(sections?.communication_and_decision_style)}
+        </section>
+
+        <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
+            9. Reflection Prompts
+          </p>
+          {renderDocText(sections?.reflection_prompts)}
+        </section>
+
+        <section className="rounded-3xl bg-[#f5eddc] border border-amber-200 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
+            10. One Page Quantum Summary
+          </p>
+          {renderDocText(sections?.one_page_quantum_summary)}
         </section>
 
         <footer className="pt-4 pb-6 text-xs text-slate-500">
