@@ -1,3 +1,4 @@
+// apps/web/app/api/public/qsc/[token]/result/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -89,8 +90,9 @@ export async function GET(
         .eq("id", maybeId)
         .maybeSingle();
 
-      if (error || !takerRow?.link_token)
+      if (error || !takerRow?.link_token) {
         return { resolvedToken: null as string | null, takerRow: null as any };
+      }
       return { resolvedToken: String(takerRow.link_token), takerRow };
     }
 
@@ -98,14 +100,17 @@ export async function GET(
     // Resolve resultRow
     // -----------------------------------------------------------------------
     let resultRow: any = null;
-    let resolution: any = { method: null as string | null };
+    const resolution: any = { method: null as string | null };
 
     // A) direct: qsc_results.token === tokenParam
     {
       const r = await loadResultBy("token", tokenParam);
       if (r.error) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${r.error.message}` },
+          {
+            ok: false,
+            error: `qsc_results load failed: ${r.error.message}`,
+          },
           { status: 500 }
         );
       }
@@ -120,7 +125,10 @@ export async function GET(
       const r = await loadResultBy("id", tokenParam);
       if (r.error) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${r.error.message}` },
+          {
+            ok: false,
+            error: `qsc_results load failed: ${r.error.message}`,
+          },
           { status: 500 }
         );
       }
@@ -137,7 +145,10 @@ export async function GET(
         const r = await loadResultBy("token", resolvedToken);
         if (r.error) {
           return NextResponse.json(
-            { ok: false, error: `qsc_results load failed: ${r.error.message}` },
+            {
+              ok: false,
+              error: `qsc_results load failed: ${r.error.message}`,
+            },
             { status: 500 }
           );
         }
@@ -184,7 +195,8 @@ export async function GET(
           r = await loadResultBy("token", resolvedToken);
           if (r.row) {
             resultRow = r.row;
-            resolution.method = "test_takers.id=tid -> qsc_results.token=link_token";
+            resolution.method =
+              "test_takers.id=tid -> qsc_results.token=link_token";
             resolution.resolvedToken = resolvedToken;
           }
         }
@@ -204,7 +216,11 @@ export async function GET(
 
     const testId: string = resultRow.test_id;
     const qscProfileId: string | null = resultRow.qsc_profile_id ?? null;
-    const combinedProfileCode: string | null = resultRow.combined_profile_code ?? null;
+    const combinedProfileCode: string | null =
+      resultRow.combined_profile_code ?? null;
+
+    const audience: "entrepreneur" | "leader" | null =
+      resultRow.audience ?? null;
 
     // -----------------------------------------------------------------------
     // Load test taker (prefer link_token match; else try tokenParam/tid as id)
@@ -240,7 +256,7 @@ export async function GET(
     }
 
     // -----------------------------------------------------------------------
-    // Load QSC profile (extended/internal)
+    // Load QSC profile (snapshot/internal)
     // -----------------------------------------------------------------------
     let profile: any = null;
 
@@ -271,63 +287,50 @@ export async function GET(
     }
 
     // -----------------------------------------------------------------------
-    // Load persona (strategic report content)
-    // ✅ IMPORTANT: leader content comes from qsc_leader_personas
+    // Load persona (Strategic report content)
+    // - Entrepreneur uses portal.qsc_personas
+    // - Leader uses portal.qsc_leader_personas (includes persona.sections JSON)
     // -----------------------------------------------------------------------
     let persona: any = null;
+    const personaResolution: any = {
+      table: null as string | null,
+      method: null as string | null,
+    };
+
+    const personaTable =
+      audience === "leader" ? "qsc_leader_personas" : "qsc_personas";
+
+    personaResolution.table = personaTable;
 
     if (combinedProfileCode) {
-      const personaTable =
-        resultRow.audience === "leader" ? "qsc_leader_personas" : "qsc_personas";
+      // 1) Prefer test-specific persona
+      {
+        const { data: personaRow, error: personaErr } = await sb
+          .from(personaTable as any)
+          .select("*")
+          .eq("test_id", testId)
+          .eq("profile_code", combinedProfileCode)
+          .maybeSingle();
 
-      const baseSelect = `
-        id,
-        test_id,
-        personality_code,
-        mindset_level,
-        profile_code,
-        profile_label,
-        show_up_summary,
-        energisers,
-        drains,
-        communication_long,
-        admired_for,
-        stuck_points,
-        one_page_strengths,
-        one_page_risks,
-        combined_strengths,
-        combined_risks,
-        combined_big_lever,
-        emotional_stabilises,
-        emotional_destabilises,
-        emotional_patterns_to_watch,
-        decision_style_long,
-        support_yourself,
-        strategic_priority_1,
-        strategic_priority_2,
-        strategic_priority_3
-      `;
+        if (!personaErr && personaRow) {
+          persona = personaRow;
+          personaResolution.method = "test_id+profile_code";
+        }
+      }
 
-      // Prefer test-specific row
-      const { data: personaRow } = await sb
-        .from(personaTable)
-        .select(baseSelect)
-        .eq("test_id", testId)
-        .eq("profile_code", combinedProfileCode)
-        .maybeSingle();
-
-      if (personaRow) {
-        persona = personaRow;
-      } else if (personaTable !== "qsc_leader_personas") {
-        // For entrepreneur only: allow global fallback
-        const { data: globalPersona } = await sb
-          .from(personaTable)
-          .select(baseSelect)
+      // 2) Fallback to global persona (profile_code only)
+      if (!persona) {
+        const { data: globalPersona, error: globalErr } = await sb
+          .from(personaTable as any)
+          .select("*")
           .eq("profile_code", combinedProfileCode)
           .limit(1)
           .maybeSingle();
 
-        if (globalPersona) persona = globalPersona;
+        if (!globalErr && globalPersona) {
+          persona = globalPersona;
+          personaResolution.method = "profile_code_global";
+        }
       }
     }
 
@@ -339,12 +342,16 @@ export async function GET(
         persona,
         taker,
         __resolution: resolution,
+        __persona_resolution: personaResolution,
       },
       { status: 200 }
     );
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err?.message || "Unexpected error in QSC result endpoint" },
+      {
+        ok: false,
+        error: err?.message || "Unexpected error in QSC result endpoint",
+      },
       { status: 500 }
     );
   }

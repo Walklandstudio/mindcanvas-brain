@@ -1,3 +1,4 @@
+// apps/web/app/api/public/test/[token]/submit/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { calculateQscScores } from "@/lib/qsc-scoring";
@@ -27,7 +28,9 @@ function profileCodeToFreq(code: string): AB | null {
     return (n <= 2 ? "A" : n <= 4 ? "B" : n <= 6 ? "C" : "D") as AB;
   }
   const ch = s[0];
-  return ch === "A" || ch === "B" || ch === "C" || ch === "D" ? (ch as AB) : null;
+  return ch === "A" || ch === "B" || ch === "C" || ch === "D"
+    ? (ch as AB)
+    : null;
 }
 
 function toZeroBasedSelected(row: any): number | null {
@@ -45,19 +48,68 @@ function toZeroBasedSelected(row: any): number | null {
 const asNumber = (x: any, d = 0) => (Number.isFinite(Number(x)) ? Number(x) : d);
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+async function triggerTestOwnerNotification(opts: {
+  origin: string;
+  orgSlug: string;
+  testId: string;
+  takerId: string;
+}) {
+  try {
+    const url = `${opts.origin}/api/portal/${encodeURIComponent(
+      opts.orgSlug
+    )}/communications/send`;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // ✅ This is the internal notification template
+      body: JSON.stringify({
+        type: "test_owner_notification",
+        testId: opts.testId,
+        takerId: opts.takerId,
+      }),
+    });
+
+    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      console.error(
+        "[submit] test_owner_notification failed",
+        res.status,
+        text.slice(0, 500)
+      );
+      return { ok: false, status: res.status, body: text };
+    }
+
+    return { ok: true, status: res.status, body: text };
+  } catch (e: any) {
+    console.error("[submit] test_owner_notification unexpected error", e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+export async function POST(
+  req: Request,
+  { params }: { params: { token: string } }
+) {
   try {
     const token = params.token;
     if (!token) {
-      return NextResponse.json({ ok: false, error: "Missing token" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing token" },
+        { status: 400 }
+      );
     }
 
     const body = (await req.json().catch(() => ({}))) as any;
     const takerId: string | undefined = body.taker_id || body.takerId || body.tid;
 
     if (!takerId) {
-      return NextResponse.json({ ok: false, error: "Missing taker_id" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing taker_id" },
+        { status: 400 }
+      );
     }
 
     const answers: any[] = Array.isArray(body.answers) ? body.answers : [];
@@ -66,13 +118,18 @@ export async function POST(req: Request, { params }: { params: { token: string }
     // Resolve taker → test
     const { data: taker, error: takerErr } = await sb
       .from("test_takers")
-      .select("id, test_id, link_token, first_name, last_name, email, company, role_title")
+      .select(
+        "id, org_id, test_id, link_token, first_name, last_name, email, company, role_title"
+      )
       .eq("id", takerId)
       .eq("link_token", token)
       .maybeSingle();
 
     if (takerErr || !taker) {
-      return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Taker not found for this token" },
+        { status: 404 }
+      );
     }
 
     // Load test row so we can detect QSC
@@ -83,7 +140,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       .maybeSingle();
 
     if (testErr || !test) {
-      return NextResponse.json({ ok: false, error: "Test not found for taker" }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "Test not found for taker" },
+        { status: 500 }
+      );
     }
 
     const slug: string = (test.slug as string) || "";
@@ -106,12 +166,11 @@ export async function POST(req: Request, { params }: { params: { token: string }
       resultTypeLower === "qsc" ||
       ["entrepreneur", "leader", "leaders"].includes(qscVariantLower); // ✅ "leader" not "leaders"
 
-     const isQscEntrepreneur =
-     isQscTest && (qscVariantLower === "entrepreneur" || slugLower.includes("core"));
+    const isQscEntrepreneur =
+      isQscTest && (qscVariantLower === "entrepreneur" || slugLower.includes("core"));
 
-     const qscAudience: "entrepreneur" | "leader" =
-     isQscEntrepreneur ? "entrepreneur" : "leader";
-
+    const qscAudience: "entrepreneur" | "leader" =
+      isQscEntrepreneur ? "entrepreneur" : "leader";
 
     // Load questions with profile_map (drives scoring)
     const { data: questions, error: qErr } = await sb
@@ -122,7 +181,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       .order("created_at", { ascending: true });
 
     if (qErr) {
-      return NextResponse.json({ ok: false, error: `Questions load failed: ${qErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Questions load failed: ${qErr.message}` },
+        { status: 500 }
+      );
     }
 
     const byId: Record<string, QuestionRow> = {};
@@ -135,7 +197,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       .eq("test_id", taker.test_id);
 
     if (labErr) {
-      return NextResponse.json({ ok: false, error: `Labels load failed: ${labErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Labels load failed: ${labErr.message}` },
+        { status: 500 }
+      );
     }
 
     const nameToCode = new Map<string, string>();
@@ -207,7 +272,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
     });
 
     if (subErr) {
-      return NextResponse.json({ ok: false, error: `Submission insert failed: ${subErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Submission insert failed: ${subErr.message}` },
+        { status: 500 }
+      );
     }
 
     const { error: upErr } = await sb
@@ -215,7 +283,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       .upsert({ taker_id: taker.id, totals }, { onConflict: "taker_id" });
 
     if (upErr) {
-      return NextResponse.json({ ok: false, error: `Results upsert failed: ${upErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Results upsert failed: ${upErr.message}` },
+        { status: 500 }
+      );
     }
 
     // ---------------- QSC SCORING (only for Quantum Source Code) ----------------
@@ -243,8 +314,19 @@ export async function POST(req: Request, { params }: { params: { token: string }
         if (scoring.combinedProfileCode) {
           const [personalityKey, mindsetKey] = scoring.combinedProfileCode.split("_");
 
-          const personalityMap: Record<string, string> = { FIRE: "A", FLOW: "B", FORM: "C", FIELD: "D" };
-          const mindsetMap: Record<string, number> = { ORIGIN: 1, MOMENTUM: 2, VECTOR: 3, ORBIT: 4, QUANTUM: 5 };
+          const personalityMap: Record<string, string> = {
+            FIRE: "A",
+            FLOW: "B",
+            FORM: "C",
+            FIELD: "D",
+          };
+          const mindsetMap: Record<string, number> = {
+            ORIGIN: 1,
+            MOMENTUM: 2,
+            VECTOR: 3,
+            ORBIT: 4,
+            QUANTUM: 5,
+          };
 
           const personality_code = personalityMap[personalityKey];
           const mindset_level = mindsetMap[mindsetKey];
@@ -266,10 +348,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
           .from("qsc_results")
           .upsert(
             {
-              taker_id: taker.id,            // ✅ NEW
+              taker_id: taker.id,
               test_id: taker.test_id,
-              token,                         // shared link token (kept for routing)
-              audience: qscAudience,          // ✅ REQUIRED
+              token,
+              audience: qscAudience,
               personality_totals: scoring.personalityTotals,
               personality_percentages: scoring.personalityPercentages,
               mindset_totals: scoring.mindsetTotals,
@@ -281,7 +363,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
               combined_profile_code: scoring.combinedProfileCode,
               qsc_profile_id: qscProfileId,
             },
-            { onConflict: "taker_id" } // ✅ matches the new unique index
+            { onConflict: "taker_id" }
           );
 
         if (qscUpsertError) {
@@ -293,7 +375,16 @@ export async function POST(req: Request, { params }: { params: { token: string }
     }
     // ---------------- END QSC SCORING ----------------
 
-    await sb.from("test_takers").update({ status: "completed" }).eq("id", taker.id).eq("link_token", token);
+    // Mark completed
+    const { error: tkUpErr } = await sb
+      .from("test_takers")
+      .update({ status: "completed" })
+      .eq("id", taker.id)
+      .eq("link_token", token);
+
+    if (tkUpErr) {
+      console.error("[submit] failed to update taker status", tkUpErr);
+    }
 
     // Redirect URL for QSC Entrepreneur – Strategic Growth Report
     let redirectUrl: string | null = null;
@@ -301,10 +392,44 @@ export async function POST(req: Request, { params }: { params: { token: string }
       redirectUrl = `/qsc/${encodeURIComponent(taker.link_token)}/report?tid=${encodeURIComponent(taker.id)}`;
     }
 
-    return NextResponse.json({ ok: true, totals, redirect: redirectUrl });
+    // ✅ AUTO TRIGGER: internal notification when test completed
+    // We resolve orgSlug from taker.org_id → orgs.slug, then call communications/send
+    let ownerNotification: any = null;
+    try {
+      const { data: orgRow, error: orgErr } = await sb
+        .from("orgs")
+        .select("slug")
+        .eq("id", taker.org_id)
+        .maybeSingle();
+
+      if (orgErr || !orgRow?.slug) {
+        console.warn("[submit] could not resolve org slug for notification", {
+          org_id: taker.org_id,
+          orgErr,
+        });
+      } else {
+        const origin = new URL(req.url).origin;
+        ownerNotification = await triggerTestOwnerNotification({
+          origin,
+          orgSlug: orgRow.slug,
+          testId: taker.test_id,
+          takerId: taker.id,
+        });
+      }
+    } catch (e) {
+      console.error("[submit] owner notification wrapper error", e);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      totals,
+      redirect: redirectUrl,
+      owner_notification: ownerNotification, // useful during testing; can remove later
+    });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unexpected error" },
+      { status: 500 }
+    );
   }
 }
-
-
