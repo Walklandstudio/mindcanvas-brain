@@ -98,13 +98,13 @@ async function getTakerById(takerId: string) {
 }
 
 /**
- * Fetch base test info by id (for test name + type).
+ * Fetch base test info by id (for test name + type/slug).
  */
 async function getTestById(testId: string) {
   const supa = supaAdmin();
   const { data, error } = await supa
     .from("tests")
-    .select("id, name, test_type")
+    .select("id, name, slug, test_type")
     .eq("id", testId)
     .maybeSingle();
 
@@ -113,10 +113,20 @@ async function getTestById(testId: string) {
       testId,
       error,
     });
-    return { id: testId, name: "your assessment" as string | null, test_type: null as string | null };
+    return {
+      id: testId,
+      name: "your assessment" as string | null,
+      slug: null as string | null,
+      test_type: null as string | null,
+    };
   }
 
-  return data as { id: string; name: string | null; test_type: string | null };
+  return data as {
+    id: string;
+    name: string | null;
+    slug: string | null;
+    test_type: string | null;
+  };
 }
 
 function getBaseUrl() {
@@ -133,12 +143,38 @@ function getBaseUrl() {
 }
 
 /**
+ * Determine if this is a QSC test, and if so, which variant.
+ */
+function getQscVariant(opts: { slug?: string | null; testType?: string | null }) {
+  const t = (opts.testType || "").toLowerCase();
+  const s = (opts.slug || "").toLowerCase();
+
+  const hasQsc = t.includes("qsc") || s.includes("qsc");
+  if (!hasQsc) return { isQsc: false as const, variant: null as null | "leader" | "entrepreneur" };
+
+  let variant: "leader" | "entrepreneur" | null = null;
+
+  if (t.includes("leader") || s.includes("leader")) {
+    variant = "leader";
+  } else if (
+    t.includes("entrepreneur") ||
+    s.includes("entrepreneur") ||
+    s.includes("entre")
+  ) {
+    variant = "entrepreneur";
+  }
+
+  return { isQsc: true as const, variant };
+}
+
+/**
  * Build all important links used in templates.
  *
  * Rules:
  * - If last_result_url exists, always use that as the report link.
- * - Else, if NOT a QSC test, fall back to /t/[token]/report.
- * - Else (QSC with no last_result_url), leave report link empty (we can't guess).
+ * - Else:
+ *   - If QSC: /qsc/[token]/(leader|entrepreneur)?tid=[takerId]
+ *   - Else:   /t/[token]/report?tid=[takerId]
  */
 function buildLinks(opts: {
   orgSlug: string;
@@ -146,6 +182,7 @@ function buildLinks(opts: {
   linkToken: string;
   lastResultUrl?: string | null;
   takerId: string;
+  testSlug?: string | null;
   testType?: string | null;
 }) {
   const base = getBaseUrl();
@@ -169,22 +206,33 @@ function buildLinks(opts: {
     } else {
       reportLink = base ? `${base}/${v}` : v;
     }
-  } else {
-    const isQsc =
-      (opts.testType || "").toLowerCase().startsWith("qsc_") ||
-      (opts.testType || "").toLowerCase().includes("qsc");
+  } else if (base) {
+    const { isQsc, variant } = getQscVariant({
+      slug: opts.testSlug,
+      testType: opts.testType,
+    });
 
-    if (!isQsc && base) {
-      // Non-QSC legacy tests: use generic token-based report route
-      reportLink = `${base}/t/${encodeURIComponent(opts.linkToken)}/report`;
+    if (isQsc) {
+      if (variant) {
+        // Known QSC variant
+        reportLink = `${base}/qsc/${encodeURIComponent(
+          opts.linkToken
+        )}/${variant}?tid=${encodeURIComponent(opts.takerId)}`;
+      } else {
+        // QSC but unknown variant – fall back to generic qsc route with tid
+        reportLink = `${base}/qsc/${encodeURIComponent(
+          opts.linkToken
+        )}?tid=${encodeURIComponent(opts.takerId)}`;
+      }
     } else {
-      // QSC without a stored last_result_url — don't guess a URL
-      reportLink = "";
+      // Non-QSC legacy tests: use token-based report route WITH tid
+      reportLink = `${base}/t/${encodeURIComponent(
+        opts.linkToken
+      )}/report?tid=${encodeURIComponent(opts.takerId)}`;
     }
   }
 
   // 3) “Next steps” link – for now, leave blank.
-  // You can hard-code this per org/test in the email template editor.
   const nextStepsLink = "";
 
   // 4) Internal links (for test owner notification)
@@ -236,6 +284,7 @@ export async function POST(
       linkToken: takerRow.link_token,
       lastResultUrl: takerRow.last_result_url,
       takerId: takerRow.id,
+      testSlug: testRow.slug,
       testType: testRow.test_type,
     });
 
@@ -299,3 +348,4 @@ export async function POST(
     return NextResponse.json({ error: msg }, { status });
   }
 }
+
