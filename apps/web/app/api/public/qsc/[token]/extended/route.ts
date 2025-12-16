@@ -47,6 +47,30 @@ type TestTakerRow = {
   link_token?: string | null;
 };
 
+type EntrepreneurExtendedRow = {
+  persona_label: string | null;
+  personality_label: string | null;
+  mindset_label: string | null;
+  profile_code: string | null;
+
+  personality_layer: string | null;
+  mindset_layer: string | null;
+  combined_quantum_pattern: string | null;
+
+  how_to_communicate: string | null;
+  how_they_make_decisions: string | null;
+  core_business_problems: string | null;
+  what_builds_trust: string | null;
+  what_offer_ready_for: string | null;
+  what_blocks_sale: string | null;
+
+  pre_call_questions: string | null;
+  micro_scripts: string | null;
+  green_red_flags: string | null;
+  real_life_example: string | null;
+  final_summary: string | null;
+};
+
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key =
@@ -66,6 +90,10 @@ function personalityLabel(code: string | null | undefined) {
   if (c === "FLOW") return "Flow";
   if (c === "FORM") return "Form";
   if (c === "FIELD") return "Field";
+  if (c === "A") return "A";
+  if (c === "B") return "B";
+  if (c === "C") return "C";
+  if (c === "D") return "D";
   return c || null;
 }
 
@@ -84,6 +112,34 @@ function safeStr(v: any): string | null {
   const s = typeof v === "string" ? v : "";
   const t = s.trim();
   return t.length ? t : null;
+}
+
+/**
+ * Convert various personality_code formats into the A–D codes used by
+ * portal.qsc_entrepreneur_extended_reports.
+ *
+ * Expected mapping from your UI:
+ *  FIRE -> A
+ *  FLOW -> B
+ *  FORM -> C
+ *  FIELD -> D
+ */
+function toEntrepreneurPersonalityCode(
+  raw: string | null | undefined
+): "A" | "B" | "C" | "D" | null {
+  const c = String(raw || "").trim().toUpperCase();
+  if (!c) return null;
+
+  // Already A–D
+  if (c === "A" || c === "B" || c === "C" || c === "D") return c;
+
+  // Map FIRE/FLOW/FORM/FIELD to A–D
+  if (c === "FIRE") return "A";
+  if (c === "FLOW") return "B";
+  if (c === "FORM") return "C";
+  if (c === "FIELD") return "D";
+
+  return null;
 }
 
 export async function GET(
@@ -206,7 +262,9 @@ export async function GET(
     if (!taker) {
       const { data } = await sb
         .from("test_takers")
-        .select("id, first_name, last_name, email, company, role_title, link_token")
+        .select(
+          "id, first_name, last_name, email, company, role_title, link_token"
+        )
         .eq("link_token", result.token)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -251,7 +309,7 @@ export async function GET(
       if (data) profile = data as unknown as QscProfileRow;
     }
 
-    // Optional fallback: profile_code match (only if you really have it seeded)
+    // Optional fallback: profile_code match
     if (!profile && result.combined_profile_code) {
       const { data } = await sb
         .from("qsc_profiles")
@@ -279,9 +337,11 @@ export async function GET(
     }
 
     // ---------------------------
-    // 4) Build Extended payload
-    //    (NO mystery tables)
+    // 4) Extended content resolution
+    //    Entrepreneur uses dedicated table if available.
+    //    Leader continues using snapshot fields (same as now).
     // ---------------------------
+
     const personaLabel =
       profile?.profile_label ||
       result.combined_profile_code ||
@@ -292,32 +352,117 @@ export async function GET(
 
     const insights = profile?.full_internal_insights ?? null;
 
+    let entrepreneurRow: EntrepreneurExtendedRow | null = null;
+
+    const entrepreneurPersonalityCode = toEntrepreneurPersonalityCode(
+      profile?.personality_code ?? null
+    );
+    const entrepreneurMindsetLevel =
+      typeof profile?.mindset_level === "number" ? profile.mindset_level : null;
+
+    if (
+      result.audience === "entrepreneur" &&
+      entrepreneurPersonalityCode &&
+      entrepreneurMindsetLevel
+    ) {
+      const { data } = await sb
+        .from("qsc_entrepreneur_extended_reports")
+        .select(
+          `
+          persona_label,
+          personality_label,
+          mindset_label,
+          profile_code,
+          personality_layer,
+          mindset_layer,
+          combined_quantum_pattern,
+          how_to_communicate,
+          how_they_make_decisions,
+          core_business_problems,
+          what_builds_trust,
+          what_offer_ready_for,
+          what_blocks_sale,
+          pre_call_questions,
+          micro_scripts,
+          green_red_flags,
+          real_life_example,
+          final_summary
+        `
+        )
+        .eq("personality_code", entrepreneurPersonalityCode)
+        .eq("mindset_level", entrepreneurMindsetLevel)
+        .maybeSingle();
+
+      if (data) entrepreneurRow = data as unknown as EntrepreneurExtendedRow;
+    }
+
+    // Build extended payload:
+    // - Entrepreneur: prefer entrepreneurRow (table), fall back to snapshot
+    // - Leader: use snapshot (as before)
     const extended = {
-      persona_label: personaLabel,
-      personality_label: pLabel,
-      mindset_label: mLabel,
-      profile_code: profile?.profile_code ?? result.combined_profile_code ?? null,
+      persona_label:
+        entrepreneurRow?.persona_label ?? personaLabel ?? "Quantum Profile",
 
-      // These 3 are the ones you explicitly said were missing:
-      personality_layer: safeStr(insights?.personality_layer) ?? null,
-      mindset_layer: safeStr(insights?.mindset_layer) ?? null,
+      // Prefer table labels if present (they’re already correct for A–D + level)
+      personality_label:
+        entrepreneurRow?.personality_label ??
+        pLabel ??
+        safeStr(result.combined_profile_code) ??
+        null,
+      mindset_label: entrepreneurRow?.mindset_label ?? mLabel ?? null,
+      profile_code:
+        entrepreneurRow?.profile_code ??
+        profile?.profile_code ??
+        result.combined_profile_code ??
+        null,
+
+      // Diagnostic layers (prefer table)
+      personality_layer:
+        entrepreneurRow?.personality_layer ??
+        safeStr(insights?.personality_layer) ??
+        null,
+      mindset_layer:
+        entrepreneurRow?.mindset_layer ?? safeStr(insights?.mindset_layer) ?? null,
       combined_quantum_pattern:
-        safeStr(insights?.combined_quantum_pattern) ?? null,
+        entrepreneurRow?.combined_quantum_pattern ??
+        safeStr(insights?.combined_quantum_pattern) ??
+        null,
 
-      // These map directly from qsc_profiles snapshot fields:
-      how_to_communicate: profile?.how_to_communicate ?? null,
-      how_they_make_decisions: profile?.decision_style ?? null,
-      core_business_problems: profile?.business_challenges ?? null,
-      what_builds_trust: profile?.trust_signals ?? null,
-      what_offer_ready_for: profile?.offer_fit ?? null,
-      what_blocks_sale: profile?.sale_blockers ?? null,
+      // Sales playbook fields (prefer table, else snapshot)
+      how_to_communicate:
+        entrepreneurRow?.how_to_communicate ?? profile?.how_to_communicate ?? null,
+      how_they_make_decisions:
+        entrepreneurRow?.how_they_make_decisions ??
+        profile?.decision_style ??
+        null,
+      core_business_problems:
+        entrepreneurRow?.core_business_problems ??
+        profile?.business_challenges ??
+        null,
+      what_builds_trust:
+        entrepreneurRow?.what_builds_trust ?? profile?.trust_signals ?? null,
+      what_offer_ready_for:
+        entrepreneurRow?.what_offer_ready_for ?? profile?.offer_fit ?? null,
+      what_blocks_sale:
+        entrepreneurRow?.what_blocks_sale ?? profile?.sale_blockers ?? null,
 
-      // If you don’t have these yet, return null (page already has fallbacks)
-      pre_call_questions: safeStr(insights?.pre_call_questions) ?? null,
-      micro_scripts: safeStr(insights?.micro_scripts) ?? null,
-      green_red_flags: safeStr(insights?.green_red_flags) ?? null,
-      real_life_example: safeStr(insights?.real_life_example) ?? null,
-      final_summary: safeStr(insights?.final_summary) ?? null,
+      // Deep fields (prefer table)
+      pre_call_questions:
+        entrepreneurRow?.pre_call_questions ??
+        safeStr(insights?.pre_call_questions) ??
+        null,
+      micro_scripts:
+        entrepreneurRow?.micro_scripts ?? safeStr(insights?.micro_scripts) ?? null,
+      green_red_flags:
+        entrepreneurRow?.green_red_flags ??
+        safeStr(insights?.green_red_flags) ??
+        null,
+      real_life_example:
+        entrepreneurRow?.real_life_example ??
+        safeStr(insights?.real_life_example) ??
+        null,
+      final_summary:
+        entrepreneurRow?.final_summary ?? safeStr(insights?.final_summary) ?? null,
     };
 
     return NextResponse.json(
@@ -328,7 +473,17 @@ export async function GET(
         extended,
         taker,
         __debug: {
-          resolved_by: tid && isUuidLike(tid) ? "token+taker_id" : "token_latest",
+          resolved_by:
+            tid && isUuidLike(tid) ? "token+taker_id" : "token_latest",
+          audience: result.audience,
+          entrepreneur_lookup:
+            result.audience === "entrepreneur"
+              ? {
+                  personality_code: entrepreneurPersonalityCode,
+                  mindset_level: entrepreneurMindsetLevel,
+                  hit: Boolean(entrepreneurRow),
+                }
+              : null,
         },
       },
       { status: 200 }
