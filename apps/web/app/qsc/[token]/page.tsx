@@ -76,7 +76,7 @@ type QscEntrepreneurPersonaRow = {
   profile_label: string | null;
 
   // Entrepreneur persona has many fields; snapshot uses a small subset if present.
-  how_to_communicate?: string | null; // some implementations store these here
+  how_to_communicate?: string | null;
   decision_style?: string | null;
   business_challenges?: string | null;
   trust_signals?: string | null;
@@ -119,7 +119,6 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
 
 function normalisePercent(raw?: number | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
-  // support 0..1 ratios and 0..100 percentages
   if (raw > 0 && raw <= 1.5) return Math.min(100, Math.max(0, raw * 100));
   return Math.min(100, Math.max(0, raw));
 }
@@ -138,7 +137,9 @@ function safeText(v?: string | null) {
 }
 
 function fallbackCombinedLabel(results: QscResultsRow) {
-  const p = results.primary_personality ? PERSONALITY_LABELS[results.primary_personality] : null;
+  const p = results.primary_personality
+    ? PERSONALITY_LABELS[results.primary_personality]
+    : null;
   const m = results.primary_mindset ? MINDSET_LABELS[results.primary_mindset] : null;
   if (p && m) return `${p} ${m}`;
   return "Your Combined Profile";
@@ -153,11 +154,7 @@ function getFullName(taker?: TestTakerRow | null) {
   return email || null;
 }
 
-export default function QscSnapshotPage({
-  params,
-}: {
-  params: { token: string };
-}) {
+export default function QscSnapshotPage({ params }: { params: { token: string } }) {
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
@@ -169,8 +166,13 @@ export default function QscSnapshotPage({
   const snapshotRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let alive = true;
+
     (async () => {
       try {
+        setLoading(true);
+        setError(null);
+
         const url = tid
           ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(
               tid
@@ -181,9 +183,7 @@ export default function QscSnapshotPage({
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
-          throw new Error(
-            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
-          );
+          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
         }
 
         const json = (await res.json()) as ApiPayload;
@@ -192,14 +192,42 @@ export default function QscSnapshotPage({
           throw new Error((json as any)?.error || "Failed to load QSC snapshot");
         }
 
-        setPayload(json);
+        if (alive) setPayload(json);
       } catch (e: any) {
-        setError(String(e?.message || e || "Unknown error"));
+        if (alive) setError(String(e?.message || e || "Unknown error"));
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     })();
+
+    return () => {
+      alive = false;
+    };
   }, [token, tid]);
+
+  // ✅ HOOKS MUST BE CALLED UNCONDITIONALLY (always)
+  const data = payload?.results ?? null;
+
+  const personalityPerc = useMemo(() => {
+    const p = data?.personality_percentages ?? {};
+    return {
+      FIRE: normalisePercent(p.FIRE),
+      FLOW: normalisePercent(p.FLOW),
+      FORM: normalisePercent(p.FORM),
+      FIELD: normalisePercent(p.FIELD),
+    };
+  }, [data?.personality_percentages]);
+
+  const mindsetPerc = useMemo(() => {
+    const m = data?.mindset_percentages ?? {};
+    return {
+      ORIGIN: normalisePercent(m.ORIGIN),
+      MOMENTUM: normalisePercent(m.MOMENTUM),
+      VECTOR: normalisePercent(m.VECTOR),
+      ORBIT: normalisePercent(m.ORBIT),
+      QUANTUM: normalisePercent(m.QUANTUM),
+    };
+  }, [data?.mindset_percentages]);
 
   async function downloadPdf() {
     if (!snapshotRef.current) return;
@@ -211,33 +239,11 @@ export default function QscSnapshotPage({
   }
 
   if (loading) return <div className="p-10">Loading snapshot…</div>;
-  if (error || !payload?.results) {
+  if (error || !data) {
     return <div className="p-10 text-red-600">{error || "No data"}</div>;
   }
 
-  const data = payload.results;
-  const takerName = getFullName(payload.taker);
-
-  const personalityPerc = useMemo(() => {
-    const p = data?.personality_percentages ?? {};
-    return {
-      FIRE: normalisePercent(p.FIRE),
-      FLOW: normalisePercent(p.FLOW),
-      FORM: normalisePercent(p.FORM),
-      FIELD: normalisePercent(p.FIELD),
-    };
-  }, [data]);
-
-  const mindsetPerc = useMemo(() => {
-    const m = data?.mindset_percentages ?? {};
-    return {
-      ORIGIN: normalisePercent(m.ORIGIN),
-      MOMENTUM: normalisePercent(m.MOMENTUM),
-      VECTOR: normalisePercent(m.VECTOR),
-      ORBIT: normalisePercent(m.ORBIT),
-      QUANTUM: normalisePercent(m.QUANTUM),
-    };
-  }, [data]);
+  const takerName = getFullName(payload?.taker);
 
   const strategicHref =
     data.audience === "leader"
@@ -246,43 +252,40 @@ export default function QscSnapshotPage({
 
   // Combined profile label + code
   const personaLabelRaw =
-    (payload.persona as any)?.profile_label ||
-    payload.profile?.profile_label ||
-    null;
+    (payload?.persona as any)?.profile_label || payload?.profile?.profile_label || null;
 
   const combinedLabel =
     (personaLabelRaw && titleCase(String(personaLabelRaw))) || fallbackCombinedLabel(data);
 
   const combinedCode =
     safeText(data.combined_profile_code) ||
-    safeText((payload.persona as any)?.profile_code) ||
-    safeText(payload.profile?.profile_code) ||
+    safeText((payload?.persona as any)?.profile_code) ||
+    safeText(payload?.profile?.profile_code) ||
     null;
 
   // Sales playbook fields: prefer persona fields, fallback to profile fields.
   const howToCommunicate =
-    safeText((payload.persona as any)?.how_to_communicate) ||
-    safeText(payload.profile?.how_to_communicate);
+    safeText((payload?.persona as any)?.how_to_communicate) ||
+    safeText(payload?.profile?.how_to_communicate);
 
   const decisionStyle =
-    safeText((payload.persona as any)?.decision_style) ||
-    safeText(payload.profile?.decision_style);
+    safeText((payload?.persona as any)?.decision_style) ||
+    safeText(payload?.profile?.decision_style);
 
   const businessChallenges =
-    safeText((payload.persona as any)?.business_challenges) ||
-    safeText(payload.profile?.business_challenges);
+    safeText((payload?.persona as any)?.business_challenges) ||
+    safeText(payload?.profile?.business_challenges);
 
   const trustSignals =
-    safeText((payload.persona as any)?.trust_signals) ||
-    safeText(payload.profile?.trust_signals);
+    safeText((payload?.persona as any)?.trust_signals) ||
+    safeText(payload?.profile?.trust_signals);
 
   const offerFit =
-    safeText((payload.persona as any)?.offer_fit) ||
-    safeText(payload.profile?.offer_fit);
+    safeText((payload?.persona as any)?.offer_fit) || safeText(payload?.profile?.offer_fit);
 
   const saleBlockers =
-    safeText((payload.persona as any)?.sale_blockers) ||
-    safeText(payload.profile?.sale_blockers);
+    safeText((payload?.persona as any)?.sale_blockers) ||
+    safeText(payload?.profile?.sale_blockers);
 
   const hasPlaybook =
     !!howToCommunicate ||
@@ -294,10 +297,7 @@ export default function QscSnapshotPage({
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <main
-        ref={snapshotRef}
-        className="mx-auto max-w-5xl px-6 py-10 space-y-10"
-      >
+      <main ref={snapshotRef} className="mx-auto max-w-5xl px-6 py-10 space-y-10">
         <header className="flex justify-between items-start gap-4">
           <div>
             <h1 className="text-3xl font-bold">Your Buyer Persona Snapshot</h1>
@@ -319,13 +319,11 @@ export default function QscSnapshotPage({
           </div>
         </header>
 
-        {/* Percentage tiles (keep as-is) */}
+        {/* Percentage tiles */}
         <section className="grid grid-cols-2 gap-6">
           {Object.entries(personalityPerc).map(([k, v]) => (
             <div key={k} className="rounded-xl bg-white p-4 border">
-              <div className="text-sm font-semibold">
-                {PERSONALITY_LABELS[k as PersonalityKey]}
-              </div>
+              <div className="text-sm font-semibold">{PERSONALITY_LABELS[k as PersonalityKey]}</div>
               <div className="text-2xl font-bold">{Math.round(v)}%</div>
             </div>
           ))}
@@ -340,7 +338,7 @@ export default function QscSnapshotPage({
           ))}
         </section>
 
-        {/* NEW: Combined profile + Sales playbook (matches Screenshot 1 intent) */}
+        {/* Combined profile + Sales playbook */}
         <section className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-8">
           <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
             <div className="space-y-2">
@@ -352,9 +350,7 @@ export default function QscSnapshotPage({
                 <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
                   Combined profile
                 </p>
-                <h2 className="mt-2 text-2xl md:text-3xl font-semibold">
-                  {combinedLabel}
-                </h2>
+                <h2 className="mt-2 text-2xl md:text-3xl font-semibold">{combinedLabel}</h2>
                 {combinedCode && (
                   <p className="mt-1 text-xs text-slate-300">
                     Code: <span className="font-mono">{combinedCode}</span>
@@ -375,7 +371,9 @@ export default function QscSnapshotPage({
                       Secondary personality
                     </div>
                     <div className="text-slate-100 font-semibold">
-                      {data.secondary_personality ? PERSONALITY_LABELS[data.secondary_personality] : "—"}
+                      {data.secondary_personality
+                        ? PERSONALITY_LABELS[data.secondary_personality]
+                        : "—"}
                     </div>
                   </div>
                   <div>
@@ -407,10 +405,10 @@ export default function QscSnapshotPage({
                 <div className="mt-3 rounded-2xl border border-rose-900/40 bg-rose-950/20 p-4 text-sm text-rose-200">
                   <div className="font-semibold">Missing playbook content</div>
                   <div className="mt-1 text-xs text-rose-200/80">
-                    The snapshot page expects fields like{" "}
-                    <code>how_to_communicate</code>, <code>decision_style</code>,{" "}
-                    <code>trust_signals</code> etc. These are currently empty in
-                    your DB (persona/profile). Populate them and this section will render.
+                    Populate fields like <code>how_to_communicate</code>,{" "}
+                    <code>decision_style</code>, <code>trust_signals</code>,{" "}
+                    <code>offer_fit</code>, <code>sale_blockers</code> on{" "}
+                    <code>portal.qsc_profiles</code> (or persona rows) and this will render.
                   </div>
                 </div>
               ) : (
@@ -481,10 +479,7 @@ export default function QscSnapshotPage({
         {/* Matrix */}
         <section className="rounded-xl bg-white border p-6">
           <h2 className="font-semibold mb-3">Persona Matrix</h2>
-          <QscMatrix
-            primaryPersonality={data.primary_personality}
-            primaryMindset={data.primary_mindset}
-          />
+          <QscMatrix primaryPersonality={data.primary_personality} primaryMindset={data.primary_mindset} />
         </section>
 
         <footer className="flex justify-end">
