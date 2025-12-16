@@ -155,7 +155,7 @@ function getFullName(taker?: TestTakerRow | null) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Measurement cards (copied from Strategic Growth Report style)       */
+/* Measurement cards (donut + bars)                                    */
 /* ------------------------------------------------------------------ */
 
 type FrequencyDonutDatum = {
@@ -229,7 +229,8 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         className="text-[9px] md:text-[10px]"
         fill="#e5e7eb"
       >
-        BUYER
+        {/** keep generic so it works for both */}
+        QSC
       </text>
       <text
         x={center}
@@ -312,6 +313,11 @@ export default function QscSnapshotPage({
   const data = payload.results;
   const takerName = getFullName(payload.taker);
 
+  const isLeader = data.audience === "leader";
+
+  const pageTitle = isLeader ? "Your Leadership Snapshot" : "Your Buyer Persona Snapshot";
+  const pageSubtitle = isLeader ? "Quantum Source Code Overview" : "Quantum Source Code Overview";
+
   const personalityPerc = useMemo(() => {
     const p = data?.personality_percentages ?? {};
     return {
@@ -334,7 +340,7 @@ export default function QscSnapshotPage({
   }, [data]);
 
   const strategicHref =
-    data.audience === "leader"
+    isLeader
       ? `/qsc/${encodeURIComponent(token)}/leader${
           tid ? `?tid=${encodeURIComponent(tid)}` : ""
         }`
@@ -410,8 +416,8 @@ export default function QscSnapshotPage({
       >
         <header className="flex justify-between items-start gap-4">
           <div>
-            <h1 className="text-3xl font-bold">Your Buyer Persona Snapshot</h1>
-            <p className="text-sm text-slate-600">Quantum Source Code Overview</p>
+            <h1 className="text-3xl font-bold">{pageTitle}</h1>
+            <p className="text-sm text-slate-600">{pageSubtitle}</p>
             {takerName && (
               <p className="text-xs text-slate-500 mt-1">
                 For: <span className="font-semibold">{takerName}</span>
@@ -586,12 +592,16 @@ export default function QscSnapshotPage({
           </div>
         </section>
 
-        {/* ✅ ADD BACK: 2 MEASUREMENT GRAPH CARDS (from Strategic Report) */}
+        {/* 2 MEASUREMENT CARDS */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
-            <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
+            <h2 className="text-lg font-semibold">
+              {isLeader ? "Leadership Frequency Type" : "Buyer Frequency Type"}
+            </h2>
             <p className="text-sm text-slate-300">
-              Your emotional & energetic style across Fire, Flow, Form and Field.
+              {isLeader
+                ? "Your energetic style across Fire, Flow, Form and Field in how you lead."
+                : "Your emotional & energetic style across Fire, Flow, Form and Field in how you buy and build."}
             </p>
 
             <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
@@ -613,9 +623,13 @@ export default function QscSnapshotPage({
           </div>
 
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
-            <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
+            <h2 className="text-lg font-semibold">
+              {isLeader ? "Leadership Mindset Levels" : "Buyer Mindset Levels"}
+            </h2>
             <p className="text-sm text-slate-300">
-              Where your focus and energy sit across the 5 mindset stages.
+              {isLeader
+                ? "Where your focus and energy sit across the 5 growth stages."
+                : "Where your focus and energy are distributed across the 5 Quantum growth stages."}
             </p>
 
             <div className="space-y-2 pt-2 text-xs">
