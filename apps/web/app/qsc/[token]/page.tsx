@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
@@ -64,7 +64,7 @@ type QscLeaderPersonaRow = {
   profile_label: string | null;
   personality_code: string | null;
   mindset_level: number | null;
-  sections?: any | null; // used on leader report, not needed here
+  sections?: any | null;
 };
 
 type QscEntrepreneurPersonaRow = {
@@ -118,7 +118,6 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
 
 function normalisePercent(raw?: number | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
-  // support 0..1 ratios and 0..100 percentages
   if (raw > 0 && raw <= 1.5) return Math.min(100, Math.max(0, raw * 100));
   return Math.min(100, Math.max(0, raw));
 }
@@ -154,14 +153,14 @@ function getFullName(taker?: TestTakerRow | null) {
   return email || null;
 }
 
-/* ------------------------------------------------------------------ */
-/* Measurement cards (donut + bars)                                    */
-/* ------------------------------------------------------------------ */
+/* -------------------- */
+/* Graph components     */
+/* -------------------- */
 
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number; // 0–100
+  value: number;
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
@@ -183,11 +182,7 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
   let offset = 0;
 
   return (
-    <svg
-      viewBox="0 0 160 160"
-      className="h-40 w-40 md:h-48 md:w-48"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 160 160" className="h-40 w-40 md:h-48 md:w-48" aria-hidden="true">
       <circle
         cx={center}
         cy={center}
@@ -222,35 +217,24 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
 
       <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
 
-      <text
-        x={center}
-        y={center - 4}
-        textAnchor="middle"
-        className="text-[9px] md:text-[10px]"
-        fill="#e5e7eb"
-      >
-        {/** keep generic so it works for both */}
+      <text x={center} y={center - 4} textAnchor="middle" className="text-[10px]" fill="#e5e7eb">
         QSC
       </text>
-      <text
-        x={center}
-        y={center + 10}
-        textAnchor="middle"
-        className="text-[9px] md:text-[10px]"
-        fill="#e5e7eb"
-      >
+      <text x={center} y={center + 10} textAnchor="middle" className="text-[10px]" fill="#e5e7eb">
         FREQUENCY
       </text>
     </svg>
   );
 }
 
-export default function QscSnapshotPage({
-  params,
-}: {
-  params: { token: string };
-}) {
-  const token = params.token;
+/* -------------------- */
+/* Page                 */
+/* -------------------- */
+
+export default function QscSnapshotPage() {
+  const routeParams = useParams<{ token?: string }>();
+  const token = (routeParams?.token || "").toString();
+
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
 
@@ -261,21 +245,29 @@ export default function QscSnapshotPage({
   const snapshotRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!token) {
+      setError("Missing token in route (/qsc/[token]).");
+      setLoading(false);
+      return;
+    }
+
+    let alive = true;
+
     (async () => {
       try {
+        setLoading(true);
+        setError(null);
+
         const url = tid
-          ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(
-              tid
-            )}`
+          ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(tid)}`
           : `/api/public/qsc/${encodeURIComponent(token)}/result`;
 
         const res = await fetch(url, { cache: "no-store" });
+
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
-          throw new Error(
-            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
-          );
+          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
         }
 
         const json = (await res.json()) as ApiPayload;
@@ -284,21 +276,22 @@ export default function QscSnapshotPage({
           throw new Error((json as any)?.error || "Failed to load QSC snapshot");
         }
 
-        setPayload(json);
+        if (alive) setPayload(json);
       } catch (e: any) {
-        setError(String(e?.message || e || "Unknown error"));
+        if (alive) setError(String(e?.message || e || "Unknown error"));
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     })();
+
+    return () => {
+      alive = false;
+    };
   }, [token, tid]);
 
   async function downloadPdf() {
     if (!snapshotRef.current) return;
-    const canvas = await html2canvas(snapshotRef.current, {
-      scale: 2,
-      useCORS: true,
-    });
+    const canvas = await html2canvas(snapshotRef.current, { scale: 2, useCORS: true });
     const img = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");
     pdf.addImage(img, "PNG", 0, 0, 210, 297);
@@ -312,11 +305,7 @@ export default function QscSnapshotPage({
 
   const data = payload.results;
   const takerName = getFullName(payload.taker);
-
   const isLeader = data.audience === "leader";
-
-  const pageTitle = isLeader ? "Your Leadership Snapshot" : "Your Buyer Persona Snapshot";
-  const pageSubtitle = isLeader ? "Quantum Source Code Overview" : "Quantum Source Code Overview";
 
   const personalityPerc = useMemo(() => {
     const p = data?.personality_percentages ?? {};
@@ -339,24 +328,15 @@ export default function QscSnapshotPage({
     };
   }, [data]);
 
-  const strategicHref =
-    isLeader
-      ? `/qsc/${encodeURIComponent(token)}/leader${
-          tid ? `?tid=${encodeURIComponent(tid)}` : ""
-        }`
-      : `/qsc/${encodeURIComponent(token)}/entrepreneur${
-          tid ? `?tid=${encodeURIComponent(tid)}` : ""
-        }`;
+  const strategicHref = isLeader
+    ? `/qsc/${encodeURIComponent(token)}/leader${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`
+    : `/qsc/${encodeURIComponent(token)}/entrepreneur${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`;
 
-  // Combined profile label + code
   const personaLabelRaw =
-    (payload.persona as any)?.profile_label ||
-    payload.profile?.profile_label ||
-    null;
+    (payload.persona as any)?.profile_label || payload.profile?.profile_label || null;
 
   const combinedLabel =
-    (personaLabelRaw && titleCase(String(personaLabelRaw))) ||
-    fallbackCombinedLabel(data);
+    (personaLabelRaw && titleCase(String(personaLabelRaw))) || fallbackCombinedLabel(data);
 
   const combinedCode =
     safeText(data.combined_profile_code) ||
@@ -364,7 +344,6 @@ export default function QscSnapshotPage({
     safeText(payload.profile?.profile_code) ||
     null;
 
-  // Sales playbook fields: prefer persona fields, fallback to profile fields.
   const howToCommunicate =
     safeText((payload.persona as any)?.how_to_communicate) ||
     safeText(payload.profile?.how_to_communicate);
@@ -410,14 +389,13 @@ export default function QscSnapshotPage({
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <main
-        ref={snapshotRef}
-        className="mx-auto max-w-5xl px-6 py-10 space-y-10"
-      >
+      <main ref={snapshotRef} className="mx-auto max-w-5xl px-6 py-10 space-y-10">
         <header className="flex justify-between items-start gap-4">
           <div>
-            <h1 className="text-3xl font-bold">{pageTitle}</h1>
-            <p className="text-sm text-slate-600">{pageSubtitle}</p>
+            <h1 className="text-3xl font-bold">
+              {isLeader ? "Your Leadership Snapshot" : "Your Buyer Persona Snapshot"}
+            </h1>
+            <p className="text-sm text-slate-600">Quantum Source Code Overview</p>
             {takerName && (
               <p className="text-xs text-slate-500 mt-1">
                 For: <span className="font-semibold">{takerName}</span>
@@ -425,17 +403,12 @@ export default function QscSnapshotPage({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={downloadPdf}
-              className="rounded-lg border px-3 py-1.5 text-xs bg-white"
-            >
-              Download PDF
-            </button>
-          </div>
+          <button onClick={downloadPdf} className="rounded-lg border px-3 py-1.5 text-xs bg-white">
+            Download PDF
+          </button>
         </header>
 
-        {/* BLACK CONTAINER (keep) */}
+        {/* BLACK CONTAINER */}
         <section className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-8">
           <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
             <div className="space-y-2">
@@ -447,9 +420,7 @@ export default function QscSnapshotPage({
                 <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
                   Combined profile
                 </p>
-                <h2 className="mt-2 text-2xl md:text-3xl font-semibold">
-                  {combinedLabel}
-                </h2>
+                <h2 className="mt-2 text-2xl md:text-3xl font-semibold">{combinedLabel}</h2>
                 {combinedCode && (
                   <p className="mt-1 text-xs text-slate-300">
                     Code: <span className="font-mono">{combinedCode}</span>
@@ -462,9 +433,7 @@ export default function QscSnapshotPage({
                       Primary personality
                     </div>
                     <div className="text-slate-100 font-semibold">
-                      {data.primary_personality
-                        ? PERSONALITY_LABELS[data.primary_personality]
-                        : "—"}
+                      {data.primary_personality ? PERSONALITY_LABELS[data.primary_personality] : "—"}
                     </div>
                   </div>
                   <div>
@@ -490,9 +459,7 @@ export default function QscSnapshotPage({
                       Secondary mindset
                     </div>
                     <div className="text-slate-100 font-semibold">
-                      {data.secondary_mindset
-                        ? MINDSET_LABELS[data.secondary_mindset]
-                        : "—"}
+                      {data.secondary_mindset ? MINDSET_LABELS[data.secondary_mindset] : "—"}
                     </div>
                   </div>
                 </div>
@@ -508,20 +475,15 @@ export default function QscSnapshotPage({
                 <div className="mt-3 rounded-2xl border border-rose-900/40 bg-rose-950/20 p-4 text-sm text-rose-200">
                   <div className="font-semibold">Missing playbook content</div>
                   <div className="mt-1 text-xs text-rose-200/80">
-                    The snapshot page expects fields like{" "}
-                    <code>how_to_communicate</code>, <code>decision_style</code>,{" "}
-                    <code>trust_signals</code> etc. These are currently empty in
-                    your DB (persona/profile). Populate them and this section will
-                    render.
+                    Expected fields like <code>how_to_communicate</code>, <code>decision_style</code>,{" "}
+                    <code>trust_signals</code>, etc.
                   </div>
                 </div>
               ) : (
                 <div className="mt-3 grid gap-5">
                   {howToCommunicate && (
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-50">
-                        How to communicate
-                      </h3>
+                      <h3 className="text-sm font-semibold text-slate-50">How to communicate</h3>
                       <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                         {howToCommunicate}
                       </p>
@@ -530,9 +492,7 @@ export default function QscSnapshotPage({
 
                   {decisionStyle && (
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-50">
-                        Decision style
-                      </h3>
+                      <h3 className="text-sm font-semibold text-slate-50">Decision style</h3>
                       <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                         {decisionStyle}
                       </p>
@@ -542,9 +502,7 @@ export default function QscSnapshotPage({
                   <div className="grid gap-4 md:grid-cols-2">
                     {businessChallenges && (
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-50">
-                          Core challenges
-                        </h3>
+                        <h3 className="text-sm font-semibold text-slate-50">Core challenges</h3>
                         <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                           {businessChallenges}
                         </p>
@@ -553,9 +511,7 @@ export default function QscSnapshotPage({
 
                     {trustSignals && (
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-50">
-                          Trust signals
-                        </h3>
+                        <h3 className="text-sm font-semibold text-slate-50">Trust signals</h3>
                         <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                           {trustSignals}
                         </p>
@@ -566,9 +522,7 @@ export default function QscSnapshotPage({
                   <div className="grid gap-4 md:grid-cols-2">
                     {offerFit && (
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-50">
-                          Offer fit
-                        </h3>
+                        <h3 className="text-sm font-semibold text-slate-50">Offer fit</h3>
                         <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                           {offerFit}
                         </p>
@@ -577,9 +531,7 @@ export default function QscSnapshotPage({
 
                     {saleBlockers && (
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-50">
-                          Sale blockers
-                        </h3>
+                        <h3 className="text-sm font-semibold text-slate-50">Sale blockers</h3>
                         <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                           {saleBlockers}
                         </p>
@@ -592,7 +544,7 @@ export default function QscSnapshotPage({
           </div>
         </section>
 
-        {/* 2 MEASUREMENT CARDS */}
+        {/* 2 GRAPH CARDS */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">
@@ -601,7 +553,7 @@ export default function QscSnapshotPage({
             <p className="text-sm text-slate-300">
               {isLeader
                 ? "Your energetic style across Fire, Flow, Form and Field in how you lead."
-                : "Your emotional & energetic style across Fire, Flow, Form and Field in how you buy and build."}
+                : "Your emotional & energetic style across Fire, Flow, Form and Field in the way you buy and build."}
             </p>
 
             <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
@@ -610,10 +562,7 @@ export default function QscSnapshotPage({
               </div>
               <div className="space-y-3 text-sm">
                 {frequencyDonutData.map((d) => (
-                  <div
-                    key={d.key}
-                    className="flex items-center justify-between gap-3"
-                  >
+                  <div key={d.key} className="flex items-center justify-between gap-3">
                     <span>{d.label}</span>
                     <span className="tabular-nums">{Math.round(d.value)}%</span>
                   </div>
@@ -633,9 +582,7 @@ export default function QscSnapshotPage({
             </p>
 
             <div className="space-y-2 pt-2 text-xs">
-              {(
-                ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
-              ).map((key) => {
+              {(["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]).map((key) => {
                 const pct = Math.round(mindsetPerc[key] ?? 0);
                 return (
                   <div key={key} className="space-y-1">
@@ -644,10 +591,7 @@ export default function QscSnapshotPage({
                       <span className="tabular-nums">{pct}%</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-900">
-                      <div
-                        className="h-2 rounded-full bg-emerald-400"
-                        style={{ width: `${pct}%` }}
-                      />
+                      <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -656,20 +600,14 @@ export default function QscSnapshotPage({
           </div>
         </section>
 
-        {/* Matrix (keep) */}
+        {/* Matrix */}
         <section className="rounded-xl bg-white border p-6">
           <h2 className="font-semibold mb-3">Persona Matrix</h2>
-          <QscMatrix
-            primaryPersonality={data.primary_personality}
-            primaryMindset={data.primary_mindset}
-          />
+          <QscMatrix primaryPersonality={data.primary_personality} primaryMindset={data.primary_mindset} />
         </section>
 
         <footer className="flex justify-end">
-          <Link
-            href={strategicHref}
-            className="rounded-lg bg-slate-900 text-white px-4 py-2 text-sm"
-          >
+          <Link href={strategicHref} className="rounded-lg bg-slate-900 text-white px-4 py-2 text-sm">
             View Strategic Report →
           </Link>
         </footer>
