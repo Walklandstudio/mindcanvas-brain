@@ -15,7 +15,7 @@ type QscResultsRow = {
   token: string;
   taker_id: string | null;
   audience: Audience | null;
-  combined_profile_code: string | null; // e.g. "B1"
+  combined_profile_code: string | null;
   qsc_profile_id: string | null;
   created_at: string;
 };
@@ -26,6 +26,16 @@ type QscProfileRow = {
   mindset_level: number | null; // 1..5
   profile_code: string | null;
   profile_label: string | null;
+
+  // snapshot fallback fields
+  how_to_communicate: string | null;
+  decision_style: string | null;
+  business_challenges: string | null;
+  trust_signals: string | null;
+  offer_fit: string | null;
+  sale_blockers: string | null;
+
+  full_internal_insights: any | null;
 };
 
 type TestTakerRow = {
@@ -81,7 +91,6 @@ function safeStr(v: any): string | null {
   return t.length ? t : null;
 }
 
-// A/B/C/D mapping
 function toABCD(code: string | null | undefined): "A" | "B" | "C" | "D" | null {
   const c = String(code || "").toUpperCase().trim();
   if (c === "A" || c === "B" || c === "C" || c === "D") return c;
@@ -112,14 +121,80 @@ function mindsetLabel(level: number | null | undefined) {
   return `Level ${n}`;
 }
 
-function parseCombinedProfileCode(code: string | null | undefined): {
-  personality_code: "A" | "B" | "C" | "D" | null;
-  mindset_level: number | null;
-} {
-  const c = String(code || "").trim().toUpperCase();
-  const m = c.match(/^([ABCD])\s*[-_ ]?\s*([1-5])$/);
-  if (!m) return { personality_code: null, mindset_level: null };
-  return { personality_code: m[1] as any, mindset_level: Number(m[2]) };
+function buildExtendedMerged(args: {
+  extRow: any | null;
+  profile: QscProfileRow;
+  personalityABCD: "A" | "B" | "C" | "D";
+  mindsetLevel: number;
+  combinedProfileCode: string | null;
+}): { extended: LeaderExtendedRow; source: { tableUsed: boolean; snapshotUsed: boolean } } {
+  const { extRow, profile, personalityABCD, mindsetLevel, combinedProfileCode } =
+    args;
+
+  const insights = profile.full_internal_insights ?? null;
+
+  const pick = (tableVal: any, snapshotVal: any) =>
+    safeStr(tableVal) ?? safeStr(snapshotVal) ?? null;
+
+  const personaLabel =
+    safeStr(extRow?.persona_label) ??
+    safeStr(profile.profile_label) ??
+    safeStr(combinedProfileCode) ??
+    "Quantum Profile";
+
+  const extended: LeaderExtendedRow = {
+    persona_label: personaLabel,
+    personality_label:
+      safeStr(extRow?.personality_label) ??
+      personalityLabelFromABCD(personalityABCD),
+    mindset_label: safeStr(extRow?.mindset_label) ?? mindsetLabel(mindsetLevel),
+    profile_code:
+      safeStr(extRow?.profile_code) ??
+      safeStr(profile.profile_code) ??
+      safeStr(combinedProfileCode),
+
+    personality_layer: pick(extRow?.personality_layer, insights?.personality_layer),
+    mindset_layer: pick(extRow?.mindset_layer, insights?.mindset_layer),
+    combined_quantum_pattern: pick(
+      extRow?.combined_quantum_pattern,
+      insights?.combined_quantum_pattern
+    ),
+
+    how_to_communicate: pick(extRow?.how_to_communicate, profile.how_to_communicate),
+    how_they_make_decisions: pick(extRow?.how_they_make_decisions, profile.decision_style),
+    core_business_problems: pick(extRow?.core_business_problems, profile.business_challenges),
+    what_builds_trust: pick(extRow?.what_builds_trust, profile.trust_signals),
+    what_offer_ready_for: pick(extRow?.what_offer_ready_for, profile.offer_fit),
+    what_blocks_sale: pick(extRow?.what_blocks_sale, profile.sale_blockers),
+
+    pre_call_questions: pick(extRow?.pre_call_questions, insights?.pre_call_questions),
+    micro_scripts: pick(extRow?.micro_scripts, insights?.micro_scripts),
+    green_red_flags: pick(extRow?.green_red_flags, insights?.green_red_flags),
+    real_life_example: pick(extRow?.real_life_example, insights?.real_life_example),
+    final_summary: pick(extRow?.final_summary, insights?.final_summary),
+  };
+
+  const tableUsed = Boolean(extRow);
+  const snapshotUsed =
+    !tableUsed ||
+    [
+      extended.personality_layer,
+      extended.mindset_layer,
+      extended.combined_quantum_pattern,
+      extended.how_to_communicate,
+      extended.how_they_make_decisions,
+      extended.core_business_problems,
+      extended.what_builds_trust,
+      extended.what_offer_ready_for,
+      extended.what_blocks_sale,
+      extended.pre_call_questions,
+      extended.micro_scripts,
+      extended.green_red_flags,
+      extended.real_life_example,
+      extended.final_summary,
+    ].some((v) => v === null);
+
+  return { extended, source: { tableUsed, snapshotUsed } };
 }
 
 export async function GET(
@@ -140,7 +215,9 @@ export async function GET(
 
     const sb = supa();
 
+    // ---------------------------
     // 1) Resolve qsc_results row
+    // ---------------------------
     const resultSelect = `
       id,
       test_id,
@@ -218,7 +295,7 @@ export async function GET(
       );
     }
 
-    // Guard: this endpoint is for leader
+    // guard: leader only
     if (resultRow.audience && resultRow.audience !== "leader") {
       return NextResponse.json(
         {
@@ -230,7 +307,9 @@ export async function GET(
       );
     }
 
+    // ---------------------------
     // 2) Load taker
+    // ---------------------------
     let taker: TestTakerRow | null = null;
 
     if (resultRow.taker_id) {
@@ -257,78 +336,86 @@ export async function GET(
       if (!error && data) taker = data as unknown as TestTakerRow;
     }
 
-    // 3) Derive the lookup key (prefer combined_profile_code like "B1")
-    let personalityABCD: "A" | "B" | "C" | "D" | null = null;
-    let mindsetLevel: number | null = null;
-
-    const parsed = parseCombinedProfileCode(resultRow.combined_profile_code);
-    if (parsed.personality_code && parsed.mindset_level) {
-      personalityABCD = parsed.personality_code;
-      mindsetLevel = parsed.mindset_level;
-    }
-
-    // Fallback: qsc_profiles
+    // ---------------------------
+    // 3) Load qsc_profiles snapshot (WITH fallback columns)
+    // ---------------------------
     let profile: QscProfileRow | null = null;
 
-    if (!personalityABCD || !mindsetLevel) {
-      if (resultRow.qsc_profile_id) {
-        const { data, error } = await sb
-          .from("qsc_profiles")
-          .select(
-            "id, personality_code, mindset_level, profile_code, profile_label"
-          )
-          .eq("id", resultRow.qsc_profile_id)
-          .maybeSingle();
+    const profileSelect = `
+      id,
+      personality_code,
+      mindset_level,
+      profile_code,
+      profile_label,
+      how_to_communicate,
+      decision_style,
+      business_challenges,
+      trust_signals,
+      offer_fit,
+      sale_blockers,
+      full_internal_insights
+    `;
 
-        if (error) {
-          return NextResponse.json(
-            { ok: false, error: `qsc_profiles load failed: ${error.message}` },
-            { status: 500 }
-          );
-        }
-        if (data) profile = data as unknown as QscProfileRow;
+    if (resultRow.qsc_profile_id) {
+      const { data, error } = await sb
+        .from("qsc_profiles")
+        .select(profileSelect)
+        .eq("id", resultRow.qsc_profile_id)
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_profiles load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
-
-      if (!profile && resultRow.combined_profile_code) {
-        const { data } = await sb
-          .from("qsc_profiles")
-          .select(
-            "id, personality_code, mindset_level, profile_code, profile_label"
-          )
-          .eq("profile_code", resultRow.combined_profile_code)
-          .limit(1)
-          .maybeSingle();
-
-        if (data) profile = data as unknown as QscProfileRow;
-      }
-
-      if (profile?.mindset_level && profile?.personality_code) {
-        mindsetLevel = Number(profile.mindset_level);
-        personalityABCD = toABCD(profile.personality_code);
-      }
+      if (data) profile = data as unknown as QscProfileRow;
     }
 
-    // If we still can't resolve a key, return cleanly (page will show fallbacks)
-    if (!personalityABCD || !mindsetLevel) {
+    if (!profile && resultRow.combined_profile_code) {
+      const { data } = await sb
+        .from("qsc_profiles")
+        .select(profileSelect)
+        .eq("profile_code", resultRow.combined_profile_code)
+        .limit(1)
+        .maybeSingle();
+
+      if (data) profile = data as unknown as QscProfileRow;
+    }
+
+    if (!profile?.mindset_level || !profile?.personality_code) {
       return NextResponse.json(
         {
-          ok: true,
-          results: resultRow,
-          profile: profile ?? null,
-          extended: null,
-          taker,
-          __debug: {
-            reason: "KEY_NOT_RESOLVED",
+          ok: false,
+          error: "PROFILE_NOT_RESOLVED",
+          debug: {
+            result_id: resultRow.id,
+            qsc_profile_id: resultRow.qsc_profile_id,
             combined_profile_code: resultRow.combined_profile_code,
-            parsed,
-            profile,
+            profile: profile ?? null,
           },
         },
-        { status: 200 }
+        { status: 404 }
       );
     }
 
+    const mindsetLevel = Number(profile.mindset_level);
+    const personalityABCD = toABCD(profile.personality_code);
+
+    if (!personalityABCD) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "PERSONALITY_MAPPING_FAILED",
+          debug: { personality_code: profile.personality_code },
+        },
+        { status: 500 }
+      );
+    }
+
+    // ---------------------------
     // 4) Load leader extended row
+    // ---------------------------
     const { data: extRow, error: extErr } = await sb
       .from("qsc_leader_extended_reports")
       .select(
@@ -364,58 +451,30 @@ export async function GET(
       );
     }
 
-    const extended: LeaderExtendedRow | null = extRow
-      ? {
-          persona_label: safeStr(extRow.persona_label),
-          personality_label:
-            safeStr(extRow.personality_label) ??
-            personalityLabelFromABCD(personalityABCD),
-          mindset_label:
-            safeStr(extRow.mindset_label) ?? mindsetLabel(mindsetLevel),
-          profile_code:
-            safeStr(extRow.profile_code) ??
-            resultRow.combined_profile_code ??
-            profile?.profile_code ??
-            null,
-
-          personality_layer: safeStr(extRow.personality_layer),
-          mindset_layer: safeStr(extRow.mindset_layer),
-          combined_quantum_pattern: safeStr(extRow.combined_quantum_pattern),
-
-          how_to_communicate: safeStr(extRow.how_to_communicate),
-          how_they_make_decisions: safeStr(extRow.how_they_make_decisions),
-          core_business_problems: safeStr(extRow.core_business_problems),
-          what_builds_trust: safeStr(extRow.what_builds_trust),
-          what_offer_ready_for: safeStr(extRow.what_offer_ready_for),
-          what_blocks_sale: safeStr(extRow.what_blocks_sale),
-
-          pre_call_questions: safeStr(extRow.pre_call_questions),
-          micro_scripts: safeStr(extRow.micro_scripts),
-          green_red_flags: safeStr(extRow.green_red_flags),
-          real_life_example: safeStr(extRow.real_life_example),
-          final_summary: safeStr(extRow.final_summary),
-        }
-      : null;
+    const { extended, source } = buildExtendedMerged({
+      extRow: extRow ?? null,
+      profile,
+      personalityABCD,
+      mindsetLevel,
+      combinedProfileCode: resultRow.combined_profile_code ?? null,
+    });
 
     return NextResponse.json(
       {
         ok: true,
         results: resultRow,
-        profile: profile ?? null,
+        profile,
         extended,
         taker,
         __debug: {
           token: tokenParam,
           tid: tid || null,
-          combined_profile_code: resultRow.combined_profile_code,
+          personality_code_raw: profile.personality_code,
           personality_code_abcd: personalityABCD,
           mindset_level: mindsetLevel,
           extended_found: Boolean(extRow),
+          merge_source: source,
           resolved_by: tid && isUuidLike(tid) ? "token+taker_id" : "token_latest",
-          key_source:
-            parsed.personality_code && parsed.mindset_level
-              ? "combined_profile_code"
-              : "qsc_profiles_fallback",
         },
       },
       { status: 200 }
