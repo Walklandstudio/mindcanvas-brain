@@ -36,74 +36,48 @@ export function getDefaultTemplate(type: EmailTemplateType): EmailTemplate {
         type,
         subject: "Your {{test_name}} Results",
         body_html: `
-<p>Dear {{first_name}},</p>
+<p>Hi {{first_name}},</p>
 
 <p>
-  Congratulations on completing the {{test_name}}. I wanted to take a moment to
-  share your unique results with you and your next steps.
+Thank you for completing the <strong>{{test_name}}</strong>.
+Your personalised report is now ready.
 </p>
 
-<p><strong>Step 1:</strong>
-  <a href="{{report_link}}">CLICK HERE</a> to open your personalised report link.
-</p>
-
-<p><strong>Step 2:</strong>
-  <a href="{{next_steps_link}}">CLICK HERE</a> to explore your next steps actions.
-</p>
-
-<p>
-  I look forward to working with you further and exploring your profile results.
-</p>
-
-<p>
-  Regards,<br/>
-  {{owner_full_name}}<br/>
-  {{test_name}}<br/>
-  {{owner_website}}
+<p style="margin: 24px 0;">
+  <a
+    href="{{report_link}}"
+    style="
+      display:inline-block;
+      padding:12px 20px;
+      background:#2563eb;
+      color:#ffffff;
+      text-decoration:none;
+      border-radius:6px;
+      font-weight:600;
+    "
+  >
+    View your report
+  </a>
 </p>
 
 <p>
-  For any queries, please contact us at {{owner_email}}.
+If the button above does not work, copy and paste the link below into your browser:
 </p>
-      `.trim(),
-      };
 
-    case "test_owner_notification":
-      return {
-        type,
-        subject: "{{test_taker_full_name}} completed the {{test_name}}",
-        body_html: `
-<p>Dear {{owner_first_name}},</p>
+<p style="word-break:break-all;">
+  {{report_link}}
+</p>
 
-<p>Please see details below of the completed test:</p>
-
-<ul>
-  <li><strong>Test Name:</strong> {{test_name}}</li>
-  <li><strong>Name:</strong> {{test_taker_full_name}}</li>
-  <li><strong>Email:</strong> {{test_taker_email}}</li>
-  <li><strong>Mobile:</strong> {{test_taker_mobile}}</li>
-  <li><strong>Organisation:</strong> {{test_taker_org}}</li>
-</ul>
-
-<p>
-  <strong>Internal Test Taker Report:</strong>
-  <a href="{{internal_report_link}}">{{internal_report_link}}</a>
+<p style="margin-top:32px;">
+Regards,<br />
+<strong>{{org_name}}</strong>
 </p>
 
 <p>
-  <strong>Internal Test Taker Results Dashboard:</strong>
-  <a href="{{internal_results_dashboard_link}}">{{internal_results_dashboard_link}}</a>
+For any queries, please contact us at
+<a href="mailto:{{support_email}}">{{support_email}}</a>.
 </p>
-
-<p>
-  Regards,<br/>
-  Daniel@profiletest.ai
-</p>
-
-<p>
-  For any queries, please contact us at support@profiletest.ai.
-</p>
-      `.trim(),
+        `.trim(),
       };
 
     case "resend_report":
@@ -111,60 +85,138 @@ export function getDefaultTemplate(type: EmailTemplateType): EmailTemplate {
         type,
         subject: "Your {{test_name}} Results",
         body_html: `
-<p>Dear {{first_name}},</p>
+<p>Hi {{first_name}},</p>
 
 <p>
-  Please find below your results and other links that you need with regards to
-  your {{test_name}} results.
+As requested, here is your link to access the results for
+<strong>{{test_name}}</strong>.
+</p>
+
+<p style="margin: 24px 0;">
+  <a
+    href="{{report_link}}"
+    style="
+      display:inline-block;
+      padding:12px 20px;
+      background:#2563eb;
+      color:#ffffff;
+      text-decoration:none;
+      border-radius:6px;
+      font-weight:600;
+    "
+  >
+    View your report
+  </a>
 </p>
 
 <p>
-  <strong>Step 1:</strong>
-  <a href="{{report_link}}">CLICK HERE</a> to open your personalised report link.
+If the button above does not work, copy and paste the link below into your browser:
+</p>
+
+<p style="word-break:break-all;">
+  {{report_link}}
+</p>
+
+<p style="margin-top:32px;">
+Regards,<br />
+<strong>{{org_name}}</strong>
 </p>
 
 <p>
-  I look forward to working with you further and exploring your profile results.
+For any queries, please contact us at
+<a href="mailto:{{support_email}}">{{support_email}}</a>.
 </p>
-
-<p>
-  Regards,<br/>
-  {{owner_full_name}}<br/>
-  Founder@{{test_name}}<br/>
-  {{owner_website}}
-</p>
-
-<p>
-  For any queries, please contact us at {{owner_email}}.
-</p>
-      `.trim(),
+        `.trim(),
       };
 
     case "send_test_link":
       return {
         type,
-        subject: "Your link to complete the {{test_name}}",
+        subject: "You’ve been invited to complete {{test_name}}",
         body_html: `
 <p>Hi {{first_name}},</p>
 
 <p>
-  You’ve been invited to complete the {{test_name}}.
+You’ve been invited to complete the <strong>{{test_name}}</strong>.
+</p>
+
+<p style="margin: 24px 0;">
+  <a
+    href="{{test_link}}"
+    style="
+      display:inline-block;
+      padding:12px 20px;
+      background:#2563eb;
+      color:#ffffff;
+      text-decoration:none;
+      border-radius:6px;
+      font-weight:600;
+    "
+  >
+    Start your assessment
+  </a>
 </p>
 
 <p>
-  <strong>Start your test here:</strong><br/>
-  <a href="{{test_link}}">{{test_link}}</a>
+If the button above does not work, copy and paste the link below into your browser:
+</p>
+
+<p style="word-break:break-all;">
+  {{test_link}}
 </p>
 
 <p>
-  Once you’ve completed your test, you’ll receive your personalised report.
+Once completed, you will receive your personalised report via email.
+</p>
+
+<p style="margin-top:32px;">
+Regards,<br />
+<strong>{{org_name}}</strong>
 </p>
 
 <p>
-  Warm regards,<br/>
-  {{org_name}}
+For any queries, please contact us at
+<a href="mailto:{{support_email}}">{{support_email}}</a>.
 </p>
-      `.trim(),
+        `.trim(),
+      };
+
+    case "test_owner_notification":
+      return {
+        type,
+        subject: "{{test_taker_full_name}} completed the {{test_name}}",
+        body_html: `
+<p>Hello,</p>
+
+<p>
+The following test has just been completed:
+</p>
+
+<ul>
+  <li><strong>Test:</strong> {{test_name}}</li>
+  <li><strong>Name:</strong> {{test_taker_full_name}}</li>
+  <li><strong>Email:</strong> {{test_taker_email}}</li>
+  <li><strong>Mobile:</strong> {{test_taker_mobile}}</li>
+  <li><strong>Organisation:</strong> {{test_taker_org}}</li>
+</ul>
+
+<p>
+<strong>Internal Test Taker Report:</strong><br />
+<a href="{{internal_report_link}}">{{internal_report_link}}</a>
+</p>
+
+<p>
+<strong>Results Dashboard:</strong><br />
+<a href="{{internal_results_dashboard_link}}">
+{{internal_results_dashboard_link}}
+</a>
+</p>
+
+<p style="margin-top:32px;">
+Regards,<br />
+<strong>{{org_name}}</strong>
+</p>
+        `.trim(),
       };
   }
 }
@@ -189,14 +241,10 @@ export async function loadOrgTemplates(
   orgId: string
 ): Promise<EmailTemplate[]> {
   const supa = supaAdmin();
-  const { data, error } = await supa
+  const { data } = await supa
     .from("communication_templates" as any)
     .select("org_id, type, subject, body_html")
     .eq("org_id", orgId);
-
-  if (error) {
-    console.warn("[emailTemplates] loadOrgTemplates error", error.message);
-  }
 
   const rows = (data as DbTemplateRow[] | null) ?? [];
   const byType = new Map<EmailTemplateType, DbTemplateRow>();
@@ -204,9 +252,9 @@ export async function loadOrgTemplates(
 
   const allTypes: EmailTemplateType[] = [
     "report",
-    "test_owner_notification",
     "resend_report",
     "send_test_link",
+    "test_owner_notification",
   ];
 
   return allTypes.map((t) => {
@@ -237,15 +285,9 @@ export async function sendTemplatedEmail(args: {
     process.env.ONESIGNAL_REST_API_KEY || process.env.ONESIGNAL_API_KEY || "";
 
   if (!appId || !apiKey) {
-    console.warn(
-      "[sendTemplatedEmail] Missing OneSignal env vars",
-      !!appId,
-      !!apiKey
-    );
     return { ok: false, error: "missing_env" };
   }
 
-  // Load templates and pick the right one
   const templates = await loadOrgTemplates(args.orgId);
   const tpl =
     templates.find((t) => t.type === args.type) ||
@@ -262,12 +304,6 @@ export async function sendTemplatedEmail(args: {
   };
 
   try {
-    console.log(
-      "[sendTemplatedEmail] calling OneSignal",
-      appId.slice(0, 6),
-      apiKey.slice(0, 8)
-    );
-
     const res = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
       headers: {
@@ -279,22 +315,12 @@ export async function sendTemplatedEmail(args: {
 
     const text = await res.text();
     if (!res.ok) {
-      console.error(
-        "[sendTemplatedEmail] OneSignal error",
-        res.status,
-        text.slice(0, 400)
-      );
-      return {
-        ok: false,
-        error: "onesignal_error",
-        status: res.status,
-        body: text,
-      };
+      return { ok: false, error: "onesignal_error", status: res.status, body: text };
     }
 
     return { ok: true };
-  } catch (err: any) {
-    console.error("[sendTemplatedEmail] Unexpected error", err);
+  } catch {
     return { ok: false, error: "unexpected_error" };
   }
 }
+
