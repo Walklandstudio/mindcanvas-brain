@@ -1,10 +1,7 @@
 // apps/web/app/api/portal/[slug]/communications/send/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/server/supabaseAdmin";
-import {
-  sendTemplatedEmail,
-  EmailTemplateType,
-} from "@/lib/server/emailTemplates";
+import { sendTemplatedEmail, EmailTemplateType } from "@/lib/server/emailTemplates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,7 +20,7 @@ async function getOrgBySlug(slug: string) {
   const supa = supaAdmin();
   const { data, error } = await supa
     .from("orgs")
-    .select("id, slug, name, notification_email, website")
+    .select("id, slug, name, notification_email, website, support_email, website_url")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -38,6 +35,8 @@ async function getOrgBySlug(slug: string) {
     name: string | null;
     notification_email: string | null;
     website: string | null;
+    support_email: string | null;
+    website_url: string | null;
   };
 }
 
@@ -108,9 +107,7 @@ function getBaseUrl() {
 
   const vercel = process.env.NEXT_PUBLIC_VERCEL_URL || "";
   if (!vercel) return "";
-  return vercel.startsWith("http")
-    ? vercel.replace(/\/$/, "")
-    : `https://${vercel.replace(/\/$/, "")}`;
+  return vercel.startsWith("http") ? vercel.replace(/\/$/, "") : `https://${vercel.replace(/\/$/, "")}`;
 }
 
 function getQscVariant(opts: { slug?: string | null; testType?: string | null }) {
@@ -127,6 +124,28 @@ function getQscVariant(opts: { slug?: string | null; testType?: string | null })
   return { isQsc: true as const, variant };
 }
 
+/**
+ * Only trust last_result_url if it clearly targets THIS taker (contains tid=...).
+ * This prevents "buyer persona report" or other generic URLs from hijacking the email link.
+ */
+function isSafeLastResultUrl(lastResultUrl: string, takerId: string) {
+  try {
+    // Allow relative or absolute. Just ensure it contains tid=<takerId>
+    const decoded = decodeURIComponent(lastResultUrl);
+    return decoded.includes("tid=") && decoded.includes(takerId);
+  } catch {
+    return lastResultUrl.includes("tid=") && lastResultUrl.includes(takerId);
+  }
+}
+
+function normalizeToAbsolute(base: string, v: string) {
+  if (!v) return "";
+  if (v.startsWith("http://") || v.startsWith("https://")) return v;
+  if (!base) return v;
+  if (v.startsWith("/")) return `${base}${v}`;
+  return `${base}/${v}`;
+}
+
 function buildLinks(opts: {
   orgSlug: string;
   testId: string;
@@ -135,6 +154,7 @@ function buildLinks(opts: {
   takerId: string;
   testSlug?: string | null;
   testType?: string | null;
+  showLastResultUrl?: boolean; // optional flag for future
 }) {
   const base = getBaseUrl();
 
@@ -142,14 +162,9 @@ function buildLinks(opts: {
     ? `${base}/portal/${opts.orgSlug}/tests/${opts.testId}/take?token=${encodeURIComponent(opts.linkToken)}`
     : "";
 
+  // ✅ Always build a deterministic report link first
   let reportLink = "";
-
-  if (opts.lastResultUrl) {
-    const v = opts.lastResultUrl;
-    if (v.startsWith("http://") || v.startsWith("https://")) reportLink = v;
-    else if (v.startsWith("/")) reportLink = base ? `${base}${v}` : v;
-    else reportLink = base ? `${base}/${v}` : v;
-  } else if (base) {
+  if (base) {
     const { isQsc, variant } = getQscVariant({ slug: opts.testSlug, testType: opts.testType });
 
     if (isQsc) {
@@ -161,6 +176,11 @@ function buildLinks(opts: {
     } else {
       reportLink = `${base}/t/${encodeURIComponent(opts.linkToken)}/report?tid=${encodeURIComponent(opts.takerId)}`;
     }
+  }
+
+  // ✅ Only override with last_result_url if it's clearly for THIS taker
+  if (opts.lastResultUrl && isSafeLastResultUrl(opts.lastResultUrl, opts.takerId)) {
+    reportLink = normalizeToAbsolute(base, opts.lastResultUrl);
   }
 
   // Phase 2 (later): per-link next steps URL
@@ -178,7 +198,6 @@ function normalizeEmail(v: string | null | undefined) {
 }
 
 function getDefaultInternalEmail() {
-  // hard default, and still env-overridable if you ever want
   return normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) || "notifications@profiletest.ai";
 }
 
@@ -191,21 +210,16 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
     const takerRow = await getTakerById(body.takerId);
     const testRow = await getTestById(body.testId);
 
-    const {
-      testLink,
-      reportLink,
-      nextStepsLink,
-      internalReportLink,
-      internalResultsDashboardLink,
-    } = buildLinks({
-      orgSlug: slug,
-      testId: body.testId,
-      linkToken: takerRow.link_token,
-      lastResultUrl: takerRow.last_result_url,
-      takerId: takerRow.id,
-      testSlug: testRow.slug,
-      testType: testRow.test_type,
-    });
+    const { testLink, reportLink, nextStepsLink, internalReportLink, internalResultsDashboardLink } =
+      buildLinks({
+        orgSlug: slug,
+        testId: body.testId,
+        linkToken: takerRow.link_token,
+        lastResultUrl: takerRow.last_result_url,
+        takerId: takerRow.id,
+        testSlug: testRow.slug,
+        testType: testRow.test_type,
+      });
 
     const firstName = takerRow.first_name || "";
     const lastName = takerRow.last_name || "";
@@ -232,26 +246,20 @@ export async function POST(req: NextRequest, { params }: { params: { slug: strin
 
       owner_first_name: "",
       owner_full_name: "",
-      owner_email: "",
-      owner_website: "",
+      owner_email: org.support_email || "",
+      owner_website: org.website_url || org.website || "",
     };
 
     const type: EmailTemplateType = body.type;
 
-    // ✅ Recipient routing:
-    // - test_owner_notification -> org.notification_email (fallback to profiletest.ai notifications inbox)
-    // - all other types -> test taker email
+    // Recipient routing
     let sentTo = "";
-
     if (type === "test_owner_notification") {
       sentTo = normalizeEmail(org.notification_email) || getDefaultInternalEmail();
     } else {
       sentTo = normalizeEmail(takerRow.email);
       if (!sentTo) {
-        return NextResponse.json(
-          { error: "NO_EMAIL", message: "Test taker has no email address." },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "NO_EMAIL", message: "Test taker has no email address." }, { status: 400 });
       }
     }
 

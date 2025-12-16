@@ -1,4 +1,3 @@
-// apps/web/app/qsc/[token]/extended/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -194,7 +193,11 @@ function InsightSection({
   );
 }
 
-export default function QscExtendedPage({ params }: { params: { token: string } }) {
+export default function QscLeaderExtendedPage({
+  params,
+}: {
+  params: { token: string };
+}) {
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
@@ -214,39 +217,33 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
         setErr(null);
 
         const apiUrl = tid
-          ? `/api/public/qsc/${encodeURIComponent(token)}/extended?tid=${encodeURIComponent(tid)}`
-          : `/api/public/qsc/${encodeURIComponent(token)}/extended`;
+          ? `/api/public/qsc/${encodeURIComponent(
+              token
+            )}/extended-leader?tid=${encodeURIComponent(tid)}`
+          : `/api/public/qsc/${encodeURIComponent(token)}/extended-leader`;
 
         const res = await fetch(apiUrl, { cache: "no-store" });
 
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
-          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
+          );
         }
 
-        const j = (await res.json()) as
-          | ({
-              ok?: boolean;
-              error?: string;
-              results?: QscResultsRow;
-              profile?: QscProfileRow | null;
-              extended?: QscExtendedRow | null;
-              taker?: QscTakerRow | null;
-            } & Record<string, unknown>)
-          | { ok?: boolean; error?: string };
+        const j = (await res.json()) as any;
 
-        if (!res.ok || (j as any).ok === false) {
-          throw new Error((j as any).error || `HTTP ${res.status}`);
+        if (!res.ok || j?.ok === false) {
+          throw new Error(j?.error || `HTTP ${res.status}`);
         }
 
-        const cast = j as any;
-        if (alive && cast.results) {
+        if (alive && j?.results) {
           setPayload({
-            results: cast.results,
-            profile: cast.profile ?? null,
-            extended: cast.extended ?? null,
-            taker: cast.taker ?? null,
+            results: j.results,
+            profile: j.profile ?? null,
+            extended: j.extended ?? null,
+            taker: j.taker ?? null,
           });
         }
       } catch (e: any) {
@@ -289,7 +286,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
       heightLeft -= pageHeight;
     }
 
-    pdf.save(`qsc-extended-${token}.pdf`);
+    pdf.save(`qsc-extended-leader-${token}.pdf`);
   }
 
   const results = payload?.results ?? null;
@@ -304,7 +301,9 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
           </p>
-          <h1 className="mt-3 text-3xl font-bold">Preparing Extended Source Code…</h1>
+          <h1 className="mt-3 text-3xl font-bold">
+            Preparing Leader Extended Source Code…
+          </h1>
         </main>
       </div>
     );
@@ -319,7 +318,8 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
           </p>
           <h1 className="text-3xl font-bold">Couldn&apos;t load insights</h1>
           <p className="text-[15px] text-slate-300">
-            We weren&apos;t able to load the Extended Source Code internal insights for this profile.
+            We weren&apos;t able to load the Leader Extended Source Code internal
+            insights for this profile.
           </p>
           <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs text-slate-100 whitespace-pre-wrap">
             {err || "No data"}
@@ -334,7 +334,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
     extended?.persona_label ||
     profile?.profile_label ||
     results.combined_profile_code ||
-    "Quantum profile";
+    "Leader profile";
 
   const takerDisplayName = getFullName(taker);
 
@@ -344,23 +344,30 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
-      <main ref={reportRef} className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
+      <main
+        ref={reportRef}
+        className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"
+      >
         <header className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
             <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
               Quantum Source Code
             </p>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-              Extended Source Code — Internal Insights
+              Leader Extended Source Code — Internal Insights
             </h1>
             {takerDisplayName && (
               <p className="text-[15px] text-slate-300">
-                For: <span className="font-semibold text-slate-50">{takerDisplayName}</span>
+                For:{" "}
+                <span className="font-semibold text-slate-50">
+                  {takerDisplayName}
+                </span>
               </p>
             )}
             <p className="text-[15px] leading-relaxed text-slate-300 max-w-2xl">
-              Deep sales and messaging insights for this Quantum buyer profile. Use this as your reference
-              when designing offers, sales pages, email sequences, and live launch scripts.
+              Deep leadership, messaging and positioning insights for this
+              profile. Use this as your reference when coaching, leading,
+              delegating and structuring accountability.
             </p>
           </div>
 
@@ -388,13 +395,17 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
               })}
             </span>
             <span className="text-[11px] text-slate-500">
-              Combined profile: <span className="font-semibold text-slate-100">{personaLabel}</span>
+              Combined profile:{" "}
+              <span className="font-semibold text-slate-100">
+                {personaLabel}
+              </span>
             </span>
             {extended && (
               <span className="text-[11px] text-slate-500">
                 Pattern:{" "}
                 <span className="font-semibold text-slate-100">
-                  {extended.personality_label} • {extended.mindset_label} ({extended.profile_code})
+                  {extended.personality_label} • {extended.mindset_label} (
+                  {extended.profile_code})
                 </span>
               </span>
             )}
@@ -408,7 +419,8 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 Quick index
               </p>
               <p className="text-[13px] md:text-[14px] leading-relaxed text-slate-300">
-                Jump straight to the section you need during calls, campaigns or copywriting.
+                Jump straight to the section you need during calls, coaching or
+                leadership conversations.
               </p>
             </div>
             <div className="mt-2 flex flex-col gap-2">
@@ -441,12 +453,14 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                   Profile summary
                 </p>
                 <h2 className="text-lg md:text-xl font-semibold text-slate-50">
-                  How to sell to this buyer
+                  How to lead this profile well
                 </h2>
                 <p className="text-[15px] leading-relaxed text-slate-200 max-w-2xl">
-                  This page is for you as the <span className="font-semibold">test owner</span>. It gives
-                  you the core sales, messaging and offer-fit insights you need to convert this profile —
-                  without needing to read their entire Strategic Growth Report.
+                  This page is for you as the{" "}
+                  <span className="font-semibold">test owner</span>. It gives
+                  you the leadership, communication and trust insights you need
+                  for this profile — without needing the full Strategic Growth
+                  Report.
                 </p>
               </div>
 
@@ -456,7 +470,9 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                     <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                       Personality layer
                     </p>
-                    <p className="mt-1 font-semibold">{extended.personality_label}</p>
+                    <p className="mt-1 font-semibold">
+                      {extended.personality_label}
+                    </p>
                     <p className="mt-1 text-xs text-slate-300">
                       How they naturally think, lead and relate.
                     </p>
@@ -465,9 +481,11 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                     <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                       Mindset layer
                     </p>
-                    <p className="mt-1 font-semibold">{extended.mindset_label}</p>
+                    <p className="mt-1 font-semibold">
+                      {extended.mindset_label}
+                    </p>
                     <p className="mt-1 text-xs text-slate-300">
-                      Where their business is right now and what it needs to grow sustainably.
+                      Where they are right now and what helps them grow.
                     </p>
                   </div>
                 </div>
@@ -477,7 +495,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
-                  Diagnostic layers • Who they are &amp; where they are in business
+                  Diagnostic layers • Who they are &amp; where they are
                 </h2>
                 <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
               </div>
@@ -497,7 +515,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-2-mindset"
                 number={2}
                 title="Mindset Layer"
-                kicker="Where they are in their current business journey."
+                kicker="Where they are in their current journey."
                 children={fallbackCopy(
                   extended?.mindset_layer,
                   "Mindset layer details have not been defined yet."
@@ -508,7 +526,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-3-quantum"
                 number={3}
                 title="Combined Quantum Pattern"
-                kicker="How their behaviour and mindset interact to create specific patterns."
+                kicker="How their behaviour and mindset interact to create patterns."
                 children={fallbackCopy(
                   extended?.combined_quantum_pattern,
                   "Combined Quantum pattern has not been defined yet."
@@ -519,7 +537,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
             <div className="space-y-6">
               <div className="flex items-center justify-between pt-4">
                 <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
-                  Sales playbook • How to communicate, position &amp; sell
+                  Leadership playbook • How to communicate, trust &amp; lead
                 </h2>
                 <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
               </div>
@@ -528,7 +546,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-4-communicate"
                 number={4}
                 title="How to Communicate"
-                kicker="Tone, language and delivery style that makes this buyer feel understood and safe."
+                kicker="Tone, language and delivery style that makes them feel safe and clear."
                 children={fallbackCopy(
                   extended?.how_to_communicate,
                   "No communication guidance is available yet."
@@ -539,7 +557,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-5-decisions"
                 number={5}
                 title="How They Make Decisions"
-                kicker="What helps them say yes, what makes them hesitate, and the decision filters they use."
+                kicker="What helps them commit, what makes them hesitate, and how they filter choices."
                 children={fallbackCopy(
                   extended?.how_they_make_decisions,
                   "Decision style has not been defined yet."
@@ -550,7 +568,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-6-problems"
                 number={6}
                 title="Core Business Problems"
-                kicker="The recurring patterns and friction points that show up most often for this buyer."
+                kicker="The recurring patterns and friction points that show up most often."
                 children={fallbackCopy(
                   extended?.core_business_problems,
                   "Core business problems have not been defined yet."
@@ -561,7 +579,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-7-trust"
                 number={7}
                 title="What Builds Trust"
-                kicker="Signals, proof and experiences that help them feel safe moving forward with you."
+                kicker="Signals, proof and experiences that help them trust you and the process."
                 children={fallbackCopy(
                   extended?.what_builds_trust,
                   "Trust-building patterns have not been defined yet."
@@ -572,7 +590,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-8-offer"
                 number={8}
                 title="What Offer They Are Ready For"
-                kicker="The pricing, structure and level of support most likely to help them say yes and get results."
+                kicker="The structure, support and expectations most likely to unlock performance."
                 children={fallbackCopy(
                   extended?.what_offer_ready_for,
                   "Offer readiness has not been defined yet."
@@ -583,7 +601,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-9-blockers"
                 number={9}
                 title="What Blocks the Sale Completely"
-                kicker="Fear triggers, misalignments and risk perceptions that stop them from moving ahead."
+                kicker="Fear triggers and misalignments that stop buy-in or commitment."
                 variant="danger"
                 children={fallbackCopy(
                   extended?.what_blocks_sale,
@@ -595,7 +613,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-10-precall"
                 number={10}
                 title="Pre-Call Questions"
-                kicker="Conversation starters that reveal both the emotional and structural gaps."
+                kicker="Questions that reveal emotional and structural gaps."
                 children={fallbackCopy(
                   extended?.pre_call_questions,
                   "Pre-call questions have not been defined yet."
@@ -606,7 +624,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-11-microscripts"
                 number={11}
                 title="Micro Scripts"
-                kicker="Short lines you can use in sales calls, emails and live launches."
+                kicker="Short lines you can use in meetings, coaching, delegation and feedback."
                 children={fallbackCopy(
                   extended?.micro_scripts,
                   "Micro scripts have not been defined yet."
@@ -617,7 +635,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-12-flags"
                 number={12}
                 title="Green & Red Flags"
-                kicker="What tells you they are a strong fit — and what tells you to pause or reframe."
+                kicker="What signals strong fit and momentum — and what signals risk."
                 children={fallbackCopy(
                   extended?.green_red_flags,
                   "Green and red flags have not been defined yet."
@@ -628,7 +646,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-13-example"
                 number={13}
                 title="Real-Life Example"
-                kicker="A simple narrative you can keep in mind when speaking to this profile."
+                kicker="A simple narrative you can keep in mind for this profile."
                 children={fallbackCopy(
                   extended?.real_life_example,
                   "Real-life example has not been defined yet."
@@ -639,7 +657,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 id="sec-14-summary"
                 number={14}
                 title="Final Summary"
-                kicker="How to hold this profile in your mind when designing offers and communication."
+                kicker="How to hold this profile in your mind when leading."
                 children={fallbackCopy(
                   extended?.final_summary,
                   "Final summary has not been defined yet."
@@ -650,7 +668,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
             <footer className="pt-2 pb-8 text-xs text-slate-500 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
               <span>© {new Date().getFullYear()} MindCanvas — Profiletest.ai</span>
               <span className="text-[11px] text-slate-500">
-                Internal use only — Extended Source Code for test owners.
+                Internal use only — Leader Extended Source Code for test owners.
               </span>
             </footer>
           </div>
@@ -659,5 +677,3 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
     </div>
   );
 }
-
-
