@@ -136,9 +136,7 @@ function safeText(v?: string | null) {
 }
 
 function fallbackCombinedLabel(results: QscResultsRow) {
-  const p = results.primary_personality
-    ? PERSONALITY_LABELS[results.primary_personality]
-    : null;
+  const p = results.primary_personality ? PERSONALITY_LABELS[results.primary_personality] : null;
   const m = results.primary_mindset ? MINDSET_LABELS[results.primary_mindset] : null;
   if (p && m) return `${p} ${m}`;
   return "Your Combined Profile";
@@ -244,6 +242,40 @@ export default function QscSnapshotPage() {
 
   const snapshotRef = useRef<HTMLDivElement>(null);
 
+  // ✅ derive data safely (no hooks after returns)
+  const data = payload?.results ?? null;
+  const isLeader = data?.audience === "leader";
+  const takerName = getFullName(payload?.taker);
+
+  const personalityPerc = useMemo(() => {
+    const p = data?.personality_percentages ?? {};
+    return {
+      FIRE: normalisePercent(p.FIRE),
+      FLOW: normalisePercent(p.FLOW),
+      FORM: normalisePercent(p.FORM),
+      FIELD: normalisePercent(p.FIELD),
+    };
+  }, [data]);
+
+  const mindsetPerc = useMemo(() => {
+    const m = data?.mindset_percentages ?? {};
+    return {
+      ORIGIN: normalisePercent(m.ORIGIN),
+      MOMENTUM: normalisePercent(m.MOMENTUM),
+      VECTOR: normalisePercent(m.VECTOR),
+      ORBIT: normalisePercent(m.ORBIT),
+      QUANTUM: normalisePercent(m.QUANTUM),
+    };
+  }, [data]);
+
+  const frequencyDonutData: FrequencyDonutDatum[] = useMemo(() => {
+    return (["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).map((key) => ({
+      key,
+      label: PERSONALITY_LABELS[key],
+      value: personalityPerc[key] ?? 0,
+    }));
+  }, [personalityPerc]);
+
   useEffect(() => {
     if (!token) {
       setError("Missing token in route (/qsc/[token]).");
@@ -299,74 +331,47 @@ export default function QscSnapshotPage() {
   }
 
   if (loading) return <div className="p-10">Loading snapshot…</div>;
-  if (error || !payload?.results) {
-    return <div className="p-10 text-red-600">{error || "No data"}</div>;
-  }
-
-  const data = payload.results;
-  const takerName = getFullName(payload.taker);
-  const isLeader = data.audience === "leader";
-
-  const personalityPerc = useMemo(() => {
-    const p = data?.personality_percentages ?? {};
-    return {
-      FIRE: normalisePercent(p.FIRE),
-      FLOW: normalisePercent(p.FLOW),
-      FORM: normalisePercent(p.FORM),
-      FIELD: normalisePercent(p.FIELD),
-    };
-  }, [data]);
-
-  const mindsetPerc = useMemo(() => {
-    const m = data?.mindset_percentages ?? {};
-    return {
-      ORIGIN: normalisePercent(m.ORIGIN),
-      MOMENTUM: normalisePercent(m.MOMENTUM),
-      VECTOR: normalisePercent(m.VECTOR),
-      ORBIT: normalisePercent(m.ORBIT),
-      QUANTUM: normalisePercent(m.QUANTUM),
-    };
-  }, [data]);
+  if (error || !data) return <div className="p-10 text-red-600">{error || "No data"}</div>;
 
   const strategicHref = isLeader
     ? `/qsc/${encodeURIComponent(token)}/leader${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`
     : `/qsc/${encodeURIComponent(token)}/entrepreneur${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`;
 
   const personaLabelRaw =
-    (payload.persona as any)?.profile_label || payload.profile?.profile_label || null;
+    (payload?.persona as any)?.profile_label || payload?.profile?.profile_label || null;
 
   const combinedLabel =
     (personaLabelRaw && titleCase(String(personaLabelRaw))) || fallbackCombinedLabel(data);
 
   const combinedCode =
     safeText(data.combined_profile_code) ||
-    safeText((payload.persona as any)?.profile_code) ||
-    safeText(payload.profile?.profile_code) ||
+    safeText((payload?.persona as any)?.profile_code) ||
+    safeText(payload?.profile?.profile_code) ||
     null;
 
   const howToCommunicate =
-    safeText((payload.persona as any)?.how_to_communicate) ||
-    safeText(payload.profile?.how_to_communicate);
+    safeText((payload?.persona as any)?.how_to_communicate) ||
+    safeText(payload?.profile?.how_to_communicate);
 
   const decisionStyle =
-    safeText((payload.persona as any)?.decision_style) ||
-    safeText(payload.profile?.decision_style);
+    safeText((payload?.persona as any)?.decision_style) ||
+    safeText(payload?.profile?.decision_style);
 
   const businessChallenges =
-    safeText((payload.persona as any)?.business_challenges) ||
-    safeText(payload.profile?.business_challenges);
+    safeText((payload?.persona as any)?.business_challenges) ||
+    safeText(payload?.profile?.business_challenges);
 
   const trustSignals =
-    safeText((payload.persona as any)?.trust_signals) ||
-    safeText(payload.profile?.trust_signals);
+    safeText((payload?.persona as any)?.trust_signals) ||
+    safeText(payload?.profile?.trust_signals);
 
   const offerFit =
-    safeText((payload.persona as any)?.offer_fit) ||
-    safeText(payload.profile?.offer_fit);
+    safeText((payload?.persona as any)?.offer_fit) ||
+    safeText(payload?.profile?.offer_fit);
 
   const saleBlockers =
-    safeText((payload.persona as any)?.sale_blockers) ||
-    safeText(payload.profile?.sale_blockers);
+    safeText((payload?.persona as any)?.sale_blockers) ||
+    safeText(payload?.profile?.sale_blockers);
 
   const hasPlaybook =
     !!howToCommunicate ||
@@ -375,17 +380,6 @@ export default function QscSnapshotPage() {
     !!trustSignals ||
     !!offerFit ||
     !!saleBlockers;
-
-  const frequencyDonutData: FrequencyDonutDatum[] = ([
-    "FIRE",
-    "FLOW",
-    "FORM",
-    "FIELD",
-  ] as PersonalityKey[]).map((key) => ({
-    key,
-    label: PERSONALITY_LABELS[key],
-    value: personalityPerc[key] ?? 0,
-  }));
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -408,7 +402,7 @@ export default function QscSnapshotPage() {
           </button>
         </header>
 
-        {/* BLACK CONTAINER */}
+        {/* BLACK CONTAINER (keep) */}
         <section className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-8">
           <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
             <div className="space-y-2">
@@ -544,7 +538,7 @@ export default function QscSnapshotPage() {
           </div>
         </section>
 
-        {/* 2 GRAPH CARDS */}
+        {/* ADD BACK THE 2 GRAPH CARDS (from strategic report) */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">
@@ -600,7 +594,7 @@ export default function QscSnapshotPage() {
           </div>
         </section>
 
-        {/* Matrix */}
+        {/* Matrix (keep) */}
         <section className="rounded-xl bg-white border p-6">
           <h2 className="font-semibold mb-3">Persona Matrix</h2>
           <QscMatrix primaryPersonality={data.primary_personality} primaryMindset={data.primary_mindset} />
@@ -615,4 +609,3 @@ export default function QscSnapshotPage() {
     </div>
   );
 }
-
