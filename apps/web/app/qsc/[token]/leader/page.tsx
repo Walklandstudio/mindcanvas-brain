@@ -1,7 +1,8 @@
+// apps/web/app/qsc/[token]/leader/page.tsx
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -339,7 +340,7 @@ export default function QscLeaderStrategicReportPage({
     pdf.save(`qsc-leader-strategic-${token}.pdf`);
   }
 
-  // ✅ Compute everything BEFORE any early returns (NO hook ordering issues)
+  // Compute derived values WITHOUT hooks (prevents React #310/hook ordering issues)
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
@@ -394,8 +395,6 @@ export default function QscLeaderStrategicReportPage({
     profile?.profile_label ||
     "Your Quantum Leadership Profile";
 
-  // ------------------ early returns now safe ------------------
-
   if (loading && !result) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -422,8 +421,13 @@ export default function QscLeaderStrategicReportPage({
           <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-          <div className="text-xs text-slate-600">
-            Token: <code>{token}</code>
+          <div className="flex items-center gap-2 pt-2">
+            <Link
+              href={backHref}
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+            >
+              ← Back to Snapshot
+            </Link>
           </div>
         </main>
       </div>
@@ -452,8 +456,8 @@ export default function QscLeaderStrategicReportPage({
             )}
 
             <p className="mt-2 text-sm text-slate-700 max-w-2xl">
-              This report is rendered strictly from the Word document content
-              stored in <code>portal.qsc_leader_personas.sections</code>.
+              This report is rendered strictly from the Word document content stored
+              in <code>portal.qsc_leader_personas.sections</code>.
             </p>
           </div>
 
@@ -662,5 +666,6 @@ export default function QscLeaderStrategicReportPage({
     </div>
   );
 }
+
 
 
