@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { calculateQscScores } from "@/lib/qsc-scoring";
+import { sendTemplatedEmail } from "@/lib/server/emailTemplates";
 
 type AB = "A" | "B" | "C" | "D";
 type PMEntry = { points?: number; profile?: string };
@@ -47,47 +48,17 @@ function toZeroBasedSelected(row: any): number | null {
 
 const asNumber = (x: any, d = 0) => (Number.isFinite(Number(x)) ? Number(x) : d);
 
+function normalizeEmail(v: any): string {
+  const s = typeof v === "string" ? v.trim() : "";
+  return s.length ? s : "";
+}
+
+function getDefaultInternalEmail() {
+  return normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) || "notifications@profiletest.ai";
+}
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-async function triggerTestOwnerNotification(opts: {
-  origin: string;
-  orgSlug: string;
-  testId: string;
-  takerId: string;
-}) {
-  try {
-    const url = `${opts.origin}/api/portal/${encodeURIComponent(
-      opts.orgSlug
-    )}/communications/send`;
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // ✅ This is the internal notification template
-      body: JSON.stringify({
-        type: "test_owner_notification",
-        testId: opts.testId,
-        takerId: opts.takerId,
-      }),
-    });
-
-    const text = await res.text().catch(() => "");
-    if (!res.ok) {
-      console.error(
-        "[submit] test_owner_notification failed",
-        res.status,
-        text.slice(0, 500)
-      );
-      return { ok: false, status: res.status, body: text };
-    }
-
-    return { ok: true, status: res.status, body: text };
-  } catch (e: any) {
-    console.error("[submit] test_owner_notification unexpected error", e);
-    return { ok: false, error: String(e?.message || e) };
-  }
-}
 
 export async function POST(
   req: Request,
@@ -118,9 +89,7 @@ export async function POST(
     // Resolve taker → test
     const { data: taker, error: takerErr } = await sb
       .from("test_takers")
-      .select(
-        "id, org_id, test_id, link_token, first_name, last_name, email, company, role_title"
-      )
+      .select("id, org_id, test_id, link_token, first_name, last_name, email, company, role_title, phone, last_result_url")
       .eq("id", takerId)
       .eq("link_token", token)
       .maybeSingle();
@@ -135,7 +104,7 @@ export async function POST(
     // Load test row so we can detect QSC
     const { data: test, error: testErr } = await sb
       .from("tests")
-      .select("id, slug, meta")
+      .select("id, slug, meta, name")
       .eq("id", taker.test_id)
       .maybeSingle();
 
@@ -164,7 +133,7 @@ export async function POST(
       frameworkTypeLower === "qsc" ||
       kindLower === "qsc" ||
       resultTypeLower === "qsc" ||
-      ["entrepreneur", "leader", "leaders"].includes(qscVariantLower); // ✅ "leader" not "leaders"
+      ["entrepreneur", "leader", "leaders"].includes(qscVariantLower);
 
     const isQscEntrepreneur =
       isQscTest && (qscVariantLower === "entrepreneur" || slugLower.includes("core"));
@@ -251,7 +220,7 @@ export async function POST(
       if (f) freqTotals[f] += points;
     }
 
-    // Persist submission snapshot — write nested totals
+    // Persist submission snapshot
     const totals = {
       frequencies: { A: freqTotals.A, B: freqTotals.B, C: freqTotals.C, D: freqTotals.D },
       profiles: profileTotals,
@@ -308,25 +277,13 @@ export async function POST(
 
         const scoring = calculateQscScores(questionsForScoring, answersForScoring);
 
-        // Map combinedProfileCode (e.g. "FIRE_VECTOR") → portal.qsc_profiles
         let qscProfileId: string | null = null;
 
         if (scoring.combinedProfileCode) {
           const [personalityKey, mindsetKey] = scoring.combinedProfileCode.split("_");
 
-          const personalityMap: Record<string, string> = {
-            FIRE: "A",
-            FLOW: "B",
-            FORM: "C",
-            FIELD: "D",
-          };
-          const mindsetMap: Record<string, number> = {
-            ORIGIN: 1,
-            MOMENTUM: 2,
-            VECTOR: 3,
-            ORBIT: 4,
-            QUANTUM: 5,
-          };
+          const personalityMap: Record<string, string> = { FIRE: "A", FLOW: "B", FORM: "C", FIELD: "D" };
+          const mindsetMap: Record<string, number> = { ORIGIN: 1, MOMENTUM: 2, VECTOR: 3, ORBIT: 4, QUANTUM: 5 };
 
           const personality_code = personalityMap[personalityKey];
           const mindset_level = mindsetMap[mindsetKey];
@@ -343,7 +300,6 @@ export async function POST(
           }
         }
 
-        // ✅ Upsert QSC result per taker (prevents duplicates)
         const { error: qscUpsertError } = await sb
           .from("qsc_results")
           .upsert(
@@ -376,15 +332,11 @@ export async function POST(
     // ---------------- END QSC SCORING ----------------
 
     // Mark completed
-    const { error: tkUpErr } = await sb
+    await sb
       .from("test_takers")
       .update({ status: "completed" })
       .eq("id", taker.id)
       .eq("link_token", token);
-
-    if (tkUpErr) {
-      console.error("[submit] failed to update taker status", tkUpErr);
-    }
 
     // Redirect URL for QSC Entrepreneur – Strategic Growth Report
     let redirectUrl: string | null = null;
@@ -392,39 +344,72 @@ export async function POST(
       redirectUrl = `/qsc/${encodeURIComponent(taker.link_token)}/report?tid=${encodeURIComponent(taker.id)}`;
     }
 
-    // ✅ AUTO TRIGGER: internal notification when test completed
-    // We resolve orgSlug from taker.org_id → orgs.slug, then call communications/send
+    // ✅ AUTO: send internal notification now (direct OneSignal call via sendTemplatedEmail)
     let ownerNotification: any = null;
     try {
-      const { data: orgRow, error: orgErr } = await sb
+      const origin = new URL(req.url).origin;
+
+      const { data: org, error: orgErr } = await sb
         .from("orgs")
-        .select("slug")
+        .select("id, slug, name, notification_email, website_url")
         .eq("id", taker.org_id)
         .maybeSingle();
 
-      if (orgErr || !orgRow?.slug) {
-        console.warn("[submit] could not resolve org slug for notification", {
-          org_id: taker.org_id,
-          orgErr,
-        });
+      if (orgErr || !org) {
+        console.warn("[submit] org lookup failed; skipping notification", orgErr);
       } else {
-        const origin = new URL(req.url).origin;
-        ownerNotification = await triggerTestOwnerNotification({
-          origin,
-          orgSlug: orgRow.slug,
-          testId: taker.test_id,
-          takerId: taker.id,
+        const sentTo = normalizeEmail(org.notification_email) || getDefaultInternalEmail();
+
+        const firstName = taker.first_name || "";
+        const lastName = taker.last_name || "";
+        const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+
+        const internalReportLink = `${origin}/portal/${org.slug}/database/${taker.id}`;
+        const internalResultsDashboardLink = `${origin}/portal/${org.slug}/dashboard?testId=${taker.test_id}`;
+
+        ownerNotification = await sendTemplatedEmail({
+          orgId: org.id,
+          type: "test_owner_notification",
+          to: sentTo,
+          context: {
+            // owner fields (optional in your template)
+            owner_first_name: "",
+            owner_full_name: "",
+
+            // test taker fields (used in template)
+            test_taker_full_name: fullName || taker.email || "",
+            test_taker_email: taker.email || "",
+            test_taker_mobile: taker.phone || "",
+            test_taker_org: taker.company || "",
+
+            // test fields
+            test_name: (test.name as string) || slug || "your assessment",
+
+            // internal links (used in template)
+            internal_report_link: internalReportLink,
+            internal_results_dashboard_link: internalResultsDashboardLink,
+
+            // nice-to-have
+            org_name: org.name || org.slug,
+            owner_website: org.website_url || "",
+          },
         });
+
+        if (!ownerNotification?.ok) {
+          console.error("[submit] test_owner_notification failed", ownerNotification);
+        } else {
+          console.log("[submit] test_owner_notification sent_to", sentTo);
+        }
       }
     } catch (e) {
-      console.error("[submit] owner notification wrapper error", e);
+      console.error("[submit] owner notification unexpected error", e);
     }
 
     return NextResponse.json({
       ok: true,
       totals,
       redirect: redirectUrl,
-      owner_notification: ownerNotification, // useful during testing; can remove later
+      owner_notification: ownerNotification, // leave during testing; remove later if you want
     });
   } catch (err: any) {
     return NextResponse.json(
@@ -433,3 +418,4 @@ export async function POST(
     );
   }
 }
+
