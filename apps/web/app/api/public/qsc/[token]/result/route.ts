@@ -4,6 +4,62 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+type Audience = "entrepreneur" | "leader";
+
+type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
+type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
+
+type QscResultsRow = {
+  id: string;
+  test_id: string;
+  token: string;
+  taker_id: string | null;
+  audience: Audience | null;
+
+  personality_totals: Record<string, number> | null;
+  personality_percentages: Record<string, number> | null;
+  mindset_totals: Record<string, number> | null;
+  mindset_percentages: Record<string, number> | null;
+
+  primary_personality: PersonalityKey | null;
+  secondary_personality: PersonalityKey | null;
+  primary_mindset: MindsetKey | null;
+  secondary_mindset: MindsetKey | null;
+
+  combined_profile_code: string | null;
+  qsc_profile_id: string | null;
+
+  created_at: string;
+};
+
+type QscProfileRow = {
+  id: string;
+  personality_code: string | null;
+  mindset_level: number | null;
+  profile_code: string | null;
+  profile_label: string | null;
+
+  how_to_communicate?: string | null;
+  decision_style?: string | null;
+  business_challenges?: string | null;
+  trust_signals?: string | null;
+  offer_fit?: string | null;
+  sale_blockers?: string | null;
+
+  full_internal_insights?: any;
+  created_at?: string | null;
+};
+
+type TestTakerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+  role_title: string | null;
+  link_token?: string | null;
+};
+
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key =
@@ -11,35 +67,18 @@ function supa() {
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
-// Small helper
 function isUuidLike(s: string) {
   return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(
-    s
+    String(s || "").trim()
   );
 }
 
-/**
- * QSC Result API
- *
- * GET /api/public/qsc/[token]/result?tid=...
- *
- * Resolves results robustly because [token] can be:
- * - qsc_results.token (link token)
- * - qsc_results.id
- * - test_takers.id (UUID) -> test_takers.link_token -> qsc_results.token
- *
- * tid (optional) can be:
- * - qsc_results.id
- * - qsc_results.token
- * - qsc_results.test_id
- * - test_takers.id -> link_token -> qsc_results.token
- */
 export async function GET(
   req: Request,
   { params }: { params: { token: string } }
 ) {
   try {
-    const tokenParam = (params.token || "").trim();
+    const tokenParam = String(params.token || "").trim();
     if (!tokenParam) {
       return NextResponse.json(
         { ok: false, error: "Missing token in URL" },
@@ -48,220 +87,138 @@ export async function GET(
     }
 
     const url = new URL(req.url);
-    const tid = (url.searchParams.get("tid") || "").trim();
+    const tid = String(url.searchParams.get("tid") || "").trim(); // expected: test_takers.id (UUID)
 
     const sb = supa();
 
-    async function loadResultBy(col: string, val: string) {
+    const baseSelect = `
+      id,
+      test_id,
+      token,
+      taker_id,
+      audience,
+      personality_totals,
+      personality_percentages,
+      mindset_totals,
+      mindset_percentages,
+      primary_personality,
+      secondary_personality,
+      primary_mindset,
+      secondary_mindset,
+      combined_profile_code,
+      qsc_profile_id,
+      created_at
+    `;
+
+    let resultRow: QscResultsRow | null = null;
+
+    // (1) token + tid (best / most precise)
+    if (tid && isUuidLike(tid)) {
       const { data, error } = await sb
         .from("qsc_results")
-        .select(
-          `
-          id,
-          test_id,
-          token,
-          personality_totals,
-          personality_percentages,
-          mindset_totals,
-          mindset_percentages,
-          primary_personality,
-          secondary_personality,
-          primary_mindset,
-          secondary_mindset,
-          combined_profile_code,
-          qsc_profile_id,
-          audience,
-          created_at
-        `
-        )
-        // @ts-ignore
-        .eq(col, val)
+        .select(baseSelect)
+        .eq("token", tokenParam)
+        .eq("taker_id", tid)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      return { row: data ?? null, error: error ?? null };
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
+      }
+      if (data) resultRow = data as unknown as QscResultsRow;
     }
 
-    async function resolveViaTestTakerId(maybeId: string) {
-      const { data: takerRow, error } = await sb
-        .from("test_takers")
-        .select("id, link_token")
-        .eq("id", maybeId)
+    // (2) token only (latest)
+    if (!resultRow) {
+      const { data, error } = await sb
+        .from("qsc_results")
+        .select(baseSelect)
+        .eq("token", tokenParam)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
-      if (error || !takerRow?.link_token) {
-        return { resolvedToken: null as string | null, takerRow: null as any };
-      }
-      return { resolvedToken: String(takerRow.link_token), takerRow };
-    }
-
-    // -----------------------------------------------------------------------
-    // Resolve resultRow
-    // -----------------------------------------------------------------------
-    let resultRow: any = null;
-    const resolution: any = { method: null as string | null };
-
-    // A) direct: qsc_results.token === tokenParam
-    {
-      const r = await loadResultBy("token", tokenParam);
-      if (r.error) {
+      if (error) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: `qsc_results load failed: ${r.error.message}`,
-          },
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
           { status: 500 }
         );
       }
-      if (r.row) {
-        resultRow = r.row;
-        resolution.method = "qsc_results.token=tokenParam";
-      }
+      if (data) resultRow = data as unknown as QscResultsRow;
     }
 
-    // B) tokenParam might be qsc_results.id
-    if (!resultRow) {
-      const r = await loadResultBy("id", tokenParam);
-      if (r.error) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: `qsc_results load failed: ${r.error.message}`,
-          },
-          { status: 500 }
-        );
-      }
-      if (r.row) {
-        resultRow = r.row;
-        resolution.method = "qsc_results.id=tokenParam";
-      }
-    }
-
-    // C) tokenParam might be test_takers.id -> link_token -> qsc_results.token
+    // (3) tokenParam might be qsc_results.id (UUID)
     if (!resultRow && isUuidLike(tokenParam)) {
-      const { resolvedToken } = await resolveViaTestTakerId(tokenParam);
-      if (resolvedToken) {
-        const r = await loadResultBy("token", resolvedToken);
-        if (r.error) {
-          return NextResponse.json(
-            {
-              ok: false,
-              error: `qsc_results load failed: ${r.error.message}`,
-            },
-            { status: 500 }
-          );
-        }
-        if (r.row) {
-          resultRow = r.row;
-          resolution.method =
-            "test_takers.id=tokenParam -> qsc_results.token=link_token";
-          resolution.resolvedToken = resolvedToken;
-        }
-      }
-    }
+      const { data, error } = await sb
+        .from("qsc_results")
+        .select(baseSelect)
+        .eq("id", tokenParam)
+        .maybeSingle();
 
-    // D) If still not found, use tid fallbacks (ONLY if provided)
-    if (!resultRow && tid) {
-      // D1) tid is qsc_results.id
-      let r = await loadResultBy("id", tid);
-      if (r.row) {
-        resultRow = r.row;
-        resolution.method = "qsc_results.id=tid";
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
-
-      // D2) tid is qsc_results.token
-      if (!resultRow) {
-        r = await loadResultBy("token", tid);
-        if (r.row) {
-          resultRow = r.row;
-          resolution.method = "qsc_results.token=tid";
-        }
-      }
-
-      // D3) tid is qsc_results.test_id
-      if (!resultRow) {
-        r = await loadResultBy("test_id", tid);
-        if (r.row) {
-          resultRow = r.row;
-          resolution.method = "qsc_results.test_id=tid";
-        }
-      }
-
-      // D4) tid is test_takers.id -> link_token -> qsc_results.token
-      if (!resultRow && isUuidLike(tid)) {
-        const { resolvedToken } = await resolveViaTestTakerId(tid);
-        if (resolvedToken) {
-          r = await loadResultBy("token", resolvedToken);
-          if (r.row) {
-            resultRow = r.row;
-            resolution.method =
-              "test_takers.id=tid -> qsc_results.token=link_token";
-            resolution.resolvedToken = resolvedToken;
-          }
-        }
-      }
+      if (data) resultRow = data as unknown as QscResultsRow;
     }
 
     if (!resultRow) {
       return NextResponse.json(
         {
           ok: false,
-          error: "No QSC result found for this token",
+          error: "RESULT_NOT_FOUND",
           debug: { token: tokenParam, tid: tid || null },
         },
         { status: 404 }
       );
     }
 
-    const testId: string = resultRow.test_id;
-    const qscProfileId: string | null = resultRow.qsc_profile_id ?? null;
-    const combinedProfileCode: string | null =
-      resultRow.combined_profile_code ?? null;
+    const testId = resultRow.test_id;
+    const qscProfileId = resultRow.qsc_profile_id ?? null;
+    const combinedProfileCode = resultRow.combined_profile_code ?? null;
+    const audience = (resultRow.audience ?? null) as Audience | null;
 
-    const audience: "entrepreneur" | "leader" | null =
-      resultRow.audience ?? null;
+    // ---------------------------------------------------------------------
+    // Load taker (prefer taker_id from results — DO NOT guess)
+    // ---------------------------------------------------------------------
+    let taker: TestTakerRow | null = null;
 
-    // -----------------------------------------------------------------------
-    // Load test taker (prefer link_token match; else try tokenParam/tid as id)
-    // -----------------------------------------------------------------------
-    let taker: any = null;
-
-    const { data: takerRow, error: takerErr } = await sb
-      .from("test_takers")
-      .select(`id, first_name, last_name, email, company, role_title`)
-      .eq("link_token", resultRow.token)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!takerErr && takerRow) taker = takerRow;
-
-    if (!taker && isUuidLike(tokenParam)) {
+    if (resultRow.taker_id) {
       const { data, error } = await sb
         .from("test_takers")
-        .select(`id, first_name, last_name, email, company, role_title`)
-        .eq("id", tokenParam)
+        .select("id, first_name, last_name, email, company, role_title")
+        .eq("id", resultRow.taker_id)
         .maybeSingle();
-      if (!error && data) taker = data;
+
+      if (!error && data) taker = data as unknown as TestTakerRow;
     }
 
-    if (!taker && tid && isUuidLike(tid)) {
+    // Fallback: if taker_id is null, try to match link_token to result token
+    if (!taker) {
       const { data, error } = await sb
         .from("test_takers")
-        .select(`id, first_name, last_name, email, company, role_title`)
-        .eq("id", tid)
+        .select("id, first_name, last_name, email, company, role_title, link_token")
+        .eq("link_token", resultRow.token)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
-      if (!error && data) taker = data;
+
+      if (!error && data) taker = data as unknown as TestTakerRow;
     }
 
-    // -----------------------------------------------------------------------
-    // Load QSC profile (snapshot/internal)
-    // -----------------------------------------------------------------------
-    let profile: any = null;
+    // ---------------------------------------------------------------------
+    // Load QSC profile snapshot row
+    // ---------------------------------------------------------------------
+    let profile: QscProfileRow | null = null;
 
     if (qscProfileId) {
-      const { data: profRow, error: profErr } = await sb
+      const { data, error } = await sb
         .from("qsc_profiles")
         .select(
           `
@@ -276,60 +233,69 @@ export async function GET(
           trust_signals,
           offer_fit,
           sale_blockers,
-          created_at,
-          full_internal_insights
+          full_internal_insights,
+          created_at
         `
         )
         .eq("id", qscProfileId)
         .maybeSingle();
 
-      if (!profErr && profRow) profile = profRow;
+      if (!error && data) profile = data as unknown as QscProfileRow;
     }
 
-    // -----------------------------------------------------------------------
-    // Load persona (Strategic report content)
-    // - Entrepreneur uses portal.qsc_personas
-    // - Leader uses portal.qsc_leader_personas (includes persona.sections JSON)
-    // -----------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Load persona content
+    // ---------------------------------------------------------------------
     let persona: any = null;
-    const personaResolution: any = {
-      table: null as string | null,
-      method: null as string | null,
-    };
-
-    const personaTable =
-      audience === "leader" ? "qsc_leader_personas" : "qsc_personas";
-
-    personaResolution.table = personaTable;
+    let persona_debug: any = { table: null as string | null, method: null as string | null };
 
     if (combinedProfileCode) {
-      // 1) Prefer test-specific persona
-      {
-        const { data: personaRow, error: personaErr } = await sb
-          .from(personaTable as any)
-          .select("*")
-          .eq("test_id", testId)
-          .eq("profile_code", combinedProfileCode)
-          .maybeSingle();
+      if (audience === "leader") {
+        persona_debug.table = "qsc_leader_personas";
 
-        if (!personaErr && personaRow) {
-          persona = personaRow;
-          personaResolution.method = "test_id+profile_code";
+        // 1) test-specific leader persona
+        {
+          const { data, error } = await sb
+            .from("qsc_leader_personas")
+            .select("*")
+            .eq("test_id", testId)
+            .eq("profile_code", combinedProfileCode)
+            .maybeSingle();
+
+          if (!error && data) {
+            persona = data;
+            persona_debug.method = "test_id+profile_code";
+          }
         }
-      }
 
-      // 2) Fallback to global persona (profile_code only)
-      if (!persona) {
-        const { data: globalPersona, error: globalErr } = await sb
-          .from(personaTable as any)
+        // 2) global leader persona fallback (profile_code only)
+        if (!persona) {
+          const { data, error } = await sb
+            .from("qsc_leader_personas")
+            .select("*")
+            .eq("profile_code", combinedProfileCode)
+            .limit(1)
+            .maybeSingle();
+
+          if (!error && data) {
+            persona = data;
+            persona_debug.method = "profile_code_global";
+          }
+        }
+      } else {
+        persona_debug.table = "qsc_personas";
+
+        // Entrepreneur (keep your previous behavior)
+        const { data, error } = await sb
+          .from("qsc_personas")
           .select("*")
           .eq("profile_code", combinedProfileCode)
           .limit(1)
           .maybeSingle();
 
-        if (!globalErr && globalPersona) {
-          persona = globalPersona;
-          personaResolution.method = "profile_code_global";
+        if (!error && data) {
+          persona = data;
+          persona_debug.method = "profile_code";
         }
       }
     }
@@ -341,8 +307,13 @@ export async function GET(
         profile,
         persona,
         taker,
-        __resolution: resolution,
-        __persona_resolution: personaResolution,
+        __debug: {
+          token: tokenParam,
+          tid: tid || null,
+          audience,
+          combinedProfileCode,
+          persona_debug,
+        },
       },
       { status: 200 }
     );
@@ -356,4 +327,3 @@ export async function GET(
     );
   }
 }
-

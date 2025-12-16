@@ -1,4 +1,3 @@
-// apps/web/app/qsc/[token]/leader/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -7,8 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-// IMPORTANT: This import intentionally points to the shared QscMatrix.
-// If your QscMatrix lives elsewhere, keep the same idea: do NOT import from "./QscMatrix" here.
+// IMPORTANT: Shared matrix import (NOT ./QscMatrix)
 import { QscMatrix } from "../../QscMatrix";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
@@ -44,7 +42,7 @@ type QscProfileRow = {
 };
 
 type LeaderSections = {
-  // EXACT doc structure keys (we only render from these)
+  // EXACT doc structure keys
   introduction?: string;
   how_to_use?: string;
   quantum_profile_summary?: string;
@@ -58,7 +56,7 @@ type LeaderSections = {
   reflection_prompts?: string;
   one_page_quantum_summary?: string;
 
-  // Optional helper (not displayed unless you want it)
+  // Optional helper key
   _doc_profile?: string;
 };
 
@@ -69,11 +67,7 @@ type QscLeaderPersonaRow = {
   profile_label: string | null;
   personality_code: string | null;
   mindset_level: number | null;
-
-  // We rely on sections for the report body:
   sections?: LeaderSections | null;
-
-  // legacy columns may exist but we intentionally do NOT fallback to them
 };
 
 type QscTakerRow = {
@@ -200,8 +194,9 @@ function renderDocText(value?: string | null) {
       <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
         <div className="font-semibold">Missing content</div>
         <div className="mt-1 text-xs text-rose-700/80">
-          This section is blank in <code>portal.qsc_leader_personas.sections</code>
-          . Fix the DB row — we’re not auto-filling anything.
+          This section is blank in{" "}
+          <code>portal.qsc_leader_personas.sections</code>. Fix the DB row — we’re
+          not auto-filling anything.
         </div>
       </div>
     );
@@ -230,12 +225,12 @@ function missingKeys(sections: LeaderSections | null | undefined) {
     "one_page_quantum_summary",
   ];
 
-  const misses = required.filter((k) => {
-    const v = (s as any)[k];
-    return typeof v !== "string" || v.trim().length === 0;
-  });
-
-  return misses as string[];
+  return required
+    .filter((k) => {
+      const v = (s as any)[k];
+      return typeof v !== "string" || v.trim().length === 0;
+    })
+    .map(String);
 }
 
 export default function QscLeaderStrategicReportPage({
@@ -269,13 +264,22 @@ export default function QscLeaderStrategicReportPage({
           : `/api/public/qsc/${encodeURIComponent(token)}/result`;
 
         const res = await fetch(apiUrl, { cache: "no-store" });
-        const j = await res.json();
 
-        if (!res.ok || j.ok === false) {
-          throw new Error(j.error || `HTTP ${res.status}`);
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) {
+          const text = await res.text();
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
+          );
         }
 
-        if (!j.results) throw new Error("No QSC results found");
+        const j = await res.json();
+
+        if (!res.ok || j?.ok === false) {
+          throw new Error(j?.error || `HTTP ${res.status}`);
+        }
+
+        if (!j?.results) throw new Error("RESULT_NOT_FOUND");
 
         // Safety: if someone hits /leader but the result is entrepreneur, bounce them
         if (j.results.audience === "entrepreneur") {
@@ -335,41 +339,14 @@ export default function QscLeaderStrategicReportPage({
     pdf.save(`qsc-leader-strategic-${token}.pdf`);
   }
 
+  // ✅ Compute everything BEFORE any early returns (NO hook ordering issues)
   const result = payload?.results ?? null;
   const profile = payload?.profile ?? null;
   const persona = payload?.persona ?? null;
   const taker = payload?.taker ?? null;
 
-  if (loading && !result) {
-    return (
-      <div className="min-h-screen bg-slate-100 text-slate-900">
-        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
-            Strategic Leadership Report
-          </p>
-          <h1 className="mt-3 text-3xl font-bold">
-            Preparing your QSC Leader report…
-          </h1>
-        </main>
-      </div>
-    );
-  }
-
-  if (err || !result) {
-    return (
-      <div className="min-h-screen bg-slate-100 text-slate-900">
-        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
-            Strategic Leadership Report
-          </p>
-          <h1 className="text-3xl font-bold">Couldn&apos;t load report</h1>
-          <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
-            {err || "No data"}
-          </pre>
-        </main>
-      </div>
-    );
-  }
+  const sections = (persona?.sections ?? null) as LeaderSections | null;
+  const misses = missingKeys(sections);
 
   const takerDisplayName = getFullName(taker);
 
@@ -378,8 +355,8 @@ export default function QscLeaderStrategicReportPage({
     : `/qsc/${encodeURIComponent(token)}`;
 
   const personalityPercRaw =
-    (result.personality_percentages ?? {}) as PersonalityPercMap;
-  const mindsetPercRaw = (result.mindset_percentages ?? {}) as MindsetPercMap;
+    (result?.personality_percentages ?? {}) as PersonalityPercMap;
+  const mindsetPercRaw = (result?.mindset_percentages ?? {}) as MindsetPercMap;
 
   const personalityPerc: PersonalityPercMap = {
     FIRE: normalisePercent(personalityPercRaw.FIRE ?? 0),
@@ -408,17 +385,50 @@ export default function QscLeaderStrategicReportPage({
   }));
 
   const effectivePrimaryPersonality =
-    result.primary_personality ?? ("FIRE" as PersonalityKey);
+    result?.primary_personality ?? ("FIRE" as PersonalityKey);
   const effectivePrimaryMindset =
-    result.primary_mindset ?? ("ORIGIN" as MindsetKey);
+    result?.primary_mindset ?? ("ORIGIN" as MindsetKey);
 
   const personaName =
     persona?.profile_label ||
     profile?.profile_label ||
     "Your Quantum Leadership Profile";
 
-  const sections = (persona?.sections ?? null) as LeaderSections | null;
-  const misses = useMemo(() => missingKeys(sections), [sections]);
+  // ------------------ early returns now safe ------------------
+
+  if (loading && !result) {
+    return (
+      <div className="min-h-screen bg-slate-100 text-slate-900">
+        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            Strategic Leadership Report
+          </p>
+          <h1 className="mt-3 text-3xl font-bold">
+            Preparing your QSC Leader report…
+          </h1>
+        </main>
+      </div>
+    );
+  }
+
+  if (err || !result) {
+    return (
+      <div className="min-h-screen bg-slate-100 text-slate-900">
+        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            Strategic Leadership Report
+          </p>
+          <h1 className="text-3xl font-bold">Couldn&apos;t load report</h1>
+          <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
+            {err || "No data"}
+          </pre>
+          <div className="text-xs text-slate-600">
+            Token: <code>{token}</code>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
@@ -442,8 +452,8 @@ export default function QscLeaderStrategicReportPage({
             )}
 
             <p className="mt-2 text-sm text-slate-700 max-w-2xl">
-              This report is rendered strictly from the Word document content stored
-              in <code>portal.qsc_leader_personas.sections</code>.
+              This report is rendered strictly from the Word document content
+              stored in <code>portal.qsc_leader_personas.sections</code>.
             </p>
           </div>
 
@@ -489,7 +499,7 @@ export default function QscLeaderStrategicReportPage({
           <h2 className="text-2xl font-semibold">{personaName}</h2>
         </section>
 
-        {/* Charts + Matrix (Entrepreneur-style visuals) */}
+        {/* Charts + Matrix */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Leadership Frequency Type</h2>
@@ -503,7 +513,10 @@ export default function QscLeaderStrategicReportPage({
               </div>
               <div className="space-y-3 text-sm">
                 {frequencyDonutData.map((d) => (
-                  <div key={d.key} className="flex items-center justify-between gap-3">
+                  <div
+                    key={d.key}
+                    className="flex items-center justify-between gap-3"
+                  >
                     <span>{d.label}</span>
                     <span className="tabular-nums">{Math.round(d.value)}%</span>
                   </div>
@@ -557,8 +570,7 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </section>
 
-        {/* -------- WORD DOC SECTIONS (EXACT ORDER) -------- */}
-
+        {/* WORD DOC SECTIONS (EXACT ORDER) */}
         <section className="rounded-3xl bg-white shadow-sm border border-slate-200 p-6 md:p-8 space-y-3">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-700">
             INTRODUCTION
@@ -650,4 +662,5 @@ export default function QscLeaderStrategicReportPage({
     </div>
   );
 }
+
 
