@@ -2,7 +2,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 function safeNextPath(input: unknown, fallback: string) {
   const s = typeof input === "string" ? input.trim() : "";
@@ -15,18 +14,27 @@ type LoginResponse = {
   ok: boolean;
   error?: string;
 
-  // existing (you already have this)
+  // existing
   next?: string;
 
-  // recommended additions from /api/portal/login (optional but useful)
+  // optional (recommended from /api/portal/login)
   is_super_admin?: boolean;
   org_slug?: string | null;
 };
 
-export default function LoginPage() {
-  const searchParams = useSearchParams();
+function getNextFromUrl(): string | null {
+  // Safe because this only runs in the browser (client component)
+  try {
+    const usp = new URLSearchParams(window.location.search || "");
+    const next = usp.get("next");
+    return next ? next : null;
+  } catch {
+    return null;
+  }
+}
 
-  const [user, setUser] = useState("");
+export default function LoginPage() {
+  const [user, setUser] = useState(""); // email
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -56,7 +64,7 @@ export default function LoginPage() {
           setLoading(false);
           return;
         }
-        // If server didn’t return JSON, safest default is org home.
+        // If server didn’t return JSON, safest default
         window.location.href = "/portal/home";
         return;
       }
@@ -67,20 +75,19 @@ export default function LoginPage() {
         return;
       }
 
-      // 1) Explicit next=... override (optional)
-      const nextFromUrl = searchParams?.get("next");
+      // 1) Explicit next=... from URL
+      const nextFromUrl = getNextFromUrl();
 
       // 2) Server-provided next (current behavior)
       const nextFromServer = json?.next;
 
-      // 3) Role-aware fallback if next is missing / wrong
+      // 3) Role-aware fallback if next is missing
       const computedFallback = json?.is_super_admin
         ? "/portal/admin"
         : json?.org_slug
           ? `/portal/${json.org_slug}/dashboard`
           : "/portal/home";
 
-      // Prefer URL next, then server next, then computed fallback
       let target = safeNextPath(nextFromUrl || nextFromServer, computedFallback);
 
       // ✅ Guardrail: super admin should never land on global /dashboard
