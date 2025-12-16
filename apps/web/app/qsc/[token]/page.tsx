@@ -75,7 +75,6 @@ type QscEntrepreneurPersonaRow = {
   profile_code: string | null;
   profile_label: string | null;
 
-  // Entrepreneur persona has many fields; snapshot uses a small subset if present.
   how_to_communicate?: string | null;
   decision_style?: string | null;
   business_challenges?: string | null;
@@ -119,6 +118,7 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
 
 function normalisePercent(raw?: number | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
+  // support 0..1 ratios and 0..100 percentages
   if (raw > 0 && raw <= 1.5) return Math.min(100, Math.max(0, raw * 100));
   return Math.min(100, Math.max(0, raw));
 }
@@ -154,7 +154,101 @@ function getFullName(taker?: TestTakerRow | null) {
   return email || null;
 }
 
-export default function QscSnapshotPage({ params }: { params: { token: string } }) {
+/* ------------------------------------------------------------------ */
+/* Measurement cards (copied from Strategic Growth Report style)       */
+/* ------------------------------------------------------------------ */
+
+type FrequencyDonutDatum = {
+  key: PersonalityKey;
+  label: string;
+  value: number; // 0–100
+};
+
+const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
+  FIRE: "#f97316",
+  FLOW: "#0ea5e9",
+  FORM: "#22c55e",
+  FIELD: "#a855f7",
+};
+
+function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
+  const total =
+    data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
+
+  const radius = 60;
+  const strokeWidth = 20;
+  const center = 80;
+  const circumference = 2 * Math.PI * radius;
+
+  let offset = 0;
+
+  return (
+    <svg
+      viewBox="0 0 160 160"
+      className="h-40 w-40 md:h-48 md:w-48"
+      aria-hidden="true"
+    >
+      <circle
+        cx={center}
+        cy={center}
+        r={radius}
+        stroke="rgba(15,23,42,0.9)"
+        strokeWidth={strokeWidth}
+        fill="transparent"
+      />
+
+      {data.map((d) => {
+        const fraction = (isFinite(d.value) ? d.value : 0) / total;
+        const dash = circumference * fraction;
+        const dashArray = `${dash} ${circumference}`;
+        const strokeDashoffset = offset;
+        offset -= dash;
+
+        return (
+          <circle
+            key={d.key}
+            cx={center}
+            cy={center}
+            r={radius}
+            stroke={FREQUENCY_COLORS[d.key]}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+            strokeDasharray={dashArray}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+          />
+        );
+      })}
+
+      <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
+
+      <text
+        x={center}
+        y={center - 4}
+        textAnchor="middle"
+        className="text-[9px] md:text-[10px]"
+        fill="#e5e7eb"
+      >
+        BUYER
+      </text>
+      <text
+        x={center}
+        y={center + 10}
+        textAnchor="middle"
+        className="text-[9px] md:text-[10px]"
+        fill="#e5e7eb"
+      >
+        FREQUENCY
+      </text>
+    </svg>
+  );
+}
+
+export default function QscSnapshotPage({
+  params,
+}: {
+  params: { token: string };
+}) {
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
@@ -166,13 +260,8 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
   const snapshotRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let alive = true;
-
     (async () => {
       try {
-        setLoading(true);
-        setError(null);
-
         const url = tid
           ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(
               tid
@@ -183,7 +272,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
-          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
+          );
         }
 
         const json = (await res.json()) as ApiPayload;
@@ -192,21 +283,34 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
           throw new Error((json as any)?.error || "Failed to load QSC snapshot");
         }
 
-        if (alive) setPayload(json);
+        setPayload(json);
       } catch (e: any) {
-        if (alive) setError(String(e?.message || e || "Unknown error"));
+        setError(String(e?.message || e || "Unknown error"));
       } finally {
-        if (alive) setLoading(false);
+        setLoading(false);
       }
     })();
-
-    return () => {
-      alive = false;
-    };
   }, [token, tid]);
 
-  // ✅ HOOKS MUST BE CALLED UNCONDITIONALLY (always)
-  const data = payload?.results ?? null;
+  async function downloadPdf() {
+    if (!snapshotRef.current) return;
+    const canvas = await html2canvas(snapshotRef.current, {
+      scale: 2,
+      useCORS: true,
+    });
+    const img = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+    pdf.addImage(img, "PNG", 0, 0, 210, 297);
+    pdf.save(`qsc-snapshot-${token}.pdf`);
+  }
+
+  if (loading) return <div className="p-10">Loading snapshot…</div>;
+  if (error || !payload?.results) {
+    return <div className="p-10 text-red-600">{error || "No data"}</div>;
+  }
+
+  const data = payload.results;
+  const takerName = getFullName(payload.taker);
 
   const personalityPerc = useMemo(() => {
     const p = data?.personality_percentages ?? {};
@@ -216,7 +320,7 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
       FORM: normalisePercent(p.FORM),
       FIELD: normalisePercent(p.FIELD),
     };
-  }, [data?.personality_percentages]);
+  }, [data]);
 
   const mindsetPerc = useMemo(() => {
     const m = data?.mindset_percentages ?? {};
@@ -227,65 +331,57 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
       ORBIT: normalisePercent(m.ORBIT),
       QUANTUM: normalisePercent(m.QUANTUM),
     };
-  }, [data?.mindset_percentages]);
-
-  async function downloadPdf() {
-    if (!snapshotRef.current) return;
-    const canvas = await html2canvas(snapshotRef.current, { scale: 2, useCORS: true });
-    const img = canvas.toDataURL("image/png");
-    const pdf = new jsPDF("p", "mm", "a4");
-    pdf.addImage(img, "PNG", 0, 0, 210, 297);
-    pdf.save(`qsc-snapshot-${token}.pdf`);
-  }
-
-  if (loading) return <div className="p-10">Loading snapshot…</div>;
-  if (error || !data) {
-    return <div className="p-10 text-red-600">{error || "No data"}</div>;
-  }
-
-  const takerName = getFullName(payload?.taker);
+  }, [data]);
 
   const strategicHref =
     data.audience === "leader"
-      ? `/qsc/${token}/leader${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`
-      : `/qsc/${token}/entrepreneur${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`;
+      ? `/qsc/${encodeURIComponent(token)}/leader${
+          tid ? `?tid=${encodeURIComponent(tid)}` : ""
+        }`
+      : `/qsc/${encodeURIComponent(token)}/entrepreneur${
+          tid ? `?tid=${encodeURIComponent(tid)}` : ""
+        }`;
 
   // Combined profile label + code
   const personaLabelRaw =
-    (payload?.persona as any)?.profile_label || payload?.profile?.profile_label || null;
+    (payload.persona as any)?.profile_label ||
+    payload.profile?.profile_label ||
+    null;
 
   const combinedLabel =
-    (personaLabelRaw && titleCase(String(personaLabelRaw))) || fallbackCombinedLabel(data);
+    (personaLabelRaw && titleCase(String(personaLabelRaw))) ||
+    fallbackCombinedLabel(data);
 
   const combinedCode =
     safeText(data.combined_profile_code) ||
-    safeText((payload?.persona as any)?.profile_code) ||
-    safeText(payload?.profile?.profile_code) ||
+    safeText((payload.persona as any)?.profile_code) ||
+    safeText(payload.profile?.profile_code) ||
     null;
 
   // Sales playbook fields: prefer persona fields, fallback to profile fields.
   const howToCommunicate =
-    safeText((payload?.persona as any)?.how_to_communicate) ||
-    safeText(payload?.profile?.how_to_communicate);
+    safeText((payload.persona as any)?.how_to_communicate) ||
+    safeText(payload.profile?.how_to_communicate);
 
   const decisionStyle =
-    safeText((payload?.persona as any)?.decision_style) ||
-    safeText(payload?.profile?.decision_style);
+    safeText((payload.persona as any)?.decision_style) ||
+    safeText(payload.profile?.decision_style);
 
   const businessChallenges =
-    safeText((payload?.persona as any)?.business_challenges) ||
-    safeText(payload?.profile?.business_challenges);
+    safeText((payload.persona as any)?.business_challenges) ||
+    safeText(payload.profile?.business_challenges);
 
   const trustSignals =
-    safeText((payload?.persona as any)?.trust_signals) ||
-    safeText(payload?.profile?.trust_signals);
+    safeText((payload.persona as any)?.trust_signals) ||
+    safeText(payload.profile?.trust_signals);
 
   const offerFit =
-    safeText((payload?.persona as any)?.offer_fit) || safeText(payload?.profile?.offer_fit);
+    safeText((payload.persona as any)?.offer_fit) ||
+    safeText(payload.profile?.offer_fit);
 
   const saleBlockers =
-    safeText((payload?.persona as any)?.sale_blockers) ||
-    safeText(payload?.profile?.sale_blockers);
+    safeText((payload.persona as any)?.sale_blockers) ||
+    safeText(payload.profile?.sale_blockers);
 
   const hasPlaybook =
     !!howToCommunicate ||
@@ -295,9 +391,23 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
     !!offerFit ||
     !!saleBlockers;
 
+  const frequencyDonutData: FrequencyDonutDatum[] = ([
+    "FIRE",
+    "FLOW",
+    "FORM",
+    "FIELD",
+  ] as PersonalityKey[]).map((key) => ({
+    key,
+    label: PERSONALITY_LABELS[key],
+    value: personalityPerc[key] ?? 0,
+  }));
+
   return (
     <div className="min-h-screen bg-slate-100">
-      <main ref={snapshotRef} className="mx-auto max-w-5xl px-6 py-10 space-y-10">
+      <main
+        ref={snapshotRef}
+        className="mx-auto max-w-5xl px-6 py-10 space-y-10"
+      >
         <header className="flex justify-between items-start gap-4">
           <div>
             <h1 className="text-3xl font-bold">Your Buyer Persona Snapshot</h1>
@@ -319,26 +429,7 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
           </div>
         </header>
 
-        {/* Percentage tiles */}
-        <section className="grid grid-cols-2 gap-6">
-          {Object.entries(personalityPerc).map(([k, v]) => (
-            <div key={k} className="rounded-xl bg-white p-4 border">
-              <div className="text-sm font-semibold">{PERSONALITY_LABELS[k as PersonalityKey]}</div>
-              <div className="text-2xl font-bold">{Math.round(v)}%</div>
-            </div>
-          ))}
-        </section>
-
-        <section className="grid grid-cols-5 gap-4">
-          {Object.entries(mindsetPerc).map(([k, v]) => (
-            <div key={k} className="rounded-xl bg-white p-3 border text-center">
-              <div className="text-xs">{MINDSET_LABELS[k as MindsetKey]}</div>
-              <div className="font-bold">{Math.round(v)}%</div>
-            </div>
-          ))}
-        </section>
-
-        {/* Combined profile + Sales playbook */}
+        {/* BLACK CONTAINER (keep) */}
         <section className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-8">
           <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
             <div className="space-y-2">
@@ -350,7 +441,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
                 <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
                   Combined profile
                 </p>
-                <h2 className="mt-2 text-2xl md:text-3xl font-semibold">{combinedLabel}</h2>
+                <h2 className="mt-2 text-2xl md:text-3xl font-semibold">
+                  {combinedLabel}
+                </h2>
                 {combinedCode && (
                   <p className="mt-1 text-xs text-slate-300">
                     Code: <span className="font-mono">{combinedCode}</span>
@@ -363,7 +456,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
                       Primary personality
                     </div>
                     <div className="text-slate-100 font-semibold">
-                      {data.primary_personality ? PERSONALITY_LABELS[data.primary_personality] : "—"}
+                      {data.primary_personality
+                        ? PERSONALITY_LABELS[data.primary_personality]
+                        : "—"}
                     </div>
                   </div>
                   <div>
@@ -389,7 +484,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
                       Secondary mindset
                     </div>
                     <div className="text-slate-100 font-semibold">
-                      {data.secondary_mindset ? MINDSET_LABELS[data.secondary_mindset] : "—"}
+                      {data.secondary_mindset
+                        ? MINDSET_LABELS[data.secondary_mindset]
+                        : "—"}
                     </div>
                   </div>
                 </div>
@@ -405,17 +502,20 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
                 <div className="mt-3 rounded-2xl border border-rose-900/40 bg-rose-950/20 p-4 text-sm text-rose-200">
                   <div className="font-semibold">Missing playbook content</div>
                   <div className="mt-1 text-xs text-rose-200/80">
-                    Populate fields like <code>how_to_communicate</code>,{" "}
-                    <code>decision_style</code>, <code>trust_signals</code>,{" "}
-                    <code>offer_fit</code>, <code>sale_blockers</code> on{" "}
-                    <code>portal.qsc_profiles</code> (or persona rows) and this will render.
+                    The snapshot page expects fields like{" "}
+                    <code>how_to_communicate</code>, <code>decision_style</code>,{" "}
+                    <code>trust_signals</code> etc. These are currently empty in
+                    your DB (persona/profile). Populate them and this section will
+                    render.
                   </div>
                 </div>
               ) : (
                 <div className="mt-3 grid gap-5">
                   {howToCommunicate && (
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-50">How to communicate</h3>
+                      <h3 className="text-sm font-semibold text-slate-50">
+                        How to communicate
+                      </h3>
                       <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                         {howToCommunicate}
                       </p>
@@ -424,7 +524,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
 
                   {decisionStyle && (
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-50">Decision style</h3>
+                      <h3 className="text-sm font-semibold text-slate-50">
+                        Decision style
+                      </h3>
                       <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                         {decisionStyle}
                       </p>
@@ -434,7 +536,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
                   <div className="grid gap-4 md:grid-cols-2">
                     {businessChallenges && (
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-50">Core challenges</h3>
+                        <h3 className="text-sm font-semibold text-slate-50">
+                          Core challenges
+                        </h3>
                         <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                           {businessChallenges}
                         </p>
@@ -443,7 +547,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
 
                     {trustSignals && (
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-50">Trust signals</h3>
+                        <h3 className="text-sm font-semibold text-slate-50">
+                          Trust signals
+                        </h3>
                         <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                           {trustSignals}
                         </p>
@@ -454,7 +560,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
                   <div className="grid gap-4 md:grid-cols-2">
                     {offerFit && (
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-50">Offer fit</h3>
+                        <h3 className="text-sm font-semibold text-slate-50">
+                          Offer fit
+                        </h3>
                         <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                           {offerFit}
                         </p>
@@ -463,7 +571,9 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
 
                     {saleBlockers && (
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-50">Sale blockers</h3>
+                        <h3 className="text-sm font-semibold text-slate-50">
+                          Sale blockers
+                        </h3>
                         <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
                           {saleBlockers}
                         </p>
@@ -476,10 +586,69 @@ export default function QscSnapshotPage({ params }: { params: { token: string } 
           </div>
         </section>
 
-        {/* Matrix */}
+        {/* ✅ ADD BACK: 2 MEASUREMENT GRAPH CARDS (from Strategic Report) */}
+        <section className="grid gap-6 md:grid-cols-2 items-start">
+          <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
+            <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
+            <p className="text-sm text-slate-300">
+              Your emotional & energetic style across Fire, Flow, Form and Field.
+            </p>
+
+            <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
+              <div className="flex justify-center">
+                <FrequencyDonut data={frequencyDonutData} />
+              </div>
+              <div className="space-y-3 text-sm">
+                {frequencyDonutData.map((d) => (
+                  <div
+                    key={d.key}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span>{d.label}</span>
+                    <span className="tabular-nums">{Math.round(d.value)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
+            <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
+            <p className="text-sm text-slate-300">
+              Where your focus and energy sit across the 5 mindset stages.
+            </p>
+
+            <div className="space-y-2 pt-2 text-xs">
+              {(
+                ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]
+              ).map((key) => {
+                const pct = Math.round(mindsetPerc[key] ?? 0);
+                return (
+                  <div key={key} className="space-y-1">
+                    <div className="flex justify-between">
+                      <span>{MINDSET_LABELS[key]}</span>
+                      <span className="tabular-nums">{pct}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-900">
+                      <div
+                        className="h-2 rounded-full bg-emerald-400"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* Matrix (keep) */}
         <section className="rounded-xl bg-white border p-6">
           <h2 className="font-semibold mb-3">Persona Matrix</h2>
-          <QscMatrix primaryPersonality={data.primary_personality} primaryMindset={data.primary_mindset} />
+          <QscMatrix
+            primaryPersonality={data.primary_personality}
+            primaryMindset={data.primary_mindset}
+          />
         </section>
 
         <footer className="flex justify-end">
