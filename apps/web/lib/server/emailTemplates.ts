@@ -58,7 +58,7 @@ export function getDefaultTemplate(type: EmailTemplateType): EmailTemplate {
 <p>
   Regards,<br/>
   {{owner_full_name}}<br/>
-  Founder @ {{test_name}}<br/>
+  {{test_name}}<br/>
   {{owner_website}}
 </p>
 
@@ -97,7 +97,7 @@ export function getDefaultTemplate(type: EmailTemplateType): EmailTemplate {
 
 <p>
   Regards,<br/>
-  Daniel @ profiletest.ai
+  Daniel@profiletest.ai
 </p>
 
 <p>
@@ -130,7 +130,7 @@ export function getDefaultTemplate(type: EmailTemplateType): EmailTemplate {
 <p>
   Regards,<br/>
   {{owner_full_name}}<br/>
-  Founder @ {{test_name}}<br/>
+  Founder@{{test_name}}<br/>
   {{owner_website}}
 </p>
 
