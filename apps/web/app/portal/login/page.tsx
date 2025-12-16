@@ -3,8 +3,38 @@
 
 import { useState } from "react";
 
+function safeNextPath(input: unknown, fallback: string) {
+  const s = typeof input === "string" ? input.trim() : "";
+  if (!s.startsWith("/")) return fallback;
+  if (s.startsWith("//")) return fallback;
+  return s;
+}
+
+type LoginResponse = {
+  ok: boolean;
+  error?: string;
+
+  // existing
+  next?: string;
+
+  // optional (recommended from /api/portal/login)
+  is_super_admin?: boolean;
+  org_slug?: string | null;
+};
+
+function getNextFromUrl(): string | null {
+  // Safe because this only runs in the browser (client component)
+  try {
+    const usp = new URLSearchParams(window.location.search || "");
+    const next = usp.get("next");
+    return next ? next : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function LoginPage() {
-  const [user, setUser] = useState("");       // email
+  const [user, setUser] = useState(""); // email
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -13,29 +43,28 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
     try {
       const res = await fetch("/api/portal/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: user, password }),
-        redirect: "manual", // don’t auto-follow; we expect JSON
+        redirect: "manual",
       });
 
-      // Try to parse JSON if possible
       const ct = res.headers.get("content-type") || "";
-      let json: any = null;
+      let json: LoginResponse | null = null;
 
       if (ct.includes("application/json")) {
-        json = await res.json();
+        json = (await res.json().catch(() => null)) as LoginResponse | null;
       } else {
-        // Fallback: read text and surface status
         const txt = await res.text().catch(() => "");
         if (!res.ok) {
           setError(txt || `Login failed (HTTP ${res.status})`);
           setLoading(false);
           return;
         }
-        // If OK but not JSON, just go to home
+        // If server didn’t return JSON, safest default
         window.location.href = "/portal/home";
         return;
       }
@@ -46,7 +75,27 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.href = json.next || "/portal/home";
+      // 1) Explicit next=... from URL
+      const nextFromUrl = getNextFromUrl();
+
+      // 2) Server-provided next (current behavior)
+      const nextFromServer = json?.next;
+
+      // 3) Role-aware fallback if next is missing
+      const computedFallback = json?.is_super_admin
+        ? "/portal/admin"
+        : json?.org_slug
+          ? `/portal/${json.org_slug}/dashboard`
+          : "/portal/home";
+
+      let target = safeNextPath(nextFromUrl || nextFromServer, computedFallback);
+
+      // ✅ Guardrail: super admin should never land on global /dashboard
+      if (json?.is_super_admin && target === "/dashboard") {
+        target = "/portal/admin";
+      }
+
+      window.location.href = target;
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
     } finally {
@@ -56,13 +105,18 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-dvh flex items-center justify-center bg-[#0b0f16] text-white">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 border border-white/15 rounded-xl p-6">
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-sm space-y-4 border border-white/15 rounded-xl p-6"
+      >
         <h1 className="text-xl font-semibold">Client Portal Login</h1>
 
         {error && <div className="text-red-400 text-sm">{error}</div>}
 
         <div>
-          <label className="block text-sm mb-1">User (enter email address)</label>
+          <label className="block text-sm mb-1">
+            User (enter email address)
+          </label>
           <input
             className="w-full rounded-md border border-white/20 bg-transparent p-2"
             type="email"
@@ -75,7 +129,9 @@ export default function LoginPage() {
         </div>
 
         <div>
-          <label className="block text-sm mb-1">Password (enter password)</label>
+          <label className="block text-sm mb-1">
+            Password (enter password)
+          </label>
           <input
             className="w-full rounded-md border border-white/20 bg-transparent p-2"
             type="password"

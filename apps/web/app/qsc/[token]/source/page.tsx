@@ -239,15 +239,8 @@ export default function QscExtendedSourceCodePage({
               href={backToSnapshotHref}
               className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 transition"
             >
-              ← Back to Snapshot
-            </Link>
-            <button
-              className="inline-flex items-center rounded-xl border border-slate-700/70 bg-slate-900/60 px-3 py-1.5 text-xs font-medium text-slate-300 cursor-not-allowed"
-              disabled
-              title="PDF export coming soon"
-            >
               Generate PDF (coming soon)
-            </button>
+            </Link>
           </div>
         </header>
 

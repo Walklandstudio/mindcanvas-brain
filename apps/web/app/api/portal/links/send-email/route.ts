@@ -1,97 +1,89 @@
+// apps/web/app/api/portal/links/send-email/route.ts
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/server/supabaseAdmin";
+import { sendTemplatedEmail } from "@/lib/server/emailTemplates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type EmailBody = {
+type Body = {
+  orgId: string;
+  orgSlug?: string;
   email: string;
   linkUrl: string;
   orgName?: string;
   testName?: string;
 };
 
+function supaAdmin() {
+  return createClient().schema("portal");
+}
+
+function normalizeEmail(v: string | null | undefined) {
+  const s = (v || "").trim();
+  return s.length ? s : "";
+}
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => ({}))) as EmailBody;
+    const body = (await req.json().catch(() => ({}))) as Partial<Body>;
 
-    const email = (body.email || "").trim();
-    const linkUrl = (body.linkUrl || "").trim();
-    const orgName = (body.orgName || "").trim();
-    const testName = (body.testName || "").trim();
+    const orgId = String(body.orgId || "").trim();
+    const to = String(body.email || "").trim();
+    const testLink = String(body.linkUrl || "").trim();
+    const testName = String(body.testName || "your assessment").trim();
 
-    if (!email || !linkUrl) {
-      return NextResponse.json(
-        { error: "Missing email or linkUrl" },
-        { status: 400 }
-      );
+    if (!orgId) {
+      return NextResponse.json({ ok: false, error: "MISSING_ORG_ID" }, { status: 400 });
+    }
+    if (!to) {
+      return NextResponse.json({ ok: false, error: "MISSING_EMAIL" }, { status: 400 });
+    }
+    if (!testLink) {
+      return NextResponse.json({ ok: false, error: "MISSING_LINK" }, { status: 400 });
     }
 
-    const appId = process.env.ONESIGNAL_APP_ID;
-    const apiKey =
-      process.env.ONESIGNAL_REST_API_KEY ||
-      process.env.ONESIGNAL_API_KEY ||
-      "";
+    const sb = supaAdmin();
 
-    // If OneSignal isn’t configured, don’t fail link creation – just skip.
-    if (!appId || !apiKey) {
-      console.warn(
-        "[send-email] Missing OneSignal env (ONESIGNAL_APP_ID / ONESIGNAL_REST_API_KEY). Skipping email send."
-      );
-      return NextResponse.json(
-        { ok: false, skipped: true, reason: "Missing OneSignal env" },
-        { status: 200 }
-      );
+    const { data: org, error: orgErr } = await sb
+      .from("orgs")
+      .select("id, slug, name, support_email")
+      .eq("id", orgId)
+      .maybeSingle();
+
+    if (orgErr || !org) {
+      console.error("[portal/links/send-email] org lookup failed", orgErr);
+      return NextResponse.json({ ok: false, error: "ORG_NOT_FOUND" }, { status: 404 });
     }
 
-    const subject =
-      (orgName && testName && `${orgName} — ${testName}`) ||
-      testName ||
-      "Your profile test";
+    const orgName = String(org.name || org.slug || body.orgName || "Our team").trim();
+    const supportEmail =
+      normalizeEmail(org.support_email) || normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) || "support@profiletest.ai";
 
-    const bodyText =
-      `Hi,\n\n` +
-      `You’ve been invited to complete the${orgName ? ` ${orgName}` : ""}${
-        testName ? ` — ${testName}` : " profile test"
-      }.\n\n` +
-      `Start your test here:\n${linkUrl}\n\n` +
-      `Thank you.\n`;
-
-    const payload = {
-      app_id: appId,
-      include_email_tokens: [email],
-      email_subject: subject,
-      email_body: bodyText,
+    // Important: this flow doesn’t know the recipient’s first name.
+    // We use a friendly default to avoid "Hi ,"
+    const ctx: Record<string, string> = {
+      first_name: "there",
+      test_name: testName,
+      org_name: orgName,
+      support_email: supportEmail,
+      test_link: testLink,
     };
 
-    const res = await fetch("https://onesignal.com/api/v1/notifications", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        Authorization: `Basic ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
+    const result = await sendTemplatedEmail({
+      orgId: org.id,
+      type: "send_test_link",
+      to,
+      context: ctx,
     });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      console.error(
-        "[send-email] OneSignal error",
-        res.status,
-        text.slice(0, 400)
-      );
-      return NextResponse.json(
-        { error: "OneSignal request failed" },
-        { status: 500 }
-      );
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: "SEND_FAILED", detail: result }, { status: 500 });
     }
 
-    const data = await res.json().catch(() => ({}));
-    return NextResponse.json({ ok: true, data }, { status: 200 });
-  } catch (e: any) {
-    console.error("[send-email] Unexpected error", e);
-    return NextResponse.json(
-      { error: String(e?.message || e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (err: any) {
+    console.error("[portal/links/send-email] error", err);
+    return NextResponse.json({ ok: false, error: "UNKNOWN" }, { status: 500 });
   }
 }

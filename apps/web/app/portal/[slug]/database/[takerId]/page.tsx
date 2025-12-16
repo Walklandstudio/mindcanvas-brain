@@ -366,7 +366,7 @@ export default async function TakerDetail({
     // 2) Extended Source Code Snapshot (existing Extended Source Code page)
     qscExtendedUrl = `${base}/extended${query}`;
 
-    // 3) QSC Entrepreneur — Strategic Growth Report (to be implemented)
+    // 3) Strategic Growth Report (to be implemented)
     qscEntrepreneurUrl = `${base}/entrepreneur${query}`;
   }
 
@@ -492,7 +492,7 @@ export default async function TakerDetail({
                   href={qscEntrepreneurUrl}
                   className="rounded-md border border-amber-600 bg-amber-500 px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-400"
                 >
-                  QSC Entrepreneur — Strategic Growth Report
+                  QSC — Strategic Growth Report
                 </Link>
               )}
             </div>

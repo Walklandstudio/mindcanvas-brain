@@ -1,4 +1,3 @@
-// apps/web/app/api/public/qsc/[token]/report/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -6,51 +5,34 @@ export const dynamic = "force-dynamic";
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_ANON_KEY!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
-/**
- * QSC Report API
- *
- * GET /api/public/qsc/[token]/report
- *
- * Returns:
- * - results  → row from qsc_results (scores, primary/secondary, combined profile)
- * - profile  → row from qsc_profiles (persona details)
- * - sections → array of report_sections for this test (global sections such as intro, how_to_use, etc.)
- *
- * In the future, we can:
- * - filter persona-specific sections (persona_code) once we add them
- * - add org-specific overrides (org_id)
- */
-export async function GET(
-  req: Request,
-  { params }: { params: { token: string } }
-) {
+export async function GET(req: Request, { params }: { params: { token: string } }) {
   try {
     const token = params.token;
     if (!token) {
-      return NextResponse.json(
-        { ok: false, error: "Missing token in URL" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing token in URL" }, { status: 400 });
     }
+
+    const url = new URL(req.url);
+    const tid = url.searchParams.get("tid") || "";
 
     const sb = supa();
 
-    // -----------------------------------------------------------------------
-    // 1) Load the QSC results row for this token (latest if multiple)
-    // -----------------------------------------------------------------------
-    const { data: resultRow, error: resErr } = await sb
+    // 1) Load the QSC results row
+    // ✅ If tid is provided, load by taker_id (most precise)
+    // ✅ Otherwise fall back to latest by token
+    const q = sb
       .from("qsc_results")
       .select(
         `
         id,
         test_id,
         token,
+        taker_id,
+        audience,
         personality_totals,
         personality_percentages,
         mindset_totals,
@@ -64,20 +46,19 @@ export async function GET(
         created_at
       `
       )
-      .eq("token", token)
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+
+    const { data: resultRow, error: resErr } = tid
+      ? await q.eq("taker_id", tid).maybeSingle()
+      : await q.eq("token", token).maybeSingle();
 
     if (resErr) {
-      return NextResponse.json(
-        { ok: false, error: `qsc_results load failed: ${resErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: `qsc_results load failed: ${resErr.message}` }, { status: 500 });
     }
     if (!resultRow) {
       return NextResponse.json(
-        { ok: false, error: "No QSC result found for this token" },
+        { ok: false, error: "No QSC result found for this token", debug: { token, tid: tid || null } },
         { status: 404 }
       );
     }
@@ -85,12 +66,10 @@ export async function GET(
     const testId: string = resultRow.test_id;
     const qscProfileId: string | null = resultRow.qsc_profile_id ?? null;
 
-    // -----------------------------------------------------------------------
-    // 2) Load the QSC profile (persona) for this result, if any
-    // -----------------------------------------------------------------------
+    // 2) Load profile
     let profile: any = null;
     if (qscProfileId) {
-      const { data: profRow, error: profErr } = await sb
+      const { data: profRow } = await sb
         .from("qsc_profiles")
         .select(
           `
@@ -111,22 +90,10 @@ export async function GET(
         .eq("id", qscProfileId)
         .maybeSingle();
 
-      if (profErr) {
-        // not fatal for the whole report, but we include error message
-        profile = null;
-      } else {
-        profile = profRow;
-      }
+      profile = profRow ?? null;
     }
 
-    // -----------------------------------------------------------------------
-    // 3) Load report sections for this test (global sections)
-    //
-    //    For now:
-    //    - org_id is null (base template)
-    //    - persona_code is null (generic sections like intro/how_to_use/etc.)
-    //    - later we can add persona-specific + org-specific overrides
-    // -----------------------------------------------------------------------
+    // 3) Load report sections for this test
     const { data: sectionRows, error: secErr } = await sb
       .from("report_sections")
       .select(
@@ -145,32 +112,18 @@ export async function GET(
       .order("order_index", { ascending: true });
 
     if (secErr) {
-      return NextResponse.json(
-        { ok: false, error: `report_sections load failed: ${secErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: `report_sections load failed: ${secErr.message}` }, { status: 500 });
     }
 
-    // In the future, when we store persona-specific sections, we can filter
-    // for persona_code === profile.profile_code here and/or merge them
-    // on the frontend.
-
     return NextResponse.json(
-      {
-        ok: true,
-        results: resultRow,
-        profile,
-        sections: sectionRows ?? [],
-      },
+      { ok: true, results: resultRow, profile, sections: sectionRows ?? [] },
       { status: 200 }
     );
   } catch (err: any) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: err?.message || "Unexpected error in QSC report endpoint",
-      },
+      { ok: false, error: err?.message || "Unexpected error in QSC report endpoint" },
       { status: 500 }
     );
   }
 }
+

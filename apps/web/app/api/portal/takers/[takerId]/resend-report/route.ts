@@ -1,111 +1,137 @@
-import "server-only";
-import { NextResponse } from "next/server";
+// apps/web/app/api/portal/takers/[takerId]/resend-report/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  sendTemplatedEmail,
+  EmailTemplateType,
+} from "@/lib/server/emailTemplates";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const SUPABASE_SERVICE_ROLE_KEY = process.env
-  .SUPABASE_SERVICE_ROLE_KEY as string;
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-function getBaseUrl() {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL;
-  }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  return "http://localhost:3000";
+function supaAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, { db: { schema: "portal" } });
+}
+
+async function getTakerWithTest(takerId: string) {
+  const supa = supaAdmin();
+
+  const { data, error } = (await supa
+    .from("test_takers")
+    .select(
+      `
+      id,
+      org_id,
+      test_id,
+      token,
+      email,
+      first_name,
+      last_name,
+      mobile,
+      organisation,
+      tests:test_id (
+        id,
+        name
+      )
+    `
+    )
+    .eq("id", takerId)
+    .maybeSingle()) as any;
+
+  if (error || !data) throw new Error("TAKER_NOT_FOUND");
+  return data;
+}
+
+function buildLinks(opts: { orgSlug: string | null; takerToken: string }) {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_BASE_URL ||
+    (process.env.NEXT_PUBLIC_VERCEL_URL?.startsWith("http")
+      ? process.env.NEXT_PUBLIC_VERCEL_URL
+      : process.env.NEXT_PUBLIC_VERCEL_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+      : "");
+
+  const cleanBase = (baseUrl || "").replace(/\/$/, "");
+  const reportLink = `${cleanBase}/t/${opts.takerToken}/report`;
+  return { reportLink };
+}
+
+async function getOrgSlug(orgId: string): Promise<string | null> {
+  const supa = supaAdmin();
+  const { data, error } = await supa
+    .from("orgs")
+    .select("slug")
+    .eq("id", orgId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data.slug || null;
 }
 
 export async function POST(
-  req: Request,
+  _req: NextRequest,
   { params }: { params: { takerId: string } }
 ) {
   try {
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "Supabase env not configured" },
-        { status: 500 }
-      );
-    }
-
-    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const portal = sb.schema("portal");
-
     const takerId = params.takerId;
-
-    // 1) Load taker (needs email + link_token)
-    const { data: taker, error: tkErr } = await portal
-      .from("test_takers")
-      .select("id, email, first_name, link_token")
-      .eq("id", takerId)
-      .maybeSingle();
-
-    if (tkErr || !taker) {
-      return NextResponse.json(
-        { ok: false, error: tkErr?.message || "Test taker not found" },
-        { status: 404 }
-      );
-    }
+    const taker = await getTakerWithTest(takerId);
 
     if (!taker.email) {
       return NextResponse.json(
-        { ok: false, error: "Test taker has no email address" },
+        { ok: false, error: "NO_EMAIL", message: "Test taker has no email address." },
         { status: 400 }
       );
     }
 
-    if (!taker.link_token) {
-      return NextResponse.json(
-        { ok: false, error: "Test taker has no link token" },
-        { status: 400 }
-      );
-    }
+    const orgSlug = await getOrgSlug(taker.org_id);
+    const { reportLink } = buildLinks({ orgSlug, takerToken: taker.token });
 
-    // 2) Find the link record to reuse existing email endpoint
-    const { data: link, error: linkErr } = await portal
-      .from("test_links")
-      .select("id")
-      .eq("token", taker.link_token)
-      .maybeSingle();
+    const fullName = `${taker.first_name || ""} ${taker.last_name || ""}`.trim();
 
-    if (linkErr || !link) {
-      return NextResponse.json(
-        { ok: false, error: linkErr?.message || "No link found for taker" },
-        { status: 404 }
-      );
-    }
+    const ctx = {
+      first_name: taker.first_name || "",
+      last_name: taker.last_name || "",
+      test_taker_full_name: fullName,
+      test_taker_email: taker.email || "",
+      test_taker_mobile: taker.mobile || "",
+      test_taker_org: taker.organisation || "",
+      test_name: taker.tests?.name || "your assessment",
+      report_link: reportLink,
 
-    const origin = getBaseUrl();
+      owner_first_name: "",
+      owner_full_name: "",
+      owner_email: "",
+      owner_website: "",
 
-    // 3) Call the existing /api/links/[id]/email endpoint
-    const res = await fetch(`${origin}/api/links/${link.id}/email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        toEmail: taker.email,
-        toName: taker.first_name || undefined,
-      }),
+      internal_report_link: "",
+      internal_results_dashboard_link: "",
+    };
+
+    const type: EmailTemplateType = "resend_report";
+
+    const result = await sendTemplatedEmail({
+      orgId: taker.org_id,
+      type,
+      to: taker.email,
+      context: ctx,
     });
 
-    const json = await res.json().catch(() => ({} as any));
-
-    if (!res.ok || (json && json.ok === false)) {
+    if (!result.ok) {
       return NextResponse.json(
-        {
-          ok: false,
-          error:
-            json?.error ||
-            `Email endpoint failed with status ${res.status}`,
-        },
+        { ok: false, error: "SEND_FAILED", detail: result },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Server error" },
-      { status: 500 }
-    );
+    // ✅ don't access result.data (TS type doesn't include it)
+    return NextResponse.json({ ok: true, detail: result });
+  } catch (err: any) {
+    console.error("[takers/resend-report] Error", err);
+    const msg = typeof err?.message === "string" ? err.message : "UNKNOWN";
+    const status = msg === "TAKER_NOT_FOUND" ? 404 : 500;
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
+
