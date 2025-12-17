@@ -28,7 +28,7 @@ type QscResultsRow = {
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
 
-  combined_profile_code: string | null;
+  combined_profile_code: string | null; // persona_code e.g. A1..D5
   qsc_profile_id: string | null;
 
   created_at: string;
@@ -52,39 +52,27 @@ type QscTakerRow = {
   link_token?: string | null;
 };
 
-type JsonContent = { text?: string } | null;
-
-type LeaderTemplateKey = "introduction" | "how_to_use";
-
-type LeaderPersonaSectionKey =
-  | "quantum_profile_summary"
-  | "personality_layer"
-  | "mindset_layer"
-  | "combined_quantum_pattern"
-  | "strategic_leadership_priorities"
-  | "leadership_action_plan_30_day"
-  | "leadership_roadmap"
-  | "communication_and_decision_style"
-  | "reflection_prompts"
-  | "one_page_quantum_summary";
-
-type QscLeaderReportTemplateRow = {
+type LeaderTemplateRow = {
   id: string;
-  test_id: string;
-  section_key: LeaderTemplateKey;
-  content: JsonContent;
-  sort_order: number;
-  is_active: boolean;
+  test_id: string | null;
+  section_key: string;
+  content: any; // jsonb; typically { text: "..." }
+  sort_order: number | null;
+  is_active: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
-type QscLeaderReportSectionRow = {
+type LeaderSectionRow = {
   id: string;
   test_id: string;
   persona_code: string; // A1..D5
-  section_key: LeaderPersonaSectionKey;
-  content: JsonContent;
-  sort_order: number;
-  is_active: boolean;
+  section_key: string;
+  content: any; // jsonb; typically { text: "..." }
+  sort_order: number | null;
+  is_active: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 function supa() {
@@ -217,7 +205,7 @@ export async function GET(
       );
     }
 
-    // Hard guard: this endpoint is LEADER-only
+    // Hard guard: leader only
     if (results.audience && results.audience !== "leader") {
       return NextResponse.json(
         {
@@ -271,7 +259,7 @@ export async function GET(
       if (data) taker = data as unknown as QscTakerRow;
     }
 
-    // Load profile snapshot (needed for label fallback)
+    // Load profile snapshot (optional label fallback)
     let profile: QscProfileRow | null = null;
 
     if (results.qsc_profile_id) {
@@ -310,13 +298,14 @@ export async function GET(
       if (data) profile = data as unknown as QscProfileRow;
     }
 
+    // ✅ NEW: pull from the new tables
     const testId = results.test_id;
-    const personaCode = results.combined_profile_code ?? null;
+    const personaCode = (results.combined_profile_code || "").trim() || null;
 
-    // ✅ Templates (global): introduction, how_to_use
-    const { data: templateRows, error: tmplErr } = await sb
+    // Templates (intro + how_to_use etc.)
+    const { data: templatesRaw, error: tmplErr } = await sb
       .from("qsc_leader_report_templates")
-      .select("id, test_id, section_key, content, sort_order, is_active")
+      .select("id, test_id, section_key, content, sort_order, is_active, created_at, updated_at")
       .eq("test_id", testId)
       .eq("is_active", true)
       .order("sort_order", { ascending: true });
@@ -328,12 +317,12 @@ export async function GET(
       );
     }
 
-    // ✅ Persona sections (A1..D5): 1–10 keys
-    let sectionRows: QscLeaderReportSectionRow[] = [];
+    // Sections (persona-specific)
+    let sectionsRaw: LeaderSectionRow[] = [];
     if (personaCode) {
-      const { data: rows, error: secErr } = await sb
+      const { data: secData, error: secErr } = await sb
         .from("qsc_leader_report_sections")
-        .select("id, test_id, persona_code, section_key, content, sort_order, is_active")
+        .select("id, test_id, persona_code, section_key, content, sort_order, is_active, created_at, updated_at")
         .eq("test_id", testId)
         .eq("persona_code", personaCode)
         .eq("is_active", true)
@@ -346,8 +335,10 @@ export async function GET(
         );
       }
 
-      sectionRows = (rows ?? []) as unknown as QscLeaderReportSectionRow[];
+      sectionsRaw = (secData ?? []) as unknown as LeaderSectionRow[];
     }
+
+    const templates = (templatesRaw ?? []) as unknown as LeaderTemplateRow[];
 
     return NextResponse.json(
       {
@@ -355,16 +346,16 @@ export async function GET(
         results,
         profile,
         taker,
-        templates: (templateRows ?? []) as unknown as QscLeaderReportTemplateRow[],
-        sections: sectionRows,
+        templates,
+        sections: sectionsRaw,
         __debug: {
           token: tokenParam,
           tid: tid || null,
           resolved_by: resolvedBy,
-          test_id: testId,
-          persona_code: personaCode,
-          templates_count: (templateRows ?? []).length,
-          sections_count: sectionRows.length,
+          testId,
+          personaCode,
+          templates_count: templates.length,
+          sections_count: sectionsRaw.length,
         },
       },
       { status: 200 }
@@ -376,3 +367,4 @@ export async function GET(
     );
   }
 }
+
