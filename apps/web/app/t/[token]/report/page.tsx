@@ -182,6 +182,7 @@ type OrgReportCopy = OrgFramework["framework"]["report"] & {
       example?: string;
     }
   >;
+  images?: Record<string, string>;
 };
 
 const DEFAULT_FREQUENCIES_INTRO =

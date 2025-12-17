@@ -28,7 +28,7 @@ type QscResultsRow = {
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
 
-  combined_profile_code: string | null; // SHOULD be A1..D5 but is currently FORM_QUANTUM in your debug
+  combined_profile_code: string | null; // e.g. "C5" (what we want)
   qsc_profile_id: string | null;
 
   created_at: string;
@@ -36,10 +36,10 @@ type QscResultsRow = {
 
 type QscProfileRow = {
   id: string;
-  personality_code: string | null; // often "FORM"
+  personality_code: string | null; // e.g. "FORM"
   mindset_level: number | null; // 1..5
-  profile_code: string | null; // often "C5"
-  profile_label: string | null;
+  profile_code: string | null; // e.g. "FORM_QUANTUM"
+  profile_label: string | null; // e.g. "Form Quantum"
 };
 
 type QscTakerRow = {
@@ -56,17 +56,17 @@ type TemplateRow = {
   id: string;
   test_id: string;
   section_key: string;
-  content: any;
+  content: any; // jsonb
   sort_order: number;
   is_active: boolean;
 };
 
-type PersonaSectionRow = {
+type SectionRow = {
   id: string;
   test_id: string;
-  persona_code: string;
+  persona_code: string; // "A1".."D5"
   section_key: string;
-  content: any;
+  content: any; // jsonb
   sort_order: number;
   is_active: boolean;
 };
@@ -84,32 +84,45 @@ function isUuidLike(s: string) {
   );
 }
 
-function safeJsonParse(v: any) {
-  if (v == null) return null;
-  if (typeof v === "object") return v;
-  if (typeof v !== "string") return v;
-  const s = v.trim();
+function isPersonaCode(s: string | null | undefined) {
+  if (!s) return false;
+  return /^[ABCD][1-5]$/i.test(String(s).trim());
+}
+
+/**
+ * Fallback mapping if combined_profile_code is not present or not like "C5".
+ * Converts profile_code like "FORM_QUANTUM" into "C5"
+ */
+function mapProfileCodeToPersonaCode(profileCode: string | null | undefined) {
+  const s = String(profileCode || "").trim().toUpperCase();
   if (!s) return null;
-  if (!(s.startsWith("{") || s.startsWith("["))) return v;
-  try {
-    return JSON.parse(s);
-  } catch {
-    return v;
-  }
-}
 
-function looksLikePersonaCode(v: string | null | undefined) {
-  if (!v) return false;
-  return /^[ABCD][1-5]$/i.test(v.trim());
-}
+  // expected shape: FIRE_ORIGIN, FLOW_VECTOR, FORM_QUANTUM, FIELD_ORBIT etc
+  const parts = s.split("_");
+  if (parts.length !== 2) return null;
 
-function personalityToLetter(p: string | null | undefined): "A" | "B" | "C" | "D" | null {
-  const x = String(p || "").trim().toUpperCase();
-  if (x === "FIRE") return "A";
-  if (x === "FLOW") return "B";
-  if (x === "FORM") return "C";
-  if (x === "FIELD") return "D";
-  return null;
+  const [p, m] = parts;
+
+  const pMap: Record<string, string> = {
+    FIRE: "A",
+    FLOW: "B",
+    FORM: "C",
+    FIELD: "D",
+  };
+
+  const mMap: Record<string, string> = {
+    ORIGIN: "1",
+    MOMENTUM: "2",
+    VECTOR: "3",
+    ORBIT: "4",
+    QUANTUM: "5",
+  };
+
+  const letter = pMap[p];
+  const num = mMap[m];
+
+  if (!letter || !num) return null;
+  return `${letter}${num}`;
 }
 
 export async function GET(
@@ -126,7 +139,7 @@ export async function GET(
     }
 
     const url = new URL(req.url);
-    const tid = String(url.searchParams.get("tid") || "").trim();
+    const tid = String(url.searchParams.get("tid") || "").trim(); // test_takers.id UUID
 
     const sb = supa();
 
@@ -150,9 +163,10 @@ export async function GET(
     `;
 
     let results: QscResultsRow | null = null;
-    let resolvedBy: "token+taker_id" | "token_latest" | "result_id" | null = null;
+    let resolvedBy: "token+taker_id" | "token_latest" | "result_id" | null =
+      null;
 
-    // (1) token + tid
+    // (1) token + tid (most precise)
     if (tid && isUuidLike(tid)) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -175,7 +189,7 @@ export async function GET(
       }
     }
 
-    // (2) token latest
+    // (2) token only (latest)
     if (!results) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -197,7 +211,7 @@ export async function GET(
       }
     }
 
-    // (3) tokenParam might be qsc_results.id
+    // (3) tokenParam might be qsc_results.id (UUID)
     if (!results && isUuidLike(tokenParam)) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -228,7 +242,7 @@ export async function GET(
       );
     }
 
-    // Leader-only endpoint
+    // Hard guard: this endpoint is LEADER-only
     if (results.audience && results.audience !== "leader") {
       return NextResponse.json(
         {
@@ -262,7 +276,9 @@ export async function GET(
     if (!taker) {
       const { data, error } = await sb
         .from("test_takers")
-        .select("id, first_name, last_name, email, company, role_title, link_token")
+        .select(
+          "id, first_name, last_name, email, company, role_title, link_token"
+        )
         .eq("link_token", results.token)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -270,14 +286,17 @@ export async function GET(
 
       if (error) {
         return NextResponse.json(
-          { ok: false, error: `test_takers fallback load failed: ${error.message}` },
+          {
+            ok: false,
+            error: `test_takers fallback load failed: ${error.message}`,
+          },
           { status: 500 }
         );
       }
       if (data) taker = data as unknown as QscTakerRow;
     }
 
-    // Load profile snapshot (needed for persona_code resolution)
+    // Load profile snapshot (needed for labels / mapping fallback)
     let profile: QscProfileRow | null = null;
 
     if (results.qsc_profile_id) {
@@ -296,39 +315,39 @@ export async function GET(
       if (data) profile = data as unknown as QscProfileRow;
     }
 
-    // ✅ Resolve persona_code (must be A1..D5)
-    const combinedRaw = (results.combined_profile_code || "").trim();
-    const fromCombined = looksLikePersonaCode(combinedRaw) ? combinedRaw.toUpperCase() : null;
+    if (!profile && results.combined_profile_code) {
+      const { data, error } = await sb
+        .from("qsc_profiles")
+        .select("id, personality_code, mindset_level, profile_code, profile_label")
+        .eq("profile_code", results.combined_profile_code)
+        .limit(1)
+        .maybeSingle();
 
-    const fromProfileCode =
-      looksLikePersonaCode(profile?.profile_code || "")
-        ? String(profile?.profile_code).trim().toUpperCase()
-        : null;
+      if (error) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `qsc_profiles fallback load failed: ${error.message}`,
+          },
+          { status: 500 }
+        );
+      }
+      if (data) profile = data as unknown as QscProfileRow;
+    }
 
-    const letter =
-      personalityToLetter(profile?.personality_code) ||
-      personalityToLetter(results.primary_personality);
-
-    const lvl =
-      typeof profile?.mindset_level === "number" && Number.isFinite(profile.mindset_level)
-        ? profile.mindset_level
-        : null;
-
-    const fromDerived = letter && lvl ? `${letter}${lvl}` : null;
-
+    // ✅ Resolve persona_code for the NEW section table
+    const combinedProfileCodeRaw = (results.combined_profile_code || "").trim();
     const personaCode =
-      fromCombined || fromProfileCode || (looksLikePersonaCode(fromDerived || "") ? fromDerived : null);
-
-    const personaCodeSource =
-      fromCombined ? "qsc_results.combined_profile_code" :
-      fromProfileCode ? "qsc_profiles.profile_code" :
-      fromDerived ? "derived(personality_code + mindset_level)" :
+      (isPersonaCode(combinedProfileCodeRaw)
+        ? combinedProfileCodeRaw.toUpperCase()
+        : null) ||
+      mapProfileCodeToPersonaCode(profile?.profile_code) ||
       null;
 
-    // Templates (global per test)
     const testId = results.test_id;
 
-    const { data: templateRows, error: tplErr } = await sb
+    // Load templates (global per test)
+    const { data: templatesData, error: tplErr } = await sb
       .from("qsc_leader_report_templates")
       .select("id, test_id, section_key, content, sort_order, is_active")
       .eq("test_id", testId)
@@ -342,10 +361,10 @@ export async function GET(
       );
     }
 
-    // Persona sections
-    let sectionRows: PersonaSectionRow[] = [];
+    // Load persona sections (per persona_code)
+    let sectionsData: SectionRow[] = [];
     if (personaCode) {
-      const { data: secRows, error: secErr } = await sb
+      const { data, error: secErr } = await sb
         .from("qsc_leader_report_sections")
         .select("id, test_id, persona_code, section_key, content, sort_order, is_active")
         .eq("test_id", testId)
@@ -359,18 +378,8 @@ export async function GET(
           { status: 500 }
         );
       }
-      sectionRows = (secRows ?? []) as any;
+      sectionsData = (data ?? []) as unknown as SectionRow[];
     }
-
-    const templates = (templateRows ?? []).map((r: any) => ({
-      ...r,
-      content: safeJsonParse(r.content),
-    })) as TemplateRow[];
-
-    const sections = (sectionRows ?? []).map((r: any) => ({
-      ...r,
-      content: safeJsonParse(r.content),
-    })) as PersonaSectionRow[];
 
     return NextResponse.json(
       {
@@ -378,25 +387,18 @@ export async function GET(
         results,
         profile,
         taker,
-        report: {
-          test_id: testId,
-          persona_code: personaCode,
-          templates,
-          sections,
-        },
+        templates: (templatesData ?? []) as unknown as TemplateRow[],
+        sections: sectionsData,
         __debug: {
           token: tokenParam,
           tid: tid || null,
           resolved_by: resolvedBy,
           test_id: testId,
           persona_code: personaCode,
-          persona_code_source: personaCodeSource,
-          combined_profile_code_raw: results.combined_profile_code,
-          profile_code: profile?.profile_code ?? null,
-          profile_personality_code: profile?.personality_code ?? null,
-          profile_mindset_level: profile?.mindset_level ?? null,
-          template_count: templates.length,
-          section_count: sections.length,
+          combined_profile_code_raw: combinedProfileCodeRaw || null,
+          profile_profile_code: profile?.profile_code ?? null,
+          template_count: (templatesData ?? []).length,
+          section_count: sectionsData.length,
         },
       },
       { status: 200 }

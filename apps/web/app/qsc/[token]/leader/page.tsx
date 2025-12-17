@@ -22,12 +22,10 @@ type QscResultsRow = {
   id: string;
   test_id: string;
   token: string;
-  taker_id?: string | null;
   audience: Audience | null;
+  created_at: string;
 
-  personality_totals: Record<string, number> | null;
   personality_percentages: PersonalityPercMap | null;
-  mindset_totals: Record<string, number> | null;
   mindset_percentages: MindsetPercMap | null;
 
   primary_personality: PersonalityKey | null;
@@ -37,8 +35,6 @@ type QscResultsRow = {
 
   combined_profile_code: string | null;
   qsc_profile_id: string | null;
-
-  created_at: string;
 };
 
 type QscProfileRow = {
@@ -58,50 +54,31 @@ type QscTakerRow = {
   role_title: string | null;
 };
 
-type SectionKey =
-  | "introduction"
-  | "how_to_use"
-  | "quantum_profile_summary"
-  | "personality_layer"
-  | "mindset_layer"
-  | "combined_quantum_pattern"
-  | "strategic_leadership_priorities"
-  | "leadership_action_plan_30_day"
-  | "leadership_roadmap"
-  | "communication_and_decision_style"
-  | "reflection_prompts"
-  | "one_page_quantum_summary";
-
 type TemplateRow = {
   id: string;
   test_id: string;
-  section_key: SectionKey;
-  content: any;
-  sort_order: number | null;
-  is_active?: boolean | null;
+  section_key: string; // introduction, how_to_use
+  content: any; // jsonb
+  sort_order: number;
+  is_active: boolean;
 };
 
 type SectionRow = {
   id: string;
   test_id: string;
-  persona_code: string;
-  section_key: SectionKey;
-  content: any;
-  sort_order: number | null;
-  is_active?: boolean | null;
+  persona_code: string; // A1..D5
+  section_key: string;
+  content: any; // jsonb
+  sort_order: number;
+  is_active: boolean;
 };
 
 type ApiPayload = {
-  ok: boolean;
   results: QscResultsRow;
   profile: QscProfileRow | null;
   taker: QscTakerRow | null;
-
-  // new tables
-  persona_code?: string | null;
-  templates?: TemplateRow[];
-  sections?: SectionRow[];
-
+  templates: TemplateRow[];
+  sections: SectionRow[];
   __debug?: any;
 };
 
@@ -143,29 +120,64 @@ function getFullName(taker: QscTakerRow | null | undefined): string | null {
   return email || null;
 }
 
+/**
+ * Robust: supports content stored as:
+ * - jsonb object: { text: "..." }
+ * - string: "..."
+ * - stringified JSON: "{\"text\":\"...\"}"
+ */
 function contentToText(content: any): string {
   if (content == null) return "";
-  if (typeof content === "string") return content;
-  if (typeof content === "number" || typeof content === "boolean") return String(content);
 
-  // common shape: { text: "..." }
-  if (typeof content === "object" && typeof content.text === "string") return content.text;
-
-  // occasionally: { value: { text: "..." } }
-  if (typeof content === "object" && content.value && typeof content.value.text === "string")
-    return content.value.text;
-
-  // fallback: stringify safely
-  try {
-    return JSON.stringify(content, null, 2);
-  } catch {
-    return String(content);
+  // If the DB column is jsonb (Supabase returns object)
+  if (typeof content === "object") {
+    if (typeof content.text === "string") return content.text;
+    // allow other shapes later
+    return "";
   }
+
+  // If it is plain string
+  if (typeof content === "string") {
+    const s = content.trim();
+    if (!s) return "";
+
+    // Try parse stringified JSON
+    if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
+      try {
+        const parsed = JSON.parse(s);
+        if (parsed && typeof parsed === "object" && typeof parsed.text === "string") {
+          return parsed.text;
+        }
+      } catch {
+        // fall through
+      }
+    }
+
+    return s;
+  }
+
+  return "";
 }
 
-function isBlankContent(content: any): boolean {
+function renderDocText(content: any) {
   const t = contentToText(content).trim();
-  return t.length === 0;
+
+  if (!t) {
+    return (
+      <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 text-sm text-rose-100">
+        <div className="font-semibold">Missing content</div>
+        <div className="mt-1 text-xs text-rose-100/80">
+          This section is blank for this report (template/section row missing or empty).
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-[15px] text-slate-100/90 whitespace-pre-line leading-relaxed">
+      {t}
+    </div>
+  );
 }
 
 type FrequencyDonutDatum = {
@@ -179,19 +191,19 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
     data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
 
   const radius = 60;
-  const strokeWidth = 18;
+  const strokeWidth = 20;
   const center = 80;
   const circumference = 2 * Math.PI * radius;
 
   let offset = 0;
 
   return (
-    <svg viewBox="0 0 160 160" className="h-40 w-40 md:h-44 md:w-44" aria-hidden="true">
+    <svg viewBox="0 0 160 160" className="h-40 w-40 md:h-48 md:w-48" aria-hidden="true">
       <circle
         cx={center}
         cy={center}
         r={radius}
-        stroke="rgba(15,23,42,0.95)"
+        stroke="rgba(15,23,42,0.9)"
         strokeWidth={strokeWidth}
         fill="transparent"
       />
@@ -221,108 +233,50 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
 
       <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
 
-      <text x={center} y={center - 5} textAnchor="middle" fill="#e5e7eb" className="text-[10px]">
+      <text x={center} y={center - 4} textAnchor="middle" fill="#e5e7eb" className="text-[9px] md:text-[10px]">
         LEADERSHIP
       </text>
-      <text x={center} y={center + 10} textAnchor="middle" fill="#e5e7eb" className="text-[10px]">
+      <text x={center} y={center + 12} textAnchor="middle" fill="#e5e7eb" className="text-[9px] md:text-[10px]">
         FREQUENCY
       </text>
     </svg>
   );
 }
 
-function GlowCard({
-  children,
-  tone = "slate",
+function SectionCard({
+  kicker,
+  title,
+  content,
+  variant = "dark",
 }: {
-  children: React.ReactNode;
-  tone?: "slate" | "amber" | "sky" | "indigo" | "rose" | "emerald";
+  kicker: string;
+  title: string;
+  content: any;
+  variant?: "dark" | "accentA" | "accentB";
 }) {
-  const toneMap: Record<string, string> = {
-    slate: "border-slate-800 bg-slate-950/55",
-    amber: "border-amber-400/25 bg-amber-500/10",
-    sky: "border-sky-400/25 bg-sky-500/10",
-    indigo: "border-indigo-400/25 bg-indigo-500/10",
-    rose: "border-rose-400/25 bg-rose-500/10",
-    emerald: "border-emerald-400/25 bg-emerald-500/10",
+  const base =
+    "rounded-3xl border p-6 md:p-8 shadow-sm backdrop-blur-sm";
+
+  const variants: Record<typeof variant, string> = {
+    // Default dark card (keeps readability even if background changes)
+    dark:
+      "border-slate-800 bg-slate-950/60",
+    // Subtle “entrepreneur-like” lift but STILL dark and readable
+    accentA:
+      "border-amber-400/25 bg-gradient-to-br from-slate-950/70 via-slate-950/55 to-amber-500/10",
+    accentB:
+      "border-sky-400/25 bg-gradient-to-br from-slate-950/70 via-slate-950/55 to-sky-500/10",
   };
 
   return (
-    <section className={`relative overflow-hidden rounded-3xl border shadow-[0_20px_80px_rgba(0,0,0,0.35)] ${toneMap[tone]}`}>
-      {/* subtle inner glow */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(56,189,248,0.14),transparent_40%),radial-gradient(circle_at_80%_20%,rgba(168,85,247,0.10),transparent_45%),radial-gradient(circle_at_30%_90%,rgba(34,197,94,0.08),transparent_45%)]" />
-      <div className="relative p-6 md:p-8">{children}</div>
+    <section className={`${base} ${variants[variant]} space-y-2`}>
+      <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300/80">
+        {kicker}
+      </p>
+      <h3 className="text-xl font-semibold text-slate-50">{title}</h3>
+      <div className="pt-2">{renderDocText(content)}</div>
     </section>
   );
-}
-
-function SectionHeader({
-  kicker,
-  title,
-  subtitle,
-}: {
-  kicker?: string;
-  title: string;
-  subtitle?: string;
-}) {
-  return (
-    <div className="space-y-2">
-      {kicker && (
-        <p className="text-[11px] font-semibold tracking-[0.28em] uppercase text-sky-300/85">
-          {kicker}
-        </p>
-      )}
-      <h2 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-50">
-        {title}
-      </h2>
-      {subtitle && <p className="text-[15px] text-slate-300 leading-relaxed">{subtitle}</p>}
-    </div>
-  );
-}
-
-function DocText({ content }: { content: any }) {
-  const t = contentToText(content).trim();
-
-  if (!t) {
-    // Keep this: it’s how you *see immediately* if DB mapping breaks.
-    return (
-      <div className="rounded-2xl border border-rose-400/25 bg-rose-500/10 p-4 text-sm text-rose-100">
-        <div className="font-semibold">Missing content</div>
-        <div className="mt-1 text-xs text-rose-100/80">
-          This section is blank in the database for this report.
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="text-[15px] text-slate-100 whitespace-pre-line leading-relaxed">
-      {t}
-    </div>
-  );
-}
-
-function buildSectionMap(rows: Array<{ section_key: SectionKey; content: any }> | undefined | null) {
-  const map = new Map<SectionKey, any>();
-  (rows || []).forEach((r) => map.set(r.section_key, r.content));
-  return map;
-}
-
-function requiredKeys(): SectionKey[] {
-  return [
-    "introduction",
-    "how_to_use",
-    "quantum_profile_summary",
-    "personality_layer",
-    "mindset_layer",
-    "combined_quantum_pattern",
-    "strategic_leadership_priorities",
-    "leadership_action_plan_30_day",
-    "leadership_roadmap",
-    "communication_and_decision_style",
-    "reflection_prompts",
-    "one_page_quantum_summary",
-  ];
 }
 
 export default function QscLeaderStrategicReportPage({
@@ -361,12 +315,12 @@ export default function QscLeaderStrategicReportPage({
           throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
         }
 
-        const j = (await res.json()) as ApiPayload;
+        const j = (await res.json()) as any;
 
-        if (!res.ok || j?.ok === false) throw new Error((j as any)?.error || `HTTP ${res.status}`);
+        if (!res.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${res.status}`);
         if (!j?.results) throw new Error("RESULT_NOT_FOUND");
 
-        // Safety bounce
+        // Safety: if someone hits /leader but result is entrepreneur, bounce them
         if (j.results.audience === "entrepreneur") {
           const base = `/qsc/${encodeURIComponent(token)}/entrepreneur`;
           const href = tid ? `${base}?tid=${encodeURIComponent(tid)}` : base;
@@ -374,7 +328,16 @@ export default function QscLeaderStrategicReportPage({
           return;
         }
 
-        if (alive) setPayload(j);
+        if (alive) {
+          setPayload({
+            results: j.results,
+            profile: j.profile ?? null,
+            taker: j.taker ?? null,
+            templates: Array.isArray(j.templates) ? j.templates : [],
+            sections: Array.isArray(j.sections) ? j.sections : [],
+            __debug: j.__debug ?? null,
+          });
+        }
       } catch (e: any) {
         if (alive) setErr(String(e?.message || e || "Unknown error"));
       } finally {
@@ -392,10 +355,11 @@ export default function QscLeaderStrategicReportPage({
 
     const element = reportRef.current;
 
+    // IMPORTANT: capture at higher scale; BackgroundGrid is behind cards
     const canvas = await html2canvas(element, {
       scale: 2,
       useCORS: true,
-      backgroundColor: null, // keep your background rendering consistent
+      backgroundColor: null, // keep transparent so gradient/cards remain true
     });
 
     const imgData = canvas.toDataURL("image/png");
@@ -427,29 +391,10 @@ export default function QscLeaderStrategicReportPage({
   const profile = payload?.profile ?? null;
   const taker = payload?.taker ?? null;
 
-  const personaCode = payload?.persona_code ?? result?.combined_profile_code ?? null;
-
-  const templateMap = useMemo(() => buildSectionMap(payload?.templates ?? []), [payload?.templates]);
-  const sectionMap = useMemo(() => buildSectionMap(payload?.sections ?? []), [payload?.sections]);
-
-  const introContent = templateMap.get("introduction") ?? null;
-  const howToUseContent = templateMap.get("how_to_use") ?? null;
-
-  const sectionContent = (k: SectionKey) => sectionMap.get(k) ?? null;
-
-  const misses = useMemo(() => {
-    const missing: string[] = [];
-    const all = requiredKeys();
-    for (const k of all) {
-      const src = k === "introduction" || k === "how_to_use" ? templateMap.get(k) : sectionMap.get(k);
-      if (isBlankContent(src)) missing.push(`section:${k}`);
-    }
-    return missing;
-  }, [templateMap, sectionMap]);
-
   const takerDisplayName = getFullName(taker);
 
-  const personalityPercRaw = (result?.personality_percentages ?? {}) as PersonalityPercMap;
+  const personalityPercRaw =
+    (result?.personality_percentages ?? {}) as PersonalityPercMap;
   const mindsetPercRaw = (result?.mindset_percentages ?? {}) as MindsetPercMap;
 
   const personalityPerc: PersonalityPercMap = {
@@ -480,11 +425,12 @@ export default function QscLeaderStrategicReportPage({
 
   const effectivePrimaryPersonality =
     result?.primary_personality ?? ("FIRE" as PersonalityKey);
-  const effectivePrimaryMindset = result?.primary_mindset ?? ("ORIGIN" as MindsetKey);
+  const effectivePrimaryMindset =
+    result?.primary_mindset ?? ("ORIGIN" as MindsetKey);
 
   const personaName =
     (profile?.profile_label || "").trim() ||
-    (personaCode || "").replace(/_/g, " ").trim() ||
+    (result?.combined_profile_code || "").trim() ||
     "Your Quantum Leadership Profile";
 
   const createdAt = result?.created_at ? new Date(result.created_at) : null;
@@ -493,12 +439,61 @@ export default function QscLeaderStrategicReportPage({
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
+  // Build lookups from DB tables
+  const templateByKey = useMemo(() => {
+    const m: Record<string, TemplateRow> = {};
+    (payload?.templates ?? []).forEach((r) => {
+      m[String(r.section_key || "").trim()] = r;
+    });
+    return m;
+  }, [payload?.templates]);
+
+  const sectionByKey = useMemo(() => {
+    const m: Record<string, SectionRow> = {};
+    (payload?.sections ?? []).forEach((r) => {
+      m[String(r.section_key || "").trim()] = r;
+    });
+    return m;
+  }, [payload?.sections]);
+
+  const missing = useMemo(() => {
+    const reqTemplates = ["introduction", "how_to_use"];
+    const reqSections = [
+      "quantum_profile_summary",
+      "personality_layer",
+      "mindset_layer",
+      "combined_quantum_pattern",
+      "strategic_leadership_priorities",
+      "leadership_action_plan_30_day",
+      "leadership_roadmap",
+      "communication_and_decision_style",
+      "reflection_prompts",
+      "one_page_quantum_summary",
+    ];
+
+    const misses: string[] = [];
+
+    reqTemplates.forEach((k) => {
+      const row = templateByKey[k];
+      const text = contentToText(row?.content).trim();
+      if (!text) misses.push(`template:${k}`);
+    });
+
+    reqSections.forEach((k) => {
+      const row = sectionByKey[k];
+      const text = contentToText(row?.content).trim();
+      if (!text) misses.push(`section:${k}`);
+    });
+
+    return misses;
+  }, [templateByKey, sectionByKey]);
+
   if (loading && !result) {
     return (
       <div className="relative min-h-screen text-slate-50">
         <BackgroundGrid />
-        <main className="relative z-10 mx-auto max-w-6xl px-4 py-12 space-y-4">
-          <p className="text-[11px] font-semibold tracking-[0.28em] uppercase text-sky-300/85">
+        <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Strategic Leadership Report
           </p>
           <h1 className="mt-3 text-3xl font-bold">Preparing your QSC Leader report…</h1>
@@ -511,8 +506,8 @@ export default function QscLeaderStrategicReportPage({
     return (
       <div className="relative min-h-screen text-slate-50">
         <BackgroundGrid />
-        <main className="relative z-10 mx-auto max-w-6xl px-4 py-12 space-y-4">
-          <p className="text-[11px] font-semibold tracking-[0.28em] uppercase text-sky-300/85">
+        <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Strategic Leadership Report
           </p>
           <h1 className="text-3xl font-bold">Couldn&apos;t load report</h1>
@@ -534,19 +529,18 @@ export default function QscLeaderStrategicReportPage({
 
   return (
     <div className="relative min-h-screen text-slate-50">
+      {/* ✅ Background must sit behind content */}
       <BackgroundGrid />
 
       <main
         ref={reportRef}
-        className="relative z-10 mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"
+        className="relative z-10 mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10"
       >
-        {/* Top Header */}
-        <header className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+        <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
-            <p className="text-[11px] font-semibold tracking-[0.28em] uppercase text-sky-300/85">
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
               Strategic Leadership Report
             </p>
-
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-50">
               QSC Leader — Strategic Leadership Report
             </h1>
@@ -595,18 +589,16 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </header>
 
-        {/* Missing content warning (kept but less “in your face”) */}
-        {misses.length > 0 && (
-          <section className="rounded-3xl border border-rose-400/20 bg-rose-500/10 p-6">
+        {missing.length > 0 && (
+          <section className="rounded-3xl border border-rose-400/30 bg-rose-500/10 p-6">
             <div className="text-sm font-semibold text-rose-100">
-              Missing content for this report (persona:{" "}
-              <span className="font-mono">{personaCode ?? "unknown"}</span>)
+              Missing content for this report
             </div>
             <div className="mt-1 text-xs text-rose-100/80">
-              This is a DB alignment check — it helps you spot missing keys fast.
+              Fix the DB rows (we do not auto-fill defaults).
             </div>
             <ul className="mt-3 list-disc pl-5 text-xs text-rose-100/90 space-y-1">
-              {misses.map((k) => (
+              {missing.map((k) => (
                 <li key={k}>
                   <code className="text-rose-50">{k}</code>
                 </li>
@@ -615,243 +607,194 @@ export default function QscLeaderStrategicReportPage({
           </section>
         )}
 
-        {/* Hero / Profile Banner (more “alive”) */}
-        <GlowCard tone="sky">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold tracking-[0.28em] uppercase text-sky-200/80">
-                Strategic Leadership Report
-              </p>
-              <h2 className="text-2xl md:text-3xl font-semibold text-slate-50">
-                {personaName}
-              </h2>
-              <div className="flex flex-wrap gap-2 pt-1">
-                <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-950/50 px-3 py-1 text-xs text-slate-200">
-                  Primary: {PERSONALITY_LABELS[effectivePrimaryPersonality]}
-                </span>
-                <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-950/50 px-3 py-1 text-xs text-slate-200">
-                  Mindset: {MINDSET_LABELS[effectivePrimaryMindset]}
-                  {typeof profile?.mindset_level === "number" ? ` (Level ${profile.mindset_level})` : ""}
-                </span>
-                {personaCode && (
-                  <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-950/50 px-3 py-1 text-xs text-slate-200">
-                    Persona: <span className="ml-1 font-mono">{personaCode}</span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="hidden md:block">
-              <div className="h-16 w-16 rounded-2xl border border-slate-800 bg-slate-950/50 shadow-[0_20px_80px_rgba(0,0,0,0.35)]" />
-            </div>
+        {/* Title / Profile (keeps dark readability but adds a little lift) */}
+        <section className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950/70 via-slate-950/55 to-sky-500/10 p-6 md:p-8 shadow-sm backdrop-blur-sm space-y-2">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+            STRATEGIC LEADERSHIP REPORT
+          </p>
+          <h2 className="text-2xl font-semibold text-slate-50">{personaName}</h2>
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-200/80">
+            <span className="rounded-full border border-slate-700 bg-slate-950/60 px-2 py-1">
+              Primary: {PERSONALITY_LABELS[effectivePrimaryPersonality] || effectivePrimaryPersonality}
+            </span>
+            <span className="rounded-full border border-slate-700 bg-slate-950/60 px-2 py-1">
+              Mindset: {MINDSET_LABELS[effectivePrimaryMindset] || effectivePrimaryMindset}
+              {typeof profile?.mindset_level === "number" ? ` (Level ${profile.mindset_level})` : ""}
+            </span>
+            <span className="rounded-full border border-slate-700 bg-slate-950/60 px-2 py-1">
+              Persona: {(payload?.__debug?.persona_code || "").toString()}
+            </span>
           </div>
-        </GlowCard>
-
-        {/* Intro + How-to-use (SIDE BY SIDE) */}
-        <section className="grid gap-6 md:grid-cols-2">
-          <GlowCard tone="slate">
-            <SectionHeader kicker="Introduction" title="Why this report matters" />
-            <div className="mt-4">
-              <DocText content={introContent} />
-            </div>
-          </GlowCard>
-
-          <GlowCard tone="slate">
-            <SectionHeader kicker="How to use this report" title="How to get value fast" />
-            <div className="mt-4">
-              <DocText content={howToUseContent} />
-            </div>
-          </GlowCard>
         </section>
 
         {/* Charts */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
-          <GlowCard tone="indigo">
-            <SectionHeader
-              kicker="Leadership Frequency Type"
-              title="Your energetic leadership style"
-              subtitle="Your pattern across Fire, Flow, Form and Field — how you lead, decide and influence."
-            />
+          <section className="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 md:p-7 shadow-sm backdrop-blur-sm space-y-4">
+            <h2 className="text-lg font-semibold text-slate-50">Leadership Frequency Type</h2>
+            <p className="text-sm text-slate-300">
+              Your energetic style across Fire, Flow, Form and Field in how you lead.
+            </p>
 
-            <div className="mt-6 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
+            <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
               <div className="flex justify-center">
                 <FrequencyDonut data={frequencyDonutData} />
               </div>
-
               <div className="space-y-3 text-sm">
                 {frequencyDonutData.map((d) => (
                   <div key={d.key} className="flex items-center justify-between gap-3">
                     <span className="text-slate-200">{d.label}</span>
-                    <span className="tabular-nums text-slate-50">{Math.round(d.value)}%</span>
+                    <span className="tabular-nums text-slate-100">{Math.round(d.value)}%</span>
                   </div>
                 ))}
               </div>
             </div>
-          </GlowCard>
+          </section>
 
-          <GlowCard tone="emerald">
-            <SectionHeader
-              kicker="Leadership Mindset Levels"
-              title="Where your focus and energy sit"
-              subtitle="Your distribution across the 5 growth stages — and what that implies for leadership decisions."
-            />
+          <section className="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 md:p-7 shadow-sm backdrop-blur-sm space-y-4">
+            <h2 className="text-lg font-semibold text-slate-50">Leadership Mindset Levels</h2>
+            <p className="text-sm text-slate-300">
+              Where your focus and energy sit across the 5 growth stages.
+            </p>
 
-            <div className="mt-6 space-y-3">
-              {(["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]).map((key) => {
+            <div className="space-y-2 pt-2 text-xs">
+              {( ["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[] ).map((key) => {
                 const pct = Math.round(mindsetPerc[key] ?? 0);
                 return (
                   <div key={key} className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-200">{MINDSET_LABELS[key]}</span>
-                      <span className="tabular-nums text-slate-50">{pct}%</span>
+                    <div className="flex justify-between text-slate-200">
+                      <span>{MINDSET_LABELS[key]}</span>
+                      <span className="tabular-nums text-slate-100">{pct}%</span>
                     </div>
-                    <div className="h-2 rounded-full bg-slate-900/80">
-                      <div
-                        className="h-2 rounded-full bg-emerald-400"
-                        style={{ width: `${pct}%` }}
-                      />
+                    <div className="h-2 rounded-full bg-slate-900/70">
+                      <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
               })}
             </div>
-          </GlowCard>
+          </section>
         </section>
 
         {/* Matrix */}
-        <GlowCard tone="slate">
-          <SectionHeader
-            kicker="Leadership Persona Matrix"
-            title="Where your frequency meets your mindset"
-            subtitle="Your primary pattern is highlighted — this is the intersection where your leadership identity meets your maturity stage."
-          />
-          <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/60">
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 shadow-sm backdrop-blur-sm space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+            Leadership Persona Matrix
+          </p>
+          <h2 className="text-xl font-semibold text-slate-50">
+            Where your frequency meets your mindset
+          </h2>
+          <p className="text-sm text-slate-300">
+            Your primary pattern is highlighted — the intersection where your leadership identity meets your maturity stage.
+          </p>
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/70">
             <QscMatrix
               primaryPersonality={effectivePrimaryPersonality}
               primaryMindset={effectivePrimaryMindset}
             />
           </div>
-        </GlowCard>
+        </section>
 
-        {/* Report Sections */}
-        <GlowCard tone="amber">
-          <SectionHeader
-            kicker="1. Your Quantum Profile Summary"
-            title="Your at-a-glance leadership identity"
-            subtitle="This sets the foundation for the rest of the report."
+        {/* ✅ INTRO + HOW TO USE (side-by-side as you requested) */}
+        <section className="grid gap-6 md:grid-cols-2">
+          <SectionCard
+            kicker="INTRODUCTION"
+            title="Why this report matters"
+            content={templateByKey["introduction"]?.content}
+            variant="dark"
           />
-          <div className="mt-5">
-            <DocText content={sectionContent("quantum_profile_summary")} />
-          </div>
-        </GlowCard>
-
-        <GlowCard tone="indigo">
-          <SectionHeader
-            kicker="2. Your Personality Layer"
-            title="How you show up emotionally & behaviourally"
+          <SectionCard
+            kicker="HOW TO USE THIS REPORT"
+            title="How to get value fast"
+            content={templateByKey["how_to_use"]?.content}
+            variant="dark"
           />
-          <div className="mt-5">
-            <DocText content={sectionContent("personality_layer")} />
-          </div>
-        </GlowCard>
+        </section>
 
-        <GlowCard tone="emerald">
-          <SectionHeader
-            kicker="3. Your Mindset Layer"
-            title="What your stage demands now"
-          />
-          <div className="mt-5">
-            <DocText content={sectionContent("mindset_layer")} />
-          </div>
-        </GlowCard>
+        {/* Persona sections (exact keys) */}
+        <SectionCard
+          kicker="1. YOUR QUANTUM PROFILE SUMMARY"
+          title="Your at-a-glance leadership identity"
+          content={sectionByKey["quantum_profile_summary"]?.content}
+          variant="accentA"
+        />
 
-        <GlowCard tone="slate">
-          <SectionHeader
-            kicker="4. Your Combined Quantum Pattern"
-            title="What happens when your style meets your stage"
-          />
-          <div className="mt-5">
-            <DocText content={sectionContent("combined_quantum_pattern")} />
-          </div>
-        </GlowCard>
+        <SectionCard
+          kicker="2. YOUR PERSONALITY LAYER"
+          title="How you show up emotionally & behaviourally"
+          content={sectionByKey["personality_layer"]?.content}
+          variant="dark"
+        />
 
-        <GlowCard tone="sky">
-          <SectionHeader
-            kicker="5. Your Strategic Leadership Priorities"
-            title="What to focus on next"
-          />
-          <div className="mt-5">
-            <DocText content={sectionContent("strategic_leadership_priorities")} />
-          </div>
-        </GlowCard>
+        <SectionCard
+          kicker="3. YOUR MINDSET LAYER"
+          title="What your stage demands now"
+          content={sectionByKey["mindset_layer"]?.content}
+          variant="dark"
+        />
 
-        <GlowCard tone="rose">
-          <SectionHeader
-            kicker="6. 30 Day Leadership Action Plan"
-            title="A practical 4-week plan"
-          />
-          <div className="mt-5">
-            <DocText content={sectionContent("leadership_action_plan_30_day")} />
-          </div>
-        </GlowCard>
+        <SectionCard
+          kicker="4. YOUR COMBINED QUANTUM PATTERN"
+          title="What happens when your style meets your stage"
+          content={sectionByKey["combined_quantum_pattern"]?.content}
+          variant="dark"
+        />
 
-        <GlowCard tone="slate">
-          <SectionHeader
-            kicker="7. Your Leadership Roadmap"
-            title="Your longer-term path"
-          />
-          <div className="mt-5">
-            <DocText content={sectionContent("leadership_roadmap")} />
-          </div>
-        </GlowCard>
+        <SectionCard
+          kicker="5. YOUR STRATEGIC LEADERSHIP PRIORITIES"
+          title="What to focus on next"
+          content={sectionByKey["strategic_leadership_priorities"]?.content}
+          variant="accentB"
+        />
 
-        <GlowCard tone="indigo">
-          <SectionHeader
-            kicker="8. Communication and Decision Style"
-            title="How you process, decide and move"
-          />
-          <div className="mt-5">
-            <DocText content={sectionContent("communication_and_decision_style")} />
-          </div>
-        </GlowCard>
+        <SectionCard
+          kicker="6. 30 DAY LEADERSHIP ACTION PLAN"
+          title="A practical 4-week plan"
+          content={sectionByKey["leadership_action_plan_30_day"]?.content}
+          variant="accentA"
+        />
 
-        <GlowCard tone="emerald">
-          <SectionHeader
-            kicker="9. Reflection Prompts"
-            title="Questions to keep you honest"
-          />
-          <div className="mt-5">
-            <DocText content={sectionContent("reflection_prompts")} />
-          </div>
-        </GlowCard>
+        <SectionCard
+          kicker="7. YOUR LEADERSHIP ROADMAP"
+          title="Your longer-term path"
+          content={sectionByKey["leadership_roadmap"]?.content}
+          variant="dark"
+        />
 
-        <GlowCard tone="amber">
-          <SectionHeader
-            kicker="10. One Page Quantum Summary"
-            title="Your quick reference snapshot"
-          />
-          <div className="mt-5">
-            <DocText content={sectionContent("one_page_quantum_summary")} />
-          </div>
-        </GlowCard>
+        <SectionCard
+          kicker="8. COMMUNICATION AND DECISION STYLE"
+          title="How you process, decide and move"
+          content={sectionByKey["communication_and_decision_style"]?.content}
+          variant="accentB"
+        />
 
-        <footer className="pt-4 pb-6 text-xs text-slate-500">
+        <SectionCard
+          kicker="9. REFLECTION PROMPTS"
+          title="Questions to keep you honest"
+          content={sectionByKey["reflection_prompts"]?.content}
+          variant="dark"
+        />
+
+        <SectionCard
+          kicker="10. ONE PAGE QUANTUM SUMMARY"
+          title="Your quick reference snapshot"
+          content={sectionByKey["one_page_quantum_summary"]?.content}
+          variant="accentA"
+        />
+
+        <footer className="pt-4 pb-6 text-xs text-slate-400">
           © {new Date().getFullYear()} MindCanvas — Profiletest.ai
         </footer>
 
-        {/* Debug block (kept small; remove anytime) */}
+        {/* Debug (kept but subtle) */}
         {payload?.__debug && (
-          <details className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-xs text-slate-300">
-            <summary className="cursor-pointer text-slate-200 font-medium">
-              Debug
-            </summary>
-            <pre className="mt-3 whitespace-pre-wrap">
-              {JSON.stringify(payload.__debug, null, 2)}
-            </pre>
-          </details>
+          <section className="rounded-3xl border border-slate-800 bg-slate-950/50 p-4 text-xs text-slate-300 whitespace-pre-wrap">
+            <div className="mb-2 font-semibold text-slate-200">Debug</div>
+            {JSON.stringify(payload.__debug, null, 2)}
+          </section>
         )}
       </main>
     </div>
   );
 }
+
 
