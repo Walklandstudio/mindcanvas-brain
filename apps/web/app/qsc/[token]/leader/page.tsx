@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -22,21 +22,17 @@ type QscResultsRow = {
   id: string;
   test_id: string;
   token: string;
-  audience: Audience | null;
-
   personality_totals: Record<string, number> | null;
   personality_percentages: PersonalityPercMap | null;
   mindset_totals: Record<string, number> | null;
   mindset_percentages: MindsetPercMap | null;
-
   primary_personality: PersonalityKey | null;
   secondary_personality: PersonalityKey | null;
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
-
-  combined_profile_code: string | null;
+  combined_profile_code: string | null; // A1..D5
   qsc_profile_id: string | null;
-
+  audience: Audience | null;
   created_at: string;
 };
 
@@ -57,33 +53,25 @@ type QscTakerRow = {
   role_title: string | null;
 };
 
-type ReportTemplateMap = {
-  introduction?: any;
-  how_to_use?: any;
+type TemplateRow = {
+  section_key: string;
+  content: any;
+  sort_order: number | null;
 };
 
-type ReportSectionsMap = Partial<
-  Record<
-    | "quantum_profile_summary"
-    | "personality_layer"
-    | "mindset_layer"
-    | "combined_quantum_pattern"
-    | "strategic_leadership_priorities"
-    | "leadership_action_plan_30_day"
-    | "leadership_roadmap"
-    | "communication_and_decision_style"
-    | "reflection_prompts"
-    | "one_page_quantum_summary",
-    any
-  >
->;
+type SectionRow = {
+  persona_code: string;
+  section_key: string;
+  content: any;
+  sort_order: number | null;
+};
 
 type ApiPayload = {
   results: QscResultsRow;
   profile: QscProfileRow | null;
   taker: QscTakerRow | null;
-  templates: ReportTemplateMap;
-  sections: ReportSectionsMap;
+  templates: TemplateRow[];
+  sections: SectionRow[];
   __debug?: any;
 };
 
@@ -125,42 +113,28 @@ function getFullName(taker: QscTakerRow | null | undefined): string | null {
   return email || null;
 }
 
-// Handles string OR {text:"..."} OR {content:[...]} best-effort
 function contentToText(content: any): string {
   if (content == null) return "";
   if (typeof content === "string") return content;
-  if (typeof content?.text === "string") return content.text;
+  if (typeof content === "number") return String(content);
 
-  // If JSON has nested blocks, try to extract text recursively
-  const seen = new Set<any>();
-  const walk = (node: any): string => {
-    if (node == null) return "";
-    if (typeof node === "string") return node;
-    if (typeof node?.text === "string") return node.text;
-    if (seen.has(node)) return "";
-    seen.add(node);
+  // common shapes we’ve used in JSONB
+  if (typeof content === "object") {
+    if (typeof content.text === "string") return content.text;
+    if (typeof content.content === "string") return content.content;
+    if (Array.isArray(content.lines)) return content.lines.filter(Boolean).join("\n");
+  }
 
-    if (Array.isArray(node)) return node.map(walk).filter(Boolean).join("\n");
-    if (typeof node === "object") {
-      const parts: string[] = [];
-      for (const k of Object.keys(node)) parts.push(walk(node[k]));
-      return parts.filter(Boolean).join("\n");
-    }
-    return "";
-  };
-
-  return walk(content);
+  try {
+    return JSON.stringify(content, null, 2);
+  } catch {
+    return String(content);
+  }
 }
 
-/**
- * FINAL RULE:
- * - No scary "missing content" blocks in the actual report.
- * - If empty => render nothing (keeps report clean).
- */
 function renderDocText(content: any) {
   const t = contentToText(content).trim();
   if (!t) return null;
-
   return (
     <div className="text-[15px] text-slate-100 whitespace-pre-line leading-relaxed">
       {t}
@@ -231,38 +205,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
   );
 }
 
-function Card({
-  title,
-  children,
-  accent,
-}: {
-  title?: string;
-  children: React.ReactNode;
-  accent?: "amber";
-}) {
-  const base =
-    accent === "amber"
-      ? "rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 md:p-8"
-      : "rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8";
-
-  return (
-    <section className={base}>
-      {title && (
-        <p
-          className={
-            accent === "amber"
-              ? "text-xs font-semibold tracking-[0.25em] uppercase text-amber-200"
-              : "text-xs font-semibold tracking-[0.25em] uppercase text-slate-300"
-          }
-        >
-          {title}
-        </p>
-      )}
-      <div className="mt-2 space-y-3">{children}</div>
-    </section>
-  );
-}
-
 export default function QscLeaderStrategicReportPage({
   params,
 }: {
@@ -271,13 +213,13 @@ export default function QscLeaderStrategicReportPage({
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
+  const debug = searchParams?.get("debug") === "1";
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<ApiPayload | null>(null);
 
-  // IMPORTANT: wrap BackgroundGrid + content so PDF includes background
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -289,12 +231,13 @@ export default function QscLeaderStrategicReportPage({
         setErr(null);
 
         const apiUrl = tid
-          ? `/api/public/qsc/${encodeURIComponent(
-              token
-            )}/leader?tid=${encodeURIComponent(tid)}`
+          ? `/api/public/qsc/${encodeURIComponent(token)}/leader?tid=${encodeURIComponent(
+              tid
+            )}`
           : `/api/public/qsc/${encodeURIComponent(token)}/leader`;
 
         const res = await fetch(apiUrl, { cache: "no-store" });
+
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
@@ -304,12 +247,14 @@ export default function QscLeaderStrategicReportPage({
         }
 
         const j = (await res.json()) as any;
+
         if (!res.ok || j?.ok === false) {
           throw new Error(j?.error || `HTTP ${res.status}`);
         }
+
         if (!j?.results) throw new Error("RESULT_NOT_FOUND");
 
-        // Safety: if this is entrepreneur, bounce
+        // Safety: if someone hits /leader but result is entrepreneur, bounce them
         if (j.results.audience === "entrepreneur") {
           const base = `/qsc/${encodeURIComponent(token)}/entrepreneur`;
           const href = tid ? `${base}?tid=${encodeURIComponent(tid)}` : base;
@@ -322,8 +267,8 @@ export default function QscLeaderStrategicReportPage({
             results: j.results,
             profile: j.profile ?? null,
             taker: j.taker ?? null,
-            templates: j.templates ?? {},
-            sections: j.sections ?? {},
+            templates: j.templates ?? [],
+            sections: j.sections ?? [],
             __debug: j.__debug ?? null,
           });
         }
@@ -343,16 +288,14 @@ export default function QscLeaderStrategicReportPage({
     if (!reportRef.current) return;
 
     const element = reportRef.current;
-
     const canvas = await html2canvas(element, {
       scale: 2,
       useCORS: true,
-      backgroundColor: null, // keep transparency so gradient shows
+      backgroundColor: "#020617", // ✅ ensures dark background in PDF capture too
     });
-
     const imgData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF("p", "mm", "a4");
 
+    const pdf = new jsPDF("p", "mm", "a4");
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
 
@@ -379,16 +322,13 @@ export default function QscLeaderStrategicReportPage({
   const profile = payload?.profile ?? null;
   const taker = payload?.taker ?? null;
 
-  const templates = payload?.templates ?? {};
-  const sections = payload?.sections ?? {};
-
-  const takerDisplayName = getFullName(taker);
-
   const createdAt = result?.created_at ? new Date(result.created_at) : null;
 
   const snapshotHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
+
+  const takerDisplayName = getFullName(taker);
 
   const personalityPercRaw =
     (result?.personality_percentages ?? {}) as PersonalityPercMap;
@@ -430,60 +370,102 @@ export default function QscLeaderStrategicReportPage({
     result?.combined_profile_code ||
     "Your Quantum Leadership Profile";
 
-  // Loading state
+  // ✅ map templates + sections by key
+  const templateMap = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const t of payload?.templates ?? []) m.set(t.section_key, t.content);
+    return m;
+  }, [payload?.templates]);
+
+  const sectionMap = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const s of payload?.sections ?? []) m.set(s.section_key, s.content);
+    return m;
+  }, [payload?.sections]);
+
+  // ✅ these keys must exist (debug-only warning list)
+  const requiredKeys = [
+    "introduction",
+    "how_to_use",
+    "quantum_profile_summary",
+    "personality_layer",
+    "mindset_layer",
+    "combined_quantum_pattern",
+    "strategic_leadership_priorities",
+    "leadership_action_plan_30_day",
+    "leadership_roadmap",
+    "communication_and_decision_style",
+    "reflection_prompts",
+    "one_page_quantum_summary",
+  ];
+
+  const missing = useMemo(() => {
+    const misses: string[] = [];
+    for (const k of requiredKeys) {
+      const source =
+        k === "introduction" || k === "how_to_use"
+          ? templateMap.get(k)
+          : sectionMap.get(k);
+      if (!contentToText(source).trim()) misses.push(k);
+    }
+    return misses;
+  }, [templateMap, sectionMap]);
+
   if (loading && !result) {
     return (
-      <div ref={reportRef} className="relative min-h-screen text-slate-50">
+      <div className="relative min-h-screen bg-[#020617] text-slate-50">
         <BackgroundGrid />
-        <main className="relative z-10 mx-auto max-w-6xl px-6 py-12 space-y-4">
+        <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Strategic Leadership Report
           </p>
-          <h1 className="text-3xl font-bold">Preparing your QSC Leader report…</h1>
+          <h1 className="mt-3 text-3xl font-bold">
+            Preparing your QSC Leader report…
+          </h1>
         </main>
       </div>
     );
   }
 
-  // Error state
   if (err || !result) {
     return (
-      <div ref={reportRef} className="relative min-h-screen text-slate-50">
+      <div className="relative min-h-screen bg-[#020617] text-slate-50">
         <BackgroundGrid />
-        <main className="relative z-10 mx-auto max-w-6xl px-6 py-12 space-y-4">
+        <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Strategic Leadership Report
           </p>
           <h1 className="text-3xl font-bold">Couldn&apos;t load report</h1>
-
-          <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-100 whitespace-pre-wrap">
+          <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-xs text-slate-100 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-
-          <Link
-            href={snapshotHref}
-            className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-2 text-xs font-medium hover:bg-slate-900"
-          >
-            ← Back to Snapshot
-          </Link>
+          <div className="flex items-center gap-2 pt-2">
+            <Link
+              href={snapshotHref}
+              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-xs font-medium hover:bg-slate-900"
+            >
+              ← Back to Snapshot
+            </Link>
+          </div>
         </main>
       </div>
     );
   }
 
   return (
-    <div ref={reportRef} className="relative min-h-screen text-slate-50">
+    <div className="relative min-h-screen bg-[#020617] text-slate-50">
       <BackgroundGrid />
 
-      <main className="relative z-10 mx-auto max-w-6xl px-6 py-10 md:py-12 space-y-10">
-        {/* Header */}
-        <header className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+      <main
+        ref={reportRef}
+        className="relative z-10 mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"
+      >
+        <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
             <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
               Strategic Leadership Report
             </p>
-
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-50">
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
               QSC Leader — Strategic Leadership Report
             </h1>
 
@@ -509,7 +491,7 @@ export default function QscLeaderStrategicReportPage({
             </p>
           </div>
 
-          <div className="flex flex-col items-end gap-3 text-xs text-slate-400">
+          <div className="flex flex-col items-end gap-2 text-xs text-slate-400">
             <button
               onClick={handleDownloadPdf}
               className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-2 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-900"
@@ -519,7 +501,7 @@ export default function QscLeaderStrategicReportPage({
 
             <Link
               href={snapshotHref}
-              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-2 text-xs font-medium hover:bg-slate-900"
+              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-xs font-medium hover:bg-slate-900"
             >
               ← Back to Snapshot
             </Link>
@@ -539,33 +521,62 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </header>
 
+        {/* ✅ debug-only missing content panel (so we don't ruin the design) */}
+        {debug && missing.length > 0 && (
+          <section className="rounded-3xl border border-rose-400/40 bg-rose-500/10 p-6">
+            <div className="text-sm font-semibold text-rose-100">
+              Missing content for this report
+            </div>
+            <div className="mt-1 text-xs text-rose-100/80">
+              Fix the DB rows. We do not auto-fill defaults.
+            </div>
+            <ul className="mt-3 list-disc pl-5 text-xs text-rose-100/90 space-y-1">
+              {missing.map((k) => (
+                <li key={k}>
+                  <code className="text-rose-50">{k}</code>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* Title / Profile */}
-        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8">
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-2">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             STRATEGIC LEADERSHIP REPORT
           </p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-50">
-            {personaName}
-          </h2>
+          <h2 className="text-2xl font-semibold">{personaName}</h2>
         </section>
 
-        {/* ✅ INTRO + HOW TO USE (side-by-side at top) */}
+        {/* ✅ INTRO + HOW TO USE side-by-side (your request) */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
-          <Card title="INTRODUCTION">
-            {renderDocText(templates.introduction)}
-          </Card>
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+              INTRODUCTION
+            </p>
+            {renderDocText(templateMap.get("introduction")) || (
+              <div className="text-sm text-slate-300">
+                (Missing introduction template)
+              </div>
+            )}
+          </div>
 
-          <Card title="HOW TO USE THIS REPORT">
-            {renderDocText(templates.how_to_use)}
-          </Card>
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+              HOW TO USE THIS REPORT
+            </p>
+            {renderDocText(templateMap.get("how_to_use")) || (
+              <div className="text-sm text-slate-300">
+                (Missing how_to_use template)
+              </div>
+            )}
+          </div>
         </section>
 
-        {/* Charts + Matrix */}
+        {/* Charts */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
           <div className="rounded-3xl bg-slate-950/70 text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
-            <h3 className="text-lg font-semibold text-slate-50">
-              Leadership Frequency Type
-            </h3>
+            <h2 className="text-lg font-semibold">Leadership Frequency Type</h2>
             <p className="text-sm text-slate-300">
               Your energetic style across Fire, Flow, Form and Field in how you
               lead.
@@ -575,8 +586,7 @@ export default function QscLeaderStrategicReportPage({
               <div className="flex justify-center">
                 <FrequencyDonut data={frequencyDonutData} />
               </div>
-
-              <div className="space-y-3 text-sm text-slate-200">
+              <div className="space-y-3 text-sm">
                 {frequencyDonutData.map((d) => (
                   <div
                     key={d.key}
@@ -591,9 +601,7 @@ export default function QscLeaderStrategicReportPage({
           </div>
 
           <div className="rounded-3xl bg-slate-950/70 text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
-            <h3 className="text-lg font-semibold text-slate-50">
-              Leadership Mindset Levels
-            </h3>
+            <h2 className="text-lg font-semibold">Leadership Mindset Levels</h2>
             <p className="text-sm text-slate-300">
               Where your focus and energy sit across the 5 growth stages.
             </p>
@@ -605,7 +613,7 @@ export default function QscLeaderStrategicReportPage({
                 const pct = Math.round(mindsetPerc[key] ?? 0);
                 return (
                   <div key={key} className="space-y-1">
-                    <div className="flex justify-between text-slate-200">
+                    <div className="flex justify-between">
                       <span>{MINDSET_LABELS[key]}</span>
                       <span className="tabular-nums">{pct}%</span>
                     </div>
@@ -622,14 +630,14 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </section>
 
+        {/* Matrix */}
         <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Leadership Persona Matrix
           </p>
-          <h3 className="text-xl font-semibold text-slate-50">
+          <h2 className="text-xl font-semibold">
             Where your leadership frequency meets your mindset level
-          </h3>
-
+          </h2>
           <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/70">
             <QscMatrix
               primaryPersonality={effectivePrimaryPersonality}
@@ -638,51 +646,82 @@ export default function QscLeaderStrategicReportPage({
           </div>
         </section>
 
-        {/* 1–10 sections (from qsc_leader_report_sections) */}
-        <Card title="1. Your Quantum Profile Summary" accent="amber">
-          {renderDocText(sections.quantum_profile_summary)}
-        </Card>
+        {/* Remaining sections from qsc_leader_report_sections */}
+        <section className="rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-200">
+            1. Your Quantum Profile Summary
+          </p>
+          {renderDocText(sectionMap.get("quantum_profile_summary"))}
+        </section>
 
-        <Card title="2. Your Personality Layer">
-          {renderDocText(sections.personality_layer)}
-        </Card>
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+            2. Your Personality Layer
+          </p>
+          {renderDocText(sectionMap.get("personality_layer"))}
+        </section>
 
-        <Card title="3. Your Mindset Layer">
-          {renderDocText(sections.mindset_layer)}
-        </Card>
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+            3. Your Mindset Layer
+          </p>
+          {renderDocText(sectionMap.get("mindset_layer"))}
+        </section>
 
-        <Card title="4. Your Combined Quantum Pattern">
-          {renderDocText(sections.combined_quantum_pattern)}
-        </Card>
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+            4. Your Combined Quantum Pattern
+          </p>
+          {renderDocText(sectionMap.get("combined_quantum_pattern"))}
+        </section>
 
-        <Card title="5. Your Strategic Leadership Priorities">
-          {renderDocText(sections.strategic_leadership_priorities)}
-        </Card>
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+            5. Your Strategic Leadership Priorities
+          </p>
+          {renderDocText(sectionMap.get("strategic_leadership_priorities"))}
+        </section>
 
-        <Card title="6. 30 Day Leadership Action Plan">
-          {renderDocText(sections.leadership_action_plan_30_day)}
-        </Card>
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+            6. 30 Day Leadership Action Plan
+          </p>
+          {renderDocText(sectionMap.get("leadership_action_plan_30_day"))}
+        </section>
 
-        <Card title="7. Your Leadership Roadmap">
-          {renderDocText(sections.leadership_roadmap)}
-        </Card>
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+            7. Your Leadership Roadmap
+          </p>
+          {renderDocText(sectionMap.get("leadership_roadmap"))}
+        </section>
 
-        <Card title="8. Communication and Decision Style">
-          {renderDocText(sections.communication_and_decision_style)}
-        </Card>
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+            8. Communication and Decision Style
+          </p>
+          {renderDocText(sectionMap.get("communication_and_decision_style"))}
+        </section>
 
-        <Card title="9. Reflection Prompts">
-          {renderDocText(sections.reflection_prompts)}
-        </Card>
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
+            9. Reflection Prompts
+          </p>
+          {renderDocText(sectionMap.get("reflection_prompts"))}
+        </section>
 
-        <Card title="10. One Page Quantum Summary" accent="amber">
-          {renderDocText(sections.one_page_quantum_summary)}
-        </Card>
+        <section className="rounded-3xl border border-amber-400/30 bg-amber-500/10 p-6 md:p-8 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-200">
+            10. One Page Quantum Summary
+          </p>
+          {renderDocText(sectionMap.get("one_page_quantum_summary"))}
+        </section>
 
-        <footer className="pt-4 pb-6 text-xs text-slate-400">
+        <footer className="pt-4 pb-6 text-xs text-slate-500">
           © {new Date().getFullYear()} MindCanvas — Profiletest.ai
         </footer>
       </main>
     </div>
   );
 }
+
