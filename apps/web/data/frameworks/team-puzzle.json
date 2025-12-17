@@ -213,12 +213,6 @@
     "blind_spots_description": "Things to watch out for when this energy is over-used, or when you are under pressure."
   },
 
-  "images": {
-    "framework_banner": "/images/org-graphics/tp-logo.png",
-    "frequency_diagram": "/images/org-graphics/tp-4frequencies.png",
-    "profile_grid": "/images/org-graphics/tp-main-graphic.png"
-  },
-
   "profiles": {
     "PROFILE_1": {
       "one_liner": "Visionary – future-focused, idea-driven and sees possibilities before others.",
