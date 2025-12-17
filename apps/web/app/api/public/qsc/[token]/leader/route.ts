@@ -52,32 +52,39 @@ type QscTakerRow = {
   link_token?: string | null;
 };
 
-type LeaderSections = {
-  introduction?: string;
-  how_to_use?: string;
-  quantum_profile_summary?: string;
-  personality_layer?: string;
-  mindset_layer?: string;
-  combined_quantum_pattern?: string;
-  strategic_leadership_priorities?: string;
-  leadership_action_plan_30_day?: string;
-  leadership_roadmap?: string;
-  communication_and_decision_style?: string;
-  reflection_prompts?: string;
-  one_page_quantum_summary?: string;
-  _doc_profile?: string;
+type JsonContent = { text?: string } | null;
+
+type LeaderTemplateKey = "introduction" | "how_to_use";
+
+type LeaderPersonaSectionKey =
+  | "quantum_profile_summary"
+  | "personality_layer"
+  | "mindset_layer"
+  | "combined_quantum_pattern"
+  | "strategic_leadership_priorities"
+  | "leadership_action_plan_30_day"
+  | "leadership_roadmap"
+  | "communication_and_decision_style"
+  | "reflection_prompts"
+  | "one_page_quantum_summary";
+
+type QscLeaderReportTemplateRow = {
+  id: string;
+  test_id: string;
+  section_key: LeaderTemplateKey;
+  content: JsonContent;
+  sort_order: number;
+  is_active: boolean;
 };
 
-type QscLeaderPersonaRow = {
+type QscLeaderReportSectionRow = {
   id: string;
-  test_id: string | null;
-  profile_code: string | null;
-  profile_label: string | null;
-  personality_code: string | null;
-  mindset_level: number | null;
-  sections: LeaderSections | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  test_id: string;
+  persona_code: string; // A1..D5
+  section_key: LeaderPersonaSectionKey;
+  content: JsonContent;
+  sort_order: number;
+  is_active: boolean;
 };
 
 function supa() {
@@ -254,7 +261,10 @@ export async function GET(
 
       if (error) {
         return NextResponse.json(
-          { ok: false, error: `test_takers fallback load failed: ${error.message}` },
+          {
+            ok: false,
+            error: `test_takers fallback load failed: ${error.message}`,
+          },
           { status: 500 }
         );
       }
@@ -290,91 +300,53 @@ export async function GET(
 
       if (error) {
         return NextResponse.json(
-          { ok: false, error: `qsc_profiles fallback load failed: ${error.message}` },
+          {
+            ok: false,
+            error: `qsc_profiles fallback load failed: ${error.message}`,
+          },
           { status: 500 }
         );
       }
       if (data) profile = data as unknown as QscProfileRow;
     }
 
-    // Load persona from qsc_leader_personas
-    const combinedProfileCode = results.combined_profile_code ?? null;
     const testId = results.test_id;
+    const personaCode = results.combined_profile_code ?? null;
 
-    let persona: QscLeaderPersonaRow | null = null;
-    let personaDebug: { table: string; method: string | null } = {
-      table: "qsc_leader_personas",
-      method: null,
-    };
+    // ✅ Templates (global): introduction, how_to_use
+    const { data: templateRows, error: tmplErr } = await sb
+      .from("qsc_leader_report_templates")
+      .select("id, test_id, section_key, content, sort_order, is_active")
+      .eq("test_id", testId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
 
-    if (combinedProfileCode) {
-      // 1) test-specific row
-      {
-        const { data, error } = await sb
-          .from("qsc_leader_personas")
-          .select(
-            `
-            id,
-            test_id,
-            profile_code,
-            profile_label,
-            personality_code,
-            mindset_level,
-            sections,
-            created_at,
-            updated_at
-          `
-          )
-          .eq("test_id", testId)
-          .eq("profile_code", combinedProfileCode)
-          .maybeSingle();
+    if (tmplErr) {
+      return NextResponse.json(
+        { ok: false, error: `qsc_leader_report_templates load failed: ${tmplErr.message}` },
+        { status: 500 }
+      );
+    }
 
-        if (error) {
-          return NextResponse.json(
-            { ok: false, error: `qsc_leader_personas load failed: ${error.message}` },
-            { status: 500 }
-          );
-        }
+    // ✅ Persona sections (A1..D5): 1–10 keys
+    let sectionRows: QscLeaderReportSectionRow[] = [];
+    if (personaCode) {
+      const { data: rows, error: secErr } = await sb
+        .from("qsc_leader_report_sections")
+        .select("id, test_id, persona_code, section_key, content, sort_order, is_active")
+        .eq("test_id", testId)
+        .eq("persona_code", personaCode)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
 
-        if (data) {
-          persona = data as unknown as QscLeaderPersonaRow;
-          personaDebug.method = "test_id+profile_code";
-        }
+      if (secErr) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_leader_report_sections load failed: ${secErr.message}` },
+          { status: 500 }
+        );
       }
 
-      // 2) global fallback row
-      if (!persona) {
-        const { data, error } = await sb
-          .from("qsc_leader_personas")
-          .select(
-            `
-            id,
-            test_id,
-            profile_code,
-            profile_label,
-            personality_code,
-            mindset_level,
-            sections,
-            created_at,
-            updated_at
-          `
-          )
-          .is("test_id", null)
-          .eq("profile_code", combinedProfileCode)
-          .maybeSingle();
-
-        if (error) {
-          return NextResponse.json(
-            { ok: false, error: `qsc_leader_personas global load failed: ${error.message}` },
-            { status: 500 }
-          );
-        }
-
-        if (data) {
-          persona = data as unknown as QscLeaderPersonaRow;
-          personaDebug.method = "profile_code_global";
-        }
-      }
+      sectionRows = (rows ?? []) as unknown as QscLeaderReportSectionRow[];
     }
 
     return NextResponse.json(
@@ -382,14 +354,17 @@ export async function GET(
         ok: true,
         results,
         profile,
-        persona,
         taker,
+        templates: (templateRows ?? []) as unknown as QscLeaderReportTemplateRow[],
+        sections: sectionRows,
         __debug: {
           token: tokenParam,
           tid: tid || null,
           resolved_by: resolvedBy,
-          combinedProfileCode,
-          personaDebug,
+          test_id: testId,
+          persona_code: personaCode,
+          templates_count: (templateRows ?? []).length,
+          sections_count: sectionRows.length,
         },
       },
       { status: 200 }
