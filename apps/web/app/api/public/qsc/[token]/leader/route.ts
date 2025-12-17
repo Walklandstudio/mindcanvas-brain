@@ -28,7 +28,7 @@ type QscResultsRow = {
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
 
-  combined_profile_code: string | null; // A1..D5
+  combined_profile_code: string | null; // persona_code (A1..D5)
   qsc_profile_id: string | null;
 
   created_at: string;
@@ -52,27 +52,23 @@ type QscTakerRow = {
   link_token?: string | null;
 };
 
-type LeaderTemplateRow = {
+type TemplateRow = {
   id: string;
   test_id: string;
   section_key: string;
   content: any;
-  sort_order: number | null;
-  is_active: boolean | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  sort_order: number;
+  is_active: boolean;
 };
 
-type LeaderSectionRow = {
+type PersonaSectionRow = {
   id: string;
   test_id: string;
-  persona_code: string; // A1..D5
+  persona_code: string;
   section_key: string;
   content: any;
-  sort_order: number | null;
-  is_active: boolean | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  sort_order: number;
+  is_active: boolean;
 };
 
 function supa() {
@@ -86,6 +82,21 @@ function isUuidLike(s: string) {
   return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(
     String(s || "").trim()
   );
+}
+
+function safeJsonParse(v: any) {
+  // Handles jsonb object, or accidentally-stringified json like "{\"text\":\"...\"}"
+  if (v == null) return null;
+  if (typeof v === "object") return v;
+  if (typeof v !== "string") return v;
+  const s = v.trim();
+  if (!s) return null;
+  if (!(s.startsWith("{") || s.startsWith("["))) return v;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return v;
+  }
 }
 
 export async function GET(
@@ -205,7 +216,7 @@ export async function GET(
       );
     }
 
-    // Hard guard: leader only
+    // Leader-only endpoint
     if (results.audience && results.audience !== "leader") {
       return NextResponse.json(
         {
@@ -298,16 +309,16 @@ export async function GET(
       if (data) profile = data as unknown as QscProfileRow;
     }
 
+    // ✅ NEW: pull from the TWO NEW TABLES
     const testId = results.test_id;
-    const personaCode = (results.combined_profile_code || "").trim(); // A1..D5
+    const personaCode = results.combined_profile_code ?? null;
 
-    // 1) Templates: intro + how_to_use
-    const { data: templates, error: tplErr } = await sb
+    // Templates (global per test)
+    const { data: templateRows, error: tplErr } = await sb
       .from("qsc_leader_report_templates")
-      .select("id, test_id, section_key, content, sort_order, is_active, created_at, updated_at")
+      .select("id, test_id, section_key, content, sort_order, is_active")
       .eq("test_id", testId)
       .eq("is_active", true)
-      .in("section_key", ["introduction", "how_to_use"])
       .order("sort_order", { ascending: true });
 
     if (tplErr) {
@@ -317,12 +328,12 @@ export async function GET(
       );
     }
 
-    // 2) Persona sections (A1..D5)
-    let sections: LeaderSectionRow[] = [];
+    // Persona sections (per persona_code)
+    let sectionRows: PersonaSectionRow[] = [];
     if (personaCode) {
       const { data: secRows, error: secErr } = await sb
         .from("qsc_leader_report_sections")
-        .select("id, test_id, persona_code, section_key, content, sort_order, is_active, created_at, updated_at")
+        .select("id, test_id, persona_code, section_key, content, sort_order, is_active")
         .eq("test_id", testId)
         .eq("persona_code", personaCode)
         .eq("is_active", true)
@@ -334,9 +345,19 @@ export async function GET(
           { status: 500 }
         );
       }
-
-      sections = (secRows ?? []) as unknown as LeaderSectionRow[];
+      sectionRows = (secRows ?? []) as any;
     }
+
+    // Normalize content (handles stringified JSON)
+    const templates = (templateRows ?? []).map((r: any) => ({
+      ...r,
+      content: safeJsonParse(r.content),
+    })) as TemplateRow[];
+
+    const sections = (sectionRows ?? []).map((r: any) => ({
+      ...r,
+      content: safeJsonParse(r.content),
+    })) as PersonaSectionRow[];
 
     return NextResponse.json(
       {
@@ -344,16 +365,20 @@ export async function GET(
         results,
         profile,
         taker,
-        templates: (templates ?? []) as unknown as LeaderTemplateRow[],
-        sections,
+        report: {
+          test_id: testId,
+          persona_code: personaCode,
+          templates,
+          sections,
+        },
         __debug: {
           token: tokenParam,
           tid: tid || null,
           resolved_by: resolvedBy,
           test_id: testId,
-          persona_code: personaCode || null,
-          templates_count: (templates ?? []).length,
-          sections_count: sections.length,
+          persona_code: personaCode,
+          template_count: templates.length,
+          section_count: sections.length,
         },
       },
       { status: 200 }
