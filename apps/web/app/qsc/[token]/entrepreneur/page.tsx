@@ -499,7 +499,7 @@ export default function QscEntrepreneurStrategicReportPage({
   const strategic3 = persona?.strategic_priority_3 || "—";
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-700">
+    <div className="min-h-screen bg-slate-950 text-slate-300">
       <AppBackground />
       <main
         ref={reportRef}
