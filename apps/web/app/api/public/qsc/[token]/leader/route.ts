@@ -28,7 +28,7 @@ type QscResultsRow = {
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
 
-  combined_profile_code: string | null; // persona_code (A1..D5)
+  combined_profile_code: string | null; // SHOULD be A1..D5 but is currently FORM_QUANTUM in your debug
   qsc_profile_id: string | null;
 
   created_at: string;
@@ -36,9 +36,9 @@ type QscResultsRow = {
 
 type QscProfileRow = {
   id: string;
-  personality_code: string | null;
-  mindset_level: number | null;
-  profile_code: string | null;
+  personality_code: string | null; // often "FORM"
+  mindset_level: number | null; // 1..5
+  profile_code: string | null; // often "C5"
   profile_label: string | null;
 };
 
@@ -85,7 +85,6 @@ function isUuidLike(s: string) {
 }
 
 function safeJsonParse(v: any) {
-  // Handles jsonb object, or accidentally-stringified json like "{\"text\":\"...\"}"
   if (v == null) return null;
   if (typeof v === "object") return v;
   if (typeof v !== "string") return v;
@@ -97,6 +96,20 @@ function safeJsonParse(v: any) {
   } catch {
     return v;
   }
+}
+
+function looksLikePersonaCode(v: string | null | undefined) {
+  if (!v) return false;
+  return /^[ABCD][1-5]$/i.test(v.trim());
+}
+
+function personalityToLetter(p: string | null | undefined): "A" | "B" | "C" | "D" | null {
+  const x = String(p || "").trim().toUpperCase();
+  if (x === "FIRE") return "A";
+  if (x === "FLOW") return "B";
+  if (x === "FORM") return "C";
+  if (x === "FIELD") return "D";
+  return null;
 }
 
 export async function GET(
@@ -137,8 +150,7 @@ export async function GET(
     `;
 
     let results: QscResultsRow | null = null;
-    let resolvedBy: "token+taker_id" | "token_latest" | "result_id" | null =
-      null;
+    let resolvedBy: "token+taker_id" | "token_latest" | "result_id" | null = null;
 
     // (1) token + tid
     if (tid && isUuidLike(tid)) {
@@ -250,9 +262,7 @@ export async function GET(
     if (!taker) {
       const { data, error } = await sb
         .from("test_takers")
-        .select(
-          "id, first_name, last_name, email, company, role_title, link_token"
-        )
+        .select("id, first_name, last_name, email, company, role_title, link_token")
         .eq("link_token", results.token)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -260,17 +270,14 @@ export async function GET(
 
       if (error) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: `test_takers fallback load failed: ${error.message}`,
-          },
+          { ok: false, error: `test_takers fallback load failed: ${error.message}` },
           { status: 500 }
         );
       }
       if (data) taker = data as unknown as QscTakerRow;
     }
 
-    // Load profile snapshot (label fallback)
+    // Load profile snapshot (needed for persona_code resolution)
     let profile: QscProfileRow | null = null;
 
     if (results.qsc_profile_id) {
@@ -289,31 +296,38 @@ export async function GET(
       if (data) profile = data as unknown as QscProfileRow;
     }
 
-    if (!profile && results.combined_profile_code) {
-      const { data, error } = await sb
-        .from("qsc_profiles")
-        .select("id, personality_code, mindset_level, profile_code, profile_label")
-        .eq("profile_code", results.combined_profile_code)
-        .limit(1)
-        .maybeSingle();
+    // ✅ Resolve persona_code (must be A1..D5)
+    const combinedRaw = (results.combined_profile_code || "").trim();
+    const fromCombined = looksLikePersonaCode(combinedRaw) ? combinedRaw.toUpperCase() : null;
 
-      if (error) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: `qsc_profiles fallback load failed: ${error.message}`,
-          },
-          { status: 500 }
-        );
-      }
-      if (data) profile = data as unknown as QscProfileRow;
-    }
+    const fromProfileCode =
+      looksLikePersonaCode(profile?.profile_code || "")
+        ? String(profile?.profile_code).trim().toUpperCase()
+        : null;
 
-    // ✅ NEW: pull from the TWO NEW TABLES
-    const testId = results.test_id;
-    const personaCode = results.combined_profile_code ?? null;
+    const letter =
+      personalityToLetter(profile?.personality_code) ||
+      personalityToLetter(results.primary_personality);
+
+    const lvl =
+      typeof profile?.mindset_level === "number" && Number.isFinite(profile.mindset_level)
+        ? profile.mindset_level
+        : null;
+
+    const fromDerived = letter && lvl ? `${letter}${lvl}` : null;
+
+    const personaCode =
+      fromCombined || fromProfileCode || (looksLikePersonaCode(fromDerived || "") ? fromDerived : null);
+
+    const personaCodeSource =
+      fromCombined ? "qsc_results.combined_profile_code" :
+      fromProfileCode ? "qsc_profiles.profile_code" :
+      fromDerived ? "derived(personality_code + mindset_level)" :
+      null;
 
     // Templates (global per test)
+    const testId = results.test_id;
+
     const { data: templateRows, error: tplErr } = await sb
       .from("qsc_leader_report_templates")
       .select("id, test_id, section_key, content, sort_order, is_active")
@@ -328,7 +342,7 @@ export async function GET(
       );
     }
 
-    // Persona sections (per persona_code)
+    // Persona sections
     let sectionRows: PersonaSectionRow[] = [];
     if (personaCode) {
       const { data: secRows, error: secErr } = await sb
@@ -348,7 +362,6 @@ export async function GET(
       sectionRows = (secRows ?? []) as any;
     }
 
-    // Normalize content (handles stringified JSON)
     const templates = (templateRows ?? []).map((r: any) => ({
       ...r,
       content: safeJsonParse(r.content),
@@ -377,6 +390,11 @@ export async function GET(
           resolved_by: resolvedBy,
           test_id: testId,
           persona_code: personaCode,
+          persona_code_source: personaCodeSource,
+          combined_profile_code_raw: results.combined_profile_code,
+          profile_code: profile?.profile_code ?? null,
+          profile_personality_code: profile?.personality_code ?? null,
+          profile_mindset_level: profile?.mindset_level ?? null,
           template_count: templates.length,
           section_count: sections.length,
         },
