@@ -383,7 +383,8 @@ export default function QscSnapshotPage() {
     !!saleBlockers;
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-950 text-slate-50">
+      <AppBackground />
       <main ref={snapshotRef} className="mx-auto max-w-5xl px-6 py-10 space-y-10">
         <header className="flex justify-between items-start gap-4">
           <div>

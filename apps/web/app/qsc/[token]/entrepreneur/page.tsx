@@ -507,14 +507,14 @@ export default function QscEntrepreneurStrategicReportPage({
       >
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-100">
               Strategic Growth Report
             </p>
             <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
               QSC Entrepreneur — Strategic Growth Report
             </h1>
             {takerDisplayName && (
-              <p className="mt-1 text-sm text-slate-700">
+              <p className="mt-1 text-sm text-slate-100">
                 For: <span className="font-semibold">{takerDisplayName}</span>
               </p>
             )}
