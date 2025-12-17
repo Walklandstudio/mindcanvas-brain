@@ -28,7 +28,7 @@ type QscResultsRow = {
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
 
-  combined_profile_code: string | null; // persona_code e.g. A1..D5
+  combined_profile_code: string | null;
   qsc_profile_id: string | null;
 
   created_at: string;
@@ -52,27 +52,33 @@ type QscTakerRow = {
   link_token?: string | null;
 };
 
-type LeaderTemplateRow = {
-  id: string;
-  test_id: string | null;
-  section_key: string;
-  content: any; // jsonb; typically { text: "..." }
-  sort_order: number | null;
-  is_active: boolean | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
-type LeaderSectionRow = {
+type ReportTemplateRow = {
   id: string;
   test_id: string;
-  persona_code: string; // A1..D5
-  section_key: string;
-  content: any; // jsonb; typically { text: "..." }
+  section_key: "introduction" | "how_to_use";
+  content: any;
   sort_order: number | null;
   is_active: boolean | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+};
+
+type ReportSectionRow = {
+  id: string;
+  test_id: string;
+  persona_code: string;
+  section_key:
+    | "quantum_profile_summary"
+    | "personality_layer"
+    | "mindset_layer"
+    | "combined_quantum_pattern"
+    | "strategic_leadership_priorities"
+    | "leadership_action_plan_30_day"
+    | "leadership_roadmap"
+    | "communication_and_decision_style"
+    | "reflection_prompts"
+    | "one_page_quantum_summary";
+  content: any;
+  sort_order: number | null;
+  is_active: boolean | null;
 };
 
 function supa() {
@@ -102,7 +108,7 @@ export async function GET(
     }
 
     const url = new URL(req.url);
-    const tid = String(url.searchParams.get("tid") || "").trim(); // test_takers.id UUID
+    const tid = String(url.searchParams.get("tid") || "").trim();
 
     const sb = supa();
 
@@ -129,7 +135,7 @@ export async function GET(
     let resolvedBy: "token+taker_id" | "token_latest" | "result_id" | null =
       null;
 
-    // (1) token + tid (most precise)
+    // 1) token + tid
     if (tid && isUuidLike(tid)) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -152,7 +158,7 @@ export async function GET(
       }
     }
 
-    // (2) token only (latest)
+    // 2) token latest
     if (!results) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -174,7 +180,7 @@ export async function GET(
       }
     }
 
-    // (3) tokenParam might be qsc_results.id (UUID)
+    // 3) tokenParam might be result_id
     if (!results && isUuidLike(tokenParam)) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -205,7 +211,7 @@ export async function GET(
       );
     }
 
-    // Hard guard: leader only
+    // Hard guard: LEADER only
     if (results.audience && results.audience !== "leader") {
       return NextResponse.json(
         {
@@ -217,7 +223,10 @@ export async function GET(
       );
     }
 
-    // Load taker
+    const testId = results.test_id;
+    const personaCode = (results.combined_profile_code || "").trim() || null;
+
+    // taker
     let taker: QscTakerRow | null = null;
 
     if (results.taker_id) {
@@ -249,17 +258,14 @@ export async function GET(
 
       if (error) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: `test_takers fallback load failed: ${error.message}`,
-          },
+          { ok: false, error: `test_takers fallback load failed: ${error.message}` },
           { status: 500 }
         );
       }
       if (data) taker = data as unknown as QscTakerRow;
     }
 
-    // Load profile snapshot (optional label fallback)
+    // profile
     let profile: QscProfileRow | null = null;
 
     if (results.qsc_profile_id) {
@@ -288,41 +294,40 @@ export async function GET(
 
       if (error) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: `qsc_profiles fallback load failed: ${error.message}`,
-          },
+          { ok: false, error: `qsc_profiles fallback load failed: ${error.message}` },
           { status: 500 }
         );
       }
       if (data) profile = data as unknown as QscProfileRow;
     }
 
-    // ✅ NEW: pull from the new tables
-    const testId = results.test_id;
-    const personaCode = (results.combined_profile_code || "").trim() || null;
-
-    // Templates (intro + how_to_use etc.)
-    const { data: templatesRaw, error: tmplErr } = await sb
+    // templates: introduction + how_to_use
+    const { data: templateRows, error: tplErr } = await sb
       .from("qsc_leader_report_templates")
-      .select("id, test_id, section_key, content, sort_order, is_active, created_at, updated_at")
+      .select("id, test_id, section_key, content, sort_order, is_active")
       .eq("test_id", testId)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true });
+      .in("section_key", ["introduction", "how_to_use"])
+      .eq("is_active", true);
 
-    if (tmplErr) {
+    if (tplErr) {
       return NextResponse.json(
-        { ok: false, error: `qsc_leader_report_templates load failed: ${tmplErr.message}` },
+        { ok: false, error: `qsc_leader_report_templates load failed: ${tplErr.message}` },
         { status: 500 }
       );
     }
 
-    // Sections (persona-specific)
-    let sectionsRaw: LeaderSectionRow[] = [];
+    const templates: Record<string, any> = {};
+    for (const r of (templateRows || []) as unknown as ReportTemplateRow[]) {
+      templates[r.section_key] = r.content;
+    }
+
+    // sections: persona-specific 1–10
+    let sectionsByKey: Record<string, any> = {};
+
     if (personaCode) {
-      const { data: secData, error: secErr } = await sb
+      const { data: secRows, error: secErr } = await sb
         .from("qsc_leader_report_sections")
-        .select("id, test_id, persona_code, section_key, content, sort_order, is_active, created_at, updated_at")
+        .select("id, test_id, persona_code, section_key, content, sort_order, is_active")
         .eq("test_id", testId)
         .eq("persona_code", personaCode)
         .eq("is_active", true)
@@ -335,10 +340,11 @@ export async function GET(
         );
       }
 
-      sectionsRaw = (secData ?? []) as unknown as LeaderSectionRow[];
+      sectionsByKey = {};
+      for (const r of (secRows || []) as unknown as ReportSectionRow[]) {
+        sectionsByKey[r.section_key] = r.content;
+      }
     }
-
-    const templates = (templatesRaw ?? []) as unknown as LeaderTemplateRow[];
 
     return NextResponse.json(
       {
@@ -347,15 +353,15 @@ export async function GET(
         profile,
         taker,
         templates,
-        sections: sectionsRaw,
+        sections: sectionsByKey,
         __debug: {
           token: tokenParam,
           tid: tid || null,
           resolved_by: resolvedBy,
-          testId,
-          personaCode,
-          templates_count: templates.length,
-          sections_count: sectionsRaw.length,
+          test_id: testId,
+          persona_code: personaCode,
+          template_keys: Object.keys(templates),
+          section_keys: Object.keys(sectionsByKey),
         },
       },
       { status: 200 }
@@ -367,4 +373,3 @@ export async function GET(
     );
   }
 }
-
