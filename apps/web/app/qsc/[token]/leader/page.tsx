@@ -8,7 +8,7 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 import { QscMatrix } from "../../QscMatrix";
-import BackgroundGrid from "@/components/ui/BackgroundGrid";
+import AppBackground from "@/components/ui/AppBackground";
 
 type Audience = "entrepreneur" | "leader";
 
@@ -399,7 +399,7 @@ export default function QscLeaderStrategicReportPage({
   if (loading && !result) {
     return (
       <div className="relative min-h-screen bg-[#020617] text-slate-50">
-        <BackgroundGrid />
+        <AppBackground />
         <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Strategic Leadership Report
@@ -415,7 +415,7 @@ export default function QscLeaderStrategicReportPage({
   if (err || !result) {
     return (
       <div className="relative min-h-screen bg-[#020617] text-slate-50">
-        <BackgroundGrid />
+        <AppBackground />
         <main className="relative z-10 mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Strategic Leadership Report
@@ -434,7 +434,7 @@ export default function QscLeaderStrategicReportPage({
 
   return (
     <div className="relative min-h-screen bg-[#020617] text-slate-50">
-      <BackgroundGrid />
+      <AppBackground />
 
       <main
         ref={reportRef}
