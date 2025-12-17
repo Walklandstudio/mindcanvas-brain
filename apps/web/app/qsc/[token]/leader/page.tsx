@@ -425,12 +425,6 @@ export default function QscLeaderStrategicReportPage({
             {err || "No data"}
           </pre>
           <div className="flex items-center gap-2 pt-2">
-            <Link
-              href={snapshotHref}
-              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-xs font-medium hover:bg-slate-900"
-            >
-              ← Back to Snapshot
-            </Link>
           </div>
         </main>
       </div>
@@ -485,12 +479,6 @@ export default function QscLeaderStrategicReportPage({
               Download PDF
             </button>
 
-            <Link
-              href={snapshotHref}
-              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-xs font-medium hover:bg-slate-900"
-            >
-              ← Back to Snapshot
-            </Link>
 
             {createdAt && (
               <span>
