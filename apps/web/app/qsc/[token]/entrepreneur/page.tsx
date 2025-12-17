@@ -590,7 +590,7 @@ export default function QscEntrepreneurStrategicReportPage({
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
               <h3 className="font-semibold">Quantum Profile</h3>
               <p className="font-medium">{personaName}</p>
-              <p className="text-slate-50">
+              <p className="text-slate-700">
                 Personality: {primaryPersonalityLabel}.
                 <br />
                 Mindset Stage: {primaryMindsetLabel}.
