@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { QscMatrix } from "../../QscMatrix";
+import AppBackground from "@/components/ui/AppBackground";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -369,6 +370,7 @@ export default function QscEntrepreneurStrategicReportPage({
   if (loading && !result) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-900">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Strategic Growth Report
@@ -385,6 +387,7 @@ export default function QscEntrepreneurStrategicReportPage({
   if (err || !result) {
     return (
       <div className="min-h-screen bg-slate-100 text-slate-900">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Strategic Growth Report
