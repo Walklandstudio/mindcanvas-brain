@@ -347,6 +347,7 @@ export default function QscLeaderExtendedPage({
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
+      <AppBackground />
       <main
         ref={reportRef}
         className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import AppBackground from "@/components/ui/AppBackground";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -149,6 +150,7 @@ export default function QscExtendedSourceCodePage({
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
@@ -164,6 +166,7 @@ export default function QscExtendedSourceCodePage({
   if (err || !result) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
@@ -218,6 +221,7 @@ export default function QscExtendedSourceCodePage({
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
+      <AppBackground />
       <main className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-8">
         {/* Header */}
         <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
