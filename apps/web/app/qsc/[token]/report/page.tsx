@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import AppBackground from "@/components/ui/AppBackground";
 
 function normalisePercent(raw: number | undefined | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
@@ -351,6 +352,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12">
           <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
@@ -364,6 +366,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
   if (err || !result) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-sm font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
@@ -409,6 +412,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
+      <AppBackground />
       <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
         {/* Snapshot header */}
         <section className="space-y-6">

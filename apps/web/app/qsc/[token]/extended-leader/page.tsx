@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import AppBackground from "@/components/ui/AppBackground";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -297,6 +298,7 @@ export default function QscLeaderExtendedPage({
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
@@ -312,6 +314,7 @@ export default function QscLeaderExtendedPage({
   if (err || !results) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
@@ -344,6 +347,7 @@ export default function QscLeaderExtendedPage({
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
+      <AppBackground />
       <main
         ref={reportRef}
         className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"

@@ -215,8 +215,8 @@
 
   "images": {
     "framework_banner": "/images/org-graphics/tp-logo.png",
-    "frequency_diagram": "/images/org-graphics/tp-4frequencies.png",
-    "profile_grid": "/images/org-graphics/tp-main-graphic.png"
+    "frequency_diagram": "/org-graphics/tp-4frequencies.png",
+    "profile_grid": "/org-graphics/tp-main-graphic.png"
   },
 
   "profiles": {

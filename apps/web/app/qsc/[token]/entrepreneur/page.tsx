@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { QscMatrix } from "../../QscMatrix";
+import AppBackground from "@/components/ui/AppBackground";
 
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
@@ -368,7 +369,8 @@ export default function QscEntrepreneurStrategicReportPage({
 
   if (loading && !result) {
     return (
-      <div className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="relative min-h-screen bg-[#020617] text-slate-50">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Strategic Growth Report
@@ -384,7 +386,8 @@ export default function QscEntrepreneurStrategicReportPage({
 
   if (err || !result) {
     return (
-      <div className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="relative min-h-screen bg-[#020617] text-slate-50">
+        <AppBackground />
         <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
             Strategic Growth Report
@@ -496,21 +499,22 @@ export default function QscEntrepreneurStrategicReportPage({
   const strategic3 = persona?.strategic_priority_3 || "—";
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-slate-950 text-slate-300">
+      <AppBackground />
       <main
         ref={reportRef}
         className="mx-auto max-w-5xl px-4 py-10 md:py-12 space-y-10"
       >
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-700">
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-100">
               Strategic Growth Report
             </p>
             <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
               QSC Entrepreneur — Strategic Growth Report
             </h1>
             {takerDisplayName && (
-              <p className="mt-1 text-sm text-slate-700">
+              <p className="mt-1 text-sm text-slate-100">
                 For: <span className="font-semibold">{takerDisplayName}</span>
               </p>
             )}
@@ -519,10 +523,7 @@ export default function QscEntrepreneurStrategicReportPage({
               on your Quantum buyer profile and current mindset stage.
             </p>
 
-            <div className="mt-3 text-xs text-slate-500 space-y-1">
-              <div>Audience: {result.audience ?? "null"}</div>
-              <div>API: {apiVersion ?? "unknown"}</div>
-              <div>created_at (raw UTC): {result.created_at}</div>
+            <div className="mt-4">
             </div>
           </div>
 
@@ -583,7 +584,7 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
             One-page Quantum Profile
           </p>
-          <h2 className="text-xl font-semibold">Your at-a-glance growth profile</h2>
+          <h2 className="text-xl font-semibold uppercase text-amber-700">Your at-a-glance growth profile</h2>
 
           <div className="grid gap-6 md:grid-cols-3 pt-4">
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
