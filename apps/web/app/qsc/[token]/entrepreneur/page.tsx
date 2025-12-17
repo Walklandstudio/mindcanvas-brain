@@ -499,7 +499,7 @@ export default function QscEntrepreneurStrategicReportPage({
   const strategic3 = persona?.strategic_priority_3 || "—";
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50">
+    <div className="min-h-screen bg-slate-950 text-slate-700">
       <AppBackground />
       <main
         ref={reportRef}
@@ -523,10 +523,7 @@ export default function QscEntrepreneurStrategicReportPage({
               on your Quantum buyer profile and current mindset stage.
             </p>
 
-            <div className="mt-3 text-xs text-slate-500 space-y-1">
-              <div>Audience: {result.audience ?? "null"}</div>
-              <div>API: {apiVersion ?? "unknown"}</div>
-              <div>created_at (raw UTC): {result.created_at}</div>
+            <div className="mt-4">
             </div>
           </div>
 
@@ -587,13 +584,13 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
             One-page Quantum Profile
           </p>
-          <h2 className="text-xl font-semibold">Your at-a-glance growth profile</h2>
+          <h2 className="text-xl font-semibold uppercase text-amber-700">Your at-a-glance growth profile</h2>
 
           <div className="grid gap-6 md:grid-cols-3 pt-4">
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
               <h3 className="font-semibold">Quantum Profile</h3>
               <p className="font-medium">{personaName}</p>
-              <p className="text-slate-700">
+              <p className="text-slate-50">
                 Personality: {primaryPersonalityLabel}.
                 <br />
                 Mindset Stage: {primaryMindsetLabel}.
