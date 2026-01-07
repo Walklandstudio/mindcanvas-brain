@@ -132,7 +132,6 @@ function sbAdmin() {
 // Resolve org/test for a token
 async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   const sb = sbAdmin();
-
   const link = await sb
     .from("test_links")
     .select("test_id, token")
@@ -152,6 +151,7 @@ async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   if (vt.error) {
     return { test_id: link.data.test_id, org_slug: null, test_name: null };
   }
+
   return {
     test_id: vt.data?.test_id || link.data.test_id,
     org_slug: vt.data?.org_slug || null,
@@ -182,7 +182,7 @@ async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionM
     .from("test_questions")
     .select("id, profile_map")
     .eq("test_id", test_id)
-    .in("category", ["scored", null])
+    .in("category", ["scored", null]) // ignore qual/data-only
     .order("idx", { ascending: true })) as PostgrestSingleResponse<QuestionMapRow[]>;
 
   if (q.error || !Array.isArray(q.data)) return new Map();
@@ -191,7 +191,7 @@ async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionM
   return map;
 }
 
-// NEW: fetch test meta (for Storage framework opt-in)
+// NEW: fetch test row for meta.reportFramework (opt-in)
 async function fetchTestRow(test_id: string): Promise<TestRow | null> {
   const sb = sbAdmin();
   const q = await sb
@@ -199,42 +199,8 @@ async function fetchTestRow(test_id: string): Promise<TestRow | null> {
     .select("id, slug, name, meta")
     .eq("id", test_id)
     .maybeSingle();
-
   if (q.error || !q.data) return null;
   return q.data as TestRow;
-}
-
-// NEW: labels from DB (used for new tests; old tests can still fall back to JSON)
-async function fetchFrequencyLabels(test_id: string): Promise<Map<AB, string>> {
-  const sb = sbAdmin();
-  const q = await sb
-    .from("test_frequency_labels")
-    .select("frequency_code, frequency_name")
-    .eq("test_id", test_id);
-
-  const map = new Map<AB, string>();
-  for (const r of q.data || []) {
-    const code = String((r as any).frequency_code || "").toUpperCase();
-    const name = String((r as any).frequency_name || "");
-    if (["A", "B", "C", "D"].includes(code) && name) map.set(code as AB, name);
-  }
-  return map;
-}
-
-async function fetchProfileLabels(test_id: string): Promise<Map<string, string>> {
-  const sb = sbAdmin();
-  const q = await sb
-    .from("test_profile_labels")
-    .select("profile_code, label")
-    .eq("test_id", test_id);
-
-  const map = new Map<string, string>();
-  for (const r of q.data || []) {
-    const code = String((r as any).profile_code || "").toUpperCase();
-    const name = String((r as any).label || "");
-    if (code && name) map.set(code, name);
-  }
-  return map;
 }
 
 // NEW: download framework JSON from Supabase Storage
@@ -250,18 +216,19 @@ async function downloadFrameworkJSON(bucket: string, path: string): Promise<any 
   }
 }
 
-// NEW: find report for a profile code inside framework JSON
+// NEW: select report content by profile_code (PROFILE_1..PROFILE_8)
 function findReportForProfile(frameworkJson: any, profileCode: string) {
   const fw = frameworkJson?.framework || frameworkJson;
   if (!fw) return null;
 
   // optional fast-path
-  const byProfile = fw?.reports_by_profile;
-  if (byProfile && typeof byProfile === "object") {
-    const hit = byProfile[String(profileCode).toUpperCase()];
+  const reportsByProfile = fw?.reports_by_profile;
+  if (reportsByProfile && typeof reportsByProfile === "object") {
+    const hit = reportsByProfile[String(profileCode).toUpperCase()];
     if (hit) return hit;
   }
 
+  // general scan
   const reports = fw?.reports;
   if (reports && typeof reports === "object") {
     for (const v of Object.values(reports)) {
@@ -269,6 +236,7 @@ function findReportForProfile(frameworkJson: any, profileCode: string) {
       if (String(pc).toUpperCase() === String(profileCode).toUpperCase()) return v;
     }
   }
+
   return null;
 }
 
@@ -288,41 +256,35 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       return NextResponse.json({ ok: false, error: "Invalid or expired link" }, { status: 404 });
     }
 
-    // NEW: read test meta (opt-in for Storage framework)
+    // 1.5) Load tests.meta to check Storage framework opt-in
     const testRow = await fetchTestRow(meta.test_id);
     const rf: ReportFrameworkMeta | null = (testRow?.meta as any)?.reportFramework || null;
-    const hasStorageFramework = Boolean(rf?.bucket && rf?.path);
+    const useStorageFramework = Boolean(rf?.bucket && rf?.path);
 
-    // 2) Legacy behavior: load framework labels by org_slug (filesystem JSON)
-    //    This remains the default for Team Puzzle / Competency Coach.
+    // 2) Load labels/framework:
+    //    - Legacy default stays EXACTLY as before (filesystem by org_slug)
+    //    - New tests can opt into Storage via tests.meta.reportFramework
     const orgSlug = (meta.org_slug || process.env.DEFAULT_ORG_SLUG || "competency-coach").trim();
-    const legacyFw = await loadFrameworkBySlug(orgSlug);
-    const legacyLook = buildLookups(legacyFw);
 
-    // NEW: For new tests, we prefer DB labels; for old tests, legacy JSON labels remain unchanged.
-    const dbFreq = hasStorageFramework ? await fetchFrequencyLabels(meta.test_id) : new Map<AB, string>();
-    const dbProfiles = hasStorageFramework ? await fetchProfileLabels(meta.test_id) : new Map<string, string>();
+    let fw: any = await loadFrameworkBySlug(orgSlug); // legacy behavior
+    if (useStorageFramework && rf?.bucket && rf?.path) {
+      const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
+      if (storageFw) fw = storageFw; // override ONLY for opted-in tests
+    }
+
+    const look = buildLookups(fw);
 
     // frequency labels (A..D)
-    const frequency_labels = (["A", "B", "C", "D"] as AB[]).map((code) => {
-      const fromDb = dbFreq.get(code);
-      if (fromDb) return { code, name: fromDb };
-
-      // fallback legacy json
-      return {
-        code,
-        name: legacyLook.freqByCode.get(code as FrequencyCode)?.name || `Frequency ${code}`,
-      };
-    });
+    const frequency_labels = (["A", "B", "C", "D"] as AB[]).map((code) => ({
+      code,
+      name: look.freqByCode.get(code as FrequencyCode)?.name || `Frequency ${code}`,
+    }));
 
     // profile labels (PROFILE_1..PROFILE_8)
     const profile_labels = Array.from({ length: 8 }).map((_, i) => {
       const n = i + 1;
       const code = `PROFILE_${n}`;
-      const fromDb = dbProfiles.get(code);
-      if (fromDb) return { code, name: fromDb };
-
-      const jsonName = legacyLook.profileByCode.get(code)?.name || null;
+      const jsonName = look.profileByCode.get(code)?.name || null;
       return { code, name: jsonName || `Profile ${n}` };
     });
 
@@ -342,24 +304,20 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const saved = (sub.totals || {}) as Record<string, number>;
     const savedSum = Object.values(saved).reduce((a, b) => a + (Number(b) || 0), 0);
 
+    // We always compute profileTotals from answers + profile_map (consistent with your current logic)
+    const qmap = await fetchQuestionMaps(meta.test_id);
+    const comp = computeFromAnswers(sub.answers_json, qmap);
+    profileTotals = comp.profileTotals;
+
     if (savedSum > 0) {
-      // Trust DB totals for frequency
       freqTotals = {
         A: safeNumber(saved.A, 0),
         B: safeNumber(saved.B, 0),
         C: safeNumber(saved.C, 0),
         D: safeNumber(saved.D, 0),
       };
-      // Profile totals: derive on the fly from answers + profile_map
-      const qmap = await fetchQuestionMaps(meta.test_id);
-      const comp = computeFromAnswers(sub.answers_json, qmap);
-      profileTotals = comp.profileTotals;
     } else {
-      // Compute both mixes from answers_json and profile_map
-      const qmap = await fetchQuestionMaps(meta.test_id);
-      const comp = computeFromAnswers(sub.answers_json, qmap);
       freqTotals = comp.freqTotals;
-      profileTotals = comp.profileTotals;
     }
 
     // 4) Percentages
@@ -377,35 +335,27 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const top_profile_code = top_profile_entry[0];
     const top_profile_name =
       profile_labels.find((p) => p.code === top_profile_code)?.name ||
-      legacyLook.profileByCode.get(top_profile_code)?.name ||
+      look.profileByCode.get(top_profile_code)?.name ||
       top_profile_code;
 
-    /**
-     * ✅ NEW STANDARD (OPT-IN):
-     * If test.meta.reportFramework exists, attach dynamic report sections from Supabase Storage.
-     * Otherwise, return the legacy payload unchanged.
-     */
+    // 6) NEW: attach report sections ONLY for opted-in tests (Storage frameworks)
     let sections: any = null;
-    if (hasStorageFramework && rf?.bucket && rf?.path) {
-      const fwJson = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
+    if (useStorageFramework && top_profile_code) {
+      const common =
+        fw?.framework?.common?.sections ||
+        fw?.common?.sections ||
+        null;
 
-      if (fwJson) {
-        const common =
-          fwJson?.framework?.common?.sections ||
-          fwJson?.common?.sections ||
-          null;
+      const rep = findReportForProfile(fw, top_profile_code);
 
-        const report = findReportForProfile(fwJson, top_profile_code);
-
-        sections = {
-          common,
-          profile: report?.sections || null,
-          report_title: report?.title || null,
-          framework_version: rf?.version || null,
-          framework_bucket: rf.bucket,
-          framework_path: rf.path,
-        };
-      }
+      sections = {
+        common,
+        profile: rep?.sections || null,
+        report_title: rep?.title || null,
+        framework_version: rf?.version || null,
+        framework_bucket: rf?.bucket || null,
+        framework_path: rf?.path || null,
+      };
     }
 
     return NextResponse.json({
@@ -415,25 +365,22 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         test_name: meta.test_name || testRow?.name || "Profile Test",
         taker: { id: takerId },
 
-        // frequency mix
         frequency_labels,
         frequency_totals: freqTotals,
         frequency_percentages,
 
-        // profile mix
         profile_labels,
         profile_totals: profileTotals,
         profile_percentages,
 
-        // top picks
         top_freq,
         top_profile_code,
         top_profile_name,
 
-        // NEW (only for tests that opt-in)
+        // Only present for new tests that opt-in
         sections,
 
-        version: "portal-v2-storage-optin",
+        version: useStorageFramework ? "portal-v2-storage-optin" : "portal-v1",
       },
     });
   } catch (e: any) {
@@ -441,3 +388,4 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
