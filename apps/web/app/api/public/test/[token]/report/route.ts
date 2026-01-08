@@ -122,14 +122,25 @@ function computeFromAnswers(
 
 // --- Supabase client (admin) ---
 function sbAdmin() {
-  const url = process.env.SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const url =
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url) throw new Error("SUPABASE_URL is required (or NEXT_PUBLIC_SUPABASE_URL).");
+  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required (or an anon key fallback).");
+
   return createClient(url, key, {
     auth: { persistSession: false },
-    db: { schema: "portal" }, // ✅ REQUIRED (otherwise you read public.*)
+    db: { schema: "portal" }, // ✅ critical: we use portal.*
   });
 }
 
+// Resolve org/test for a token
 async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   const sb = sbAdmin();
 
@@ -159,6 +170,7 @@ async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   };
 }
 
+// Fetch latest submission for (taker_id, token)
 async function fetchLatestSubmission(taker_id: string, token: string): Promise<SubmissionRow | null> {
   const sb = sbAdmin();
   const q = await sb
@@ -174,6 +186,7 @@ async function fetchLatestSubmission(taker_id: string, token: string): Promise<S
   return q.data as SubmissionRow;
 }
 
+// Minimal questions map (id, profile_map) for this test
 async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionMapRow>> {
   const sb = sbAdmin();
   const q = (await sb
@@ -296,26 +309,23 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       );
     }
 
-    let freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
-    let profileTotals: Record<string, number> = {};
+    const qmap = await fetchQuestionMaps(meta.test_id);
+    const comp = computeFromAnswers(sub.answers_json, qmap);
 
     const saved = (sub.totals || {}) as Record<string, number>;
     const savedSum = Object.values(saved).reduce((a, b) => a + (Number(b) || 0), 0);
 
-    const qmap = await fetchQuestionMaps(meta.test_id);
-    const comp = computeFromAnswers(sub.answers_json, qmap);
-    profileTotals = comp.profileTotals;
+    const freqTotals: Record<AB, number> =
+      savedSum > 0
+        ? {
+            A: safeNumber(saved.A, 0),
+            B: safeNumber(saved.B, 0),
+            C: safeNumber(saved.C, 0),
+            D: safeNumber(saved.D, 0),
+          }
+        : comp.freqTotals;
 
-    if (savedSum > 0) {
-      freqTotals = {
-        A: safeNumber(saved.A, 0),
-        B: safeNumber(saved.B, 0),
-        C: safeNumber(saved.C, 0),
-        D: safeNumber(saved.D, 0),
-      };
-    } else {
-      freqTotals = comp.freqTotals;
-    }
+    const profileTotals = comp.profileTotals;
 
     const frequency_percentages = toPercentages<AB>(freqTotals);
     const profile_percentages = toPercentages<string>(profileTotals);
@@ -373,7 +383,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
         sections,
 
-        // ✅ debug (remove later)
         debug: {
           frameworkSource,
           reportFramework: rf,
@@ -389,3 +398,4 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
