@@ -64,7 +64,6 @@ function toPercentages<T extends string>(totals: Partial<Record<T, number>>): Re
 }
 
 function profileCodeToAB(pcode: string): AB | null {
-  // Accept "PROFILE_1" .. "PROFILE_8" (case-insensitive); derive A/B/C/D groups 1-2=A, 3-4=B, 5-6=C, 7-8=D
   const m = String(pcode || "").toUpperCase().match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
   if (!m) return null;
   const n = Number(m[1]);
@@ -74,9 +73,8 @@ function profileCodeToAB(pcode: string): AB | null {
   return "D";
 }
 
-// Pulls 0-based selected option index from any of our client shapes
 function selectedIndex(a: any): number {
-  const v = a?.value != null ? Number(a.value) - 1 : undefined; // common case: 1..N
+  const v = a?.value != null ? Number(a.value) - 1 : undefined; // 1..N
   const idx =
     v ??
     (a?.index != null ? Number(a.index) : undefined) ??
@@ -90,7 +88,7 @@ function computeFromAnswers(
   qmap: Map<string, QuestionMapRow>,
 ) {
   const freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
-  const profileTotals: Record<string, number> = {}; // PROFILE_1..PROFILE_8
+  const profileTotals: Record<string, number> = {};
 
   if (!Array.isArray(answers) || answers.length === 0) {
     return { freqTotals, profileTotals };
@@ -126,12 +124,15 @@ function computeFromAnswers(
 function sbAdmin() {
   const url = process.env.SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { auth: { persistSession: false } });
+  return createClient(url, key, {
+    auth: { persistSession: false },
+    db: { schema: "portal" }, // ✅ REQUIRED (otherwise you read public.*)
+  });
 }
 
-// Resolve org/test for a token
 async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   const sb = sbAdmin();
+
   const link = await sb
     .from("test_links")
     .select("test_id, token")
@@ -151,7 +152,6 @@ async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   if (vt.error) {
     return { test_id: link.data.test_id, org_slug: null, test_name: null };
   }
-
   return {
     test_id: vt.data?.test_id || link.data.test_id,
     org_slug: vt.data?.org_slug || null,
@@ -159,7 +159,6 @@ async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   };
 }
 
-// Fetch latest submission for (taker_id, token)
 async function fetchLatestSubmission(taker_id: string, token: string): Promise<SubmissionRow | null> {
   const sb = sbAdmin();
   const q = await sb
@@ -175,14 +174,13 @@ async function fetchLatestSubmission(taker_id: string, token: string): Promise<S
   return q.data as SubmissionRow;
 }
 
-// Minimal questions map (id, profile_map) for this test
 async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionMapRow>> {
   const sb = sbAdmin();
   const q = (await sb
     .from("test_questions")
     .select("id, profile_map")
     .eq("test_id", test_id)
-    .in("category", ["scored", null]) // ignore qual/data-only
+    .in("category", ["scored", null])
     .order("idx", { ascending: true })) as PostgrestSingleResponse<QuestionMapRow[]>;
 
   if (q.error || !Array.isArray(q.data)) return new Map();
@@ -191,7 +189,6 @@ async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionM
   return map;
 }
 
-// NEW: fetch test row for meta.reportFramework (opt-in)
 async function fetchTestRow(test_id: string): Promise<TestRow | null> {
   const sb = sbAdmin();
   const q = await sb
@@ -199,36 +196,39 @@ async function fetchTestRow(test_id: string): Promise<TestRow | null> {
     .select("id, slug, name, meta")
     .eq("id", test_id)
     .maybeSingle();
+
   if (q.error || !q.data) return null;
   return q.data as TestRow;
 }
 
-// NEW: download framework JSON from Supabase Storage
 async function downloadFrameworkJSON(bucket: string, path: string): Promise<any | null> {
   const sb = sbAdmin();
   const { data, error } = await sb.storage.from(bucket).download(path);
-  if (error || !data) return null;
+
+  if (error || !data) {
+    console.log("Storage framework download failed:", { bucket, path, error: error?.message });
+    return null;
+  }
+
   const text = await data.text();
   try {
     return JSON.parse(text);
   } catch {
+    console.log("Storage framework JSON parse failed:", { bucket, path });
     return null;
   }
 }
 
-// NEW: select report content by profile_code (PROFILE_1..PROFILE_8)
 function findReportForProfile(frameworkJson: any, profileCode: string) {
   const fw = frameworkJson?.framework || frameworkJson;
   if (!fw) return null;
 
-  // optional fast-path
   const reportsByProfile = fw?.reports_by_profile;
   if (reportsByProfile && typeof reportsByProfile === "object") {
     const hit = reportsByProfile[String(profileCode).toUpperCase()];
     if (hit) return hit;
   }
 
-  // general scan
   const reports = fw?.reports;
   if (reports && typeof reports === "object") {
     for (const v of Object.values(reports)) {
@@ -250,37 +250,37 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       return NextResponse.json({ ok: false, error: "Missing tid" }, { status: 400 });
     }
 
-    // 1) Resolve org/test by token
     const meta = await resolveLinkMeta(token);
     if (!meta) {
       return NextResponse.json({ ok: false, error: "Invalid or expired link" }, { status: 404 });
     }
 
-    // 1.5) Load tests.meta to check Storage framework opt-in
     const testRow = await fetchTestRow(meta.test_id);
     const rf: ReportFrameworkMeta | null = (testRow?.meta as any)?.reportFramework || null;
     const useStorageFramework = Boolean(rf?.bucket && rf?.path);
 
-    // 2) Load labels/framework:
-    //    - Legacy default stays EXACTLY as before (filesystem by org_slug)
-    //    - New tests can opt into Storage via tests.meta.reportFramework
     const orgSlug = (meta.org_slug || process.env.DEFAULT_ORG_SLUG || "competency-coach").trim();
 
-    let fw: any = await loadFrameworkBySlug(orgSlug); // legacy behavior
+    // legacy framework by orgSlug (unchanged)
+    let fw: any = await loadFrameworkBySlug(orgSlug);
+    let frameworkSource: "filesystem" | "storage" = "filesystem";
+
+    // opt-in storage override
     if (useStorageFramework && rf?.bucket && rf?.path) {
       const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
-      if (storageFw) fw = storageFw; // override ONLY for opted-in tests
+      if (storageFw) {
+        fw = storageFw;
+        frameworkSource = "storage";
+      }
     }
 
     const look = buildLookups(fw);
 
-    // frequency labels (A..D)
     const frequency_labels = (["A", "B", "C", "D"] as AB[]).map((code) => ({
       code,
       name: look.freqByCode.get(code as FrequencyCode)?.name || `Frequency ${code}`,
     }));
 
-    // profile labels (PROFILE_1..PROFILE_8)
     const profile_labels = Array.from({ length: 8 }).map((_, i) => {
       const n = i + 1;
       const code = `PROFILE_${n}`;
@@ -288,7 +288,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       return { code, name: jsonName || `Profile ${n}` };
     });
 
-    // 3) Latest submission for this taker+token
     const sub = await fetchLatestSubmission(takerId, token);
     if (!sub) {
       return NextResponse.json(
@@ -300,11 +299,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     let freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
     let profileTotals: Record<string, number> = {};
 
-    // Prefer saved totals if they’re non-zero
     const saved = (sub.totals || {}) as Record<string, number>;
     const savedSum = Object.values(saved).reduce((a, b) => a + (Number(b) || 0), 0);
 
-    // We always compute profileTotals from answers + profile_map (consistent with your current logic)
     const qmap = await fetchQuestionMaps(meta.test_id);
     const comp = computeFromAnswers(sub.answers_json, qmap);
     profileTotals = comp.profileTotals;
@@ -320,11 +317,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       freqTotals = comp.freqTotals;
     }
 
-    // 4) Percentages
     const frequency_percentages = toPercentages<AB>(freqTotals);
     const profile_percentages = toPercentages<string>(profileTotals);
 
-    // 5) Top findings
     const top_freq =
       (Object.entries(freqTotals) as [AB, number][])
         .sort((a, b) => b[1] - a[1])[0]?.[0] || "A";
@@ -338,7 +333,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       look.profileByCode.get(top_profile_code)?.name ||
       top_profile_code;
 
-    // 6) NEW: attach report sections ONLY for opted-in tests (Storage frameworks)
     let sections: any = null;
     if (useStorageFramework && top_profile_code) {
       const common =
@@ -377,8 +371,15 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         top_profile_code,
         top_profile_name,
 
-        // Only present for new tests that opt-in
         sections,
+
+        // ✅ debug (remove later)
+        debug: {
+          frameworkSource,
+          reportFramework: rf,
+          useStorageFramework,
+          schema: "portal",
+        },
 
         version: useStorageFramework ? "portal-v2-storage-optin" : "portal-v1",
       },
@@ -388,4 +389,3 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
-
