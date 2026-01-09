@@ -1,5 +1,5 @@
 // apps/web/app/t/[token]/report/page.tsx
-import ReportRouterClient from "./ReportRouterClient";
+import LegacyReportClient from "./LegacyReportClient";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,10 @@ export default function ReportPage({
   params: { token: string };
   searchParams: { tid?: string };
 }) {
-  return <ReportRouterClient token={params.token} tid={searchParams?.tid ?? ""} />;
+  const token = params.token;
+  const tid = searchParams?.tid || "";
+
+  return <LegacyReportClient token={token} tid={tid} />;
 }
 
 

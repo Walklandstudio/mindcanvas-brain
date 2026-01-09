@@ -8,13 +8,13 @@ import jsPDF from "jspdf";
 
 import AppBackground from "@/components/ui/AppBackground";
 import { getBaseUrl } from "@/lib/server-url";
+import { getOrgFramework, type OrgFramework } from "@/lib/report/getOrgFramework";
 
 import PersonalityMapSection from "./PersonalityMapSection";
 
 // ---------------- Types ----------------
 
 type FrequencyCode = "A" | "B" | "C" | "D";
-
 type FrequencyLabel = { code: FrequencyCode; name: string };
 type ProfileLabel = { code: string; name: string };
 
@@ -54,7 +54,6 @@ type ResultData = {
   org_name?: string | null;
   test_name: string;
 
-  // token link behaviour (optional but supported)
   link?: LinkMeta;
 
   taker: {
@@ -67,11 +66,9 @@ type ResultData = {
 
   frequency_labels: FrequencyLabel[];
   frequency_percentages: Record<FrequencyCode, number>;
-  frequency_totals?: Record<FrequencyCode, number>;
 
   profile_labels: ProfileLabel[];
   profile_percentages: Record<string, number>;
-  profile_totals?: Record<string, number>;
 
   top_freq: FrequencyCode;
   top_profile_code: string;
@@ -111,12 +108,126 @@ function hasStorageSections(data: ResultData | null): boolean {
   return commonOk || profileOk;
 }
 
-function safePct(v: number | undefined): string {
-  const n = Number(v || 0);
-  return `${Math.round(n * 100)}%`;
+function asText(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value.join(" ");
+  return value ?? "";
 }
 
-// ---------------- Renderer for section blocks ----------------
+function normaliseOrg(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.trim().toLowerCase().replace(/[_\s]+/g, "-");
+}
+
+function isTeamPuzzleOrg(orgSlug?: string | null, orgName?: string | null) {
+  const slug = normaliseOrg(orgSlug);
+  const name = normaliseOrg(orgName);
+  const haystack = `${slug} ${name}`;
+  return (
+    haystack.includes("team-puzzle") ||
+    haystack.includes("life-puzzle") ||
+    (haystack.includes("team") && haystack.includes("puzzle"))
+  );
+}
+
+function getOrgAssets(orgSlug?: string | null, orgName?: string | null) {
+  if (!isTeamPuzzleOrg(orgSlug, orgName)) return null;
+
+  return {
+    logoSrc: "/org-graphics/tp-logo.png",
+    frequenciesSrc: "/org-graphics/tp-4frequencies.png",
+    profilesDiagramSrc: "/org-graphics/tp-main-graphic.png",
+    founderPhotoSrc: "/org-graphics/tp-chandell.png",
+    founderCaption:
+      "Chandell Labbozzetta, Founder – Life Puzzle & Team Puzzle Discovery Assessment",
+  };
+}
+
+function getTeamPuzzleProfileImage(profileName?: string): string | null {
+  if (!profileName) return null;
+  const key = profileName.trim().toLowerCase();
+
+  const map: Record<string, string> = {
+    visionary: "visionary",
+    catalyst: "catalyst",
+    motivator: "motivator",
+    connector: "connector",
+    facilitator: "facilitator",
+    coordinator: "coordinator",
+    controller: "controller",
+    optimiser: "optimiser",
+    optimizer: "optimiser",
+  };
+
+  const slug = map[key];
+  if (!slug) return null;
+  return `/profile-cards/tp-${slug}.png`;
+}
+
+function getDefaultWelcome(orgName: string) {
+  return {
+    title: "Welcome",
+    body: [
+      `Welcome to your ${orgName} report.`,
+      "This report is designed to give you language for your natural strengths, working style, and contribution at work. Use it as a starting point for reflection, coaching conversations, and better collaboration with your team.",
+    ],
+  };
+}
+
+function getDefaultFrameworkIntro(orgName: string): string[] {
+  return [
+    `The ${orgName} framework uses four core Frequencies to describe the energy you bring to your work, and eight Profiles which blend those Frequencies into recognisable patterns of contribution.`,
+    "Together, they give you a simple way to talk about how you like to think, decide, and collaborate — without putting you in a box.",
+  ];
+}
+
+function defaultHowToUse() {
+  return {
+    summary:
+      "This report is a snapshot of your natural patterns, not a fixed identity. Use it as a starting point for reflection, coaching and conversation.",
+    bullets: [
+      "Highlight 2–3 sentences that feel most true for you.",
+      "Notice one strength you want to bring forward more deliberately.",
+      "Identify one development area you would like to work on in the next month.",
+      "Discuss this report with a coach, supervisor or trusted peer.",
+    ],
+  };
+}
+
+function defaultHowToReadScores() {
+  return {
+    title: "How to read these scores",
+    bullets: [
+      "Higher percentages highlight patterns you use frequently and with ease.",
+      "Lower percentages highlight backup styles you can use when needed, but they may take more energy.",
+      "Anything above roughly 30% will usually feel very natural for you.",
+    ],
+  };
+}
+
+type OrgReportCopy = OrgFramework["framework"]["report"] & {
+  profiles?: Record<
+    string,
+    {
+      one_liner?: string;
+      traits?: string | string[];
+      motivators?: string | string[];
+      blind_spots?: string | string[];
+      example?: string;
+    }
+  >;
+};
+
+const DEFAULT_FREQUENCIES_INTRO =
+  "Frequencies describe the way you naturally think, decide and take action – your working energy.";
+
+const DEFAULT_FREQUENCY_DESCRIPTIONS: Record<FrequencyCode, string> = {
+  A: "Ideas, creation, momentum and challenging the status quo.",
+  B: "People, communication, motivation and activation.",
+  C: "Rhythm, process, structure and reliable delivery.",
+  D: "Observation, reflection, analysis and deeper understanding.",
+};
+
+// ---------------- Renderer for section blocks (LEAD storage) ----------------
 
 function BlockView({ block }: { block: SectionBlock }) {
   if (block.type === "p") {
@@ -177,8 +288,9 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   const [loadError, setLoadError] = useState<string | null>(null);
   const [data, setData] = useState<ResultData | null>(null);
   const [redirecting, setRedirecting] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
-  // Load
+  // Load report JSON (legacy + storage superset)
   useEffect(() => {
     let cancelled = false;
 
@@ -197,7 +309,6 @@ export default function LegacyReportClient(props: { token: string; tid: string }
           return;
         }
 
-        // IMPORTANT: use /report (superset for legacy + storage)
         const url = `${b}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(
           tid
         )}`;
@@ -246,21 +357,60 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     window.location.assign(redirectUrl);
   }, [data]);
 
+  // QSC redirect if needed – based on the legacy error pattern you already used
+  useEffect(() => {
+    async function maybeRedirectQSC() {
+      if (!loadError || !base) return;
+      const msg = loadError.toLowerCase();
+      if (!msg.includes("labels_missing_for_test_frequency")) return;
+
+      let variant = "entrepreneur";
+      try {
+        const metaRes = await fetch(`${base}/api/public/test/${encodeURIComponent(token)}`, {
+          cache: "no-store",
+        });
+        const metaJson = (await metaRes.json().catch(() => null as any)) as any;
+        const link = (metaJson?.data ?? metaJson ?? {}) as any;
+
+        variant =
+          link?.meta?.qsc_variant ||
+          link?.qsc_variant ||
+          link?.meta?.variant ||
+          link?.variant ||
+          "entrepreneur";
+      } catch {
+        variant = "entrepreneur";
+      }
+
+      const qscHref = `/qsc/${encodeURIComponent(token)}/${encodeURIComponent(variant)}${
+        tid ? `?tid=${encodeURIComponent(tid)}` : ""
+      }`;
+
+      router.replace(qscHref);
+    }
+
+    maybeRedirectQSC();
+  }, [loadError, base, token, tid, router]);
+
   async function handleDownloadPdf() {
-    if (!reportRef.current) return;
+    if (!reportRef.current || pdfBusy) return;
 
-    const element = reportRef.current;
-
-    // Ensure we capture from top
-    const prevScroll = window.scrollY;
-    window.scrollTo(0, 0);
-
+    setPdfBusy(true);
     try {
+      // let fonts/images settle
+      try {
+        // @ts-ignore
+        if (document?.fonts?.ready) {
+          // @ts-ignore
+          await document.fonts.ready;
+        }
+      } catch {}
+
+      const element = reportRef.current;
+
       const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
-        backgroundColor: "#050914",
-        scrollY: -window.scrollY,
       });
 
       const imgData = canvas.toDataURL("image/png");
@@ -286,8 +436,11 @@ export default function LegacyReportClient(props: { token: string; tid: string }
       }
 
       pdf.save(`mindcanvas-report-${token}.pdf`);
+    } catch (e) {
+      console.error("PDF export failed:", e);
+      alert("Sorry — the PDF export failed. Please try again, or contact support.");
     } finally {
-      window.scrollTo(0, prevScroll);
+      setPdfBusy(false);
     }
   }
 
@@ -361,26 +514,71 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   }
 
   const participantName = getFullName(data.taker);
+  const orgSlug = data.org_slug;
   const orgName = data.org_name || data.test_name || "MindCanvas";
 
   const nextStepsUrl = (data.link?.next_steps_url || "").trim();
   const hasNextSteps = !!nextStepsUrl;
 
-  const freq = data.frequency_percentages || ({} as any);
   const prof = data.profile_percentages || ({} as any);
 
   const useSections = hasStorageSections(data);
+
+  // --- legacy copy and imagery (Team Puzzle / Competency Coach, etc.) ------
+  const orgAssets = getOrgAssets(orgSlug, orgName);
+  const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
+
+  const orgFw: OrgFramework = useMemo(() => getOrgFramework(orgSlug), [orgSlug]);
+  const fw = orgFw.framework;
+  const reportCopy: OrgReportCopy | null = (fw as any)?.report ?? null;
+
+  const frequenciesCopy: any = reportCopy?.frequencies_copy ?? null;
+  const profilesCopyMeta: any = reportCopy?.profiles_copy ?? null;
+  const imageConfig: any = reportCopy?.images ?? {};
+
+  const frequencyDiagramSrc =
+    imageConfig.frequency_diagram || orgAssets?.frequenciesSrc || null;
+  const profilesDiagramSrc =
+    imageConfig.profile_grid || orgAssets?.profilesDiagramSrc || null;
+
+  const legacyReportTitle = reportCopy?.report_title || `${orgName} Profile Assessment`;
+
+  const welcomeTitle: string =
+    reportCopy?.welcome_title || getDefaultWelcome(orgName).title;
+
+  const welcomeBody: string[] =
+    reportCopy?.welcome_body && Array.isArray(reportCopy.welcome_body)
+      ? reportCopy.welcome_body
+      : getDefaultWelcome(orgName).body;
+
+  const frameworkTitle: string = reportCopy?.framework_title || `The ${orgName} framework`;
+  const frameworkIntro: string[] =
+    reportCopy?.framework_intro && Array.isArray(reportCopy.framework_intro)
+      ? reportCopy.framework_intro
+      : getDefaultFrameworkIntro(orgName);
+
+  const howToUse = reportCopy?.how_to_use || defaultHowToUse();
+  const howToRead = reportCopy?.how_to_read_scores || defaultHowToReadScores();
+
+  const profileCopy = (reportCopy?.profiles as OrgReportCopy["profiles"]) || {};
 
   const sortedProfiles = [...(data.profile_labels || [])]
     .map((p) => ({ ...p, pct: prof[p.code] ?? 0 }))
     .sort((a, b) => (b.pct || 0) - (a.pct || 0));
 
   const primary = sortedProfiles[0];
+  const secondary = sortedProfiles[1];
+  const tertiary = sortedProfiles[2];
+
+  const primaryExample =
+    profileCopy?.[primary?.code || ""]?.example ||
+    "For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.";
+
+  const topProfileImage =
+    isTeamPuzzle && primary?.name ? getTeamPuzzleProfileImage(primary.name) : null;
 
   const reportTitle =
-    (useSections && data.sections?.report_title) ||
-    data.test_name ||
-    `${orgName} Report`;
+    (useSections && data.sections?.report_title) || legacyReportTitle;
 
   // ---------------- Render ----------------
 
@@ -397,7 +595,16 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                 PERSONALISED REPORT
               </p>
 
-              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">{reportTitle}</h1>
+              <div className="mt-2 flex items-center gap-3">
+                {orgAssets?.logoSrc && !useSections && (
+                  <img
+                    src={orgAssets.logoSrc}
+                    alt={orgName}
+                    className="h-8 w-auto rounded-md bg-white p-1 shadow-sm"
+                  />
+                )}
+                <h1 className="text-3xl font-bold tracking-tight text-white">{reportTitle}</h1>
+              </div>
 
               <p className="mt-2 text-sm text-slate-200">
                 For {participantName} · Top profile:{" "}
@@ -418,12 +625,26 @@ export default function LegacyReportClient(props: { token: string; tid: string }
 
               <button
                 onClick={handleDownloadPdf}
-                className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+                disabled={pdfBusy}
+                className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800 disabled:opacity-60"
               >
-                Download PDF
+                {pdfBusy ? "Preparing…" : "Download PDF"}
               </button>
             </div>
           </header>
+
+          {/* Optional top profile image for Team Puzzle (legacy only) */}
+          {!useSections && topProfileImage && (
+            <div className="flex justify-center">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                <img
+                  src={topProfileImage}
+                  alt={primary?.name || "Top profile"}
+                  className="mx-auto h-40 w-auto rounded-xl"
+                />
+              </div>
+            </div>
+          )}
 
           {/* ALWAYS: GRAPH SECTION (every report gets graphs) */}
           <section className="space-y-4">
@@ -454,33 +675,6 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                 Your report
               </p>
 
-              {/* Quick results summary */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-                <h2 className="text-lg font-semibold text-slate-900">Results summary</h2>
-                <p className="mt-2 text-sm text-slate-700">
-                  Your strongest frequency is{" "}
-                  <span className="font-semibold">
-                    {data.frequency_labels.find((f) => f.code === data.top_freq)?.name || data.top_freq}{" "}
-                    ({data.top_freq})
-                  </span>{" "}
-                  and your top profile is{" "}
-                  <span className="font-semibold">
-                    {data.top_profile_name} ({data.top_profile_code})
-                  </span>
-                  .
-                </p>
-
-                <div className="mt-4 grid gap-3">
-                  {data.frequency_labels.map((f) => (
-                    <div key={f.code} className="flex items-center justify-between text-sm">
-                      <span className="font-medium text-slate-800">{f.name}</span>
-                      <span className="text-slate-600">{safePct(freq[f.code])}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* If profile content missing, show warning instead of blank report */}
               {data.sections?.profile_missing ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-900">
                   <p className="font-semibold">Profile content not available yet</p>
@@ -489,17 +683,16 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                     <span className="font-semibold">
                       {data.top_profile_name} ({data.top_profile_code})
                     </span>
-                    . Add that profile to the same reportFramework JSON file so this renders fully.
+                    . Add that profile into the same reportFramework JSON file so this renders
+                    fully.
                   </p>
                 </div>
               ) : null}
 
-              {/* COMMON sections */}
               {(data.sections?.common || []).map((s, i) => (
                 <SectionCard key={s.id || i} section={s} />
               ))}
 
-              {/* PROFILE sections */}
               {(data.sections?.profile || []).map((s, i) => (
                 <SectionCard key={s.id || `p-${i}`} section={s} />
               ))}
@@ -512,32 +705,266 @@ export default function LegacyReportClient(props: { token: string; tid: string }
               </footer>
             </section>
           ) : (
-            // LEGACY fallback (keeps old tests from going “half report”)
-            <section className="space-y-4">
+            // LEGACY FULL REPORT (Team Puzzle / Competency Coach etc.)
+            <section className="space-y-6">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
-                Summary
+                Part 1 · About this assessment
               </p>
 
+              {/* Welcome */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-                <h2 className="text-lg font-semibold text-slate-900">Your top results</h2>
-                <p className="mt-2 text-sm text-slate-700">
-                  Top profile: <span className="font-semibold">{data.top_profile_name}</span> · Top
-                  frequency: <span className="font-semibold">{data.top_freq}</span>
+                <h2 className="text-lg font-semibold text-slate-900">{welcomeTitle}</h2>
+                <p className="mt-1 text-sm font-medium text-slate-500">
+                  A note from the creator of this framework.
                 </p>
 
-                <div className="mt-4 grid gap-3">
-                  {data.profile_labels.slice(0, 8).map((p) => (
-                    <div key={p.code} className="flex items-center justify-between text-sm">
-                      <span className="font-medium text-slate-800">{p.name}</span>
-                      <span className="text-slate-600">{safePct(prof[p.code])}</span>
+                <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-start">
+                  <div className="space-y-3 text-sm leading-relaxed text-slate-700">
+                    {welcomeBody.map((p, idx) => (
+                      <p key={idx}>{p}</p>
+                    ))}
+                  </div>
+
+                  {orgAssets?.founderPhotoSrc && (
+                    <div className="flex flex-col items-center gap-3 md:items-start">
+                      <img
+                        src={orgAssets.founderPhotoSrc}
+                        alt={orgAssets.founderCaption || "Founder"}
+                        className="h-28 w-28 rounded-full object-cover border border-slate-200"
+                      />
+                      {orgAssets.founderCaption && (
+                        <p className="text-xs text-slate-500 text-center md:text-left">
+                          {orgAssets.founderCaption}
+                        </p>
+                      )}
                     </div>
-                  ))}
+                  )}
+                </div>
+              </div>
+
+              {/* How to use + Framework */}
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                  <h3 className="text-base font-semibold text-slate-900">How to use this report</h3>
+                  <p className="mt-2 text-sm text-slate-700">{howToUse.summary}</p>
+                  <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                    {howToUse.bullets.map((b: string, i: number) => (
+                      <li key={i}>{b}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-xs text-slate-500">
+                    Use this as a starting point, not a verdict. The most useful insights come
+                    from reflecting, asking questions, and applying what feels true in your day-to-day work.
+                  </p>
                 </div>
 
-                <p className="mt-4 text-xs text-slate-500">
-                  This test does not currently use a storage-based report framework. It is rendered
-                  using legacy formatting.
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                  <h3 className="text-base font-semibold text-slate-900">{frameworkTitle}</h3>
+                  <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
+                    {frameworkIntro.map((p, idx) => (
+                      <p key={idx}>{p}</p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Frequencies */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">
+                  {frequenciesCopy?.title || "Understanding the four Frequencies"}
+                </h3>
+                <p className="mt-2 text-sm text-slate-700">
+                  {frequenciesCopy?.intro || DEFAULT_FREQUENCIES_INTRO}
                 </p>
+
+                {frequencyDiagramSrc && (
+                  <div className="mt-4 flex justify-center">
+                    <img
+                      src={frequencyDiagramSrc}
+                      alt="Frequencies"
+                      className="max-h-64 w-auto rounded-xl"
+                    />
+                  </div>
+                )}
+
+                <dl className="mt-4 space-y-2 text-sm text-slate-800">
+                  {data.frequency_labels.map((f) => {
+                    const freqMeta = frequenciesCopy?.items?.[f.code as FrequencyCode] ?? null;
+                    const name = freqMeta?.name || f.name;
+                    const description =
+                      freqMeta?.description || DEFAULT_FREQUENCY_DESCRIPTIONS[f.code as FrequencyCode];
+
+                    return (
+                      <div key={f.code}>
+                        <dt className="font-semibold">
+                          {name} ({f.code})
+                        </dt>
+                        <dd className="text-slate-700">{description}</dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              </div>
+
+              {/* Profiles overview */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">
+                  {profilesCopyMeta?.title || "Understanding the eight Profiles"}
+                </h3>
+                <p className="mt-2 text-sm text-slate-700">
+                  {profilesCopyMeta?.intro ||
+                    "Profiles blend the Frequencies into distinct patterns of contribution. Your profile mix shows how you naturally create value in sessions, relationships and results."}
+                </p>
+
+                {profilesDiagramSrc && (
+                  <div className="mt-4 flex justify-center">
+                    <img
+                      src={profilesDiagramSrc}
+                      alt="Profiles"
+                      className="max-h-72 w-auto rounded-xl"
+                    />
+                  </div>
+                )}
+
+                <dl className="mt-4 grid gap-2 text-sm text-slate-800 md:grid-cols-2">
+                  {data.profile_labels.map((p) => {
+                    const copy = profileCopy?.[p.code];
+                    return (
+                      <div key={p.code}>
+                        <dt className="font-semibold">{p.name}</dt>
+                        <dd className="text-slate-700">
+                          {copy?.one_liner ||
+                            "A distinct coaching pattern that describes how you most naturally create value."}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              </div>
+
+              {/* PART 2 */}
+              <div className="space-y-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+                  Part 2 · Your personal profile
+                </p>
+
+                {/* Frequency summary */}
+                <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-900">Frequency summary</h2>
+                      <p className="mt-1 text-sm text-slate-700">
+                        Your strongest overall frequency is{" "}
+                        <span className="font-semibold">
+                          {data.frequency_labels.find((f) => f.code === data.top_freq)?.name} ({data.top_freq})
+                        </span>
+                        , which shapes how you approach problems and make decisions.
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-sky-50 px-4 py-3 text-xs text-sky-900">
+                      <p className="font-semibold">{howToRead.title}</p>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                        {howToRead.bullets.map((b: string, i: number) => (
+                          <li key={i}>{b}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Profile mix */}
+                <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                  <h2 className="text-lg font-semibold text-slate-900">Profile mix</h2>
+                  <p className="text-sm text-slate-700">
+                    Overall, your strongest profile pattern is{" "}
+                    <span className="font-semibold">{primary?.name} ({primary?.code})</span>,
+                    supported by{" "}
+                    <span className="font-semibold">{secondary?.name} ({secondary?.code})</span>{" "}
+                    and{" "}
+                    <span className="font-semibold">{tertiary?.name} ({tertiary?.code})</span>.
+                  </p>
+                </div>
+
+                {/* Primary / secondary / tertiary cards */}
+                <div className="grid gap-4 md:grid-cols-3">
+                  {[primary, secondary, tertiary].map((p, idx) => {
+                    if (!p) return null;
+                    const label = idx === 0 ? "Primary profile" : idx === 1 ? "Secondary" : "Tertiary";
+                    const copy = profileCopy?.[p.code];
+
+                    const profileImg =
+                      isTeamPuzzle && p.name ? getTeamPuzzleProfileImage(p.name) : null;
+
+                    return (
+                      <div
+                        key={p.code}
+                        className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 text-slate-900"
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          {label}
+                        </p>
+
+                        {profileImg && (
+                          <div className="mt-2 mb-3 flex justify-center">
+                            <img
+                              src={profileImg}
+                              alt={p.name}
+                              className="h-24 w-auto rounded-xl"
+                            />
+                          </div>
+                        )}
+
+                        <h3 className="text-lg font-semibold text-slate-900">{p.name}</h3>
+                        <p className="text-xs text-slate-500">{p.code}</p>
+
+                        <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs text-slate-700">
+                          <li>
+                            <span className="font-semibold">Key traits:</span>{" "}
+                            {asText(copy?.traits) || "How this profile most naturally contributes."}
+                          </li>
+                          <li>
+                            <span className="font-semibold">Motivators:</span>{" "}
+                            {asText(copy?.motivators) || "Conditions that energise this style."}
+                          </li>
+                          <li>
+                            <span className="font-semibold">Watch outs:</span>{" "}
+                            {asText(copy?.blind_spots) || "Things to watch under pressure."}
+                          </li>
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Energy mix */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    Energy mix – how your profiles work together
+                  </h2>
+                  <p className="mt-3 text-sm text-slate-700">{primaryExample}</p>
+                </div>
+
+                {/* Next steps */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                  <h2 className="text-lg font-semibold text-slate-900">Next steps</h2>
+                  <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
+                    <li>Highlight 2–3 sentences that feel most true for you.</li>
+                    <li>Note one strength you want to lean into more deliberately.</li>
+                    <li>Note one development area you would like to experiment with.</li>
+                    <li>Bring this into a coaching conversation to turn insight into action.</li>
+                  </ul>
+
+                  {hasNextSteps && (
+                    <div className="mt-5">
+                      <button
+                        onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
+                        className="inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                      >
+                        Go to next steps
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </section>
           )}

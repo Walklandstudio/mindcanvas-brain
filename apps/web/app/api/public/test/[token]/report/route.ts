@@ -1,3 +1,4 @@
+// apps/web/app/api/public/test/[token]/report/route.ts
 /* eslint-disable no-console */
 import "server-only";
 import { NextResponse } from "next/server";
@@ -28,10 +29,26 @@ type SubmissionRow = {
   created_at: string;
 };
 
+type LinkRow = {
+  test_id: string;
+  token: string;
+  // these may or may not exist – we read them defensively
+  show_results?: boolean | null;
+  redirect_url?: string | null;
+  hidden_results_message?: string | null;
+  next_steps_url?: string | null;
+};
+
 type LinkMeta = {
   test_id: string;
   org_slug: string | null;
   test_name: string | null;
+  link?: {
+    show_results?: boolean | null;
+    redirect_url?: string | null;
+    hidden_results_message?: string | null;
+    next_steps_url?: string | null;
+  };
 };
 
 type ReportFrameworkMeta = {
@@ -47,6 +64,13 @@ type TestRow = {
   meta: any | null;
 };
 
+type TakerRow = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+};
+
+// --- helpers ---
 function safeNumber(x: any, d = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : d;
@@ -108,7 +132,6 @@ function computeFromAnswers(
 
     const pts = safeNumber(entry.points, 0);
     const pcode = String(entry.profile || "").toUpperCase();
-
     if (pts <= 0 || !pcode) continue;
 
     profileTotals[pcode] = (profileTotals[pcode] || 0) + pts;
@@ -122,10 +145,7 @@ function computeFromAnswers(
 
 // --- Supabase client (admin) ---
 function sbAdmin() {
-  const url =
-    process.env.SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL;
-
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_ANON_KEY ||
@@ -136,38 +156,58 @@ function sbAdmin() {
 
   return createClient(url, key, {
     auth: { persistSession: false },
-    db: { schema: "portal" }, // ✅ critical: we use portal.*
+    db: { schema: "portal" },
   });
 }
 
-// Resolve org/test for a token
+// Resolve org/test for a token (+ link behaviour if present)
 async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   const sb = sbAdmin();
 
-  const link = await sb
-    .from("test_links")
-    .select("test_id, token")
-    .eq("token", token)
-    .limit(1)
-    .maybeSingle();
-
+  // safest: select * so we don’t break if columns differ
+  const link = await sb.from("test_links").select("*").eq("token", token).limit(1).maybeSingle();
   if (link.error || !link.data?.test_id) return null;
+
+  const linkRow = link.data as LinkRow;
 
   const vt = await sb
     .from("v_org_tests")
     .select("test_id, org_slug, test_name")
-    .eq("test_id", link.data.test_id)
+    .eq("test_id", linkRow.test_id)
     .limit(1)
     .maybeSingle();
 
-  if (vt.error) {
-    return { test_id: link.data.test_id, org_slug: null, test_name: null };
-  }
+  const org_slug = vt.data?.org_slug || null;
+  const test_name = vt.data?.test_name || null;
+
   return {
-    test_id: vt.data?.test_id || link.data.test_id,
-    org_slug: vt.data?.org_slug || null,
-    test_name: vt.data?.test_name || null,
+    test_id: vt.data?.test_id || linkRow.test_id,
+    org_slug,
+    test_name,
+    link: {
+      show_results: (linkRow as any).show_results ?? null,
+      redirect_url: (linkRow as any).redirect_url ?? null,
+      hidden_results_message: (linkRow as any).hidden_results_message ?? null,
+      next_steps_url: (linkRow as any).next_steps_url ?? null,
+    },
   };
+}
+
+// Fetch taker basic info (safe if table exists)
+async function fetchTaker(taker_id: string): Promise<TakerRow | null> {
+  const sb = sbAdmin();
+  try {
+    const q = await sb
+      .from("test_takers")
+      .select("id, first_name, last_name")
+      .eq("id", taker_id)
+      .maybeSingle();
+
+    if (q.error || !q.data) return null;
+    return q.data as TakerRow;
+  } catch {
+    return null;
+  }
 }
 
 // Fetch latest submission for (taker_id, token)
@@ -204,12 +244,7 @@ async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionM
 
 async function fetchTestRow(test_id: string): Promise<TestRow | null> {
   const sb = sbAdmin();
-  const q = await sb
-    .from("tests")
-    .select("id, slug, name, meta")
-    .eq("id", test_id)
-    .maybeSingle();
-
+  const q = await sb.from("tests").select("id, slug, name, meta").eq("id", test_id).maybeSingle();
   if (q.error || !q.data) return null;
   return q.data as TestRow;
 }
@@ -274,20 +309,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const orgSlug = (meta.org_slug || process.env.DEFAULT_ORG_SLUG || "competency-coach").trim();
 
-    // legacy framework by orgSlug (unchanged)
-    let fw: any = await loadFrameworkBySlug(orgSlug);
-    let frameworkSource: "filesystem" | "storage" = "filesystem";
-
-    // opt-in storage override
-    if (useStorageFramework && rf?.bucket && rf?.path) {
-      const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
-      if (storageFw) {
-        fw = storageFw;
-        frameworkSource = "storage";
-      }
-    }
-
-    const look = buildLookups(fw);
+    // ✅ ALWAYS load base framework for labels/lookups (prevents breaking Team Puzzle / Competency)
+    const baseFw: any = await loadFrameworkBySlug(orgSlug);
+    const look = buildLookups(baseFw);
 
     const frequency_labels = (["A", "B", "C", "D"] as AB[]).map((code) => ({
       code,
@@ -312,6 +336,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const qmap = await fetchQuestionMaps(meta.test_id);
     const comp = computeFromAnswers(sub.answers_json, qmap);
 
+    // If saved totals exist and sum > 0, prefer them for frequencies
     const saved = (sub.totals || {}) as Record<string, number>;
     const savedSum = Object.values(saved).reduce((a, b) => a + (Number(b) || 0), 0);
 
@@ -343,23 +368,38 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       look.profileByCode.get(top_profile_code)?.name ||
       top_profile_code;
 
+    // taker name (if table exists)
+    const takerRow = await fetchTaker(takerId);
+
+    // ✅ Sections come from storage report framework JSON ONLY (don’t affect lookups)
     let sections: any = null;
-    if (useStorageFramework && top_profile_code) {
-      const common =
-        fw?.framework?.common?.sections ||
-        fw?.common?.sections ||
-        null;
+    let frameworkSource: "filesystem" | "storage" = "filesystem";
 
-      const rep = findReportForProfile(fw, top_profile_code);
+    if (useStorageFramework && rf?.bucket && rf?.path) {
+      const reportFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
+      if (reportFw) {
+        frameworkSource = "storage";
 
-      sections = {
-        common,
-        profile: rep?.sections || null,
-        report_title: rep?.title || null,
-        framework_version: rf?.version || null,
-        framework_bucket: rf?.bucket || null,
-        framework_path: rf?.path || null,
-      };
+        const common =
+          reportFw?.framework?.common?.sections ||
+          reportFw?.common?.sections ||
+          null;
+
+        const rep = findReportForProfile(reportFw, top_profile_code);
+
+        sections = {
+          common: common || null,
+          profile: rep?.sections || null,
+          report_title: rep?.title || null,
+
+          // IMPORTANT: prevents “half report” silently
+          profile_missing: !rep,
+
+          framework_version: rf?.version || null,
+          framework_bucket: rf?.bucket || null,
+          framework_path: rf?.path || null,
+        };
+      }
     }
 
     return NextResponse.json({
@@ -367,8 +407,18 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       data: {
         org_slug: orgSlug,
         test_name: meta.test_name || testRow?.name || "Profile Test",
-        taker: { id: takerId },
 
+        // ✅ restore taker info for "For Lisa Walker"
+        taker: {
+          id: takerId,
+          first_name: (takerRow as any)?.first_name ?? null,
+          last_name: (takerRow as any)?.last_name ?? null,
+        },
+
+        // ✅ link behaviour passthrough (if present)
+        link: meta.link || {},
+
+        // ✅ graphs need these every time
         frequency_labels,
         frequency_totals: freqTotals,
         frequency_percentages,
@@ -398,4 +448,5 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
 
