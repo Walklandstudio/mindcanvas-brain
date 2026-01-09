@@ -1,15 +1,11 @@
-// apps/web/app/t/[token]/report/LegacyReportClient.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 import AppBackground from "@/components/ui/AppBackground";
 import { getBaseUrl } from "@/lib/server-url";
-import { getOrgFramework, type OrgFramework } from "@/lib/report/getOrgFramework";
-
 import PersonalityMapSection from "./PersonalityMapSection";
 
 // ---------------- Types ----------------
@@ -108,126 +104,12 @@ function hasStorageSections(data: ResultData | null): boolean {
   return commonOk || profileOk;
 }
 
-function asText(value: string | string[] | undefined): string {
-  if (Array.isArray(value)) return value.join(" ");
-  return value ?? "";
+function safePct(v: number | undefined): string {
+  const n = Number(v || 0);
+  return `${Math.round(n * 100)}%`;
 }
 
-function normaliseOrg(value: string | null | undefined): string {
-  if (!value) return "";
-  return value.trim().toLowerCase().replace(/[_\s]+/g, "-");
-}
-
-function isTeamPuzzleOrg(orgSlug?: string | null, orgName?: string | null) {
-  const slug = normaliseOrg(orgSlug);
-  const name = normaliseOrg(orgName);
-  const haystack = `${slug} ${name}`;
-  return (
-    haystack.includes("team-puzzle") ||
-    haystack.includes("life-puzzle") ||
-    (haystack.includes("team") && haystack.includes("puzzle"))
-  );
-}
-
-function getOrgAssets(orgSlug?: string | null, orgName?: string | null) {
-  if (!isTeamPuzzleOrg(orgSlug, orgName)) return null;
-
-  return {
-    logoSrc: "/org-graphics/tp-logo.png",
-    frequenciesSrc: "/org-graphics/tp-4frequencies.png",
-    profilesDiagramSrc: "/org-graphics/tp-main-graphic.png",
-    founderPhotoSrc: "/org-graphics/tp-chandell.png",
-    founderCaption:
-      "Chandell Labbozzetta, Founder – Life Puzzle & Team Puzzle Discovery Assessment",
-  };
-}
-
-function getTeamPuzzleProfileImage(profileName?: string): string | null {
-  if (!profileName) return null;
-  const key = profileName.trim().toLowerCase();
-
-  const map: Record<string, string> = {
-    visionary: "visionary",
-    catalyst: "catalyst",
-    motivator: "motivator",
-    connector: "connector",
-    facilitator: "facilitator",
-    coordinator: "coordinator",
-    controller: "controller",
-    optimiser: "optimiser",
-    optimizer: "optimiser",
-  };
-
-  const slug = map[key];
-  if (!slug) return null;
-  return `/profile-cards/tp-${slug}.png`;
-}
-
-function getDefaultWelcome(orgName: string) {
-  return {
-    title: "Welcome",
-    body: [
-      `Welcome to your ${orgName} report.`,
-      "This report is designed to give you language for your natural strengths, working style, and contribution at work. Use it as a starting point for reflection, coaching conversations, and better collaboration with your team.",
-    ],
-  };
-}
-
-function getDefaultFrameworkIntro(orgName: string): string[] {
-  return [
-    `The ${orgName} framework uses four core Frequencies to describe the energy you bring to your work, and eight Profiles which blend those Frequencies into recognisable patterns of contribution.`,
-    "Together, they give you a simple way to talk about how you like to think, decide, and collaborate — without putting you in a box.",
-  ];
-}
-
-function defaultHowToUse() {
-  return {
-    summary:
-      "This report is a snapshot of your natural patterns, not a fixed identity. Use it as a starting point for reflection, coaching and conversation.",
-    bullets: [
-      "Highlight 2–3 sentences that feel most true for you.",
-      "Notice one strength you want to bring forward more deliberately.",
-      "Identify one development area you would like to work on in the next month.",
-      "Discuss this report with a coach, supervisor or trusted peer.",
-    ],
-  };
-}
-
-function defaultHowToReadScores() {
-  return {
-    title: "How to read these scores",
-    bullets: [
-      "Higher percentages highlight patterns you use frequently and with ease.",
-      "Lower percentages highlight backup styles you can use when needed, but they may take more energy.",
-      "Anything above roughly 30% will usually feel very natural for you.",
-    ],
-  };
-}
-
-type OrgReportCopy = OrgFramework["framework"]["report"] & {
-  profiles?: Record<
-    string,
-    {
-      one_liner?: string;
-      traits?: string | string[];
-      motivators?: string | string[];
-      blind_spots?: string | string[];
-      example?: string;
-    }
-  >;
-};
-
-const DEFAULT_FREQUENCIES_INTRO =
-  "Frequencies describe the way you naturally think, decide and take action – your working energy.";
-
-const DEFAULT_FREQUENCY_DESCRIPTIONS: Record<FrequencyCode, string> = {
-  A: "Ideas, creation, momentum and challenging the status quo.",
-  B: "People, communication, motivation and activation.",
-  C: "Rhythm, process, structure and reliable delivery.",
-  D: "Observation, reflection, analysis and deeper understanding.",
-};
-
-// ---------------- Renderer for section blocks (LEAD storage) ----------------
+// ---------------- Renderer for section blocks ----------------
 
 function BlockView({ block }: { block: SectionBlock }) {
   if (block.type === "p") {
@@ -278,19 +160,17 @@ function SectionCard({ section }: { section: ReportSection }) {
 // ---------------- Main Component ----------------
 
 export default function LegacyReportClient(props: { token: string; tid: string }) {
-  const router = useRouter();
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   const { token, tid } = props;
 
-  const [base, setBase] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [data, setData] = useState<ResultData | null>(null);
   const [redirecting, setRedirecting] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
 
-  // Load report JSON (legacy + storage superset)
+  // Load
   useEffect(() => {
     let cancelled = false;
 
@@ -299,16 +179,13 @@ export default function LegacyReportClient(props: { token: string; tid: string }
         setLoading(true);
         setLoadError(null);
 
-        const b = await getBaseUrl();
-        if (cancelled) return;
-        setBase(b);
-
         if (!tid) {
           setLoadError("Missing tid");
           setLoading(false);
           return;
         }
 
+        const b = await getBaseUrl();
         const url = `${b}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(
           tid
         )}`;
@@ -370,9 +247,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
         }
       } catch {}
 
-      const element = reportRef.current;
-
-      const canvas = await html2canvas(element, {
+      const canvas = await html2canvas(reportRef.current, {
         scale: 2,
         useCORS: true,
       });
@@ -478,78 +353,16 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   }
 
   const participantName = getFullName(data.taker);
-  const orgSlug = data.org_slug;
-  const orgName = data.org_name || data.test_name || "MindCanvas";
-  const hasNextSteps = !!(data.link?.next_steps_url || "").trim();
   const nextStepsUrl = (data.link?.next_steps_url || "").trim();
+  const hasNextSteps = !!nextStepsUrl;
 
   const useSections = hasStorageSections(data);
-  const prof = data.profile_percentages || ({} as any);
-
-  // ✅ SAFE: don’t let unknown org slugs crash the entire report
-  const orgFw = useMemo<OrgFramework | null>(() => {
-    try {
-      return getOrgFramework(orgSlug);
-    } catch (e) {
-      console.warn("getOrgFramework() fallback for org:", orgSlug, e);
-      return null;
-    }
-  }, [orgSlug]);
-
-  // --- legacy copy and imagery (only used when !useSections) ------
-  const orgAssets = getOrgAssets(orgSlug, orgName);
-  const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
-
-  const fw = orgFw?.framework;
-  const reportCopy: any = fw ? (fw as any)?.report : null;
-
-  const frequenciesCopy: any = reportCopy?.frequencies_copy ?? null;
-  const profilesCopyMeta: any = reportCopy?.profiles_copy ?? null;
-  const imageConfig: any = reportCopy?.images ?? {};
-
-  const frequencyDiagramSrc =
-    imageConfig.frequency_diagram || orgAssets?.frequenciesSrc || null;
-  const profilesDiagramSrc =
-    imageConfig.profile_grid || orgAssets?.profilesDiagramSrc || null;
-
-  const legacyReportTitle = reportCopy?.report_title || `${orgName} Profile Assessment`;
-
-  const welcomeTitle: string =
-    reportCopy?.welcome_title || getDefaultWelcome(orgName).title;
-
-  const welcomeBody: string[] =
-    reportCopy?.welcome_body && Array.isArray(reportCopy.welcome_body)
-      ? reportCopy.welcome_body
-      : getDefaultWelcome(orgName).body;
-
-  const frameworkTitle: string = reportCopy?.framework_title || `The ${orgName} framework`;
-  const frameworkIntro: string[] =
-    reportCopy?.framework_intro && Array.isArray(reportCopy.framework_intro)
-      ? reportCopy.framework_intro
-      : getDefaultFrameworkIntro(orgName);
-
-  const howToUse = reportCopy?.how_to_use || defaultHowToUse();
-  const howToRead = reportCopy?.how_to_read_scores || defaultHowToReadScores();
-
-  const profileCopy = (reportCopy?.profiles as any) || {};
-
-  const sortedProfiles = [...(data.profile_labels || [])]
-    .map((p) => ({ ...p, pct: prof[p.code] ?? 0 }))
-    .sort((a, b) => (b.pct || 0) - (a.pct || 0));
-
-  const primary = sortedProfiles[0];
-  const secondary = sortedProfiles[1];
-  const tertiary = sortedProfiles[2];
-
-  const primaryExample =
-    profileCopy?.[primary?.code || ""]?.example ||
-    "For example, you’re likely to be the person who brings energy to the room, helps others stay engaged, and keeps people moving toward a shared goal.";
-
-  const topProfileImage =
-    isTeamPuzzle && primary?.name ? getTeamPuzzleProfileImage(primary.name) : null;
 
   const reportTitle =
-    (useSections && data.sections?.report_title) || legacyReportTitle;
+    (useSections && data.sections?.report_title) || data.test_name || "MindCanvas Report";
+
+  const freq = data.frequency_percentages || ({} as any);
+  const prof = data.profile_percentages || ({} as any);
 
   return (
     <div ref={reportRef} className="relative min-h-screen bg-[#050914] text-white overflow-hidden">
@@ -564,16 +377,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                 PERSONALISED REPORT
               </p>
 
-              <div className="mt-2 flex items-center gap-3">
-                {orgAssets?.logoSrc && !useSections && (
-                  <img
-                    src={orgAssets.logoSrc}
-                    alt={orgName}
-                    className="h-8 w-auto rounded-md bg-white p-1 shadow-sm"
-                  />
-                )}
-                <h1 className="text-3xl font-bold tracking-tight text-white">{reportTitle}</h1>
-              </div>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">{reportTitle}</h1>
 
               <p className="mt-2 text-sm text-slate-200">
                 For {participantName} · Top profile:{" "}
@@ -601,19 +405,6 @@ export default function LegacyReportClient(props: { token: string; tid: string }
             </div>
           </header>
 
-          {/* Team Puzzle legacy profile image */}
-          {!useSections && topProfileImage && (
-            <div className="flex justify-center">
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-                <img
-                  src={topProfileImage}
-                  alt={primary?.name || "Top profile"}
-                  className="mx-auto h-40 w-auto rounded-xl"
-                />
-              </div>
-            </div>
-          )}
-
           {/* ALWAYS: GRAPH SECTION */}
           <section className="space-y-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
@@ -636,7 +427,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
             </div>
           </section>
 
-          {/* STORAGE LEAD REPORT */}
+          {/* STORAGE SECTIONS (LEAD) */}
           {useSections ? (
             <section className="space-y-6">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
@@ -664,69 +455,42 @@ export default function LegacyReportClient(props: { token: string; tid: string }
               {(data.sections?.profile || []).map((s, i) => (
                 <SectionCard key={s.id || `p-${i}`} section={s} />
               ))}
-
-              <footer className="mt-2 text-xs text-slate-400">
-                Framework:{" "}
-                <span className="text-slate-300">
-                  {data.sections?.framework_path || "—"} ({data.sections?.framework_version || "—"})
-                </span>
-              </footer>
             </section>
           ) : (
-            // LEGACY FULL REPORT (requires orgFw; if null we still show something sensible)
-            <section className="space-y-6">
+            // LEGACY: generic fallback so nothing breaks
+            <section className="space-y-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
-                Part 1 · About this assessment
+                Summary
               </p>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-                <h2 className="text-lg font-semibold text-slate-900">{welcomeTitle}</h2>
-                <p className="mt-1 text-sm font-medium text-slate-500">
-                  A note from the creator of this framework.
+                <h2 className="text-lg font-semibold text-slate-900">Your results</h2>
+                <p className="mt-2 text-sm text-slate-700">
+                  Top profile: <span className="font-semibold">{data.top_profile_name}</span> · Top
+                  frequency: <span className="font-semibold">{data.top_freq}</span>
                 </p>
 
-                <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-start">
-                  <div className="space-y-3 text-sm leading-relaxed text-slate-700">
-                    {welcomeBody.map((p: string, idx: number) => (
-                      <p key={idx}>{p}</p>
-                    ))}
-                  </div>
-
-                  {orgAssets?.founderPhotoSrc && (
-                    <div className="flex flex-col items-center gap-3 md:items-start">
-                      <img
-                        src={orgAssets.founderPhotoSrc}
-                        alt={orgAssets.founderCaption || "Founder"}
-                        className="h-28 w-28 rounded-full object-cover border border-slate-200"
-                      />
-                      {orgAssets.founderCaption && (
-                        <p className="text-xs text-slate-500 text-center md:text-left">
-                          {orgAssets.founderCaption}
-                        </p>
-                      )}
+                <div className="mt-5 grid gap-3">
+                  {data.frequency_labels.map((f) => (
+                    <div key={f.code} className="flex items-center justify-between text-sm">
+                      <span className="font-medium text-slate-800">{f.name}</span>
+                      <span className="text-slate-600">{safePct(freq[f.code])}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
 
-                {!orgFw && (
-                  <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
-                    <p className="font-semibold">Legacy framework not found for this org</p>
-                    <p className="mt-1 text-sm">
-                      This org slug isn’t mapped in <span className="font-mono">getOrgFramework.ts</span>,
-                      so we’re showing a generic legacy layout.
-                    </p>
-                  </div>
-                )}
-              </div>
+                <div className="mt-5 grid gap-3">
+                  {data.profile_labels.map((p) => (
+                    <div key={p.code} className="flex items-center justify-between text-sm">
+                      <span className="font-medium text-slate-800">{p.name}</span>
+                      <span className="text-slate-600">{safePct(prof[p.code])}</span>
+                    </div>
+                  ))}
+                </div>
 
-              {/* (You can keep/extend the rest of your full legacy layout here as needed.) */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-                <h3 className="text-base font-semibold text-slate-900">Next steps</h3>
-                <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                  <li>Highlight 2–3 sentences that feel most true for you.</li>
-                  <li>Choose one strength to bring forward more deliberately.</li>
-                  <li>Choose one development edge to practice this month.</li>
-                </ul>
+                <p className="mt-4 text-xs text-slate-500">
+                  This report is using the legacy renderer (no storage framework detected).
+                </p>
               </div>
             </section>
           )}
