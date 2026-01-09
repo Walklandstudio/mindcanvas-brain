@@ -2,7 +2,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
@@ -24,12 +24,21 @@ type LinkMeta = {
   next_steps_url?: string | null;
 };
 
+type SectionsPayload = {
+  common?: { full_text?: string } | null;
+  profile?: { full_text?: string } | null;
+  report_title?: string | null;
+  framework_version?: string | null;
+  framework_bucket?: string | null;
+  framework_path?: string | null;
+};
+
 type ResultData = {
   org_slug: string;
   org_name?: string | null;
   test_name: string;
 
-  // token link behaviour (added)
+  // token link behaviour
   link?: LinkMeta;
 
   taker: {
@@ -49,6 +58,9 @@ type ResultData = {
   top_freq: FrequencyCode;
   top_profile_code: string;
   top_profile_name: string;
+
+  // NEW: optional dynamic sections (from /report endpoint via storage JSON)
+  sections?: SectionsPayload | null;
 };
 
 type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
@@ -194,7 +206,7 @@ const DEFAULT_FREQUENCY_DESCRIPTIONS: Record<FrequencyCode, string> = {
   D: "Observation, reflection, analysis and deeper understanding.",
 };
 
-// ---------- client wrapper (because we call useSearchParams etc) -----------
+// ---------- client wrapper -------------------------------------------------
 
 export default function ReportPageWrapper({
   params,
@@ -277,6 +289,7 @@ function ReportPage({
           return;
         }
 
+        // 1) Always load the legacy "result" payload first (stable + includes link meta)
         const resultUrl = `${b}/api/public/test/${encodeURIComponent(
           token
         )}/result?tid=${encodeURIComponent(tid)}`;
@@ -295,9 +308,33 @@ function ReportPage({
           throw new Error(json.error || `HTTP ${res.status}`);
         }
 
+        // 2) Then attempt to load "report" payload (storage opt-in). If it returns sections, merge it.
+        // This is the future-proof path for new tests (LEAD + any new test).
+        let merged: ResultData = json.data;
+
+        try {
+          const reportUrl = `${b}/api/public/test/${encodeURIComponent(
+            token
+          )}/report?tid=${encodeURIComponent(tid)}`;
+
+          const r2 = await fetch(reportUrl, { cache: "no-store" });
+          const ct2 = r2.headers.get("content-type") ?? "";
+          if (ct2.includes("application/json")) {
+            const j2 = (await r2.json().catch(() => null)) as any;
+
+            // Only merge sections if present (we do NOT overwrite legacy fields)
+            const sec = j2?.data?.sections;
+            if (j2?.ok === true && sec && (sec?.profile?.full_text || sec?.common?.full_text)) {
+              merged = { ...merged, sections: sec };
+            }
+          }
+        } catch {
+          // Silently ignore report endpoint errors; legacy rendering remains.
+        }
+
         if (cancelled) return;
 
-        setResultData(json.data);
+        setResultData(merged);
         setLoading(false);
       } catch (e: any) {
         if (cancelled) return;
@@ -322,10 +359,7 @@ function ReportPage({
     const redirectUrl = (resultData.link?.redirect_url || "").trim();
     if (!redirectUrl) return;
 
-    // prevent render flash + prevent loops
     setRedirecting(true);
-
-    // Full browser redirect (works across domains)
     window.location.assign(redirectUrl);
   }, [resultData]);
 
@@ -426,7 +460,6 @@ function ReportPage({
       );
     }
 
-    // Safety fallback: if redirect_url missing, show hidden message (or default)
     return (
       <div className="min-h-screen bg-[#050914] text-white">
         <AppBackground />
@@ -448,17 +481,141 @@ function ReportPage({
   const orgName = data.org_name || data.test_name || "Your Organisation";
   const participantName = getFullName(data.taker);
 
-  const orgAssets = getOrgAssets(orgSlug, orgName);
-  const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
+  const hasSectionsReport = Boolean(
+    data.sections?.profile?.full_text || data.sections?.common?.full_text
+  );
 
   // link next steps button
   const nextStepsUrl = (data.link?.next_steps_url || "").trim();
   const hasNextSteps = !!nextStepsUrl;
 
-  // --- framework + copy (this is where we MUST rely on slug only) ----------
+  // ---------- STORAGE/SECTIONS RENDER (future-proof) -----------------------
+  // If sections exist, render them and DO NOT rely on org_slug framework mapping.
+  // This is the scalable path for LEAD + any future test with Storage JSON.
+  if (hasSectionsReport) {
+    const title =
+      (data.sections?.report_title || "").trim() ||
+      `${data.top_profile_name} — ${data.test_name}`;
+
+    const commonText = (data.sections?.common?.full_text || "").trim();
+    const profileText = (data.sections?.profile?.full_text || "").trim();
+
+    return (
+      <div
+        ref={reportRef}
+        className="relative min-h-screen bg-[#050914] text-white overflow-hidden"
+      >
+        <AppBackground />
+
+        <div className="relative z-10">
+          <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-12 pt-8 md:px-6">
+            {/* HEADER */}
+            <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs font-medium tracking-[0.2em] text-slate-300">
+                  PERSONALISED REPORT
+                </p>
+
+                <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">
+                  {title}
+                </h1>
+
+                <p className="mt-2 text-sm text-slate-200">
+                  For {participantName} · Top profile:{" "}
+                  <span className="font-semibold">{data.top_profile_name}</span>
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {hasNextSteps && (
+                  <button
+                    onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
+                    className="inline-flex items-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 shadow-sm hover:bg-emerald-500/15"
+                    title="Open next steps"
+                  >
+                    Next steps
+                  </button>
+                )}
+
+                <button
+                  onClick={handleDownloadPdf}
+                  className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+                >
+                  Download PDF
+                </button>
+              </div>
+            </header>
+
+            {/* OPTIONAL: common / about section */}
+            {commonText && (
+              <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <details open className="group">
+                  <summary className="cursor-pointer select-none text-sm font-semibold text-slate-100">
+                    About this system
+                    <span className="ml-2 text-xs font-normal text-slate-300">
+                      (tap to collapse)
+                    </span>
+                  </summary>
+                  <div className="mt-4 rounded-xl bg-white p-6 text-slate-900">
+                    <div className="text-sm leading-relaxed whitespace-pre-wrap text-slate-700">
+                      {commonText}
+                    </div>
+                  </div>
+                </details>
+              </section>
+            )}
+
+            {/* MAIN PROFILE REPORT */}
+            <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="rounded-xl bg-white p-6 text-slate-900">
+                <div className="text-sm leading-relaxed whitespace-pre-wrap text-slate-700">
+                  {profileText || "Report content not found for this profile."}
+                </div>
+              </div>
+            </section>
+
+            {/* We still keep a quick “map” card using the existing result payload */}
+            <section className="space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+                Your personality map
+              </p>
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Your Personality Map
+                </h2>
+                <p className="mt-2 text-sm text-slate-700">
+                  This visual map shows how your overall energy (Frequencies) and
+                  your more detailed style (Profiles) are distributed across the
+                  model. Higher values show patterns you use more often.
+                </p>
+                <div className="mt-6">
+                  <PersonalityMapSection
+                    frequencyPercentages={data.frequency_percentages}
+                    profilePercentages={data.profile_percentages}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <footer className="mt-4 border-t border-slate-800 pt-4 text-xs text-slate-400">
+              © {new Date().getFullYear()} MindCanvas
+            </footer>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- LEGACY RENDER PATH (Team Puzzle / Competency Coach) ----------
+  // Everything below remains your existing behavior.
+
+  const orgAssets = getOrgAssets(orgSlug, orgName);
+  const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
+
+  // --- framework + copy (legacy relies on slug only) ----------
   const orgFw: OrgFramework = getOrgFramework(orgSlug);
   const fw = orgFw.framework;
-  const reportCopy: OrgReportCopy | null = (fw as any)?.report ?? null;
+  const reportCopy: any = (fw as any)?.report ?? null;
   const frameworkKey = (fw as any)?.key ?? "unknown";
 
   const frequenciesCopy: any = reportCopy?.frequencies_copy ?? null;
@@ -488,7 +645,7 @@ function ReportPage({
   const howToUse = reportCopy?.how_to_use || defaultHowToUse();
   const howToRead = reportCopy?.how_to_read_scores || defaultHowToReadScores();
 
-  const profileCopy = (reportCopy?.profiles as OrgReportCopy["profiles"]) || {};
+  const profileCopy = (reportCopy?.profiles as any) || {};
 
   const freq = data.frequency_percentages;
   const prof = data.profile_percentages;
@@ -596,7 +753,7 @@ function ReportPage({
 
               <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-start">
                 <div className="space-y-3 text-sm leading-relaxed text-slate-700">
-                  {welcomeBody.map((p, idx) => (
+                  {welcomeBody.map((p: string, idx: number) => (
                     <p key={idx}>{p}</p>
                   ))}
                 </div>
@@ -642,7 +799,7 @@ function ReportPage({
                   {frameworkTitle}
                 </h3>
                 <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
-                  {frameworkIntro.map((p, idx) => (
+                  {frameworkIntro.map((p: string, idx: number) => (
                     <p key={idx}>{p}</p>
                   ))}
                 </div>
@@ -747,6 +904,7 @@ function ReportPage({
               </div>
             </div>
           </section>
+
 
           {/* PART 2 – personal profile --------------------------------------- */}
           <section className="space-y-6">
