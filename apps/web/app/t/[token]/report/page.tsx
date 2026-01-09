@@ -6,6 +6,8 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
+import BlocksRenderer from "@/components/report/BlocksRenderer";
+
 import PersonalityMapSection from "./PersonalityMapSection";
 
 import { getBaseUrl } from "@/lib/server-url";
@@ -598,9 +600,8 @@ function ReportPage({
         }
 
         // 1) Load the EXISTING results payload (this powers TP/CC and link behaviour)
-        const resultUrl = `${b}/api/public/test/${encodeURIComponent(
-          token
-        )}/result?tid=${encodeURIComponent(tid)}`;
+        const resultUrl = `${b}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(tid)}`;
+
 
         // 2) Load storage report content (if available)
         const reportUrl = `${b}/api/public/test/${encodeURIComponent(
@@ -794,6 +795,10 @@ function ReportPage({
   }
 
   const data = resultData;
+  const templateSections =
+  (data as any)?.sections?.common && Array.isArray((data as any).sections.common)
+    ? (data as any).sections.common
+    : null;
   const orgSlug = data.org_slug;
   const orgName = data.org_name || data.test_name || "Your Organisation";
   const participantName = getFullName(data.taker);
@@ -813,6 +818,53 @@ function ReportPage({
       />
     );
   }
+
+ // NEW: template-based renderer (Storage / meta.reportFramework)
+// If sections are present, render them cleanly and skip legacy TP/CC layout.
+if (templateSections) {
+  const participantName = getFullName(data.taker);
+  const title = (data as any)?.sections?.report_title || data.test_name || "Personalised report";
+
+  return (
+    <div className="relative min-h-screen bg-[#050914] text-white overflow-hidden">
+      <AppBackground />
+
+      <div className="relative z-10">
+        <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-12 pt-8 md:px-6">
+          <header className="flex flex-col gap-3 border-b border-slate-800 pb-6">
+            <p className="text-xs font-medium tracking-[0.2em] text-slate-300">
+              PERSONALISED REPORT
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight text-white">
+              {title}
+            </h1>
+            <p className="text-sm text-slate-200">
+              For {participantName}
+            </p>
+
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                onClick={handleDownloadPdf}
+                className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+              >
+                Download PDF
+              </button>
+            </div>
+          </header>
+
+          {/* Optional: keep your personality map block here if you want */}
+          {/* (You already have frequency_percentages & profile_percentages in the payload) */}
+
+          <BlocksRenderer sections={templateSections} />
+
+          <footer className="mt-4 border-t border-slate-800 pt-4 text-xs text-slate-400">
+            © {new Date().getFullYear()} MindCanvas
+          </footer>
+        </div>
+      </div>
+    </div>
+  );
+}
 
   // --- LEGACY PATH (Team Puzzle / Competency Coach) ------------------------
   // Everything below stays as your existing template rendering.
