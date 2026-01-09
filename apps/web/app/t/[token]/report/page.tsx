@@ -24,15 +24,6 @@ type LinkMeta = {
   next_steps_url?: string | null;
 };
 
-type SectionsPayload = {
-  common?: { full_text?: string } | null;
-  profile?: { full_text?: string } | null;
-  report_title?: string | null;
-  framework_version?: string | null;
-  framework_bucket?: string | null;
-  framework_path?: string | null;
-};
-
 type ResultData = {
   org_slug: string;
   org_name?: string | null;
@@ -58,12 +49,60 @@ type ResultData = {
   top_freq: FrequencyCode;
   top_profile_code: string;
   top_profile_name: string;
-
-  // NEW: optional dynamic sections (from /report endpoint via storage JSON)
-  sections?: SectionsPayload | null;
 };
 
 type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
+
+// ---------------- Storage Framework Types ----------------------------------
+
+type StorageBlock =
+  | { type: "h2" | "h3" | "h4"; text: string }
+  | { type: "p"; text: string }
+  | { type: "ul"; items: string[] };
+
+type StorageSection = {
+  id: string;
+  title?: string;
+  blocks: StorageBlock[];
+};
+
+type StorageFramework = {
+  schema_version?: string;
+  framework_key?: string;
+  framework_name?: string;
+  framework_version?: string;
+  source?: string;
+  common?: {
+    cover?: {
+      title_lines?: string[];
+      subtitle_lines?: string[];
+    };
+    sections?: StorageSection[];
+  };
+  profiles?: Record<
+    string,
+    {
+      code?: string;
+      name?: string;
+      title?: string;
+      operating_style_number?: number;
+      sections?: StorageSection[];
+    }
+  >;
+};
+
+type ReportContentAPI = {
+  ok: boolean;
+  data?: {
+    // Your route returns lots of fields; we only need sections + top profile info if present
+    top_profile_code?: string;
+    top_profile_name?: string;
+    sections?: any; // could be StorageFramework or legacy
+    debug?: any;
+    version?: string;
+  };
+  error?: string;
+};
 
 // ---------- helpers --------------------------------------------------------
 
@@ -206,7 +245,273 @@ const DEFAULT_FREQUENCY_DESCRIPTIONS: Record<FrequencyCode, string> = {
   D: "Observation, reflection, analysis and deeper understanding.",
 };
 
-// ---------- client wrapper -------------------------------------------------
+// --- Storage framework detection + rendering helpers -----------------------
+
+function looksLikeStorageFramework(sections: any): sections is StorageFramework {
+  if (!sections || typeof sections !== "object") return false;
+  const common = (sections as any).common;
+  if (common && Array.isArray(common.sections) && common.sections[0]?.blocks) return true;
+  // tolerate schema_version only
+  if (typeof (sections as any).schema_version === "string") return true;
+  return false;
+}
+
+function BlockRenderer({ blocks }: { blocks: StorageBlock[] }) {
+  return (
+    <div className="space-y-3">
+      {blocks.map((b, i) => {
+        if (b.type === "h2") {
+          return (
+            <h2 key={i} className="text-xl font-semibold text-slate-900">
+              {b.text}
+            </h2>
+          );
+        }
+        if (b.type === "h3") {
+          return (
+            <h3 key={i} className="text-lg font-semibold text-slate-900">
+              {b.text}
+            </h3>
+          );
+        }
+        if (b.type === "h4") {
+          return (
+            <h4 key={i} className="text-base font-semibold text-slate-900">
+              {b.text}
+            </h4>
+          );
+        }
+        if (b.type === "p") {
+          return (
+            <p key={i} className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+              {b.text}
+            </p>
+          );
+        }
+        if (b.type === "ul") {
+          return (
+            <ul key={i} className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+              {b.items.map((it, j) => (
+                <li key={j} className="leading-relaxed">
+                  {it}
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+function StorageReportLayout(props: {
+  token: string;
+  tid: string;
+  reportRef: React.MutableRefObject<HTMLDivElement | null>;
+  onDownloadPdf: () => void;
+  participantName: string;
+  data: ResultData;
+  sections: StorageFramework;
+}) {
+  const { token, participantName, data, reportRef, onDownloadPdf, sections } = props;
+
+  const nextStepsUrl = (data.link?.next_steps_url || "").trim();
+  const hasNextSteps = !!nextStepsUrl;
+
+  const coverTitle =
+    sections?.common?.cover?.title_lines?.join(" — ") ||
+    `${data.top_profile_name} — ${data.test_name}`;
+
+  const coverSubtitle =
+    sections?.common?.cover?.subtitle_lines?.join(" · ") || "Personalised Report";
+
+  const commonSections = sections?.common?.sections || [];
+  const profileKey = (data.top_profile_code || "").toUpperCase();
+  const profile = sections?.profiles?.[profileKey] || null;
+  const profileSections = profile?.sections || [];
+
+  return (
+    <div ref={reportRef} className="relative min-h-screen bg-[#050914] text-white overflow-hidden">
+      <AppBackground />
+
+      <div className="relative z-10">
+        <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-12 pt-8 md:px-6">
+          {/* HEADER */}
+          <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-medium tracking-[0.2em] text-slate-300">
+                PERSONALISED REPORT
+              </p>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">
+                {coverTitle}
+              </h1>
+              <p className="mt-2 text-sm text-slate-200">
+                {coverSubtitle} · For {participantName} · Top profile:{" "}
+                <span className="font-semibold">{data.top_profile_name}</span>
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {hasNextSteps && (
+                <button
+                  onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
+                  className="inline-flex items-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 shadow-sm hover:bg-emerald-500/15"
+                  title="Open next steps"
+                >
+                  Next steps
+                </button>
+              )}
+
+              <button
+                onClick={onDownloadPdf}
+                className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+              >
+                Download PDF
+              </button>
+            </div>
+          </header>
+
+          {/* SCORE VISUALS (reuse your existing “nice” blocks) */}
+          <section className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+              Your personality map
+            </p>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+              <h2 className="text-lg font-semibold text-slate-900">Your Personality Map</h2>
+              <p className="mt-2 text-sm text-slate-700">
+                This visual map shows your Frequency and Profile distribution. Higher values indicate patterns you use more often.
+              </p>
+
+              <div className="mt-6">
+                <PersonalityMapSection
+                  frequencyPercentages={data.frequency_percentages}
+                  profilePercentages={data.profile_percentages}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">Frequency mix</h3>
+                <div className="mt-3 grid gap-3">
+                  {data.frequency_labels.map((f) => {
+                    const val = data.frequency_percentages[f.code] || 0;
+                    const pct = (val || 0) * 100;
+                    return (
+                      <div key={f.code} className="grid grid-cols-12 items-center gap-3">
+                        <div className="col-span-4 text-sm text-slate-800">
+                          <span className="font-medium">{f.name}</span>
+                        </div>
+                        <div className="col-span-8">
+                          <div className="h-2 w-full rounded-full bg-slate-200">
+                            <div
+                              className="h-2 rounded-full bg-sky-600"
+                              style={{ width: `${pct.toFixed(0)}%` }}
+                            />
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">{pct.toFixed(0)}%</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">Profile mix</h3>
+                <div className="mt-3 grid gap-3">
+                  {data.profile_labels.map((p) => {
+                    const val = data.profile_percentages[p.code] || 0;
+                    const pct = (val || 0) * 100;
+                    return (
+                      <div key={p.code} className="grid grid-cols-12 items-center gap-3">
+                        <div className="col-span-4 text-sm text-slate-800">
+                          <span className="font-medium">{p.name}</span>
+                        </div>
+                        <div className="col-span-8">
+                          <div className="h-2 w-full rounded-full bg-slate-200">
+                            <div
+                              className="h-2 rounded-full bg-sky-600"
+                              style={{ width: `${pct.toFixed(0)}%` }}
+                            />
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">{pct.toFixed(0)}%</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* CONTENT (the whole point of storage framework) */}
+          <section className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+              Part 1 · About this system
+            </p>
+
+            {commonSections.map((sec) => (
+              <div
+                key={sec.id}
+                className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900"
+              >
+                {sec.title ? (
+                  <h2 className="text-lg font-semibold text-slate-900">{sec.title}</h2>
+                ) : null}
+                <div className={sec.title ? "mt-3" : ""}>
+                  <BlockRenderer blocks={sec.blocks} />
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <section className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+              Part 2 · Your operating style
+            </p>
+
+            {profile ? (
+              <>
+                {profileSections.map((sec) => (
+                  <div
+                    key={sec.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900"
+                  >
+                    {sec.title ? (
+                      <h2 className="text-lg font-semibold text-slate-900">{sec.title}</h2>
+                    ) : null}
+                    <div className={sec.title ? "mt-3" : ""}>
+                      <BlockRenderer blocks={sec.blocks} />
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
+                <h2 className="text-lg font-semibold text-slate-900">Profile content not loaded yet</h2>
+                <p className="mt-2 text-sm text-slate-700">
+                  This report framework doesn’t contain content for{" "}
+                  <span className="font-semibold">{data.top_profile_code}</span> yet.
+                  <br />
+                  Add this profile’s sections to the same Storage framework JSON and it will render automatically.
+                </p>
+              </div>
+            )}
+          </section>
+
+          <footer className="mt-4 border-t border-slate-800 pt-4 text-xs text-slate-400">
+            © {new Date().getFullYear()} MindCanvas
+          </footer>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- client wrapper (because we call useSearchParams etc) -----------
 
 export default function ReportPageWrapper({
   params,
@@ -215,7 +520,6 @@ export default function ReportPageWrapper({
 }) {
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
-
   return <ReportPage params={params} tid={tid} />;
 }
 
@@ -238,6 +542,10 @@ function ReportPage({
 
   const [redirecting, setRedirecting] = useState(false);
   const reportRef = useRef<HTMLDivElement | null>(null);
+
+  // Storage report content (only used when a test has meta.reportFramework)
+  const [storageFramework, setStorageFramework] = useState<StorageFramework | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   async function handleDownloadPdf() {
     if (!reportRef.current) return;
@@ -289,52 +597,60 @@ function ReportPage({
           return;
         }
 
-        // 1) Always load the legacy "result" payload first (stable + includes link meta)
+        // 1) Load the EXISTING results payload (this powers TP/CC and link behaviour)
         const resultUrl = `${b}/api/public/test/${encodeURIComponent(
           token
         )}/result?tid=${encodeURIComponent(tid)}`;
 
-        const res = await fetch(resultUrl, { cache: "no-store" });
-        const ct = res.headers.get("content-type") ?? "";
-        if (!ct.includes("application/json")) {
-          const text = await res.text();
-          throw new Error(
-            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
-          );
+        // 2) Load storage report content (if available)
+        const reportUrl = `${b}/api/public/test/${encodeURIComponent(
+          token
+        )}/report?tid=${encodeURIComponent(tid)}`;
+
+        const [resResult, resReport] = await Promise.all([
+          fetch(resultUrl, { cache: "no-store" }),
+          fetch(reportUrl, { cache: "no-store" }),
+        ]);
+
+        // --- result
+        const ct1 = resResult.headers.get("content-type") ?? "";
+        if (!ct1.includes("application/json")) {
+          const text = await resResult.text();
+          throw new Error(`Non-JSON response (${resResult.status}): ${text.slice(0, 200)}`);
         }
-        const json = (await res.json()) as ResultAPI;
+        const json1 = (await resResult.json()) as ResultAPI;
 
-        if (!res.ok || json.ok === false || !json.data) {
-          throw new Error(json.error || `HTTP ${res.status}`);
+        if (!resResult.ok || json1.ok === false || !json1.data) {
+          throw new Error(json1.error || `HTTP ${resResult.status}`);
         }
 
-        // 2) Then attempt to load "report" payload (storage opt-in). If it returns sections, merge it.
-        // This is the future-proof path for new tests (LEAD + any new test).
-        let merged: ResultData = json.data;
-
-        try {
-          const reportUrl = `${b}/api/public/test/${encodeURIComponent(
-            token
-          )}/report?tid=${encodeURIComponent(tid)}`;
-
-          const r2 = await fetch(reportUrl, { cache: "no-store" });
-          const ct2 = r2.headers.get("content-type") ?? "";
-          if (ct2.includes("application/json")) {
-            const j2 = (await r2.json().catch(() => null)) as any;
-
-            // Only merge sections if present (we do NOT overwrite legacy fields)
-            const sec = j2?.data?.sections;
-            if (j2?.ok === true && sec && (sec?.profile?.full_text || sec?.common?.full_text)) {
-              merged = { ...merged, sections: sec };
+        // --- report (storage framework optional)
+        const ct2 = resReport.headers.get("content-type") ?? "";
+        if (ct2.includes("application/json")) {
+          const json2 = (await resReport.json()) as ReportContentAPI;
+          if (resReport.ok && json2.ok && json2.data?.sections) {
+            const candidate = json2.data.sections;
+            if (looksLikeStorageFramework(candidate)) {
+              setStorageFramework(candidate as StorageFramework);
+              setStorageError(null);
+            } else {
+              // Not a storage framework (legacy or different schema) — ignore silently
+              setStorageFramework(null);
+              setStorageError(null);
             }
+          } else {
+            // report endpoint failed — ignore for legacy tests
+            setStorageFramework(null);
+            setStorageError(json2.error || null);
           }
-        } catch {
-          // Silently ignore report endpoint errors; legacy rendering remains.
+        } else {
+          // non-json report response — ignore
+          setStorageFramework(null);
         }
 
         if (cancelled) return;
 
-        setResultData(merged);
+        setResultData(json1.data);
         setLoading(false);
       } catch (e: any) {
         if (cancelled) return;
@@ -426,6 +742,7 @@ function ReportPage({
             </summary>
             <div className="mt-2 space-y-2">
               <div>Error: {loadError ?? "Unknown"}</div>
+              {storageError ? <div>Report framework error: {storageError}</div> : null}
             </div>
           </details>
         </div>
@@ -481,142 +798,35 @@ function ReportPage({
   const orgName = data.org_name || data.test_name || "Your Organisation";
   const participantName = getFullName(data.taker);
 
-  const hasSectionsReport = Boolean(
-    data.sections?.profile?.full_text || data.sections?.common?.full_text
-  );
-
-  // link next steps button
-  const nextStepsUrl = (data.link?.next_steps_url || "").trim();
-  const hasNextSteps = !!nextStepsUrl;
-
-  // ---------- STORAGE/SECTIONS RENDER (future-proof) -----------------------
-  // If sections exist, render them and DO NOT rely on org_slug framework mapping.
-  // This is the scalable path for LEAD + any future test with Storage JSON.
-  if (hasSectionsReport) {
-    const title =
-      (data.sections?.report_title || "").trim() ||
-      `${data.top_profile_name} — ${data.test_name}`;
-
-    const commonText = (data.sections?.common?.full_text || "").trim();
-    const profileText = (data.sections?.profile?.full_text || "").trim();
-
+  // --- STORAGE FRAMEWORK PATH (future tests) -------------------------------
+  // If we have a storage framework, render it with the generic layout.
+  if (storageFramework && looksLikeStorageFramework(storageFramework)) {
     return (
-      <div
-        ref={reportRef}
-        className="relative min-h-screen bg-[#050914] text-white overflow-hidden"
-      >
-        <AppBackground />
-
-        <div className="relative z-10">
-          <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 pb-12 pt-8 md:px-6">
-            {/* HEADER */}
-            <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-xs font-medium tracking-[0.2em] text-slate-300">
-                  PERSONALISED REPORT
-                </p>
-
-                <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">
-                  {title}
-                </h1>
-
-                <p className="mt-2 text-sm text-slate-200">
-                  For {participantName} · Top profile:{" "}
-                  <span className="font-semibold">{data.top_profile_name}</span>
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                {hasNextSteps && (
-                  <button
-                    onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
-                    className="inline-flex items-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 shadow-sm hover:bg-emerald-500/15"
-                    title="Open next steps"
-                  >
-                    Next steps
-                  </button>
-                )}
-
-                <button
-                  onClick={handleDownloadPdf}
-                  className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-50 shadow-sm hover:bg-slate-800"
-                >
-                  Download PDF
-                </button>
-              </div>
-            </header>
-
-            {/* OPTIONAL: common / about section */}
-            {commonText && (
-              <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <details open className="group">
-                  <summary className="cursor-pointer select-none text-sm font-semibold text-slate-100">
-                    About this system
-                    <span className="ml-2 text-xs font-normal text-slate-300">
-                      (tap to collapse)
-                    </span>
-                  </summary>
-                  <div className="mt-4 rounded-xl bg-white p-6 text-slate-900">
-                    <div className="text-sm leading-relaxed whitespace-pre-wrap text-slate-700">
-                      {commonText}
-                    </div>
-                  </div>
-                </details>
-              </section>
-            )}
-
-            {/* MAIN PROFILE REPORT */}
-            <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="rounded-xl bg-white p-6 text-slate-900">
-                <div className="text-sm leading-relaxed whitespace-pre-wrap text-slate-700">
-                  {profileText || "Report content not found for this profile."}
-                </div>
-              </div>
-            </section>
-
-            {/* We still keep a quick “map” card using the existing result payload */}
-            <section className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
-                Your personality map
-              </p>
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Your Personality Map
-                </h2>
-                <p className="mt-2 text-sm text-slate-700">
-                  This visual map shows how your overall energy (Frequencies) and
-                  your more detailed style (Profiles) are distributed across the
-                  model. Higher values show patterns you use more often.
-                </p>
-                <div className="mt-6">
-                  <PersonalityMapSection
-                    frequencyPercentages={data.frequency_percentages}
-                    profilePercentages={data.profile_percentages}
-                  />
-                </div>
-              </div>
-            </section>
-
-            <footer className="mt-4 border-t border-slate-800 pt-4 text-xs text-slate-400">
-              © {new Date().getFullYear()} MindCanvas
-            </footer>
-          </div>
-        </div>
-      </div>
+      <StorageReportLayout
+        token={token}
+        tid={tid}
+        reportRef={reportRef}
+        onDownloadPdf={handleDownloadPdf}
+        participantName={participantName}
+        data={data}
+        sections={storageFramework}
+      />
     );
   }
 
-  // ---------- LEGACY RENDER PATH (Team Puzzle / Competency Coach) ----------
-  // Everything below remains your existing behavior.
+  // --- LEGACY PATH (Team Puzzle / Competency Coach) ------------------------
+  // Everything below stays as your existing template rendering.
 
   const orgAssets = getOrgAssets(orgSlug, orgName);
   const isTeamPuzzle = isTeamPuzzleOrg(orgSlug, orgName);
 
-  // --- framework + copy (legacy relies on slug only) ----------
+  const nextStepsUrl = (data.link?.next_steps_url || "").trim();
+  const hasNextSteps = !!nextStepsUrl;
+
+  // --- framework + copy (legacy template relies on slug only) --------------
   const orgFw: OrgFramework = getOrgFramework(orgSlug);
   const fw = orgFw.framework;
-  const reportCopy: any = (fw as any)?.report ?? null;
-  const frameworkKey = (fw as any)?.key ?? "unknown";
+  const reportCopy: OrgReportCopy | null = (fw as any)?.report ?? null;
 
   const frequenciesCopy: any = reportCopy?.frequencies_copy ?? null;
   const profilesCopyMeta: any = reportCopy?.profiles_copy ?? null;
@@ -629,14 +839,16 @@ function ReportPage({
 
   const reportTitle = reportCopy?.report_title || `${orgName} Profile Assessment`;
 
-  const welcomeTitle: string = reportCopy?.welcome_title || getDefaultWelcome(orgName).title;
+  const welcomeTitle: string =
+    reportCopy?.welcome_title || getDefaultWelcome(orgName).title;
 
   const welcomeBody: string[] =
     reportCopy?.welcome_body && Array.isArray(reportCopy.welcome_body)
       ? reportCopy.welcome_body
       : getDefaultWelcome(orgName).body;
 
-  const frameworkTitle: string = reportCopy?.framework_title || `The ${orgName} framework`;
+  const frameworkTitle: string =
+    reportCopy?.framework_title || `The ${orgName} framework`;
   const frameworkIntro: string[] =
     reportCopy?.framework_intro && Array.isArray(reportCopy.framework_intro)
       ? reportCopy.framework_intro
@@ -645,7 +857,7 @@ function ReportPage({
   const howToUse = reportCopy?.how_to_use || defaultHowToUse();
   const howToRead = reportCopy?.how_to_read_scores || defaultHowToReadScores();
 
-  const profileCopy = (reportCopy?.profiles as any) || {};
+  const profileCopy = (reportCopy?.profiles as OrgReportCopy["profiles"]) || {};
 
   const freq = data.frequency_percentages;
   const prof = data.profile_percentages;
@@ -668,7 +880,7 @@ function ReportPage({
   const topProfileImage =
     isTeamPuzzle && primary?.name ? getTeamPuzzleProfileImage(primary.name) : null;
 
-  // ---------- RENDER -------------------------------------------------------
+  // ---------- RENDER (legacy) ---------------------------------------------
 
   return (
     <div
@@ -708,7 +920,9 @@ function ReportPage({
             <div className="flex items-center gap-3">
               {hasNextSteps && (
                 <button
-                  onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
+                  onClick={() =>
+                    window.open(nextStepsUrl, "_blank", "noopener,noreferrer")
+                  }
                   className="inline-flex items-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 shadow-sm hover:bg-emerald-500/15"
                   title="Open next steps"
                 >
@@ -738,7 +952,7 @@ function ReportPage({
             </div>
           )}
 
-          {/* PART 1 ---------------------------------------------------------- */}
+          {/* PART 1 */}
           <section className="space-y-6">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
               Part 1 · About this assessment
@@ -753,7 +967,7 @@ function ReportPage({
 
               <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-start">
                 <div className="space-y-3 text-sm leading-relaxed text-slate-700">
-                  {welcomeBody.map((p: string, idx: number) => (
+                  {welcomeBody.map((p, idx) => (
                     <p key={idx}>{p}</p>
                   ))}
                 </div>
@@ -799,7 +1013,7 @@ function ReportPage({
                   {frameworkTitle}
                 </h3>
                 <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
-                  {frameworkIntro.map((p: string, idx: number) => (
+                  {frameworkIntro.map((p, idx) => (
                     <p key={idx}>{p}</p>
                   ))}
                 </div>
@@ -905,8 +1119,7 @@ function ReportPage({
             </div>
           </section>
 
-
-          {/* PART 2 – personal profile --------------------------------------- */}
+          {/* PART 2 – personal profile */}
           <section className="space-y-6">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
               Part 2 · Your personal profile
@@ -927,8 +1140,7 @@ function ReportPage({
                       {data.top_freq}
                       {")"}
                     </span>
-                    , which shapes how you approach problems and make decisions. Higher percentages indicate where you naturally
-                    spend more energy; lower percentages highlight areas that may feel less comfortable or more draining.
+                    .
                   </p>
                 </div>
                 <div className="rounded-xl bg-sky-50 px-4 py-3 text-xs text-sky-900">
@@ -963,24 +1175,6 @@ function ReportPage({
                   );
                 })}
               </div>
-
-              <div className="mt-4 rounded-xl bg-sky-50 p-4 text-sm text-sky-900">
-                <p className="font-semibold">
-                  Your dominant frequency:{" "}
-                  {data.frequency_labels.find((f) => f.code === data.top_freq)?.name} ({data.top_freq})
-                </p>
-                <ul className="mt-2 list-disc space-y-1 pl-4">
-                  <li>
-                    <span className="font-semibold">Key traits:</span> The energy you rely on most when you need to move things forward.
-                  </li>
-                  <li>
-                    <span className="font-semibold">Motivators:</span> Conditions that help this way of working feel energising and sustainable.
-                  </li>
-                  <li>
-                    <span className="font-semibold">Watch outs:</span> Things to notice when this frequency is over-used, such as ignoring other perspectives or pushing your preferred style too hard.
-                  </li>
-                </ul>
-              </div>
             </div>
 
             {/* Profile mix */}
@@ -988,7 +1182,7 @@ function ReportPage({
               <div className="flex flex-col gap-1">
                 <h2 className="text-lg font-semibold text-slate-900">Profile mix</h2>
                 <p className="text-sm text-slate-700">
-                  Your profile mix shows how strongly you match each of the eight Profiles. Higher percentages show patterns you use often; lower ones are backup styles you can lean on when needed.
+                  Your profile mix shows how strongly you match each of the eight Profiles.
                 </p>
               </div>
 
@@ -1020,189 +1214,8 @@ function ReportPage({
                 <span className="font-semibold">
                   {primary?.name} ({primary?.code})
                 </span>
-                , supported by{" "}
-                <span className="font-semibold">
-                  {secondary?.name} ({secondary?.code})
-                </span>{" "}
-                and{" "}
-                <span className="font-semibold">
-                  {tertiary?.name} ({tertiary?.code})
-                </span>
                 .
               </p>
-            </div>
-
-            {/* Primary / secondary / tertiary cards */}
-            <div className="grid gap-4 md:grid-cols-3">
-              {[primary, secondary, tertiary].map((p, idx) => {
-                if (!p) return null;
-                const pct = (p.pct || 0) * 100;
-                const label = idx === 0 ? "Primary profile" : idx === 1 ? "Secondary" : "Tertiary";
-                const copy = profileCopy?.[p.code];
-
-                const profileImg =
-                  isTeamPuzzle && p.name ? getTeamPuzzleProfileImage(p.name) : null;
-
-                return (
-                  <div
-                    key={p.code}
-                    className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 text-slate-900"
-                  >
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      {label}
-                    </p>
-
-                    {profileImg && (
-                      <div className="mt-2 mb-3 flex justify-center">
-                        <img
-                          src={profileImg}
-                          alt={p.name}
-                          className="h-24 w-auto rounded-xl"
-                        />
-                      </div>
-                    )}
-
-                    <h3 className="text-lg font-semibold text-slate-900">{p.name}</h3>
-                    <p className="text-xs text-slate-500">{p.code}</p>
-                    <p className="mt-2 text-sm font-medium text-slate-800">{pct.toFixed(0)}% match</p>
-
-                    <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs text-slate-700">
-                      <li>
-                        <span className="font-semibold">Key traits:</span>{" "}
-                        {asText(copy?.traits) ||
-                          "How this profile most naturally contributes when things are going well."}
-                      </li>
-                      <li>
-                        <span className="font-semibold">Motivators:</span>{" "}
-                        {asText(copy?.motivators) ||
-                          "Conditions that help this style feel energising and sustainable."}
-                      </li>
-                      <li>
-                        <span className="font-semibold">Watch outs:</span>{" "}
-                        {asText(copy?.blind_spots) ||
-                          "Things to watch out for when this style is over-used or under pressure."}
-                      </li>
-                    </ul>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Energy mix */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Energy mix – how your profiles work together
-              </h2>
-              <p className="mt-2 text-sm text-slate-700">
-                Your top three profiles form an energy mix that shapes how you show up day to day. Your primary profile,{" "}
-                <span className="font-semibold">{primary?.name}</span>, is the style you’re most likely to default to under pressure. Your secondary profile,{" "}
-                <span className="font-semibold">{secondary?.name}</span>, adds a supporting pattern you can lean on. Your tertiary profile,{" "}
-                <span className="font-semibold">{tertiary?.name}</span>, is a backup style you can draw on when needed.
-              </p>
-              <p className="mt-3 text-sm text-slate-700">{primaryExample}</p>
-            </div>
-
-            {/* Strengths & Development */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
-                <h2 className="text-lg font-semibold text-slate-900">Strengths</h2>
-                <p className="mt-2 text-sm text-slate-700">
-                  These are areas where your natural energy is most likely to add value when your work and environment are a good fit.
-                </p>
-                <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                  <li>
-                    Leaning into your <span className="font-semibold">{data.top_freq}</span> energy when decisions need to be made or momentum is required.
-                  </li>
-                  <li>
-                    Using your <span className="font-semibold">{primary?.name}</span> profile to bring something that others may not – whether that’s ideas, people focus, structure, or depth.
-                  </li>
-                  <li>
-                    Combining your top three profiles to adapt to different people and contexts without losing your authenticity.
-                  </li>
-                </ul>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
-                <h2 className="text-lg font-semibold text-slate-900">Development areas</h2>
-                <p className="mt-2 text-sm text-slate-700">
-                  Development areas are not weaknesses. They’re places where a small shift in awareness or behaviour can unlock more ease and impact.
-                </p>
-                <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                  <li>
-                    Noticing when your dominant frequency is over-used and crowding out other perspectives.
-                  </li>
-                  <li>
-                    Experimenting with lower-percentage frequencies in low-risk situations so they become more available when you need them.
-                  </li>
-                  <li>
-                    Asking for support or partnership in areas that drain your energy, rather than trying to do everything alone.
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            {/* Collaboration */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-              <h2 className="text-lg font-semibold text-slate-900">Collaboration</h2>
-              <p className="mt-2 text-sm text-slate-700">
-                Your profile doesn’t exist in isolation – it plays out in relationship with other people and profiles on your team.
-              </p>
-              <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                <li>
-                  Look for partners whose strengths sit in lower-frequency areas for you. They can help you see risks and opportunities you might otherwise miss.
-                </li>
-                <li>
-                  Share this report with your manager or coach and talk about how your role can make the most of your natural energy.
-                </li>
-                <li>
-                  When conflict shows up, ask: “Is this about style rather than intent?” Often, different profiles are reaching for the same outcome in different ways.
-                </li>
-              </ul>
-            </div>
-
-            {/* Overall summary */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
-              <h2 className="text-lg font-semibold text-slate-900">Overall summary</h2>
-              <p className="mt-2 text-sm text-slate-700">
-                In summary, your strongest contribution comes from your{" "}
-                <span className="font-semibold">{primary?.name}</span> profile, supported by{" "}
-                <span className="font-semibold">{secondary?.name}</span> and{" "}
-                <span className="font-semibold">{tertiary?.name}</span>. Your{" "}
-                <span className="font-semibold">
-                  {data.frequency_labels.find((f) => f.code === data.top_freq)?.name} ({data.top_freq})
-                </span>{" "}
-                frequency shapes how you naturally approach decisions, problems, and collaboration.
-              </p>
-              <p className="mt-3 text-sm text-slate-700">
-                No profile is better than another. The aim is not to change who you are, but to understand how you work best, and how to create environments where you and your team can do your best thinking and contribution.
-              </p>
-            </div>
-
-            {/* Next steps (content stays, optional CTA button at the bottom too) */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-              <h2 className="text-lg font-semibold text-slate-900">Next steps</h2>
-              <p className="mt-2 text-sm text-slate-700">
-                A profile report is most powerful when it turns into conversation and action. Use these suggestions to decide what you want to do with your insights:
-              </p>
-
-              <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                <li>Highlight 2–3 sentences in this report that feel most true for you.</li>
-                <li>Note one strength you want to lean into more deliberately over the next month.</li>
-                <li>Note one development area you would like to experiment with.</li>
-                <li>If you are a leader, bring this report into your 1-to-1s and discuss where your role matches your strengths.</li>
-                <li>If you are working with a coach, choose one strength and one development area to explore in your next session.</li>
-              </ul>
-
-              {hasNextSteps && (
-                <div className="mt-5">
-                  <button
-                    onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
-                    className="inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                  >
-                    Go to next steps
-                  </button>
-                </div>
-              )}
             </div>
           </section>
 
@@ -1214,6 +1227,7 @@ function ReportPage({
     </div>
   );
 }
+
 
 
 
