@@ -1,17 +1,18 @@
+// apps/web/app/t/[token]/report/LegacyReportClient.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 import AppBackground from "@/components/ui/AppBackground";
 import { getBaseUrl } from "@/lib/server-url";
 import PersonalityMapSection from "./PersonalityMapSection";
-import { getOrgFramework } from "@/lib/report/getOrgFramework";
 
 // ---------------- Types ----------------
 
 type FrequencyCode = "A" | "B" | "C" | "D";
+
 type FrequencyLabel = { code: FrequencyCode; name: string };
 type ProfileLabel = { code: string; name: string };
 
@@ -83,11 +84,6 @@ type ResultAPI = { ok: boolean; data?: ResultData; error?: string };
 
 // ---------------- Helpers ----------------
 
-function normalise(value: string | null | undefined): string {
-  if (!value) return "";
-  return value.trim().toLowerCase().replace(/[._\s]+/g, "-");
-}
-
 function getFullName(taker: ResultData["taker"]): string {
   const rawFirst =
     (typeof taker.first_name === "string" && taker.first_name) ||
@@ -97,6 +93,7 @@ function getFullName(taker: ResultData["taker"]): string {
     (typeof taker.last_name === "string" && taker.last_name) ||
     (typeof taker.lastName === "string" && taker.lastName) ||
     "";
+
   const first = rawFirst.trim();
   const last = rawLast.trim();
   const full = `${first} ${last}`.trim();
@@ -116,65 +113,17 @@ function safePct(v: number | undefined): string {
   return `${Math.round(n * 100)}%`;
 }
 
-// Try to locate a profile object in a framework with unknown shape.
-function findProfileInFramework(fw: any, code: string) {
-  const root = fw?.framework ?? fw;
-  const want = String(code || "").toUpperCase();
-
-  // common patterns
-  const profilesObj = root?.profiles;
-  if (profilesObj && typeof profilesObj === "object" && !Array.isArray(profilesObj)) {
-    const hit = profilesObj[want] || profilesObj[want.toLowerCase()] || profilesObj[want.trim()];
-    if (hit) return hit;
-  }
-
-  const profilesArr = Array.isArray(root?.profiles) ? root.profiles : null;
-  if (profilesArr) {
-    const hit =
-      profilesArr.find((p: any) => String(p?.code || "").toUpperCase() === want) ||
-      profilesArr.find((p: any) => normalise(p?.code) === normalise(want));
-    if (hit) return hit;
-  }
-
-  const byCode = root?.profiles_by_code || root?.profileByCode || root?.profile_by_code;
-  if (byCode && typeof byCode === "object") {
-    const hit = byCode[want] || byCode[want.toLowerCase()];
-    if (hit) return hit;
-  }
-
-  return null;
-}
-
-function pickText(value: any): string | null {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  return null;
-}
-
-function pickList(value: any): string[] | null {
-  if (!value) return null;
-  if (Array.isArray(value)) {
-    const out = value.map((x) => String(x || "").trim()).filter(Boolean);
-    return out.length ? out : null;
-  }
-  // allow { items: [] }
-  if (Array.isArray(value?.items)) {
-    const out = value.items.map((x: any) => String(x || "").trim()).filter(Boolean);
-    return out.length ? out : null;
-  }
-  return null;
-}
-
-// ---------------- Section renderer (storage LEAD etc.) ----------------
+// ---------------- Renderer for section blocks (LEAD storage) ----------------
 
 function BlockView({ block }: { block: SectionBlock }) {
   if (block.type === "p") {
     return <p className="text-[15px] leading-7 text-slate-800 whitespace-pre-wrap">{block.text}</p>;
   }
   if (block.type === "h3") {
-    return <h3 className="text-base font-semibold text-slate-950">{block.text}</h3>;
+    return <h3 className="mt-5 text-base font-semibold text-slate-950">{block.text}</h3>;
   }
   if (block.type === "h4") {
-    return <h4 className="text-sm font-semibold text-slate-950">{block.text}</h4>;
+    return <h4 className="mt-4 text-sm font-semibold text-slate-950">{block.text}</h4>;
   }
   if (block.type === "ul") {
     return (
@@ -186,7 +135,7 @@ function BlockView({ block }: { block: SectionBlock }) {
     );
   }
   if (block.type === "divider") {
-    return <div className="my-4 h-px w-full bg-slate-200" />;
+    return <div className="my-5 h-px w-full bg-slate-200" />;
   }
   if (block.type === "callout") {
     return (
@@ -223,19 +172,7 @@ function SectionCard({ section }: { section: ReportSection }) {
   );
 }
 
-function WhiteCard(props: { title: string; children: React.ReactNode; subtitle?: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
-      <h2 className="text-xl font-semibold text-slate-950">{props.title}</h2>
-      {props.subtitle ? (
-        <p className="mt-2 text-[15px] leading-7 text-slate-700">{props.subtitle}</p>
-      ) : null}
-      <div className="mt-4">{props.children}</div>
-    </div>
-  );
-}
-
-// ---------------- Main component ----------------
+// ---------------- Main Component ----------------
 
 export default function LegacyReportClient(props: { token: string; tid: string }) {
   const reportRef = useRef<HTMLDivElement | null>(null);
@@ -246,6 +183,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   const [data, setData] = useState<ResultData | null>(null);
   const [redirecting, setRedirecting] = useState(false);
 
+  // Load report JSON
   useEffect(() => {
     let cancelled = false;
 
@@ -269,6 +207,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
         }
 
         const json = (await res.json()) as ResultAPI;
+
         if (!res.ok || json.ok === false || !json.data) {
           throw new Error(json.error || `HTTP ${res.status}`);
         }
@@ -289,6 +228,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     };
   }, [token, tid]);
 
+  // Link behaviour: hide results redirect
   useEffect(() => {
     if (!data) return;
 
@@ -345,6 +285,23 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     }
   }
 
+  // ---------------- States ----------------
+
+  if (!tid) {
+    return (
+      <div className="min-h-screen bg-[#050914] text-white">
+        <AppBackground />
+        <main className="relative z-10 mx-auto max-w-4xl px-4 py-10 space-y-3">
+          <h1 className="text-2xl font-semibold">Personalised report</h1>
+          <p className="text-sm text-slate-300">
+            This page expects a <code className="rounded bg-slate-900 px-1 py-0.5">?tid=</code>{" "}
+            parameter.
+          </p>
+        </main>
+      </div>
+    );
+  }
+
   if (loading || !data) {
     if (loadError) {
       return (
@@ -353,9 +310,12 @@ export default function LegacyReportClient(props: { token: string; tid: string }
           <main className="relative z-10 mx-auto max-w-4xl px-4 py-10 space-y-4">
             <h1 className="text-2xl font-semibold">Personalised report</h1>
             <p className="text-sm text-red-400">Could not load your report.</p>
+
             <details className="rounded-lg border border-slate-700 bg-slate-950 p-4 text-xs text-slate-50">
               <summary className="cursor-pointer font-medium">Debug information</summary>
-              <div className="mt-2 space-y-2">Error: {loadError}</div>
+              <div className="mt-2 space-y-2">
+                <div>Error: {loadError}</div>
+              </div>
             </details>
           </main>
         </div>
@@ -407,6 +367,8 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     );
   }
 
+  // ---------------- Render ----------------
+
   const participantName = getFullName(data.taker);
   const nextStepsUrl = (data.link?.next_steps_url || "").trim();
   const hasNextSteps = !!nextStepsUrl;
@@ -414,64 +376,10 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   const freq = data.frequency_percentages || ({} as any);
   const prof = data.profile_percentages || ({} as any);
 
-  const showSections = hasSections(data);
-
-  // Legacy framework access (Team Puzzle / Competency Coach style)
-  const fw = useMemo(() => {
-    try {
-      // data.org_slug may be "profiletest-ai" but meta uses "profiletest.ai"
-      const orgSlugGuess = normalise(data.org_slug);
-      return getOrgFramework(orgSlugGuess as any);
-    } catch {
-      return null;
-    }
-  }, [data.org_slug]);
-
-  const legacyProfile = useMemo(() => {
-    if (!fw) return null;
-    return findProfileInFramework(fw, data.top_profile_code);
-  }, [fw, data.top_profile_code]);
-
-  const legacyProfileDesc =
-    pickText(legacyProfile?.description) ||
-    pickText(legacyProfile?.summary) ||
-    pickText(legacyProfile?.intro) ||
-    null;
-
-  const legacyStrengths =
-    pickList(legacyProfile?.strengths) ||
-    pickList(legacyProfile?.key_strengths) ||
-    pickList(legacyProfile?.strengths_list) ||
-    null;
-
-  const legacyBlindspots =
-    pickList(legacyProfile?.blindspots) ||
-    pickList(legacyProfile?.challenges) ||
-    pickList(legacyProfile?.risks) ||
-    null;
-
-  const legacyCollab =
-    pickList(legacyProfile?.collaboration_tips) ||
-    pickList(legacyProfile?.how_to_work_with) ||
-    pickList(legacyProfile?.work_with_me) ||
-    null;
-
-  const legacyGrowth =
-    pickList(legacyProfile?.growth_tips) ||
-    pickList(legacyProfile?.development) ||
-    pickList(legacyProfile?.development_tips) ||
-    null;
-
-  const sortedProfiles = [...(data.profile_labels || [])]
-    .map((p) => ({ ...p, pct: prof[p.code] ?? 0 }))
-    .sort((a, b) => (b.pct || 0) - (a.pct || 0));
-
-  const top3Profiles = sortedProfiles.slice(0, 3);
+  const showStorageSections = hasSections(data);
 
   const reportTitle =
-    (showSections && data.sections?.report_title) ||
-    data.test_name ||
-    "MindCanvas Report";
+    (showStorageSections && data.sections?.report_title) || data.test_name || "MindCanvas Report";
 
   return (
     <div ref={reportRef} className="relative min-h-screen bg-[#050914] text-white overflow-hidden">
@@ -499,6 +407,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                 <button
                   onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
                   className="inline-flex items-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 shadow-sm hover:bg-emerald-500/15"
+                  title="Open next steps"
                 >
                   Next steps
                 </button>
@@ -513,7 +422,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
             </div>
           </header>
 
-          {/* ALWAYS: GRAPHS */}
+          {/* ALWAYS: GRAPH SECTION */}
           <section className="space-y-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
               Your personality map
@@ -561,8 +470,8 @@ export default function LegacyReportClient(props: { token: string; tid: string }
             </div>
           </section>
 
-          {/* LEAD / STORAGE SECTIONS */}
-          {showSections ? (
+          {/* STORAGE SECTIONS (LEAD) */}
+          {showStorageSections ? (
             <section className="space-y-6">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
                 Your report
@@ -576,7 +485,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                     <span className="font-semibold">
                       {data.top_profile_name} ({data.top_profile_code})
                     </span>
-                    . Add that profile to the same reportFramework JSON file so this renders fully.
+                    .
                   </p>
                 </div>
               ) : null}
@@ -597,116 +506,36 @@ export default function LegacyReportClient(props: { token: string; tid: string }
               </footer>
             </section>
           ) : (
-            /* LEGACY TEAM PUZZLE / COMPETENCY COACH NARRATIVE */
+            /* LEGACY FALLBACK (safe) */
             <section className="space-y-6">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
-                Your report
+                Summary
               </p>
 
-              <WhiteCard
-                title="Results summary"
-                subtitle="A quick overview of your strongest pattern before we go deeper."
-              >
-                <div className="space-y-3 text-[15px] leading-7 text-slate-800">
-                  <p>
-                    Your top profile is{" "}
-                    <span className="font-semibold text-slate-950">{data.top_profile_name}</span>{" "}
-                    and your strongest frequency is{" "}
-                    <span className="font-semibold text-slate-950">{data.top_freq}</span>.
-                  </p>
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
+                <h2 className="text-xl font-semibold text-slate-950">Your top results</h2>
+                <p className="mt-2 text-[15px] leading-7 text-slate-800">
+                  Top profile:{" "}
+                  <span className="font-semibold text-slate-950">{data.top_profile_name}</span> ·
+                  Top frequency:{" "}
+                  <span className="font-semibold text-slate-950">{data.top_freq}</span>
+                </p>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-950">Top profiles</p>
-                    <div className="mt-2 space-y-2">
-                      {top3Profiles.map((p) => (
-                        <div key={p.code} className="flex items-center justify-between">
-                          <span className="text-slate-900">{p.name}</span>
-                          <span className="text-slate-600">{safePct(p.pct)}</span>
-                        </div>
-                      ))}
+                <div className="mt-4 grid gap-3">
+                  {data.profile_labels.slice(0, 8).map((p) => (
+                    <div key={p.code} className="flex items-center justify-between text-[15px]">
+                      <span className="font-medium text-slate-900">{p.name}</span>
+                      <span className="text-slate-600">{safePct(prof[p.code])}</span>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              </WhiteCard>
 
-              <WhiteCard
-                title={`Your operating style: ${data.top_profile_name}`}
-                subtitle={legacyProfileDesc || "A description for this profile has not been added yet."}
-              >
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-3">
-                    <p className="text-sm font-semibold text-slate-950">Strengths</p>
-                    {legacyStrengths ? (
-                      <ul className="ml-5 list-disc space-y-1 text-[15px] leading-7 text-slate-800">
-                        {legacyStrengths.map((s, i) => (
-                          <li key={i}>{s}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-[15px] leading-7 text-slate-700">
-                        Add strengths to this profile in the framework JSON to show them here.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <p className="text-sm font-semibold text-slate-950">Blindspots</p>
-                    {legacyBlindspots ? (
-                      <ul className="ml-5 list-disc space-y-1 text-[15px] leading-7 text-slate-800">
-                        {legacyBlindspots.map((s, i) => (
-                          <li key={i}>{s}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-[15px] leading-7 text-slate-700">
-                        Add blindspots/challenges to this profile in the framework JSON to show them here.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </WhiteCard>
-
-              <div className="grid gap-6 md:grid-cols-2">
-                <WhiteCard title="Collaboration tips">
-                  {legacyCollab ? (
-                    <ul className="ml-5 list-disc space-y-1 text-[15px] leading-7 text-slate-800">
-                      {legacyCollab.map((s, i) => (
-                        <li key={i}>{s}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[15px] leading-7 text-slate-700">
-                      Add collaboration tips / “how to work with me” in the framework JSON to show this section.
-                    </p>
-                  )}
-                </WhiteCard>
-
-                <WhiteCard title="Development path">
-                  {legacyGrowth ? (
-                    <ul className="ml-5 list-disc space-y-1 text-[15px] leading-7 text-slate-800">
-                      {legacyGrowth.map((s, i) => (
-                        <li key={i}>{s}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[15px] leading-7 text-slate-700">
-                      Add growth/development tips in the framework JSON to show this section.
-                    </p>
-                  )}
-                </WhiteCard>
+                <p className="mt-4 text-xs text-slate-500">
+                  Legacy narrative sections will be re-enabled via the API (server-side) so Team
+                  Puzzle can render the “great” report again without importing frameworks in the
+                  client.
+                </p>
               </div>
-
-              {!fw ? (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-900">
-                  <p className="font-semibold">Legacy framework not found for this org</p>
-                  <p className="mt-1 text-sm">
-                    This report is running in legacy mode, but we couldn’t match{" "}
-                    <span className="font-semibold">{data.org_slug}</span> to a framework file in
-                    <code className="mx-1 rounded bg-amber-100 px-1 py-0.5">getOrgFramework.ts</code>.
-                    Add a mapping there to unlock the full Team Puzzle / Competency Coach narrative.
-                  </p>
-                </div>
-              ) : null}
             </section>
           )}
 
