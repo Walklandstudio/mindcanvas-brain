@@ -29,32 +29,27 @@ type SubmissionRow = {
   created_at: string;
 };
 
-type LinkRow = {
-  test_id: string;
-  token: string;
-  // these may or may not exist – we read them defensively
-  show_results?: boolean | null;
-  redirect_url?: string | null;
-  hidden_results_message?: string | null;
-  next_steps_url?: string | null;
-};
-
 type LinkMeta = {
   test_id: string;
   org_slug: string | null;
   test_name: string | null;
-  link?: {
-    show_results?: boolean | null;
-    redirect_url?: string | null;
-    hidden_results_message?: string | null;
-    next_steps_url?: string | null;
-  };
+  link_meta?: any | null; // optional: stored link meta (show_results etc) if you already have it
 };
 
 type ReportFrameworkMeta = {
   bucket?: string;
   path?: string;
   version?: string;
+};
+
+type TestMeta = {
+  orgSlug?: string;
+  test?: string;
+  frameworkKey?: string;
+  frameworkType?: string;
+  frequencies?: Array<{ code: AB; label: string }>;
+  profiles?: Array<{ code: string; name: string; frequency?: AB; description?: string }>;
+  reportFramework?: ReportFrameworkMeta;
 };
 
 type TestRow = {
@@ -66,11 +61,12 @@ type TestRow = {
 
 type TakerRow = {
   id: string;
-  first_name?: string | null;
-  last_name?: string | null;
+  first_name: string | null;
+  last_name: string | null;
 };
 
-// --- helpers ---
+// ---------------- utils ----------------
+
 function safeNumber(x: any, d = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : d;
@@ -132,6 +128,7 @@ function computeFromAnswers(
 
     const pts = safeNumber(entry.points, 0);
     const pcode = String(entry.profile || "").toUpperCase();
+
     if (pts <= 0 || !pcode) continue;
 
     profileTotals[pcode] = (profileTotals[pcode] || 0) + pts;
@@ -146,6 +143,7 @@ function computeFromAnswers(
 // --- Supabase client (admin) ---
 function sbAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_ANON_KEY ||
@@ -160,54 +158,41 @@ function sbAdmin() {
   });
 }
 
-// Resolve org/test for a token (+ link behaviour if present)
+// Resolve org/test for a token
 async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   const sb = sbAdmin();
 
-  // safest: select * so we don’t break if columns differ
-  const link = await sb.from("test_links").select("*").eq("token", token).limit(1).maybeSingle();
-  if (link.error || !link.data?.test_id) return null;
+  const link = await sb
+    .from("test_links")
+    .select("test_id, token, meta")
+    .eq("token", token)
+    .limit(1)
+    .maybeSingle();
 
-  const linkRow = link.data as LinkRow;
+  if (link.error || !link.data?.test_id) return null;
 
   const vt = await sb
     .from("v_org_tests")
     .select("test_id, org_slug, test_name")
-    .eq("test_id", linkRow.test_id)
+    .eq("test_id", link.data.test_id)
     .limit(1)
     .maybeSingle();
 
-  const org_slug = vt.data?.org_slug || null;
-  const test_name = vt.data?.test_name || null;
+  if (vt.error) {
+    return {
+      test_id: link.data.test_id,
+      org_slug: null,
+      test_name: null,
+      link_meta: (link.data as any)?.meta ?? null,
+    };
+  }
 
   return {
-    test_id: vt.data?.test_id || linkRow.test_id,
-    org_slug,
-    test_name,
-    link: {
-      show_results: (linkRow as any).show_results ?? null,
-      redirect_url: (linkRow as any).redirect_url ?? null,
-      hidden_results_message: (linkRow as any).hidden_results_message ?? null,
-      next_steps_url: (linkRow as any).next_steps_url ?? null,
-    },
+    test_id: vt.data?.test_id || link.data.test_id,
+    org_slug: vt.data?.org_slug || null,
+    test_name: vt.data?.test_name || null,
+    link_meta: (link.data as any)?.meta ?? null,
   };
-}
-
-// Fetch taker basic info (safe if table exists)
-async function fetchTaker(taker_id: string): Promise<TakerRow | null> {
-  const sb = sbAdmin();
-  try {
-    const q = await sb
-      .from("test_takers")
-      .select("id, first_name, last_name")
-      .eq("id", taker_id)
-      .maybeSingle();
-
-    if (q.error || !q.data) return null;
-    return q.data as TakerRow;
-  } catch {
-    return null;
-  }
 }
 
 // Fetch latest submission for (taker_id, token)
@@ -244,9 +229,26 @@ async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionM
 
 async function fetchTestRow(test_id: string): Promise<TestRow | null> {
   const sb = sbAdmin();
-  const q = await sb.from("tests").select("id, slug, name, meta").eq("id", test_id).maybeSingle();
+  const q = await sb
+    .from("tests")
+    .select("id, slug, name, meta")
+    .eq("id", test_id)
+    .maybeSingle();
+
   if (q.error || !q.data) return null;
   return q.data as TestRow;
+}
+
+async function fetchTakerRow(taker_id: string): Promise<TakerRow | null> {
+  const sb = sbAdmin();
+  const q = await sb
+    .from("test_takers")
+    .select("id, first_name, last_name")
+    .eq("id", taker_id)
+    .maybeSingle();
+
+  if (q.error || !q.data) return null;
+  return q.data as TakerRow;
 }
 
 async function downloadFrameworkJSON(bucket: string, path: string): Promise<any | null> {
@@ -267,26 +269,67 @@ async function downloadFrameworkJSON(bucket: string, path: string): Promise<any 
   }
 }
 
-function findReportForProfile(frameworkJson: any, profileCode: string) {
-  const fw = frameworkJson?.framework || frameworkJson;
-  if (!fw) return null;
+// --- NEW: support both JSON schemas (your LEAD v1 schema + older schema) ---
 
-  const reportsByProfile = fw?.reports_by_profile;
-  if (reportsByProfile && typeof reportsByProfile === "object") {
-    const hit = reportsByProfile[String(profileCode).toUpperCase()];
+function pickCommonSections(frameworkJson: any): any[] | null {
+  const fw = frameworkJson?.framework || frameworkJson;
+
+  // your LEAD file schema
+  if (fw?.common?.sections && Array.isArray(fw.common.sections)) return fw.common.sections;
+
+  // older schema we supported earlier
+  if (fw?.common?.sections && Array.isArray(fw.common.sections)) return fw.common.sections;
+  if (fw?.framework?.common?.sections && Array.isArray(fw.framework.common.sections))
+    return fw.framework.common.sections;
+
+  return null;
+}
+
+function pickReportTitle(frameworkJson: any): string | null {
+  const fw = frameworkJson?.framework || frameworkJson;
+  return (
+    fw?.common?.report_title ||
+    fw?.common?.reportTitle ||
+    fw?.report_title ||
+    fw?.reportTitle ||
+    null
+  );
+}
+
+function findProfileReport(frameworkJson: any, profileCode: string) {
+  const fw = frameworkJson?.framework || frameworkJson;
+  const pc = String(profileCode || "").toUpperCase();
+
+  // ✅ YOUR LEAD v1 schema: profiles: { PROFILE_5: { title, sections } }
+  if (fw?.profiles && typeof fw.profiles === "object") {
+    const hit = fw.profiles[pc];
     if (hit) return hit;
   }
 
+  // older schema: reports_by_profile
+  const reportsByProfile = fw?.reports_by_profile;
+  if (reportsByProfile && typeof reportsByProfile === "object") {
+    const hit = reportsByProfile[pc];
+    if (hit) return hit;
+  }
+
+  // older schema: reports list
   const reports = fw?.reports;
   if (reports && typeof reports === "object") {
     for (const v of Object.values(reports)) {
-      const pc = (v as any)?.profile_code || (v as any)?.profileCode || "";
-      if (String(pc).toUpperCase() === String(profileCode).toUpperCase()) return v;
+      const p =
+        (v as any)?.profile_code ||
+        (v as any)?.profileCode ||
+        (v as any)?.code ||
+        "";
+      if (String(p).toUpperCase() === pc) return v;
     }
   }
 
   return null;
 }
+
+// ---------------- Handler ----------------
 
 export async function GET(req: Request, { params }: { params: { token: string } }) {
   try {
@@ -304,39 +347,64 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     }
 
     const testRow = await fetchTestRow(meta.test_id);
+    const testMeta = (testRow?.meta || {}) as TestMeta;
+
+    // This is where meta.reportFramework is read from:
     const rf: ReportFrameworkMeta | null = (testRow?.meta as any)?.reportFramework || null;
     const useStorageFramework = Boolean(rf?.bucket && rf?.path);
 
-    const orgSlug = (meta.org_slug || process.env.DEFAULT_ORG_SLUG || "competency-coach").trim();
+    // Prefer v_org_tests org_slug, then tests.meta.orgSlug, then default
+    const orgSlug = String(
+      meta.org_slug || testMeta?.orgSlug || process.env.DEFAULT_ORG_SLUG || "competency-coach",
+    ).trim();
 
-    // ✅ ALWAYS load base framework for labels/lookups (prevents breaking Team Puzzle / Competency)
-    const baseFw: any = await loadFrameworkBySlug(orgSlug);
-    const look = buildLookups(baseFw);
+    // legacy framework by orgSlug (unchanged)
+    let fw: any = await loadFrameworkBySlug(orgSlug);
+    let frameworkSource: "filesystem" | "storage" = "filesystem";
 
-    const frequency_labels = (["A", "B", "C", "D"] as AB[]).map((code) => ({
-      code,
-      name: look.freqByCode.get(code as FrequencyCode)?.name || `Frequency ${code}`,
-    }));
+    // opt-in storage override
+    if (useStorageFramework && rf?.bucket && rf?.path) {
+      const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
+      if (storageFw) {
+        fw = storageFw;
+        frameworkSource = "storage";
+      }
+    }
+
+    // Lookups from legacy (for old tests)
+    const look = buildLookups(fw);
+
+    // ✅ Labels: for LEAD use tests.meta first (Launch/Energise/Align/Discern + real profile names)
+    const metaFreqs = Array.isArray(testMeta?.frequencies) ? testMeta.frequencies : null;
+    const metaProfiles = Array.isArray(testMeta?.profiles) ? testMeta.profiles : null;
+
+    const frequency_labels = (["A", "B", "C", "D"] as AB[]).map((code) => {
+      const fromMeta = metaFreqs?.find((f) => f.code === code)?.label;
+      const fromLegacy = look.freqByCode.get(code as FrequencyCode)?.name;
+      return { code, name: fromMeta || fromLegacy || `Frequency ${code}` };
+    });
 
     const profile_labels = Array.from({ length: 8 }).map((_, i) => {
       const n = i + 1;
       const code = `PROFILE_${n}`;
-      const jsonName = look.profileByCode.get(code)?.name || null;
-      return { code, name: jsonName || `Profile ${n}` };
+      const fromMeta = metaProfiles?.find((p) => String(p.code).toUpperCase() === code)?.name;
+      const fromLegacy = look.profileByCode.get(code)?.name;
+      return { code, name: fromMeta || fromLegacy || `Profile ${n}` };
     });
 
     const sub = await fetchLatestSubmission(takerId, token);
     if (!sub) {
       return NextResponse.json(
         { ok: false, error: "Submission not found for this taker/token." },
-        { status: 404 }
+        { status: 404 },
       );
     }
+
+    const taker = await fetchTakerRow(takerId);
 
     const qmap = await fetchQuestionMaps(meta.test_id);
     const comp = computeFromAnswers(sub.answers_json, qmap);
 
-    // If saved totals exist and sum > 0, prefer them for frequencies
     const saved = (sub.totals || {}) as Record<string, number>;
     const savedSum = Object.values(saved).reduce((a, b) => a + (Number(b) || 0), 0);
 
@@ -368,57 +436,44 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       look.profileByCode.get(top_profile_code)?.name ||
       top_profile_code;
 
-    // taker name (if table exists)
-    const takerRow = await fetchTaker(takerId);
-
-    // ✅ Sections come from storage report framework JSON ONLY (don’t affect lookups)
+    // Storage sections payload (LEAD)
     let sections: any = null;
-    let frameworkSource: "filesystem" | "storage" = "filesystem";
+    if (useStorageFramework && top_profile_code) {
+      const common = pickCommonSections(fw);
+      const rep = findProfileReport(fw, top_profile_code);
 
-    if (useStorageFramework && rf?.bucket && rf?.path) {
-      const reportFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
-      if (reportFw) {
-        frameworkSource = "storage";
+      const profileSections = rep?.sections || null;
+      const profileMissing = !Array.isArray(profileSections) || profileSections.length === 0;
 
-        const common =
-          reportFw?.framework?.common?.sections ||
-          reportFw?.common?.sections ||
-          null;
-
-        const rep = findReportForProfile(reportFw, top_profile_code);
-
-        sections = {
-          common: common || null,
-          profile: rep?.sections || null,
-          report_title: rep?.title || null,
-
-          // IMPORTANT: prevents “half report” silently
-          profile_missing: !rep,
-
-          framework_version: rf?.version || null,
-          framework_bucket: rf?.bucket || null,
-          framework_path: rf?.path || null,
-        };
-      }
+      sections = {
+        common: common || null,
+        profile: profileMissing ? null : profileSections,
+        report_title: rep?.title || pickReportTitle(fw) || null,
+        profile_missing: profileMissing,
+        framework_version: rf?.version || null,
+        framework_bucket: rf?.bucket || null,
+        framework_path: rf?.path || null,
+      };
     }
+
+    // Link meta (show_results etc) – prefer stored test_links.meta if present
+    const linkMeta = meta.link_meta || null;
 
     return NextResponse.json({
       ok: true,
       data: {
         org_slug: orgSlug,
-        test_name: meta.test_name || testRow?.name || "Profile Test",
+        org_name: null,
+        test_name: meta.test_name || testRow?.name || testMeta?.test || "Profile Test",
 
-        // ✅ restore taker info for "For Lisa Walker"
         taker: {
           id: takerId,
-          first_name: (takerRow as any)?.first_name ?? null,
-          last_name: (takerRow as any)?.last_name ?? null,
+          first_name: taker?.first_name ?? null,
+          last_name: taker?.last_name ?? null,
         },
 
-        // ✅ link behaviour passthrough (if present)
-        link: meta.link || {},
+        link: linkMeta || undefined,
 
-        // ✅ graphs need these every time
         frequency_labels,
         frequency_totals: freqTotals,
         frequency_percentages,
@@ -448,5 +503,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
 
 
