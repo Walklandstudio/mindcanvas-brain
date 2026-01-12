@@ -1,15 +1,17 @@
 // apps/web/app/t/[token]/report/page.tsx
-"use client";
-
-import { useSearchParams } from "next/navigation";
-import LegacyReportClient from "./LegacyReportClient";
+import ReportRouterClient from "./ReportRouterClient";
 
 export const dynamic = "force-dynamic";
 
-export default function ReportPageWrapper({ params }: { params: { token: string } }) {
-  const searchParams = useSearchParams();
-  const tid = searchParams?.get("tid") ?? "";
-  return <LegacyReportClient token={params.token} tid={tid} />;
+export default function ReportPage({
+  params,
+  searchParams,
+}: {
+  params: { token: string };
+  searchParams: { tid?: string };
+}) {
+  const tid = typeof searchParams?.tid === "string" ? searchParams.tid : "";
+  return <ReportRouterClient token={params.token} tid={tid} />;
 }
 
 
