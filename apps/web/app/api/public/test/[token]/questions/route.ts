@@ -10,19 +10,13 @@ type PortalClient = ReturnType<typeof createClient>;
 type LinkRow = { token: string; test_id: string };
 type TestRow = { id: string; meta: any | null };
 
-// IMPORTANT: In your codebase, test_questions.id appears to be the QUESTION ID.
-// (Your submit route selects: .select("id, idx, profile_map") and then uses q.id as question id.)
+// Your app uses test_questions.id as the question_id (see submit route).
 type TestQuestionRow = {
-  id: string; // question id
+  id: string;
   idx?: number | null;
   order?: number | null;
   type?: string | null;
-};
-
-type QuestionRow = {
-  id: string;
   text?: string | null;
-  type?: string | null;
   options?: string[] | null;
   category?: string | null;
 };
@@ -39,8 +33,7 @@ function getPortalClient(): PortalClient {
 
 function resolveEffectiveTestId(testRow: TestRow): string {
   const meta = testRow?.meta ?? {};
-  const isWrapper = meta?.wrapper === true;
-  if (!isWrapper) return testRow.id;
+  if (meta?.wrapper !== true) return testRow.id;
 
   const def = meta?.default_source_test;
   if (typeof def === "string" && def.length > 10) return def;
@@ -96,11 +89,11 @@ export async function GET(
 
     const effectiveTestId = resolveEffectiveTestId(testRow);
 
-    // 3) fetch test_questions for effective test
-    // NOTE: We DO NOT use relationship joins because schema cache doesn't have them.
-    const { data: tqRows, error: tqErr } = (await sb
+    // 3) load questions DIRECTLY from portal.test_questions
+    // IMPORTANT: no relationship joins, no question_id column references.
+    const { data: rows, error: qErr } = (await sb
       .from("test_questions")
-      .select("id, idx, order, type")
+      .select("id, idx, order, type, text, options, category")
       .eq("test_id", effectiveTestId)
       .order("order", { ascending: true })
       .order("idx", { ascending: true })
@@ -109,57 +102,22 @@ export async function GET(
       error: any;
     };
 
-    if (tqErr) {
-      return NextResponse.json(
-        { ok: false, error: `Questions load failed: ${tqErr.message}` },
-        { status: 500 }
-      );
-    }
-
-    const tqList = tqRows ?? [];
-    if (tqList.length === 0) {
-      return NextResponse.json({
-        ok: true,
-        token: linkRow.token,
-        test_id: linkRow.test_id,
-        effective_test_id: effectiveTestId,
-        questions: [],
-      });
-    }
-
-    const qIds = tqList.map((r) => r.id);
-
-    // 4) fetch question content rows
-    // Assumes you have a portal.questions table keyed by id.
-    const { data: qRows, error: qErr } = (await sb
-      .from("questions")
-      .select("id, text, type, options, category")
-      .in("id", qIds)) as { data: QuestionRow[] | null; error: any };
-
     if (qErr) {
       return NextResponse.json(
-        { ok: false, error: `Question content load failed: ${qErr.message}` },
+        { ok: false, error: `Questions load failed: ${qErr.message}` },
         { status: 500 }
       );
     }
 
-    const qById = new Map<string, QuestionRow>();
-    for (const qr of qRows ?? []) qById.set(qr.id, qr);
-
-    // 5) merge + preserve test_questions ordering
-    const questions = tqList.map((tq) => {
-      const qr = qById.get(tq.id);
-      return {
-        id: tq.id,
-        order: tq.order ?? null,
-        idx: tq.idx ?? null,
-        // prefer content.type; fallback to tq.type
-        type: (qr?.type ?? tq.type ?? null) as any,
-        text: (qr?.text ?? null) as any,
-        options: (qr?.options ?? null) as any,
-        category: (qr?.category ?? null) as any,
-      };
-    });
+    const questions = (rows ?? []).map((q) => ({
+      id: q.id,
+      idx: q.idx ?? null,
+      order: q.order ?? null,
+      type: q.type ?? null,
+      text: q.text ?? null,
+      options: q.options ?? null,
+      category: q.category ?? null,
+    }));
 
     return NextResponse.json({
       ok: true,
