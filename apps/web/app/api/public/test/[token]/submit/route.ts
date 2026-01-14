@@ -57,6 +57,25 @@ function getDefaultInternalEmail() {
   return normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) || "notifications@profiletest.ai";
 }
 
+/**
+ * Wrapper resolution:
+ * If tests.meta.wrapper = true, use meta.default_source_test (or source_tests[0])
+ * as the effective test ID to load questions/labels/scoring.
+ */
+function resolveEffectiveTestId(testRow: any): string {
+  const meta = testRow?.meta ?? {};
+  const isWrapper = meta?.wrapper === true;
+  if (!isWrapper) return testRow?.id;
+
+  const def = meta?.default_source_test;
+  if (typeof def === "string" && def.length > 10) return def;
+
+  const arr = meta?.source_tests;
+  if (Array.isArray(arr) && typeof arr[0] === "string") return arr[0];
+
+  return testRow?.id;
+}
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -86,10 +105,12 @@ export async function POST(
     const answers: any[] = Array.isArray(body.answers) ? body.answers : [];
     const sb = supa();
 
-    // Resolve taker → test
+    // Resolve taker → wrapper test (org-facing)
     const { data: taker, error: takerErr } = await sb
       .from("test_takers")
-      .select("id, org_id, test_id, link_token, first_name, last_name, email, company, role_title, phone, last_result_url")
+      .select(
+        "id, org_id, test_id, link_token, first_name, last_name, email, company, role_title, phone, last_result_url"
+      )
       .eq("id", takerId)
       .eq("link_token", token)
       .maybeSingle();
@@ -101,7 +122,7 @@ export async function POST(
       );
     }
 
-    // Load test row so we can detect QSC
+    // Load wrapper test row (the one linked to the token)
     const { data: test, error: testErr } = await sb
       .from("tests")
       .select("id, slug, meta, name")
@@ -115,6 +136,11 @@ export async function POST(
       );
     }
 
+    // Determine effective test id for loading questions/labels/scoring
+    const effectiveTestId = resolveEffectiveTestId(test);
+
+    // NOTE: We still treat the wrapper slug/meta as the "test identity" for routing/report UI,
+    // but we load content/questions from the effective test id.
     const slug: string = (test.slug as string) || "";
     const meta: any = test.meta || {};
     const frameworkType: string = (meta?.frameworkType as string) || "";
@@ -133,7 +159,10 @@ export async function POST(
       frameworkTypeLower === "qsc" ||
       kindLower === "qsc" ||
       resultTypeLower === "qsc" ||
-      ["entrepreneur", "leader", "leaders"].includes(qscVariantLower);
+      ["entrepreneur", "leader", "leaders"].includes(qscVariantLower) ||
+      // Wrappers are QSC by definition in your meta
+      meta?.test_family === "qsc" ||
+      meta?.wrapper === true;
 
     const isQscEntrepreneur =
       isQscTest && (qscVariantLower === "entrepreneur" || slugLower.includes("core"));
@@ -141,11 +170,11 @@ export async function POST(
     const qscAudience: "entrepreneur" | "leader" =
       isQscEntrepreneur ? "entrepreneur" : "leader";
 
-    // Load questions with profile_map (drives scoring)
+    // Load questions with profile_map (drives scoring) FROM effective test
     const { data: questions, error: qErr } = await sb
       .from("test_questions")
       .select("id, idx, profile_map")
-      .eq("test_id", taker.test_id)
+      .eq("test_id", effectiveTestId)
       .order("idx", { ascending: true })
       .order("created_at", { ascending: true });
 
@@ -159,11 +188,11 @@ export async function POST(
     const byId: Record<string, QuestionRow> = {};
     for (const q of questions || []) byId[q.id] = q;
 
-    // Labels: name→code and code→frequency for this test
+    // Labels: name→code and code→frequency for this test (FROM effective test)
     const { data: labels, error: labErr } = await sb
       .from("test_profile_labels")
       .select("profile_code, profile_name, frequency_code")
-      .eq("test_id", taker.test_id);
+      .eq("test_id", effectiveTestId);
 
     if (labErr) {
       return NextResponse.json(
@@ -221,14 +250,20 @@ export async function POST(
     }
 
     // Persist submission snapshot
+    // IMPORTANT: Keep test_id = wrapper test for org reporting.
+    // Store effective_test_id into totals so you can debug/audit later without schema changes.
     const totals = {
       frequencies: { A: freqTotals.A, B: freqTotals.B, C: freqTotals.C, D: freqTotals.D },
       profiles: profileTotals,
+      meta: {
+        wrapper_test_id: taker.test_id,
+        effective_test_id: effectiveTestId,
+      },
     };
 
     const { error: subErr } = await sb.from("test_submissions").insert({
       taker_id: taker.id,
-      test_id: taker.test_id,
+      test_id: taker.test_id, // wrapper
       link_token: token,
       totals,
       answers_json: answers,
@@ -305,7 +340,7 @@ export async function POST(
           .upsert(
             {
               taker_id: taker.id,
-              test_id: taker.test_id,
+              test_id: taker.test_id, // wrapper for org reporting
               token,
               audience: qscAudience,
               personality_totals: scoring.personalityTotals,
@@ -372,24 +407,19 @@ export async function POST(
           type: "test_owner_notification",
           to: sentTo,
           context: {
-            // owner fields (optional in your template)
             owner_first_name: "",
             owner_full_name: "",
 
-            // test taker fields (used in template)
             test_taker_full_name: fullName || taker.email || "",
             test_taker_email: taker.email || "",
             test_taker_mobile: taker.phone || "",
             test_taker_org: taker.company || "",
 
-            // test fields
             test_name: (test.name as string) || slug || "your assessment",
 
-            // internal links (used in template)
             internal_report_link: internalReportLink,
             internal_results_dashboard_link: internalResultsDashboardLink,
 
-            // nice-to-have
             org_name: org.name || org.slug,
             owner_website: org.website_url || "",
           },
@@ -409,7 +439,7 @@ export async function POST(
       ok: true,
       totals,
       redirect: redirectUrl,
-      owner_notification: ownerNotification, // leave during testing; remove later if you want
+      owner_notification: ownerNotification,
     });
   } catch (err: any) {
     return NextResponse.json(
@@ -418,4 +448,5 @@ export async function POST(
     );
   }
 }
+
 
