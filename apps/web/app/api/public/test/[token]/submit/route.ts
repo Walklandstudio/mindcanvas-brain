@@ -19,6 +19,16 @@ function supa() {
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
+function isUuidLike(s: string) {
+  return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
+
+function normSlug(v: any) {
+  return String(v || "").trim().toLowerCase();
+}
+
 // Accept PROFILE_1..8 or P1..P8 → A/B/C/D; fallback if value already starts with A/B/C/D
 function profileCodeToFreq(code: string): AB | null {
   const s = String(code || "").trim().toUpperCase();
@@ -54,52 +64,95 @@ function normalizeEmail(v: any): string {
 }
 
 function getDefaultInternalEmail() {
-  return normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) || "notifications@profiletest.ai";
+  return (
+    normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) ||
+    "notifications@profiletest.ai"
+  );
 }
 
 /**
- * Wrapper resolution:
- * If tests.meta.wrapper = true, use meta.default_source_test (or source_tests[0])
- * as the effective test ID to load questions/labels/scoring.
+ * GLOBAL wrapper->content resolver:
+ * - If tests.meta.wrapper = true:
+ *   - Prefer source test by slug when present (qsc-leaders / qsc-core)
+ *   - Else default_source_test
+ *   - Else source_tests[0]
  */
-function resolveEffectiveTestId(testRow: any): string {
+async function resolveEffectiveTestId(sb: ReturnType<typeof supa>, testRow: any) {
   const meta = testRow?.meta ?? {};
   const isWrapper = meta?.wrapper === true;
-  if (!isWrapper) return testRow?.id;
 
-  const def = meta?.default_source_test;
-  if (typeof def === "string" && def.length > 10) return def;
+  if (!isWrapper) {
+    return {
+      effectiveTestId: String(testRow?.id),
+      resolvedBy: "not_wrapper" as const,
+    };
+  }
 
-  const arr = meta?.source_tests;
-  if (Array.isArray(arr) && typeof arr[0] === "string") return arr[0];
+  const sourceTests: string[] = Array.isArray(meta?.source_tests) ? meta.source_tests : [];
+  const defaultSource: string | null =
+    typeof meta?.default_source_test === "string" ? meta.default_source_test : null;
 
-  return testRow?.id;
+  // Prefer by slug if we can inspect candidates
+  const clean = sourceTests.filter((id) => isUuidLike(id));
+  if (clean.length) {
+    const { data: candidates } = await sb
+      .from("tests")
+      .select("id, slug, meta")
+      .in("id", clean);
+
+    const list = (candidates ?? []) as any[];
+
+    const leaders = list.find((t) => normSlug(t.slug) === "qsc-leaders");
+    if (leaders?.id) {
+      return {
+        effectiveTestId: String(leaders.id),
+        resolvedBy: "meta.source_tests.slug=qsc-leaders" as const,
+      };
+    }
+
+    const core = list.find((t) => normSlug(t.slug) === "qsc-core");
+    if (core?.id) {
+      return {
+        effectiveTestId: String(core.id),
+        resolvedBy: "meta.source_tests.slug=qsc-core" as const,
+      };
+    }
+  }
+
+  if (defaultSource && isUuidLike(defaultSource)) {
+    return {
+      effectiveTestId: defaultSource,
+      resolvedBy: "meta.default_source_test" as const,
+    };
+  }
+
+  if (sourceTests.length && isUuidLike(sourceTests[0])) {
+    return {
+      effectiveTestId: sourceTests[0],
+      resolvedBy: "meta.source_tests[0]" as const,
+    };
+  }
+
+  return {
+    effectiveTestId: String(testRow?.id),
+    resolvedBy: "wrapper_no_sources" as const,
+  };
 }
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST(
-  req: Request,
-  { params }: { params: { token: string } }
-) {
+export async function POST(req: Request, { params }: { params: { token: string } }) {
   try {
     const token = params.token;
     if (!token) {
-      return NextResponse.json(
-        { ok: false, error: "Missing token" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing token" }, { status: 400 });
     }
 
     const body = (await req.json().catch(() => ({}))) as any;
     const takerId: string | undefined = body.taker_id || body.takerId || body.tid;
-
     if (!takerId) {
-      return NextResponse.json(
-        { ok: false, error: "Missing taker_id" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing taker_id" }, { status: 400 });
     }
 
     const answers: any[] = Array.isArray(body.answers) ? body.answers : [];
@@ -116,10 +169,7 @@ export async function POST(
       .maybeSingle();
 
     if (takerErr || !taker) {
-      return NextResponse.json(
-        { ok: false, error: "Taker not found for this token" },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
     }
 
     // Load wrapper test row (the one linked to the token)
@@ -130,17 +180,13 @@ export async function POST(
       .maybeSingle();
 
     if (testErr || !test) {
-      return NextResponse.json(
-        { ok: false, error: "Test not found for taker" },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: "Test not found for taker" }, { status: 500 });
     }
 
     // Determine effective test id for loading questions/labels/scoring
-    const effectiveTestId = resolveEffectiveTestId(test);
+    const { effectiveTestId, resolvedBy } = await resolveEffectiveTestId(sb, test);
 
-    // NOTE: We still treat the wrapper slug/meta as the "test identity" for routing/report UI,
-    // but we load content/questions from the effective test id.
+    // Wrapper identity (routing/UI)
     const slug: string = (test.slug as string) || "";
     const meta: any = test.meta || {};
     const frameworkType: string = (meta?.frameworkType as string) || "";
@@ -160,7 +206,6 @@ export async function POST(
       kindLower === "qsc" ||
       resultTypeLower === "qsc" ||
       ["entrepreneur", "leader", "leaders"].includes(qscVariantLower) ||
-      // Wrappers are QSC by definition in your meta
       meta?.test_family === "qsc" ||
       meta?.wrapper === true;
 
@@ -170,7 +215,7 @@ export async function POST(
     const qscAudience: "entrepreneur" | "leader" =
       isQscEntrepreneur ? "entrepreneur" : "leader";
 
-    // Load questions with profile_map (drives scoring) FROM effective test
+    // Load questions FROM effective test
     const { data: questions, error: qErr } = await sb
       .from("test_questions")
       .select("id, idx, profile_map")
@@ -179,26 +224,20 @@ export async function POST(
       .order("created_at", { ascending: true });
 
     if (qErr) {
-      return NextResponse.json(
-        { ok: false, error: `Questions load failed: ${qErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: `Questions load failed: ${qErr.message}` }, { status: 500 });
     }
 
     const byId: Record<string, QuestionRow> = {};
     for (const q of questions || []) byId[q.id] = q;
 
-    // Labels: name→code and code→frequency for this test (FROM effective test)
+    // Labels FROM effective test
     const { data: labels, error: labErr } = await sb
       .from("test_profile_labels")
       .select("profile_code, profile_name, frequency_code")
       .eq("test_id", effectiveTestId);
 
     if (labErr) {
-      return NextResponse.json(
-        { ok: false, error: `Labels load failed: ${labErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: `Labels load failed: ${labErr.message}` }, { status: 500 });
     }
 
     const nameToCode = new Map<string, string>();
@@ -219,7 +258,7 @@ export async function POST(
       }
     }
 
-    // Compute totals (legacy frequency/profile scoring)
+    // Compute totals
     const freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
     const profileTotals: Record<string, number> = {};
 
@@ -236,7 +275,7 @@ export async function POST(
       const points = asNumber(entry.points, 0);
       let pcode = String(entry.profile || "").trim();
 
-      // Resolve profile *name* → code if needed
+      // Resolve profile name -> code
       if (pcode && !/^P(?:ROFILE)?[_\s-]?\d+$/i.test(pcode)) {
         const fromName = nameToCode.get(pcode);
         if (fromName) pcode = fromName;
@@ -249,15 +288,14 @@ export async function POST(
       if (f) freqTotals[f] += points;
     }
 
-    // Persist submission snapshot
-    // IMPORTANT: Keep test_id = wrapper test for org reporting.
-    // Store effective_test_id into totals so you can debug/audit later without schema changes.
+    // Persist submission snapshot (keep wrapper test_id for org reporting)
     const totals = {
       frequencies: { A: freqTotals.A, B: freqTotals.B, C: freqTotals.C, D: freqTotals.D },
       profiles: profileTotals,
       meta: {
         wrapper_test_id: taker.test_id,
         effective_test_id: effectiveTestId,
+        effective_resolved_by: resolvedBy,
       },
     };
 
@@ -276,10 +314,7 @@ export async function POST(
     });
 
     if (subErr) {
-      return NextResponse.json(
-        { ok: false, error: `Submission insert failed: ${subErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: `Submission insert failed: ${subErr.message}` }, { status: 500 });
     }
 
     const { error: upErr } = await sb
@@ -287,13 +322,10 @@ export async function POST(
       .upsert({ taker_id: taker.id, totals }, { onConflict: "taker_id" });
 
     if (upErr) {
-      return NextResponse.json(
-        { ok: false, error: `Results upsert failed: ${upErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: `Results upsert failed: ${upErr.message}` }, { status: 500 });
     }
 
-    // ---------------- QSC SCORING (only for Quantum Source Code) ----------------
+    // ---------------- QSC SCORING ----------------
     if (isQscTest) {
       try {
         const questionsForScoring = (questions || []).map((q: any) => ({
@@ -335,12 +367,16 @@ export async function POST(
           }
         }
 
+        // IMPORTANT:
+        // - test_id stays wrapper for org reporting
+        // - content_test_id stores canonical test for loading templates/sections/personas (global fix)
         const { error: qscUpsertError } = await sb
           .from("qsc_results")
           .upsert(
             {
               taker_id: taker.id,
-              test_id: taker.test_id, // wrapper for org reporting
+              test_id: taker.test_id, // wrapper
+              content_test_id: effectiveTestId, // <- requires column on portal.qsc_results
               token,
               audience: qscAudience,
               personality_totals: scoring.personalityTotals,
@@ -373,13 +409,13 @@ export async function POST(
       .eq("id", taker.id)
       .eq("link_token", token);
 
-    // Redirect URL for QSC Entrepreneur – Strategic Growth Report
+    // Redirect URL (keep your existing behavior)
     let redirectUrl: string | null = null;
     if (isQscEntrepreneur && taker.link_token) {
       redirectUrl = `/qsc/${encodeURIComponent(taker.link_token)}/report?tid=${encodeURIComponent(taker.id)}`;
     }
 
-    // ✅ AUTO: send internal notification now (direct OneSignal call via sendTemplatedEmail)
+    // Owner notification
     let ownerNotification: any = null;
     try {
       const origin = new URL(req.url).origin;
@@ -390,9 +426,7 @@ export async function POST(
         .eq("id", taker.org_id)
         .maybeSingle();
 
-      if (orgErr || !org) {
-        console.warn("[submit] org lookup failed; skipping notification", orgErr);
-      } else {
+      if (!(orgErr || !org)) {
         const sentTo = normalizeEmail(org.notification_email) || getDefaultInternalEmail();
 
         const firstName = taker.first_name || "";
@@ -409,17 +443,13 @@ export async function POST(
           context: {
             owner_first_name: "",
             owner_full_name: "",
-
             test_taker_full_name: fullName || taker.email || "",
             test_taker_email: taker.email || "",
             test_taker_mobile: taker.phone || "",
             test_taker_org: taker.company || "",
-
             test_name: (test.name as string) || slug || "your assessment",
-
             internal_report_link: internalReportLink,
             internal_results_dashboard_link: internalResultsDashboardLink,
-
             org_name: org.name || org.slug,
             owner_website: org.website_url || "",
           },
@@ -427,8 +457,6 @@ export async function POST(
 
         if (!ownerNotification?.ok) {
           console.error("[submit] test_owner_notification failed", ownerNotification);
-        } else {
-          console.log("[submit] test_owner_notification sent_to", sentTo);
         }
       }
     } catch (e) {
@@ -440,12 +468,16 @@ export async function POST(
       totals,
       redirect: redirectUrl,
       owner_notification: ownerNotification,
+      __debug: {
+        wrapper_test_id: taker.test_id,
+        effective_test_id: effectiveTestId,
+        effective_resolved_by: resolvedBy,
+        is_qsc: isQscTest,
+        qsc_audience: isQscTest ? qscAudience : null,
+      },
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err?.message || "Unexpected error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
   }
 }
 

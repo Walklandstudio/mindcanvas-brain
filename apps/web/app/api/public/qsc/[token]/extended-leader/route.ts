@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 
 type Audience = "entrepreneur" | "leader";
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
+type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
 
 type QscResultsRow = {
   id: string;
@@ -15,7 +16,7 @@ type QscResultsRow = {
   token: string;
   taker_id: string | null;
   audience: Audience | null;
-  combined_profile_code: string | null;
+  combined_profile_code: string | null; // may be FLOW_VECTOR
   qsc_profile_id: string | null;
   created_at: string;
 };
@@ -24,7 +25,7 @@ type QscProfileRow = {
   id: string;
   personality_code: PersonalityKey | string | null; // FIRE/FLOW/FORM/FIELD or A-D
   mindset_level: number | null; // 1..5
-  profile_code: string | null;
+  profile_code: string | null; // A1..D5
   profile_label: string | null;
 
   // snapshot fallback fields
@@ -91,6 +92,11 @@ function safeStr(v: any): string | null {
   return t.length ? t : null;
 }
 
+function looksLikePersonaCode(v: string | null | undefined) {
+  if (!v) return false;
+  return /^[ABCD][1-5]$/i.test(v.trim());
+}
+
 function toABCD(code: string | null | undefined): "A" | "B" | "C" | "D" | null {
   const c = String(code || "").toUpperCase().trim();
   if (c === "A" || c === "B" || c === "C" || c === "D") return c;
@@ -121,6 +127,39 @@ function mindsetLabel(level: number | null | undefined) {
   return `Level ${n}`;
 }
 
+function combinedToPersonaCode(combined: string | null | undefined): string | null {
+  const raw = String(combined || "").trim().toUpperCase();
+  if (!raw) return null;
+
+  // already A1..D5
+  if (looksLikePersonaCode(raw)) return raw;
+
+  // expected PERSONALITY_MINDSET e.g. FLOW_VECTOR
+  const parts = raw.split("_").filter(Boolean);
+  if (parts.length < 2) return null;
+
+  const personality = parts[0];
+  const mindset = parts[1];
+
+  const letter =
+    personality === "FIRE" ? "A"
+    : personality === "FLOW" ? "B"
+    : personality === "FORM" ? "C"
+    : personality === "FIELD" ? "D"
+    : null;
+
+  const lvl =
+    mindset === "ORIGIN" ? 1
+    : mindset === "MOMENTUM" ? 2
+    : mindset === "VECTOR" ? 3
+    : mindset === "ORBIT" ? 4
+    : mindset === "QUANTUM" ? 5
+    : null;
+
+  if (!letter || !lvl) return null;
+  return `${letter}${lvl}`;
+}
+
 function buildExtendedMerged(args: {
   extRow: any | null;
   profile: QscProfileRow;
@@ -128,8 +167,7 @@ function buildExtendedMerged(args: {
   mindsetLevel: number;
   combinedProfileCode: string | null;
 }): { extended: LeaderExtendedRow; source: { tableUsed: boolean; snapshotUsed: boolean } } {
-  const { extRow, profile, personalityABCD, mindsetLevel, combinedProfileCode } =
-    args;
+  const { extRow, profile, personalityABCD, mindsetLevel, combinedProfileCode } = args;
 
   const insights = profile.full_internal_insights ?? null;
 
@@ -231,6 +269,7 @@ export async function GET(
 
     let resultRow: QscResultsRow | null = null;
 
+    // token + tid
     if (tid && isUuidLike(tid)) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -250,6 +289,7 @@ export async function GET(
       if (data) resultRow = data as unknown as QscResultsRow;
     }
 
+    // token latest
     if (!resultRow) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -268,6 +308,7 @@ export async function GET(
       if (data) resultRow = data as unknown as QscResultsRow;
     }
 
+    // tokenParam might be qsc_results.id
     if (!resultRow && isUuidLike(tokenParam)) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -325,9 +366,7 @@ export async function GET(
     if (!taker) {
       const { data, error } = await sb
         .from("test_takers")
-        .select(
-          "id, first_name, last_name, email, company, role_title, link_token"
-        )
+        .select("id, first_name, last_name, email, company, role_title, link_token")
         .eq("link_token", resultRow.token)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -356,6 +395,7 @@ export async function GET(
       full_internal_insights
     `;
 
+    // primary: by qsc_profile_id (best)
     if (resultRow.qsc_profile_id) {
       const { data, error } = await sb
         .from("qsc_profiles")
@@ -372,15 +412,26 @@ export async function GET(
       if (data) profile = data as unknown as QscProfileRow;
     }
 
-    if (!profile && resultRow.combined_profile_code) {
-      const { data } = await sb
-        .from("qsc_profiles")
-        .select(profileSelect)
-        .eq("profile_code", resultRow.combined_profile_code)
-        .limit(1)
-        .maybeSingle();
+    // fallback: by profile_code
+    // IMPORTANT: combined_profile_code may be FLOW_VECTOR so map it -> B3 first
+    if (!profile) {
+      const personaCode = combinedToPersonaCode(resultRow.combined_profile_code);
+      const profileCodeToTry =
+        (personaCode && looksLikePersonaCode(personaCode) ? personaCode : null) ||
+        (looksLikePersonaCode(resultRow.combined_profile_code || "")
+          ? String(resultRow.combined_profile_code).trim().toUpperCase()
+          : null);
 
-      if (data) profile = data as unknown as QscProfileRow;
+      if (profileCodeToTry) {
+        const { data } = await sb
+          .from("qsc_profiles")
+          .select(profileSelect)
+          .eq("profile_code", profileCodeToTry)
+          .limit(1)
+          .maybeSingle();
+
+        if (data) profile = data as unknown as QscProfileRow;
+      }
     }
 
     if (!profile?.mindset_level || !profile?.personality_code) {
@@ -469,6 +520,8 @@ export async function GET(
         __debug: {
           token: tokenParam,
           tid: tid || null,
+          combined_profile_code_raw: resultRow.combined_profile_code,
+          combined_profile_code_mapped: combinedToPersonaCode(resultRow.combined_profile_code),
           personality_code_raw: profile.personality_code,
           personality_code_abcd: personalityABCD,
           mindset_level: mindsetLevel,
