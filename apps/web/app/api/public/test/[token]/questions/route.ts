@@ -10,6 +10,23 @@ type PortalClient = ReturnType<typeof createClient>;
 type LinkRow = { token: string; test_id: string };
 type TestRow = { id: string; meta: any | null };
 
+// IMPORTANT: In your codebase, test_questions.id appears to be the QUESTION ID.
+// (Your submit route selects: .select("id, idx, profile_map") and then uses q.id as question id.)
+type TestQuestionRow = {
+  id: string; // question id
+  idx?: number | null;
+  order?: number | null;
+  type?: string | null;
+};
+
+type QuestionRow = {
+  id: string;
+  text?: string | null;
+  type?: string | null;
+  options?: string[] | null;
+  category?: string | null;
+};
+
 function getPortalClient(): PortalClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceRole = process.env.SUPABASE_SERVICE_ROLE!;
@@ -49,6 +66,7 @@ export async function GET(
 
     const sb = getPortalClient();
 
+    // 1) resolve link -> wrapper test_id
     const { data: linkRow, error: linkErr } = (await sb
       .from("test_links")
       .select("token, test_id")
@@ -62,6 +80,7 @@ export async function GET(
       );
     }
 
+    // 2) load wrapper test meta
     const { data: testRow, error: testErr } = (await sb
       .from("tests")
       .select("id, meta")
@@ -77,57 +96,69 @@ export async function GET(
 
     const effectiveTestId = resolveEffectiveTestId(testRow);
 
-    // Fetch questions for effective test id
-    const { data: rows, error: qErr } = (await sb
+    // 3) fetch test_questions for effective test
+    // NOTE: We DO NOT use relationship joins because schema cache doesn't have them.
+    const { data: tqRows, error: tqErr } = (await sb
       .from("test_questions")
-      .select(
-        `
-        question_id,
-        order,
-        idx,
-        questions:question_id (
-          id,
-          text,
-          type,
-          options,
-          category
-        )
-      `
-      )
-      .eq("test_id", effectiveTestId)) as { data: any[] | null; error: any };
+      .select("id, idx, order, type")
+      .eq("test_id", effectiveTestId)
+      .order("order", { ascending: true })
+      .order("idx", { ascending: true })
+      .order("created_at", { ascending: true })) as {
+      data: TestQuestionRow[] | null;
+      error: any;
+    };
 
-    if (qErr) {
+    if (tqErr) {
       return NextResponse.json(
-        { ok: false, error: qErr.message },
+        { ok: false, error: `Questions load failed: ${tqErr.message}` },
         { status: 500 }
       );
     }
 
-    const questions =
-      (rows ?? [])
-        .map((r: any) => {
-          const qq = r?.questions ?? null;
-          if (!qq?.id) return null;
-          return {
-            id: qq.id,
-            order: r?.order ?? null,
-            idx: r?.idx ?? null,
-            type: qq?.type ?? null,
-            text: qq?.text ?? null,
-            options: qq?.options ?? null,
-            category: qq?.category ?? null,
-          };
-        })
-        .filter(Boolean) || [];
+    const tqList = tqRows ?? [];
+    if (tqList.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        token: linkRow.token,
+        test_id: linkRow.test_id,
+        effective_test_id: effectiveTestId,
+        questions: [],
+      });
+    }
 
-    questions.sort((a: any, b: any) => {
-      const ao = a.order ?? 999999;
-      const bo = b.order ?? 999999;
-      if (ao !== bo) return ao - bo;
-      const ai = a.idx ?? 999999;
-      const bi = b.idx ?? 999999;
-      if (ai !== bi) return ai - bi;
-      return String(a.id).localeCompare(String(b.id));
+    const qIds = tqList.map((r) => r.id);
+
+    // 4) fetch question content rows
+    // Assumes you have a portal.questions table keyed by id.
+    const { data: qRows, error: qErr } = (await sb
+      .from("questions")
+      .select("id, text, type, options, category")
+      .in("id", qIds)) as { data: QuestionRow[] | null; error: any };
+
+    if (qErr) {
+      return NextResponse.json(
+        { ok: false, error: `Question content load failed: ${qErr.message}` },
+        { status: 500 }
+      );
+    }
+
+    const qById = new Map<string, QuestionRow>();
+    for (const qr of qRows ?? []) qById.set(qr.id, qr);
+
+    // 5) merge + preserve test_questions ordering
+    const questions = tqList.map((tq) => {
+      const qr = qById.get(tq.id);
+      return {
+        id: tq.id,
+        order: tq.order ?? null,
+        idx: tq.idx ?? null,
+        // prefer content.type; fallback to tq.type
+        type: (qr?.type ?? tq.type ?? null) as any,
+        text: (qr?.text ?? null) as any,
+        options: (qr?.options ?? null) as any,
+        category: (qr?.category ?? null) as any,
+      };
     });
 
     return NextResponse.json({
