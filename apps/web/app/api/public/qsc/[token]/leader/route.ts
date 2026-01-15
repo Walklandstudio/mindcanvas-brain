@@ -13,8 +13,7 @@ type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
 
 type QscResultsRow = {
   id: string;
-  test_id: string; // wrapper test id
-  content_test_id?: string | null; // canonical content test id (optional until migrated)
+  test_id: string;
   token: string;
   taker_id: string | null;
   audience: Audience | null;
@@ -29,7 +28,7 @@ type QscResultsRow = {
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
 
-  combined_profile_code: string | null; // may be FORM_QUANTUM or C5 etc.
+  combined_profile_code: string | null;
   qsc_profile_id: string | null;
 
   created_at: string;
@@ -38,8 +37,8 @@ type QscResultsRow = {
 type QscProfileRow = {
   id: string;
   personality_code: string | null;
-  mindset_level: number | null; // 1..5
-  profile_code: string | null; // A1..D5 etc.
+  mindset_level: number | null;
+  profile_code: string | null;
   profile_label: string | null;
 };
 
@@ -72,15 +71,10 @@ type PersonaSectionRow = {
   is_active: boolean;
 };
 
-type TestRow = {
-  id: string;
-  slug: string | null;
-  meta: any | null;
-};
-
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
@@ -118,47 +112,37 @@ function personalityToLetter(p: string | null | undefined): "A" | "B" | "C" | "D
   return null;
 }
 
-/**
- * Wrapper resolution:
- * If tests.meta.wrapper = true, use meta.default_source_test, else source_tests[0], else itself.
- * Works even before you add qsc_results.content_test_id.
- */
-async function resolveContentTestId(sb: ReturnType<typeof supa>, wrapperTestId: string) {
-  const { data, error } = await sb
+// Resolve wrapper test -> effective source test for content
+async function resolveEffectiveTestId(sb: any, wrapperTestId: string) {
+  const { data } = await sb
     .from("tests")
-    .select("id, slug, meta")
+    .select("id, meta")
     .eq("id", wrapperTestId)
     .maybeSingle();
 
-  if (error || !data) {
-    return { contentTestId: wrapperTestId, resolvedBy: "tests.lookup_failed" as const, test: null as any };
+  const meta = (data?.meta ?? null) as any;
+
+  if (meta?.wrapper === true) {
+    const def = meta?.default_source_test;
+    if (typeof def === "string" && def.length > 10) return { effective: def, meta };
+    const arr = meta?.source_tests;
+    if (Array.isArray(arr) && typeof arr[0] === "string") return { effective: arr[0], meta };
   }
 
-  const t = data as unknown as TestRow;
-  const meta = (t.meta ?? {}) as any;
-
-  if (meta?.wrapper !== true) {
-    return { contentTestId: wrapperTestId, resolvedBy: "not_wrapper" as const, test: t };
-  }
-
-  const def = typeof meta?.default_source_test === "string" ? meta.default_source_test : null;
-  if (def && isUuidLike(def)) {
-    return { contentTestId: def, resolvedBy: "meta.default_source_test" as const, test: t };
-  }
-
-  const arr: string[] = Array.isArray(meta?.source_tests) ? meta.source_tests : [];
-  if (arr.length && isUuidLike(arr[0])) {
-    return { contentTestId: arr[0], resolvedBy: "meta.source_tests[0]" as const, test: t };
-  }
-
-  return { contentTestId: wrapperTestId, resolvedBy: "wrapper_no_sources" as const, test: t };
+  return { effective: wrapperTestId, meta };
 }
 
-export async function GET(req: Request, { params }: { params: { token: string } }) {
+export async function GET(
+  req: Request,
+  { params }: { params: { token: string } }
+) {
   try {
     const tokenParam = String(params.token || "").trim();
     if (!tokenParam) {
-      return NextResponse.json({ ok: false, error: "Missing token in URL" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing token in URL" },
+        { status: 400 }
+      );
     }
 
     const url = new URL(req.url);
@@ -166,11 +150,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const sb = supa();
 
-    // Include content_test_id if present in schema (safe even if null)
     const resultSelect = `
       id,
       test_id,
-      content_test_id,
       token,
       taker_id,
       audience,
@@ -202,7 +184,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
       if (data) {
         results = data as unknown as QscResultsRow;
@@ -221,7 +206,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
       if (data) {
         results = data as unknown as QscResultsRow;
@@ -238,7 +226,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
       if (data) {
         results = data as unknown as QscResultsRow;
@@ -248,7 +239,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     if (!results) {
       return NextResponse.json(
-        { ok: false, error: "RESULT_NOT_FOUND", debug: { token: tokenParam, tid: tid || null } },
+        {
+          ok: false,
+          error: "RESULT_NOT_FOUND",
+          debug: { token: tokenParam, tid: tid || null },
+        },
         { status: 404 }
       );
     }
@@ -256,7 +251,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     // Leader-only endpoint
     if (results.audience && results.audience !== "leader") {
       return NextResponse.json(
-        { ok: false, error: "WRONG_AUDIENCE", debug: { expected: "leader", got: results.audience } },
+        {
+          ok: false,
+          error: "WRONG_AUDIENCE",
+          debug: { expected: "leader", got: results.audience },
+        },
         { status: 400 }
       );
     }
@@ -272,7 +271,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ ok: false, error: `test_takers load failed: ${error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `test_takers load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
       if (data) taker = data as unknown as QscTakerRow;
     }
@@ -306,7 +308,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ ok: false, error: `qsc_profiles load failed: ${error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_profiles load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
       if (data) profile = data as unknown as QscProfileRow;
     }
@@ -315,11 +320,14 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const combinedRaw = (results.combined_profile_code || "").trim();
     const fromCombined = looksLikePersonaCode(combinedRaw) ? combinedRaw.toUpperCase() : null;
 
-    const fromProfileCode = looksLikePersonaCode(profile?.profile_code || "")
-      ? String(profile?.profile_code).trim().toUpperCase()
-      : null;
+    const fromProfileCode =
+      looksLikePersonaCode(profile?.profile_code || "")
+        ? String(profile?.profile_code).trim().toUpperCase()
+        : null;
 
-    const letter = personalityToLetter(profile?.personality_code) || personalityToLetter(results.primary_personality);
+    const letter =
+      personalityToLetter(profile?.personality_code) ||
+      personalityToLetter(results.primary_personality);
 
     const lvl =
       typeof profile?.mindset_level === "number" && Number.isFinite(profile.mindset_level)
@@ -331,35 +339,21 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const personaCode =
       fromCombined || fromProfileCode || (looksLikePersonaCode(fromDerived || "") ? fromDerived : null);
 
-    const personaCodeSource = fromCombined
-      ? "qsc_results.combined_profile_code"
-      : fromProfileCode
-        ? "qsc_profiles.profile_code"
-        : fromDerived
-          ? "derived(personality_code + mindset_level)"
-          : null;
+    const personaCodeSource =
+      fromCombined ? "qsc_results.combined_profile_code" :
+      fromProfileCode ? "qsc_profiles.profile_code" :
+      fromDerived ? "derived(personality_code + mindset_level)" :
+      null;
 
-    // ------------------------------------------------------------
-    // ✅ IMPORTANT: Use canonical content test id for report tables
-    // ------------------------------------------------------------
+    // ✅ IMPORTANT: use effectiveTestId for content
     const wrapperTestId = results.test_id;
+    const { effective: effectiveTestId, meta: wrapperMeta } = await resolveEffectiveTestId(sb, wrapperTestId);
 
-    let contentTestId: string = (results as any).content_test_id ? String((results as any).content_test_id) : "";
-    let contentResolvedBy: string | null = null;
-
-    if (contentTestId) {
-      contentResolvedBy = "qsc_results.content_test_id";
-    } else {
-      const resolved = await resolveContentTestId(sb, wrapperTestId);
-      contentTestId = resolved.contentTestId;
-      contentResolvedBy = resolved.resolvedBy;
-    }
-
-    // Templates (global per canonical test)
+    // Templates (global per source test)
     const { data: templateRows, error: tplErr } = await sb
       .from("qsc_leader_report_templates")
       .select("id, test_id, section_key, content, sort_order, is_active")
-      .eq("test_id", contentTestId)
+      .eq("test_id", effectiveTestId)
       .eq("is_active", true)
       .order("sort_order", { ascending: true });
 
@@ -370,13 +364,13 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       );
     }
 
-    // Persona sections (canonical test)
+    // Persona sections (source test)
     let sectionRows: PersonaSectionRow[] = [];
     if (personaCode) {
       const { data: secRows, error: secErr } = await sb
         .from("qsc_leader_report_sections")
         .select("id, test_id, persona_code, section_key, content, sort_order, is_active")
-        .eq("test_id", contentTestId)
+        .eq("test_id", effectiveTestId)
         .eq("persona_code", personaCode)
         .eq("is_active", true)
         .order("sort_order", { ascending: true });
@@ -408,7 +402,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         taker,
         report: {
           wrapper_test_id: wrapperTestId,
-          content_test_id: contentTestId,
+          effective_test_id: effectiveTestId,
           persona_code: personaCode,
           templates,
           sections,
@@ -417,11 +411,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           token: tokenParam,
           tid: tid || null,
           resolved_by: resolvedBy,
-
           wrapper_test_id: wrapperTestId,
-          content_test_id: contentTestId,
-          content_resolved_by: contentResolvedBy,
-
+          effective_test_id: effectiveTestId,
+          wrapper_meta_wrapper: wrapperMeta?.wrapper ?? null,
+          wrapper_meta_default_source_test: wrapperMeta?.default_source_test ?? null,
           persona_code: personaCode,
           persona_code_source: personaCodeSource,
           combined_profile_code_raw: results.combined_profile_code,
@@ -435,7 +428,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       { status: 200 }
     );
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unexpected error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Unexpected error" },
+      { status: 500 }
+    );
   }
 }
 
