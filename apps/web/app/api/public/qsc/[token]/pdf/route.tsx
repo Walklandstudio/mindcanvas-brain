@@ -2,27 +2,20 @@
 import React from "react";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import ReactPDF, {
-  Document,
-  Page,
-  Text,
-  View,
-  StyleSheet,
-} from "@react-pdf/renderer";
+import ReactPDF, { Document, Page, Text, StyleSheet } from "@react-pdf/renderer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ---------------------------
-// TYPES
-// ---------------------------
+type Audience = "entrepreneur" | "leader";
 
 type QscResultRow = {
   id: string;
   token: string;
-  full_name?: string | null;
-  email?: string | null;
-  org_name?: string | null;
+  test_id: string;
+  content_test_id?: string | null;
+  taker_id?: string | null;
+  audience?: Audience | null;
   primary_personality?: string | null;
   secondary_personality?: string | null;
   primary_mindset?: string | null;
@@ -31,158 +24,136 @@ type QscResultRow = {
   [key: string]: any;
 };
 
-// ---------------------------
-// SUPABASE
-// ---------------------------
+type TestTakerRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+};
 
 function createSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_ANON_KEY!;
-
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
-// ---------------------------
-// PDF STYLES + DOCUMENT
-// ---------------------------
+function isUuidLike(s: string) {
+  return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(
+    String(s || "").trim()
+  );
+}
+
+function fullName(t: TestTakerRow | null) {
+  const first = (t?.first_name || "").trim();
+  const last = (t?.last_name || "").trim();
+  const n = `${first} ${last}`.trim();
+  return n || (t?.email || "Anonymous");
+}
 
 const styles = StyleSheet.create({
-  page: {
-    padding: 32,
-    fontSize: 12,
-    fontFamily: "Helvetica",
-  },
-  title: {
-    fontSize: 20,
-    marginBottom: 12,
-  },
-  subtitle: {
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  line: {
-    marginBottom: 4,
-  },
-  footer: {
-    position: "absolute",
-    bottom: 20,
-    left: 32,
-    right: 32,
-    textAlign: "center",
-    fontSize: 10,
-  },
+  page: { padding: 32, fontSize: 12, fontFamily: "Helvetica" },
+  title: { fontSize: 18, marginBottom: 10 },
+  line: { marginBottom: 4 },
+  footer: { position: "absolute", bottom: 20, left: 32, right: 32, textAlign: "center", fontSize: 10 },
 });
 
-const QscLeadersDocument = ({ result }: { result: QscResultRow | null }) => (
-  <Document
-    title="QSC Leaders Report"
-    author="MindCanvas"
-  >
+const QscLeadersDocument = ({
+  result,
+  taker,
+}: {
+  result: QscResultRow | null;
+  taker: TestTakerRow | null;
+}) => (
+  <Document title="QSC Report" author="MindCanvas">
     <Page size="A4" style={styles.page}>
-      <Text style={styles.title}>
-        Quantum Source Code — Leaders Report
-      </Text>
+      <Text style={styles.title}>Quantum Source Code — Report</Text>
+
+      <Text style={styles.line}>Name: {fullName(taker)}</Text>
+      <Text style={styles.line}>Email: {taker?.email || "N/A"}</Text>
+      <Text style={styles.line}>Company: {taker?.company || "N/A"}</Text>
+
+      <Text style={{ ...styles.title, fontSize: 14, marginTop: 14, marginBottom: 8 }}>Snapshot</Text>
+
+      <Text style={styles.line}>Primary Personality: {result?.primary_personality || "N/A"}</Text>
+      <Text style={styles.line}>Secondary Personality: {result?.secondary_personality || "N/A"}</Text>
+      <Text style={styles.line}>Primary Mindset: {result?.primary_mindset || "N/A"}</Text>
+      <Text style={styles.line}>Secondary Mindset: {result?.secondary_mindset || "N/A"}</Text>
+
+      <Text style={{ ...styles.title, fontSize: 12, marginTop: 14, marginBottom: 8 }}>Debug</Text>
+      <Text style={styles.line}>Wrapper test_id: {result?.test_id || "N/A"}</Text>
+      <Text style={styles.line}>Content test_id: {result?.content_test_id || "N/A"}</Text>
 
       <Text style={styles.line}>
-        {(result?.full_name || "Anonymous Leader") +
-          " — " +
-          (result?.org_name || "Organisation")}
+        Created: {result?.created_at ? new Date(result.created_at).toLocaleString("en-GB") : "N/A"}
       </Text>
 
-      <Text style={styles.subtitle}>Snapshot</Text>
-
-      <Text style={styles.line}>
-        Name: {result?.full_name || "N/A"}
-      </Text>
-      <Text style={styles.line}>
-        Email: {result?.email || "N/A"}
-      </Text>
-      <Text style={styles.line}>
-        Organisation: {result?.org_name || "N/A"}
-      </Text>
-
-      <Text style={styles.line}>
-        Primary Personality: {result?.primary_personality || "N/A"}
-      </Text>
-      <Text style={styles.line}>
-        Secondary Personality: {result?.secondary_personality || "N/A"}
-      </Text>
-
-      <Text style={styles.line}>
-        Primary Mindset: {result?.primary_mindset || "N/A"}
-      </Text>
-      <Text style={styles.line}>
-        Secondary Mindset: {result?.secondary_mindset || "N/A"}
-      </Text>
-
-      <Text style={styles.line}>
-        Created At:{" "}
-        {result?.created_at
-          ? new Date(result.created_at).toLocaleString("en-GB")
-          : "N/A"}
-      </Text>
-
-      <Text style={styles.footer}>
-        Generated by MindCanvas — Quantum Source Code Leaders
-      </Text>
+      <Text style={styles.footer}>Generated by MindCanvas — QSC</Text>
     </Page>
   </Document>
 );
 
-// ---------------------------
-// ROUTE HANDLER
-// ---------------------------
-
-export async function GET(
-  _req: Request,
-  { params }: { params: { token: string } }
-) {
-  const token = params.token;
-
+export async function GET(req: Request, { params }: { params: { token: string } }) {
+  const token = String(params.token || "").trim();
   if (!token) {
-    return NextResponse.json(
-      { ok: false, error: "Missing token" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "Missing token" }, { status: 400 });
   }
 
   try {
+    const url = new URL(req.url);
+    const tid = String(url.searchParams.get("tid") || "").trim();
+
     const sb = createSupabaseClient();
 
-    const { data: result, error } = await sb
-      .from("qsc_results")
-      .select("*")
-      .eq("token", token)
-      .single<QscResultRow>();
+    let result: QscResultRow | null = null;
 
-    if (error) {
-      console.error("Failed to load QSC result:", error);
+    const base = sb
+      .from("qsc_results")
+      .select("id, token, test_id, content_test_id, taker_id, audience, primary_personality, secondary_personality, primary_mindset, secondary_mindset, created_at")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (tid && isUuidLike(tid)) {
+      const { data } = await base.eq("token", token).eq("taker_id", tid).maybeSingle();
+      if (data) result = data as any;
     }
 
-    const pdfStream = await ReactPDF.renderToStream(
-      <QscLeadersDocument result={result ?? null} />
-    );
+    if (!result) {
+      const { data } = await base.eq("token", token).maybeSingle();
+      if (data) result = data as any;
+    }
 
-    // Cast to any to satisfy TS, Next will stream this fine in Node runtime
+    if (!result) {
+      return NextResponse.json({ ok: false, error: "No QSC result found" }, { status: 404 });
+    }
+
+    let taker: TestTakerRow | null = null;
+
+    if (result.taker_id) {
+      const { data } = await sb
+        .from("test_takers")
+        .select("id, first_name, last_name, email, company")
+        .eq("id", result.taker_id)
+        .maybeSingle();
+      taker = (data as any) ?? null;
+    }
+
+    const pdfStream = await ReactPDF.renderToStream(<QscLeadersDocument result={result} taker={taker} />);
+
     return new NextResponse(pdfStream as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="qsc-leaders-${token}.pdf"`,
+        "Content-Disposition": `inline; filename="qsc-${token}.pdf"`,
         "Cache-Control": "no-store",
       },
     });
   } catch (err: any) {
     console.error("Unexpected QSC PDF error", err);
-
-    return NextResponse.json(
-      { ok: false, error: "Failed to generate PDF" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Failed to generate PDF" }, { status: 500 });
   }
 }
+
 
 
 

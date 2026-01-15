@@ -13,7 +13,8 @@ type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
 
 type QscResultsRow = {
   id: string;
-  test_id: string;
+  test_id: string; // wrapper test id
+  content_test_id?: string | null; // canonical content test id (optional until migrated)
   token: string;
   taker_id: string | null;
   audience: Audience | null;
@@ -28,7 +29,7 @@ type QscResultsRow = {
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
 
-  combined_profile_code: string | null; // SHOULD be A1..D5 but is currently FORM_QUANTUM in your debug
+  combined_profile_code: string | null; // may be FORM_QUANTUM or C5 etc.
   qsc_profile_id: string | null;
 
   created_at: string;
@@ -36,9 +37,9 @@ type QscResultsRow = {
 
 type QscProfileRow = {
   id: string;
-  personality_code: string | null; // often "FORM"
+  personality_code: string | null;
   mindset_level: number | null; // 1..5
-  profile_code: string | null; // often "C5"
+  profile_code: string | null; // A1..D5 etc.
   profile_label: string | null;
 };
 
@@ -71,10 +72,15 @@ type PersonaSectionRow = {
   is_active: boolean;
 };
 
+type TestRow = {
+  id: string;
+  slug: string | null;
+  meta: any | null;
+};
+
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
@@ -112,17 +118,47 @@ function personalityToLetter(p: string | null | undefined): "A" | "B" | "C" | "D
   return null;
 }
 
-export async function GET(
-  req: Request,
-  { params }: { params: { token: string } }
-) {
+/**
+ * Wrapper resolution:
+ * If tests.meta.wrapper = true, use meta.default_source_test, else source_tests[0], else itself.
+ * Works even before you add qsc_results.content_test_id.
+ */
+async function resolveContentTestId(sb: ReturnType<typeof supa>, wrapperTestId: string) {
+  const { data, error } = await sb
+    .from("tests")
+    .select("id, slug, meta")
+    .eq("id", wrapperTestId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { contentTestId: wrapperTestId, resolvedBy: "tests.lookup_failed" as const, test: null as any };
+  }
+
+  const t = data as unknown as TestRow;
+  const meta = (t.meta ?? {}) as any;
+
+  if (meta?.wrapper !== true) {
+    return { contentTestId: wrapperTestId, resolvedBy: "not_wrapper" as const, test: t };
+  }
+
+  const def = typeof meta?.default_source_test === "string" ? meta.default_source_test : null;
+  if (def && isUuidLike(def)) {
+    return { contentTestId: def, resolvedBy: "meta.default_source_test" as const, test: t };
+  }
+
+  const arr: string[] = Array.isArray(meta?.source_tests) ? meta.source_tests : [];
+  if (arr.length && isUuidLike(arr[0])) {
+    return { contentTestId: arr[0], resolvedBy: "meta.source_tests[0]" as const, test: t };
+  }
+
+  return { contentTestId: wrapperTestId, resolvedBy: "wrapper_no_sources" as const, test: t };
+}
+
+export async function GET(req: Request, { params }: { params: { token: string } }) {
   try {
     const tokenParam = String(params.token || "").trim();
     if (!tokenParam) {
-      return NextResponse.json(
-        { ok: false, error: "Missing token in URL" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing token in URL" }, { status: 400 });
     }
 
     const url = new URL(req.url);
@@ -130,9 +166,11 @@ export async function GET(
 
     const sb = supa();
 
+    // Include content_test_id if present in schema (safe even if null)
     const resultSelect = `
       id,
       test_id,
+      content_test_id,
       token,
       taker_id,
       audience,
@@ -164,10 +202,7 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
       }
       if (data) {
         results = data as unknown as QscResultsRow;
@@ -186,10 +221,7 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
       }
       if (data) {
         results = data as unknown as QscResultsRow;
@@ -206,10 +238,7 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
       }
       if (data) {
         results = data as unknown as QscResultsRow;
@@ -219,11 +248,7 @@ export async function GET(
 
     if (!results) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "RESULT_NOT_FOUND",
-          debug: { token: tokenParam, tid: tid || null },
-        },
+        { ok: false, error: "RESULT_NOT_FOUND", debug: { token: tokenParam, tid: tid || null } },
         { status: 404 }
       );
     }
@@ -231,11 +256,7 @@ export async function GET(
     // Leader-only endpoint
     if (results.audience && results.audience !== "leader") {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "WRONG_AUDIENCE",
-          debug: { expected: "leader", got: results.audience },
-        },
+        { ok: false, error: "WRONG_AUDIENCE", debug: { expected: "leader", got: results.audience } },
         { status: 400 }
       );
     }
@@ -251,10 +272,7 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: `test_takers load failed: ${error.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `test_takers load failed: ${error.message}` }, { status: 500 });
       }
       if (data) taker = data as unknown as QscTakerRow;
     }
@@ -288,10 +306,7 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_profiles load failed: ${error.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `qsc_profiles load failed: ${error.message}` }, { status: 500 });
       }
       if (data) profile = data as unknown as QscProfileRow;
     }
@@ -300,14 +315,11 @@ export async function GET(
     const combinedRaw = (results.combined_profile_code || "").trim();
     const fromCombined = looksLikePersonaCode(combinedRaw) ? combinedRaw.toUpperCase() : null;
 
-    const fromProfileCode =
-      looksLikePersonaCode(profile?.profile_code || "")
-        ? String(profile?.profile_code).trim().toUpperCase()
-        : null;
+    const fromProfileCode = looksLikePersonaCode(profile?.profile_code || "")
+      ? String(profile?.profile_code).trim().toUpperCase()
+      : null;
 
-    const letter =
-      personalityToLetter(profile?.personality_code) ||
-      personalityToLetter(results.primary_personality);
+    const letter = personalityToLetter(profile?.personality_code) || personalityToLetter(results.primary_personality);
 
     const lvl =
       typeof profile?.mindset_level === "number" && Number.isFinite(profile.mindset_level)
@@ -319,19 +331,35 @@ export async function GET(
     const personaCode =
       fromCombined || fromProfileCode || (looksLikePersonaCode(fromDerived || "") ? fromDerived : null);
 
-    const personaCodeSource =
-      fromCombined ? "qsc_results.combined_profile_code" :
-      fromProfileCode ? "qsc_profiles.profile_code" :
-      fromDerived ? "derived(personality_code + mindset_level)" :
-      null;
+    const personaCodeSource = fromCombined
+      ? "qsc_results.combined_profile_code"
+      : fromProfileCode
+        ? "qsc_profiles.profile_code"
+        : fromDerived
+          ? "derived(personality_code + mindset_level)"
+          : null;
 
-    // Templates (global per test)
-    const testId = results.test_id;
+    // ------------------------------------------------------------
+    // ✅ IMPORTANT: Use canonical content test id for report tables
+    // ------------------------------------------------------------
+    const wrapperTestId = results.test_id;
 
+    let contentTestId: string = (results as any).content_test_id ? String((results as any).content_test_id) : "";
+    let contentResolvedBy: string | null = null;
+
+    if (contentTestId) {
+      contentResolvedBy = "qsc_results.content_test_id";
+    } else {
+      const resolved = await resolveContentTestId(sb, wrapperTestId);
+      contentTestId = resolved.contentTestId;
+      contentResolvedBy = resolved.resolvedBy;
+    }
+
+    // Templates (global per canonical test)
     const { data: templateRows, error: tplErr } = await sb
       .from("qsc_leader_report_templates")
       .select("id, test_id, section_key, content, sort_order, is_active")
-      .eq("test_id", testId)
+      .eq("test_id", contentTestId)
       .eq("is_active", true)
       .order("sort_order", { ascending: true });
 
@@ -342,13 +370,13 @@ export async function GET(
       );
     }
 
-    // Persona sections
+    // Persona sections (canonical test)
     let sectionRows: PersonaSectionRow[] = [];
     if (personaCode) {
       const { data: secRows, error: secErr } = await sb
         .from("qsc_leader_report_sections")
         .select("id, test_id, persona_code, section_key, content, sort_order, is_active")
-        .eq("test_id", testId)
+        .eq("test_id", contentTestId)
         .eq("persona_code", personaCode)
         .eq("is_active", true)
         .order("sort_order", { ascending: true });
@@ -379,7 +407,8 @@ export async function GET(
         profile,
         taker,
         report: {
-          test_id: testId,
+          wrapper_test_id: wrapperTestId,
+          content_test_id: contentTestId,
           persona_code: personaCode,
           templates,
           sections,
@@ -388,7 +417,11 @@ export async function GET(
           token: tokenParam,
           tid: tid || null,
           resolved_by: resolvedBy,
-          test_id: testId,
+
+          wrapper_test_id: wrapperTestId,
+          content_test_id: contentTestId,
+          content_resolved_by: contentResolvedBy,
+
           persona_code: personaCode,
           persona_code_source: personaCodeSource,
           combined_profile_code_raw: results.combined_profile_code,
@@ -402,10 +435,7 @@ export async function GET(
       { status: 200 }
     );
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Unexpected error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
 
