@@ -225,6 +225,7 @@ export default function QscLeaderStrategicReportPage({
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<ApiPayload | null>(null);
 
+  const [downloading, setDownloading] = useState(false);
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -236,9 +237,9 @@ export default function QscLeaderStrategicReportPage({
         setErr(null);
 
         const apiUrl = tid
-          ? `/api/public/qsc/${encodeURIComponent(token)}/leader?tid=${encodeURIComponent(
-              tid
-            )}`
+          ? `/api/public/qsc/${encodeURIComponent(
+              token
+            )}/leader?tid=${encodeURIComponent(tid)}`
           : `/api/public/qsc/${encodeURIComponent(token)}/leader`;
 
         const res = await fetch(apiUrl, { cache: "no-store" });
@@ -281,38 +282,46 @@ export default function QscLeaderStrategicReportPage({
   }, [token, tid, router]);
 
   async function handleDownloadPdf() {
-    if (!reportRef.current) return;
+    if (!reportRef.current || downloading) return;
 
-    const element = reportRef.current;
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: "#020617", // ✅ ensures PDF doesn't “wash out”
-    });
+    try {
+      setDownloading(true);
 
-    const imgData = canvas.toDataURL("image/png");
+      const element = reportRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#020617", // ensures PDF doesn't “wash out”
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      });
 
-    const pdf = new jsPDF("p", "mm", "a4");
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgData = canvas.toDataURL("image/png");
 
-    const imgWidth = pageWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
 
-    let heightLeft = imgHeight;
-    let position = 0;
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
+      let heightLeft = imgHeight;
+      let position = 0;
 
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
-      pdf.addPage();
       pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
-    }
 
-    pdf.save(`qsc-leader-strategic-${token}.pdf`);
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(`qsc-leader-strategic-${token}.pdf`);
+    } finally {
+      setDownloading(false);
+    }
   }
 
   const result = data?.results ?? null;
@@ -393,7 +402,9 @@ export default function QscLeaderStrategicReportPage({
       "reflection_prompts",
       "one_page_quantum_summary",
     ];
-    return required.filter((k) => !contentToText(sectionByKey[k]?.content).trim());
+    return required.filter(
+      (k) => !contentToText(sectionByKey[k]?.content).trim()
+    );
   }, [sectionByKey]);
 
   if (loading && !result) {
@@ -424,9 +435,6 @@ export default function QscLeaderStrategicReportPage({
           <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-xs text-slate-100 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-          <div className="flex items-center gap-2 pt-2">
-
-          </div>
         </main>
       </div>
     );
@@ -460,9 +468,14 @@ export default function QscLeaderStrategicReportPage({
 
             <p className="text-[15px] text-slate-300 max-w-2xl">
               This report is rendered from{" "}
-              <code className="text-slate-100">portal.qsc_leader_report_templates</code>{" "}
+              <code className="text-slate-100">
+                portal.qsc_leader_report_templates
+              </code>{" "}
               and{" "}
-              <code className="text-slate-100">portal.qsc_leader_report_sections</code>.
+              <code className="text-slate-100">
+                portal.qsc_leader_report_sections
+              </code>
+              .
             </p>
 
             {debug && data && (
@@ -473,12 +486,23 @@ export default function QscLeaderStrategicReportPage({
           </div>
 
           <div className="flex flex-col items-end gap-2 text-xs text-slate-400">
-            <button
-              onClick={handleDownloadPdf}
-              className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-2 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-900"
-            >
-              Download PDF
-            </button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={downloading}
+                className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-950/70 px-4 py-2 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-900 disabled:opacity-60"
+              >
+                {downloading ? "Preparing PDF…" : "Download PDF"}
+              </button>
+
+              <Link
+                href={snapshotHref}
+                className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+              >
+                Back to Snapshot
+              </Link>
+            </div>
 
             {createdAt && (
               <span>
@@ -549,7 +573,8 @@ export default function QscLeaderStrategicReportPage({
           <div className="rounded-3xl bg-slate-950/70 text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">Leadership Frequency Type</h2>
             <p className="text-sm text-slate-300">
-              Your energetic style across Fire, Flow, Form and Field in how you lead.
+              Your energetic style across Fire, Flow, Form and Field in how you
+              lead.
             </p>
 
             <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
@@ -649,7 +674,9 @@ export default function QscLeaderStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
             5. YOUR STRATEGIC LEADERSHIP PRIORITIES
           </p>
-          {renderDocText(sectionByKey["strategic_leadership_priorities"]?.content)}
+          {renderDocText(
+            sectionByKey["strategic_leadership_priorities"]?.content
+          )}
         </section>
 
         <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
@@ -670,7 +697,9 @@ export default function QscLeaderStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-slate-300">
             8. COMMUNICATION AND DECISION STYLE
           </p>
-          {renderDocText(sectionByKey["communication_and_decision_style"]?.content)}
+          {renderDocText(
+            sectionByKey["communication_and_decision_style"]?.content
+          )}
         </section>
 
         <section className="rounded-3xl border border-slate-800 bg-slate-950/55 p-6 md:p-8 space-y-3">
@@ -694,5 +723,4 @@ export default function QscLeaderStrategicReportPage({
     </div>
   );
 }
-
 

@@ -69,6 +69,7 @@ type TestMetaRow = {
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  // IMPORTANT: prefer service role. If not present, fallback (dev only).
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_ROLE ||
@@ -151,7 +152,6 @@ async function resolveContentTestId(
       ? meta.default_source_test
       : null;
 
-  // Prefer choosing by slug (stable)
   const preferredSlug =
     audienceHint === "leader" ? "qsc-leaders" : "qsc-core";
 
@@ -173,7 +173,6 @@ async function resolveContentTestId(
       };
     }
 
-    // If not found, but default_source_test is present, use it
     if (defaultSource && isUuidLike(defaultSource)) {
       return {
         contentTestId: defaultSource,
@@ -181,7 +180,6 @@ async function resolveContentTestId(
       };
     }
 
-    // Fallback to first source test
     const first = list.find((t) => isUuidLike(t.id));
     if (first?.id) {
       return {
@@ -191,7 +189,6 @@ async function resolveContentTestId(
     }
   }
 
-  // If no sources, fallback to wrapper itself
   return { contentTestId: wrapperTestId, resolvedBy: "wrapper_no_sources" };
 }
 
@@ -217,7 +214,10 @@ function resolvePersonaCode(args: {
   // (2) profile.profile_code is best if present
   const pcode = String(profile?.profile_code || "").trim();
   if (looksLikePersonaCode(pcode)) {
-    return { personaCode: pcode.toUpperCase(), source: "qsc_profiles.profile_code" };
+    return {
+      personaCode: pcode.toUpperCase(),
+      source: "qsc_profiles.profile_code",
+    };
   }
 
   // (3) derive from personality + mindset_level
@@ -226,7 +226,8 @@ function resolvePersonaCode(args: {
     personalityToLetter(resultRow.primary_personality);
 
   const level =
-    typeof profile?.mindset_level === "number" && Number.isFinite(profile.mindset_level)
+    typeof profile?.mindset_level === "number" &&
+    Number.isFinite(profile.mindset_level)
       ? Number(profile.mindset_level)
       : mindsetKeyToLevel(resultRow.primary_mindset);
 
@@ -276,10 +277,36 @@ export async function GET(
     `;
 
     let resultRow: QscResultsRow | null = null;
-    let resolvedBy: "token+taker_id" | "token_latest" | "result_id" | null = null;
+    let resolvedBy:
+      | "token+taker_id"
+      | "token_unique"
+      | "token_latest"
+      | "result_id"
+      | null = null;
 
-    // (1) token + tid
-    if (tid && isUuidLike(tid)) {
+    // (0) If token is a UUID, allow direct qsc_results.id lookup
+    if (isUuidLike(tokenParam)) {
+      const { data, error } = await sb
+        .from("qsc_results")
+        .select(baseSelect)
+        .eq("id", tokenParam)
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
+      }
+
+      if (data) {
+        resultRow = data as unknown as QscResultsRow;
+        resolvedBy = "result_id";
+      }
+    }
+
+    // (1) token + tid (best / deterministic)
+    if (!resultRow && tid && isUuidLike(tid)) {
       const { data, error } = await sb
         .from("qsc_results")
         .select(baseSelect)
@@ -295,51 +322,97 @@ export async function GET(
           { status: 500 }
         );
       }
+
       if (data) {
         resultRow = data as unknown as QscResultsRow;
         resolvedBy = "token+taker_id";
       }
     }
 
-    // (2) token latest
+    // (2) token only — MUST be unique OR we reject (global fix)
     if (!resultRow) {
-      const { data, error } = await sb
+      // First: count how many results exist for this token
+      const { count, error: countErr } = await sb
         .from("qsc_results")
-        .select(baseSelect)
-        .eq("token", tokenParam)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .select("id", { count: "exact", head: true })
+        .eq("token", tokenParam);
 
-      if (error) {
+      if (countErr) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { ok: false, error: `qsc_results count failed: ${countErr.message}` },
           { status: 500 }
         );
       }
-      if (data) {
-        resultRow = data as unknown as QscResultsRow;
-        resolvedBy = "token_latest";
-      }
-    }
 
-    // (3) tokenParam might be qsc_results.id
-    if (!resultRow && isUuidLike(tokenParam)) {
-      const { data, error } = await sb
-        .from("qsc_results")
-        .select(baseSelect)
-        .eq("id", tokenParam)
-        .maybeSingle();
+      const c = Number(count || 0);
 
-      if (error) {
+      // If multiple results share the same token, we cannot guess.
+      // This is the core “wrong report / muddled org” failure mode.
+      if (!tid && c > 1) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
+          {
+            ok: false,
+            error: "AMBIGUOUS_TOKEN_REQUIRES_TID",
+            debug: {
+              token: tokenParam,
+              tid: tid || null,
+              matches: c,
+              hint:
+                "Pass ?tid=<test_takers.id> when loading this report to disambiguate shared tokens.",
+            },
+          },
+          { status: 409 }
         );
       }
-      if (data) {
-        resultRow = data as unknown as QscResultsRow;
-        resolvedBy = "result_id";
+
+      // If exactly one result exists, load it.
+      if (c === 1) {
+        const { data, error } = await sb
+          .from("qsc_results")
+          .select(baseSelect)
+          .eq("token", tokenParam)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          return NextResponse.json(
+            { ok: false, error: `qsc_results load failed: ${error.message}` },
+            { status: 500 }
+          );
+        }
+
+        if (data) {
+          resultRow = data as unknown as QscResultsRow;
+          resolvedBy = "token_unique";
+        }
+      }
+
+      // If zero results, we fall through to NOT_FOUND below.
+      // If c>1 with tid missing, we already returned a 409 above.
+      // If tid was provided but no match exists, also fall through to NOT_FOUND.
+      if (!resultRow && c > 0) {
+        // We only ever hit this when tid was provided but didn't match a result,
+        // or some other edge case — as a last resort, keep old behavior.
+        const { data, error } = await sb
+          .from("qsc_results")
+          .select(baseSelect)
+          .eq("token", tokenParam)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          return NextResponse.json(
+            { ok: false, error: `qsc_results load failed: ${error.message}` },
+            { status: 500 }
+          );
+        }
+
+        if (data) {
+          resultRow = data as unknown as QscResultsRow;
+          resolvedBy = "token_latest";
+        }
       }
     }
 
@@ -376,6 +449,7 @@ export async function GET(
       if (!error && data) taker = data as unknown as TestTakerRow;
     }
 
+    // fallback: try to locate taker by link_token (not always reliable, but useful)
     if (!taker) {
       const { data, error } = await sb
         .from("test_takers")
@@ -478,7 +552,7 @@ export async function GET(
       } else {
         persona_debug.table = "qsc_personas";
 
-        // 1) prefer canonical test_id if that table has it (safe: try)
+        // 1) prefer canonical test_id (only if column exists; errors are ignored)
         {
           const { data, error } = await sb
             .from("qsc_personas")

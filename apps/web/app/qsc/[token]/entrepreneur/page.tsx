@@ -250,9 +250,9 @@ export default function QscEntrepreneurStrategicReportPage({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<QscPayload | null>(null);
-
   const [apiVersion, setApiVersion] = useState<string | null>(null);
 
+  const [downloading, setDownloading] = useState(false);
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -263,11 +263,11 @@ export default function QscEntrepreneurStrategicReportPage({
         setLoading(true);
         setErr(null);
 
-        // ✅ IMPORTANT FIX: pass tid through so API can resolve tokens correctly
+        // Strategic Growth Report payload for entrepreneur/leader routing
         const apiUrl = tid
-          ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(
-              tid
-            )}`
+          ? `/api/public/qsc/${encodeURIComponent(
+              token
+            )}/result?tid=${encodeURIComponent(tid)}`
           : `/api/public/qsc/${encodeURIComponent(token)}/result`;
 
         const res = await fetch(apiUrl, { cache: "no-store" });
@@ -300,7 +300,7 @@ export default function QscEntrepreneurStrategicReportPage({
           throw new Error("No QSC results found");
         }
 
-        // If this is a LEADER result, route to Leaders report
+        // If this is a LEADER result, route to Leaders strategic report page
         if (j.results.audience === "leader") {
           const base = `/qsc/${encodeURIComponent(token)}/leader`;
           const href = tid ? `${base}?tid=${encodeURIComponent(tid)}` : base;
@@ -329,37 +329,47 @@ export default function QscEntrepreneurStrategicReportPage({
   }, [token, tid, router]);
 
   async function handleDownloadPdf() {
-    if (!reportRef.current) return;
+    if (!reportRef.current || downloading) return;
 
-    const element = reportRef.current;
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-    });
+    try {
+      setDownloading(true);
 
-    const imgData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF("p", "mm", "a4");
+      const element = reportRef.current;
 
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#020617",
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      });
 
-    const imgWidth = pageWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
 
-    let heightLeft = imgHeight;
-    let position = 0;
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
 
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
-      pdf.addPage();
+      let heightLeft = imgHeight;
+      let position = 0;
+
       pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
-    }
 
-    pdf.save(`qsc-entrepreneur-strategic-${token}.pdf`);
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(`qsc-entrepreneur-strategic-${token}.pdf`);
+    } finally {
+      setDownloading(false);
+    }
   }
 
   const result = payload?.results ?? null;
@@ -378,7 +388,9 @@ export default function QscEntrepreneurStrategicReportPage({
           <h1 className="mt-3 text-3xl font-bold">
             Preparing your QSC Entrepreneur report…
           </h1>
-          {apiVersion && <p className="text-xs text-slate-500">API: {apiVersion}</p>}
+          {apiVersion && (
+            <p className="text-xs text-slate-500">API: {apiVersion}</p>
+          )}
         </main>
       </div>
     );
@@ -400,7 +412,9 @@ export default function QscEntrepreneurStrategicReportPage({
           <pre className="mt-2 rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
-          {apiVersion && <p className="text-xs text-slate-500">API: {apiVersion}</p>}
+          {apiVersion && (
+            <p className="text-xs text-slate-500">API: {apiVersion}</p>
+          )}
         </main>
       </div>
     );
@@ -414,14 +428,14 @@ export default function QscEntrepreneurStrategicReportPage({
 
   const takerDisplayName = getFullName(taker);
 
-  const backHref = tid
+  // ✅ Snapshot URL (this is what we should call “Back to Snapshot”, NOT Download)
+  const snapshotHref = tid
     ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
     : `/qsc/${encodeURIComponent(token)}`;
 
   const rawPersonalityPerc =
     (result.personality_percentages ?? {}) as PersonalityPercMap;
-  const rawMindsetPerc =
-    (result.mindset_percentages ?? {}) as MindsetPercMap;
+  const rawMindsetPerc = (result.mindset_percentages ?? {}) as MindsetPercMap;
 
   const personalityPerc: PersonalityPercMap = {
     FIRE: normalisePercent(rawPersonalityPerc.FIRE ?? 0),
@@ -491,7 +505,6 @@ export default function QscEntrepreneurStrategicReportPage({
   const combinedLever = persona?.combined_big_lever || "—";
   const emotionalStabilises = persona?.emotional_stabilises || "—";
   const emotionalDestabilises = persona?.emotional_destabilises || "—";
-  const emotionalPatterns = persona?.emotional_patterns_to_watch || "—";
   const supportYourself = persona?.support_yourself || "—";
 
   const strategic1 = persona?.strategic_priority_1 || "—";
@@ -522,18 +535,27 @@ export default function QscEntrepreneurStrategicReportPage({
               Your personal emotional, strategic and scaling blueprint – based
               on your Quantum buyer profile and current mindset stage.
             </p>
-
-            <div className="mt-4">
-            </div>
           </div>
 
           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
-            <Link
-              href={backHref}
-              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
-            >
-              Download PDF
-            </Link>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={downloading}
+                className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-900 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {downloading ? "Preparing PDF…" : "Download PDF"}
+              </button>
+
+              <Link
+                href={snapshotHref}
+                className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-slate-800"
+              >
+                Back to Snapshot
+              </Link>
+            </div>
+
             <span>
               Created at{" "}
               {createdAt.toLocaleString(undefined, {
@@ -561,7 +583,9 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-2 pt-4 border-t border-slate-200">
             <div>
-              <h3 className="text-sm font-semibold mb-1">Your Personality Layer</h3>
+              <h3 className="text-sm font-semibold mb-1">
+                Your Personality Layer
+              </h3>
               <p className="text-sm text-slate-700">
                 How you naturally think, act and make decisions. This is your
                 emotional wiring and energetic pattern — it doesn&apos;t change
@@ -584,7 +608,9 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-amber-700">
             One-page Quantum Profile
           </p>
-          <h2 className="text-xl font-semibold uppercase text-amber-700">Your at-a-glance growth profile</h2>
+          <h2 className="text-xl font-semibold uppercase text-amber-700">
+            Your at-a-glance growth profile
+          </h2>
 
           <div className="grid gap-6 md:grid-cols-3 pt-4">
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
@@ -598,9 +624,13 @@ export default function QscEntrepreneurStrategicReportPage({
             </div>
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
               <h3 className="font-semibold">Strengths</h3>
-              <p className="text-slate-700 whitespace-pre-line">{onePageStrengths}</p>
+              <p className="text-slate-700 whitespace-pre-line">
+                {onePageStrengths}
+              </p>
               <h4 className="mt-2 font-semibold">Risks</h4>
-              <p className="text-slate-700 whitespace-pre-line">{onePageRisks}</p>
+              <p className="text-slate-700 whitespace-pre-line">
+                {onePageRisks}
+              </p>
             </div>
             <div className="rounded-2xl bg-white/70 border border-amber-200 p-4 text-sm space-y-2">
               <h3 className="font-semibold">Top strategic priorities</h3>
@@ -628,7 +658,10 @@ export default function QscEntrepreneurStrategicReportPage({
               </div>
               <div className="space-y-3 text-sm">
                 {frequencyDonutData.map((d) => (
-                  <div key={d.key} className="flex items-center justify-between gap-3">
+                  <div
+                    key={d.key}
+                    className="flex items-center justify-between gap-3"
+                  >
                     <span>{d.label}</span>
                     <span className="tabular-nums">{Math.round(d.value)}%</span>
                   </div>
@@ -656,7 +689,10 @@ export default function QscEntrepreneurStrategicReportPage({
                       <span className="tabular-nums">{pct}%</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-900">
-                      <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${pct}%` }} />
+                      <div
+                        className="h-2 rounded-full bg-emerald-400"
+                        style={{ width: `${pct}%` }}
+                      />
                     </div>
                   </div>
                 );
@@ -697,16 +733,24 @@ export default function QscEntrepreneurStrategicReportPage({
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-              <h3 className="font-semibold">Core pattern ({primaryPersonalityLabel})</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedStrengths}</p>
+              <h3 className="font-semibold">
+                Core pattern ({primaryPersonalityLabel})
+              </h3>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {combinedStrengths}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">What energises you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{persona?.energisers || "—"}</p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {persona?.energisers || "—"}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">What drains you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{persona?.drains || "—"}</p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {persona?.drains || "—"}
+              </p>
             </div>
           </div>
         </section>
@@ -723,15 +767,21 @@ export default function QscEntrepreneurStrategicReportPage({
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">Strategic strengths</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedStrengths}</p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {combinedStrengths}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">Growth risks & loops</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedRisks}</p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {combinedRisks}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">Your biggest lever</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{combinedLever}</p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {combinedLever}
+              </p>
             </div>
           </div>
         </section>
@@ -741,20 +791,28 @@ export default function QscEntrepreneurStrategicReportPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-purple-700">
             Emotional & operational alignment
           </p>
-          <h2 className="text-xl font-semibold">How to support yourself inside this pattern</h2>
+          <h2 className="text-xl font-semibold">
+            How to support yourself inside this pattern
+          </h2>
 
           <div className="grid gap-6 md:grid-cols-3 pt-2 text-sm">
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">What stabilises you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{emotionalStabilises}</p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {emotionalStabilises}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">What destabilises you</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{emotionalDestabilises}</p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {emotionalDestabilises}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <h3 className="font-semibold">Support yourself better</h3>
-              <p className="mt-1 text-slate-700 whitespace-pre-line">{supportYourself}</p>
+              <p className="mt-1 text-slate-700 whitespace-pre-line">
+                {supportYourself}
+              </p>
             </div>
           </div>
         </section>
@@ -778,5 +836,3 @@ export default function QscEntrepreneurStrategicReportPage({
     </div>
   );
 }
-
-

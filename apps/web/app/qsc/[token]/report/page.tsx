@@ -766,4 +766,3 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
-
