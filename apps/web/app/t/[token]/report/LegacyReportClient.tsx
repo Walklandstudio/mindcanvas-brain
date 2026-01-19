@@ -4,284 +4,294 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppBackground from "@/components/ui/AppBackground";
 import { getBaseUrl } from "@/lib/server-url";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 type AB = "A" | "B" | "C" | "D";
 
-type FrequencyLabel = { code: AB; name: string };
-type ProfileLabel = { code: string; name: string };
+type LinkMeta = {
+  next_steps_url?: string | null;
+  show_results?: boolean | null;
+  redirect_url?: string | null;
+  hidden_results_message?: string | null;
+};
 
-type Block =
-  | { type: "p"; text: string }
-  | { type: "h2"; text: string }
-  | { type: "h3"; text: string }
-  | { type: "h4"; text: string }
-  | { type: "ul"; items: string[] }
-  | { type: "ol"; items: string[] }
+type SectionBlock =
+  | { type: "p"; text?: string }
+  | { type: "ul"; items?: string[] }
+  | { type: "ol"; items?: string[] }
+  | { type: "quote"; text?: string; cite?: string }
+  | { type: "divider" }
+  | { type: "h1" | "h2" | "h3" | "h4"; text?: string }
   | { type: string; [k: string]: any };
 
-type Section = {
-  id: string;
-  title: string;
-  blocks: Block[];
+type ReportSection = {
+  id?: string;
+  title?: string;
+  blocks?: SectionBlock[];
 };
 
 type SectionsPayload = {
-  common: Section[] | null;
-  profile: Section[] | null;
+  common?: ReportSection[] | null;
+  profile?: ReportSection[] | null;
   report_title?: string | null;
-
-  // optional debug fields used by API
   profile_missing?: boolean;
   framework_version?: string | null;
   framework_bucket?: string | null;
   framework_path?: string | null;
 };
 
-type ReportApi = {
-  ok: boolean;
-  data?: {
-    org_slug: string;
-    org_name?: string | null;
-    test_name: string;
-    taker: { id: string; first_name?: string | null; last_name?: string | null };
-
-    link?: any;
-
-    frequency_labels: FrequencyLabel[];
-    frequency_totals: Record<AB, number>;
-    frequency_percentages: Record<AB, number>; // 0..1
-
-    profile_labels: ProfileLabel[];
-    profile_totals: Record<string, number>;
-    profile_percentages: Record<string, number>; // 0..1
-
-    top_freq: AB;
-    top_profile_code: string;
-    top_profile_name: string;
-
-    sections: SectionsPayload | null;
-
-    debug?: any;
-    version?: string;
+type ResultData = {
+  org_slug: string;
+  org_name?: string | null;
+  test_name: string;
+  taker: {
+    id: string;
+    first_name?: string | null;
+    last_name?: string | null;
   };
-  error?: string;
+  link?: LinkMeta;
+
+  frequency_labels: Array<{ code: AB; name: string }>;
+  frequency_percentages: Record<AB, number>;
+
+  profile_labels: Array<{ code: string; name: string }>;
+  profile_percentages: Record<string, number>;
+
+  top_freq: AB;
+  top_profile_code: string;
+  top_profile_name: string;
+
+  sections?: SectionsPayload | null;
+
+  version?: string;
+  debug?: any;
 };
 
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
+type ApiResponse = { ok: boolean; data?: ResultData; error?: string };
+
+function safeText(x: any): string {
+  if (typeof x === "string") return x;
+  if (Array.isArray(x)) return x.map(String).join(" ");
+  if (x == null) return "";
+  return String(x);
 }
 
-function pct01ToPct100(n: number) {
-  if (!Number.isFinite(n)) return 0;
-  return clamp(n * 100, 0, 100);
+function pctLabel(v: number | undefined) {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : 0;
+  return `${Math.round(n * 100)}%`;
 }
 
-function safeText(s: any) {
-  return String(s ?? "").trim();
+function fullName(first?: string | null, last?: string | null) {
+  const f = (first || "").trim();
+  const l = (last || "").trim();
+  const out = `${f} ${l}`.trim();
+  return out || "Participant";
 }
 
-function normaliseSectionId(id: string) {
-  return safeText(id)
+function normaliseId(s: string) {
+  return s
     .toLowerCase()
-    .replace(/[^\w-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+    .trim()
+    .replace(/[^\w\-]+/g, "-")
+    .replace(/\-+/g, "-");
 }
 
-function getNextStepsUrl(link: any): string | null {
-  if (!link) return null;
-  const candidates = [
-    link.next_steps_url,
-    link.nextStepsUrl,
-    link.next_steps,
-    link.nextSteps,
-    link.cta_url,
-    link.ctaUrl,
-    link.url,
-  ];
-  for (const c of candidates) {
-    const v = safeText(c);
-    if (v && /^https?:\/\//i.test(v)) return v;
-  }
-  return null;
+function findWelcomeIndex(sections: ReportSection[]) {
+  const idx = sections.findIndex((s) => {
+    const id = (s.id || "").toLowerCase();
+    const title = (s.title || "").toLowerCase();
+    return (
+      id.includes("welcome") ||
+      title.includes("welcome from daniel") ||
+      title.includes("welcome from daniel acutt")
+    );
+  });
+  return idx;
 }
 
-// --- Donut (SVG) -----------------------------------------------------------
-
-function Donut(props: {
-  valuePct: number; // 0..100
-  label: string;
-  sublabel?: string;
-}) {
-  const { valuePct, label, sublabel } = props;
-  const size = 140;
+function Donut(props: { value: number; label: string }) {
+  // value is 0..1
+  const v = Math.max(0, Math.min(1, props.value || 0));
+  const size = 120;
   const stroke = 14;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-
-  const pct = clamp(valuePct, 0, 100);
-  const dash = (pct / 100) * c;
-  const gap = c - dash;
+  const dash = c * v;
 
   return (
     <div className="flex items-center gap-4">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         <circle
           cx={size / 2}
           cy={size / 2}
           r={r}
-          fill="none"
-          stroke="rgba(15, 23, 42, 0.10)"
+          stroke="rgba(15, 23, 42, 0.15)"
           strokeWidth={stroke}
+          fill="white"
         />
         <circle
           cx={size / 2}
           cy={size / 2}
           r={r}
-          fill="none"
-          stroke="rgba(37, 99, 235, 0.85)"
+          stroke="rgb(37, 99, 235)"
           strokeWidth={stroke}
+          fill="transparent"
           strokeLinecap="round"
-          strokeDasharray={`${dash} ${gap}`}
+          strokeDasharray={`${dash} ${c - dash}`}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
         <text
           x="50%"
-          y="48%"
+          y="49%"
+          dominantBaseline="middle"
           textAnchor="middle"
-          className="fill-slate-900"
-          style={{ fontSize: 24, fontWeight: 700 }}
+          fontSize="20"
+          fontWeight="700"
+          fill="#0f172a"
         >
-          {Math.round(pct)}%
+          {Math.round(v * 100)}%
         </text>
         <text
           x="50%"
-          y="62%"
+          y="64%"
+          dominantBaseline="middle"
           textAnchor="middle"
-          className="fill-slate-600"
-          style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1 }}
+          fontSize="10"
+          fontWeight="700"
+          fill="#64748b"
+          letterSpacing="0.18em"
         >
           FREQUENCY
         </text>
       </svg>
 
       <div>
-        <div className="text-sm font-semibold text-slate-900">{label}</div>
-        {sublabel ? <div className="mt-1 text-xs text-slate-600">{sublabel}</div> : null}
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+          {props.label}
+        </div>
+        <div className="mt-1 text-sm text-slate-700">
+          Your dominant frequency
+        </div>
       </div>
     </div>
   );
 }
 
-// --- Blocks renderer --------------------------------------------------------
+function BlockRenderer({ block }: { block: SectionBlock }) {
+  const type = String((block as any)?.type || "").toLowerCase();
 
-function Blocks({ blocks }: { blocks: Block[] }) {
+  if (type === "divider") {
+    return <hr className="my-5 border-slate-200" />;
+  }
+
+  if (type === "h1") {
+    return (
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+        {safeText((block as any).text)}
+      </h1>
+    );
+  }
+
+  if (type === "h2") {
+    return (
+      <h2 className="text-xl font-semibold tracking-tight text-slate-900">
+        {safeText((block as any).text)}
+      </h2>
+    );
+  }
+
+  if (type === "h3") {
+    return (
+      <h3 className="text-lg font-semibold text-slate-900">
+        {safeText((block as any).text)}
+      </h3>
+    );
+  }
+
+  if (type === "h4") {
+    return (
+      <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        {safeText((block as any).text)}
+      </h4>
+    );
+  }
+
+  if (type === "p") {
+    const t = safeText((block as any).text);
+    return <p className="text-sm leading-relaxed text-slate-700">{t}</p>;
+  }
+
+  if (type === "ul") {
+    const items = Array.isArray((block as any).items) ? (block as any).items : [];
+    return (
+      <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
+        {items.map((it: any, i: number) => (
+          <li key={i}>{safeText(it)}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (type === "ol") {
+    const items = Array.isArray((block as any).items) ? (block as any).items : [];
+    return (
+      <ol className="list-decimal pl-5 text-sm text-slate-700 space-y-1">
+        {items.map((it: any, i: number) => (
+          <li key={i}>{safeText(it)}</li>
+        ))}
+      </ol>
+    );
+  }
+
+  if (type === "quote") {
+    const t = safeText((block as any).text);
+    const cite = safeText((block as any).cite);
+    return (
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-sm italic text-slate-700">“{t}”</p>
+        {cite ? <p className="mt-2 text-xs text-slate-500">— {cite}</p> : null}
+      </div>
+    );
+  }
+
+  // Unknown block type: fail soft but don't dump raw JSON into the report.
   return (
-    <div className="space-y-4">
-      {blocks.map((b, idx) => {
-        const t = String(b.type || "").toLowerCase();
-
-        if (t === "p") {
-          const text = safeText((b as any).text);
-          if (!text) return null;
-          return (
-            <p key={idx} className="text-sm leading-7 text-slate-700 whitespace-pre-line">
-              {text}
-            </p>
-          );
-        }
-
-        if (t === "h2") {
-          const text = safeText((b as any).text);
-          if (!text) return null;
-          return (
-            <h2 key={idx} className="text-xl font-semibold text-slate-900">
-              {text}
-            </h2>
-          );
-        }
-
-        if (t === "h3") {
-          const text = safeText((b as any).text);
-          if (!text) return null;
-          return (
-            <h3 key={idx} className="text-lg font-semibold text-slate-900">
-              {text}
-            </h3>
-          );
-        }
-
-        // ✅ Fix: support h4 (your framework uses h4 a lot)
-        if (t === "h4") {
-          const text = safeText((b as any).text);
-          if (!text) return null;
-          return (
-            <h4 key={idx} className="text-base font-semibold text-slate-900">
-              {text}
-            </h4>
-          );
-        }
-
-        if (t === "ul") {
-          const items = Array.isArray((b as any).items) ? (b as any).items : [];
-          if (!items.length) return null;
-          return (
-            <ul key={idx} className="list-disc pl-5 text-sm leading-7 text-slate-700 space-y-1">
-              {items.map((it: string, j: number) => (
-                <li key={j} className="whitespace-pre-line">
-                  {safeText(it)}
-                </li>
-              ))}
-            </ul>
-          );
-        }
-
-        if (t === "ol") {
-          const items = Array.isArray((b as any).items) ? (b as any).items : [];
-          if (!items.length) return null;
-          return (
-            <ol key={idx} className="list-decimal pl-5 text-sm leading-7 text-slate-700 space-y-1">
-              {items.map((it: string, j: number) => (
-                <li key={j} className="whitespace-pre-line">
-                  {safeText(it)}
-                </li>
-              ))}
-            </ol>
-          );
-        }
-
-        // fallback (do not dump raw JSON in the UI)
-        return null;
-      })}
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+      <p className="text-xs font-semibold text-amber-900">
+        Unsupported block type: {String((block as any).type || "unknown")}
+      </p>
     </div>
   );
 }
-
-// --- Main component ---------------------------------------------------------
 
 export default function LegacyReportClient(props: { token: string; tid: string }) {
   const { token, tid } = props;
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [data, setData] = useState<NonNullable<ReportApi["data"]> | null>(null);
+  const [data, setData] = useState<ResultData | null>(null);
 
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function run() {
       try {
         setLoading(true);
         setErr(null);
 
-        const base = await getBaseUrl();
-        if (cancelled) return;
+        if (!tid) {
+          setErr("Missing tid");
+          setLoading(false);
+          return;
+        }
 
-        const url = `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(
-          tid,
-        )}`;
+        const base = await getBaseUrl();
+        const url = `${base}/api/public/test/${encodeURIComponent(
+          token
+        )}/report?tid=${encodeURIComponent(tid)}`;
 
         const res = await fetch(url, { cache: "no-store" });
         const ct = res.headers.get("content-type") ?? "";
@@ -290,169 +300,127 @@ export default function LegacyReportClient(props: { token: string; tid: string }
           throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
         }
 
-        const json = (await res.json()) as ReportApi;
-        if (!res.ok || !json.ok || !json.data) {
+        const json = (await res.json()) as ApiResponse;
+        if (!res.ok || json.ok === false || !json.data) {
           throw new Error(json.error || `HTTP ${res.status}`);
         }
 
         if (cancelled) return;
         setData(json.data);
+        setLoading(false);
       } catch (e: any) {
         if (cancelled) return;
         setErr(String(e?.message || e));
-      } finally {
-        if (cancelled) return;
         setLoading(false);
       }
     }
 
-    load();
+    run();
     return () => {
       cancelled = true;
     };
   }, [token, tid]);
 
-  // Build the “report sections” we will render:
-  // - Put “Welcome from Daniel Acutt” at the top
-  // - Then render the rest of common + profile
   const mergedSections = useMemo(() => {
-    const sec = data?.sections;
-    const common = Array.isArray(sec?.common) ? sec!.common! : [];
-    const profile = Array.isArray(sec?.profile) ? sec!.profile! : [];
+    const common = (data?.sections?.common || []) as ReportSection[];
+    const profile = (data?.sections?.profile || []) as ReportSection[];
 
-    // Some frameworks store the profile deep-dive in common; some put it in profile.
-    // We render both, but we ensure Welcome goes first.
     const all = [...common, ...profile].filter(Boolean);
 
-    const norm = all.map((s) => ({
-      ...s,
-      id: normaliseSectionId(s.id || s.title),
-    }));
-
-    const welcomeIdx = norm.findIndex(
-      (s) =>
-        s.id === "welcome-from-daniel-acutt" ||
-        safeText(s.title).toLowerCase().includes("welcome from daniel"),
-    );
-
-    if (welcomeIdx > 0) {
-      const welcome = norm[welcomeIdx];
-      const rest = norm.filter((_, i) => i !== welcomeIdx);
-      return [welcome, ...rest];
+    // Force Welcome to first if present
+    const idx = findWelcomeIndex(all);
+    if (idx > 0) {
+      const welcome = all[idx];
+      all.splice(idx, 1);
+      all.unshift(welcome);
     }
 
-    return norm;
+    return all;
   }, [data]);
 
-  // Sidebar index
-  const indexItems = useMemo(() => {
-    return mergedSections.map((s, i) => ({
-      n: i + 1,
-      id: s.id,
-      title: s.title || s.id,
-    }));
+  const quickIndex = useMemo(() => {
+    return mergedSections
+      .filter((s) => safeText(s.title).trim().length > 0)
+      .map((s) => {
+        const id = s.id ? String(s.id) : normaliseId(String(s.title || "section"));
+        return { id, title: String(s.title), raw: s };
+      });
   }, [mergedSections]);
 
-  const takerName = useMemo(() => {
-    const fn = safeText(data?.taker?.first_name);
-    const ln = safeText(data?.taker?.last_name);
-    const full = `${fn} ${ln}`.trim();
-    return full || "Test taker";
-  }, [data]);
-
-  const nextStepsUrl = useMemo(() => getNextStepsUrl(data?.link), [data]);
-
-  const topFreqLabel = useMemo(() => {
-    if (!data) return "";
-    const hit = data.frequency_labels.find((f) => f.code === data.top_freq);
-    return hit?.name || data.top_freq;
-  }, [data]);
-
-  const freqPct = useMemo(() => {
-    if (!data) return 0;
-    return pct01ToPct100(data.frequency_percentages?.[data.top_freq] ?? 0);
-  }, [data]);
-
-  const topProfiles = useMemo(() => {
-    if (!data) return [];
-    const entries = Object.entries(data.profile_percentages || {}).map(([code, p]) => ({
-      code,
-      pct: pct01ToPct100(Number(p)),
-      name: data.profile_labels.find((x) => x.code === code)?.name || code,
-    }));
-    return entries.sort((a, b) => b.pct - a.pct).slice(0, 8);
-  }, [data]);
-
-  const primarySecondaryTertiary = useMemo(() => {
-    const top3 = [...topProfiles].slice(0, 3);
-    return {
-      primary: top3[0]?.name ?? "",
-      secondary: top3[1]?.name ?? "",
-      tertiary: top3[2]?.name ?? "",
-    };
-  }, [topProfiles]);
-
   async function handleDownloadPdf() {
+    if (!reportRef.current) return;
+
+    const element = reportRef.current;
+    const prevScroll = window.scrollY;
+    window.scrollTo(0, 0);
+
     try {
-      const el = reportRef.current;
-      if (!el) return;
-
-      // dynamic import so we don’t bloat initial bundle
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-
-      const canvas = await html2canvas(el, {
+      const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
         backgroundColor: "#050914",
+        scrollY: -window.scrollY,
       });
 
       const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
 
-      const pdf = new jsPDF("p", "pt", "a4");
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
 
       const imgWidth = pageWidth;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-      let y = 0;
-      let remaining = imgHeight;
+      let heightLeft = imgHeight;
+      let position = 0;
 
-      pdf.addImage(imgData, "PNG", 0, y, imgWidth, imgHeight);
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
 
-      remaining -= pageHeight;
-      while (remaining > 0) {
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
         pdf.addPage();
-        y = - (imgHeight - remaining);
-        pdf.addImage(imgData, "PNG", 0, y, imgWidth, imgHeight);
-        remaining -= pageHeight;
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
       }
 
-      const filename = `${safeText(data?.test_name) || "report"}-${safeText(takerName) || "taker"}.pdf`
+      const safeName = `${(data?.test_name || "mindcanvas")
         .toLowerCase()
-        .replace(/[^\w-]+/g, "-");
+        .replace(/\s+/g, "-")}-${(data?.taker?.first_name || "report")
+        .toLowerCase()
+        .replace(/\s+/g, "-")}.pdf`;
 
-      pdf.save(filename);
-    } catch (e) {
-      console.error(e);
-      alert("Could not generate the PDF. Please try again.");
+      pdf.save(safeName);
+    } finally {
+      window.scrollTo(0, prevScroll);
     }
   }
 
-  function scrollTo(id: string) {
-    const el = document.getElementById(`sec-${id}`);
+  function scrollToSection(id: string) {
+    const el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  if (!tid) {
+    return (
+      <div className="min-h-screen bg-[#050914] text-white">
+        <AppBackground />
+        <main className="relative z-10 mx-auto max-w-4xl p-6">
+          <h1 className="text-2xl font-semibold">Personalised report</h1>
+          <p className="mt-4 text-sm text-slate-300">
+            This page expects a <code>?tid=</code> parameter.
+          </p>
+        </main>
+      </div>
+    );
   }
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#050914] text-white">
         <AppBackground />
-        <main className="relative z-10 mx-auto max-w-6xl px-6 py-10">
+        <main className="relative z-10 mx-auto max-w-4xl p-6">
           <h1 className="text-2xl font-semibold">Personalised report</h1>
           <p className="mt-4 text-sm text-slate-300">Loading your report…</p>
         </main>
@@ -464,9 +432,9 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     return (
       <div className="min-h-screen bg-[#050914] text-white">
         <AppBackground />
-        <main className="relative z-10 mx-auto max-w-6xl px-6 py-10 space-y-4">
+        <main className="relative z-10 mx-auto max-w-4xl p-6 space-y-4">
           <h1 className="text-2xl font-semibold">Personalised report</h1>
-          <p className="text-sm text-red-300">Could not load your report.</p>
+          <p className="text-sm text-red-400">Could not load your report.</p>
           <details className="rounded-lg border border-slate-700 bg-slate-950 p-4 text-xs text-slate-50">
             <summary className="cursor-pointer font-medium">Debug information</summary>
             <div className="mt-2 space-y-2">
@@ -478,194 +446,215 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     );
   }
 
+  const participant = fullName(data.taker?.first_name, data.taker?.last_name);
+  const orgName = data.org_name || data.test_name || "Organisation";
+  const reportTitle =
+    data.sections?.report_title ||
+    data.test_name ||
+    "Personalised report";
+
+  const nextStepsUrl = (data.link?.next_steps_url || "").trim();
+  const hasNextSteps = Boolean(nextStepsUrl);
+
+  // Dominant frequency
+  const topFreqCode = data.top_freq;
+  const topFreqPct = data.frequency_percentages?.[topFreqCode] ?? 0;
+  const topFreqName =
+    data.frequency_labels.find((f) => f.code === topFreqCode)?.name ||
+    topFreqCode;
+
+  // profile sorting
+  const sortedProfiles = [...data.profile_labels]
+    .map((p) => ({ ...p, pct: data.profile_percentages?.[p.code] ?? 0 }))
+    .sort((a, b) => (b.pct || 0) - (a.pct || 0));
+
+  const primary = sortedProfiles[0];
+  const secondary = sortedProfiles[1];
+  const tertiary = sortedProfiles[2];
+
   return (
-    <div className="min-h-screen bg-[#050914] text-white">
+    <div ref={reportRef} className="relative min-h-screen bg-[#050914] text-white overflow-hidden">
       <AppBackground />
 
-      <div ref={reportRef} className="relative z-10 mx-auto max-w-7xl px-6 py-10">
+      <div className="relative z-10 mx-auto max-w-6xl px-4 py-8 md:px-6">
         {/* Header */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-7 py-6">
-          <div className="text-xs tracking-[0.2em] text-slate-300">PERSONALISED REPORT</div>
-          <div className="mt-2 text-3xl font-semibold">{data.test_name}</div>
-          <div className="mt-2 text-sm text-slate-200">
-            For <span className="font-semibold">{takerName}</span>
-            <span className="text-slate-400"> · </span>
-            Organisation: <span className="font-semibold">{data.test_name}</span>
-          </div>
-          <div className="mt-1 text-sm text-slate-200">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">
+            Personalised report
+          </p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">
+            {reportTitle}
+          </h1>
+          <p className="mt-2 text-sm text-slate-200">
+            For {participant} · Organisation: {orgName}
+          </p>
+          <p className="mt-1 text-sm text-slate-200">
             Top profile: <span className="font-semibold">{data.top_profile_name}</span>
-          </div>
+          </p>
 
-          {/* Actions */}
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="mt-5 flex flex-wrap gap-3">
             <button
               onClick={handleDownloadPdf}
-              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-white/90"
+              className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
             >
               Download PDF
             </button>
 
-            {nextStepsUrl ? (
-              <a
-                href={nextStepsUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10"
+            {hasNextSteps && (
+              <button
+                onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
+                className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
               >
-                Go to next steps
-              </a>
-            ) : null}
+                Next steps
+              </button>
+            )}
           </div>
         </div>
 
         {/* Top summary row */}
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* Frequencies card */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-6">
-            <div className="text-lg font-semibold">Frequencies</div>
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          {/* Frequencies */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h2 className="text-lg font-semibold">Frequencies</h2>
 
-            {/* White inner container (like your other reports) */}
-            <div className="mt-4 rounded-2xl bg-white/95 p-5">
-              <Donut
-                valuePct={freqPct}
-                label={`${topFreqLabel} (${data.top_freq})`}
-                sublabel="Your dominant frequency"
-              />
+            {/* White content container */}
+            <div className="mt-4 rounded-xl bg-white p-4 text-slate-900">
+              <Donut value={topFreqPct} label={topFreqName} />
 
-              <div className="mt-5 space-y-3">
-                {data.frequency_labels.map((f) => {
-                  const p = pct01ToPct100(data.frequency_percentages?.[f.code] ?? 0);
+              <div className="mt-4 space-y-2">
+                {data.frequency_labels.map((f) => (
+                  <div key={f.code} className="flex items-center justify-between text-sm">
+                    <span className="font-medium">
+                      {f.name} ({f.code})
+                    </span>
+                    <span className="text-slate-700">
+                      {pctLabel(data.frequency_percentages?.[f.code])}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Profiles */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h2 className="text-lg font-semibold">Top profile mix</h2>
+            <p className="mt-2 text-sm text-slate-200">
+              Primary: <span className="font-semibold">{primary?.name}</span> · Secondary:{" "}
+              <span className="font-semibold">{secondary?.name}</span> · Tertiary:{" "}
+              <span className="font-semibold">{tertiary?.name}</span>
+            </p>
+
+            {/* White content container */}
+            <div className="mt-4 rounded-xl bg-white p-4 text-slate-900">
+              <div className="space-y-3">
+                {sortedProfiles.map((p) => {
+                  const pct = Math.max(0, Math.min(1, p.pct || 0));
                   return (
-                    <div key={f.code} className="flex items-center justify-between gap-4">
-                      <div className="text-sm font-semibold text-slate-900">
-                        {f.name} <span className="text-slate-500">({f.code})</span>
+                    <div key={p.code}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-semibold">{p.name}</span>
+                        <span className="text-slate-700">{pctLabel(p.pct)}</span>
                       </div>
-                      <div className="text-sm font-semibold text-slate-700">{Math.round(p)}%</div>
+                      <div className="mt-1 h-2 w-full rounded-full bg-slate-200">
+                        <div
+                          className="h-2 rounded-full bg-slate-900"
+                          style={{ width: `${Math.round(pct * 100)}%` }}
+                        />
+                      </div>
                     </div>
                   );
                 })}
               </div>
             </div>
           </div>
-
-          {/* Profile mix card */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-6">
-            <div className="text-lg font-semibold">Top profile mix</div>
-
-            <div className="mt-4 rounded-2xl bg-white/95 p-5">
-              <div className="text-sm text-slate-700">
-                Primary: <span className="font-semibold text-slate-900">{primarySecondaryTertiary.primary}</span>
-                {primarySecondaryTertiary.secondary ? (
-                  <>
-                    <span className="text-slate-400"> · </span>
-                    Secondary: <span className="font-semibold text-slate-900">{primarySecondaryTertiary.secondary}</span>
-                  </>
-                ) : null}
-                {primarySecondaryTertiary.tertiary ? (
-                  <>
-                    <span className="text-slate-400"> · </span>
-                    Tertiary: <span className="font-semibold text-slate-900">{primarySecondaryTertiary.tertiary}</span>
-                  </>
-                ) : null}
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {topProfiles.map((p) => (
-                  <div key={p.code} className="grid grid-cols-[1fr_auto] items-center gap-4">
-                    <div className="text-sm font-semibold text-slate-900">{p.name}</div>
-                    <div className="text-sm font-semibold text-slate-700">{Math.round(p.pct)}%</div>
-                    <div className="col-span-2 h-2 w-full rounded-full bg-slate-200">
-                      <div
-                        className="h-2 rounded-full bg-slate-800/60"
-                        style={{ width: `${clamp(p.pct, 0, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Body: sidebar + content */}
-        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
-          {/* Sidebar */}
-          <aside className="lg:sticky lg:top-6 h-fit">
-            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-5">
-              <div className="text-xs tracking-[0.2em] text-slate-300">QUICK INDEX</div>
-              <div className="mt-2 text-sm text-slate-200">
-                Jump straight to the section you need.
-              </div>
+        {/* Body layout: left quick index + right content */}
+        <div className="mt-6 grid gap-4 md:grid-cols-[280px_1fr]">
+          {/* Quick index */}
+          <aside className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">
+              Quick index
+            </p>
+            <p className="mt-1 text-xs text-slate-300">
+              Jump straight to the section you need.
+            </p>
 
-              <div className="mt-4 space-y-2">
-                {indexItems.map((it) => (
-                  <button
-                    key={it.id}
-                    onClick={() => scrollTo(it.id)}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-left hover:bg-white/10"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-semibold">
-                          {it.n}
-                        </div>
-                        <div className="text-sm font-semibold">{it.title}</div>
-                      </div>
-                      <div className="text-xs text-slate-300">View</div>
+            <div className="mt-4 space-y-2">
+              {quickIndex.slice(0, 30).map((s, i) => (
+                <button
+                  key={s.id + i}
+                  onClick={() => scrollToSection(s.id)}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
+                      {i + 1}
                     </div>
-                  </button>
-                ))}
-              </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-white">
+                        {s.title}
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-300">View</div>
+                  </div>
+                </button>
+              ))}
             </div>
           </aside>
 
-          {/* Content */}
-          <main className="space-y-6">
-            <div className="text-lg font-semibold">Core sections</div>
+          {/* Main content */}
+          <main className="space-y-4">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <h2 className="text-lg font-semibold">Core sections</h2>
+            </div>
 
-            {data.sections?.profile_missing ? (
-              <div className="rounded-2xl border border-amber-400/30 bg-amber-200/10 p-5 text-sm text-amber-100">
-                Your report framework loaded, but the API says the profile-specific sections were missing.
-                We’ll still render everything available.
+            {mergedSections.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <p className="text-sm text-slate-200">
+                  No sections were returned for this report. (This usually means the storage framework
+                  file is missing content or the report route didn’t attach sections.profile.)
+                </p>
               </div>
             ) : null}
 
-            {mergedSections.map((sec) => (
-              <section
-                key={sec.id}
-                id={`sec-${sec.id}`}
-                className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-6"
-              >
-                {/* white inner container */}
-                <div className="rounded-2xl bg-white/95 p-6">
-                  <h2 className="text-xl font-semibold text-slate-900">{sec.title}</h2>
-                  <div className="mt-4">
-                    <Blocks blocks={Array.isArray(sec.blocks) ? sec.blocks : []} />
-                  </div>
-                </div>
-              </section>
-            ))}
+            {mergedSections.map((section, idx) => {
+              const id = section.id ? String(section.id) : normaliseId(String(section.title || `section-${idx}`));
+              const title = safeText(section.title);
 
-            {/* Footer buttons (again, so they exist at the bottom like your other reports) */}
-            <div className="flex flex-wrap gap-3 pt-2">
+              return (
+                <section key={id + idx} id={id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  {/* White container inside (matches your “all reports have this” requirement) */}
+                  <div className="rounded-2xl bg-white p-6 text-slate-900">
+                    {title ? (
+                      <h2 className="text-xl font-semibold text-slate-900">
+                        {title}
+                      </h2>
+                    ) : null}
+
+                    <div className={title ? "mt-4 space-y-3" : "space-y-3"}>
+                      {(section.blocks || []).map((b, i) => (
+                        <BlockRenderer key={i} block={b} />
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              );
+            })}
+
+            <div className="pt-2">
               <button
                 onClick={handleDownloadPdf}
-                className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-white/90"
+                className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
                 Download PDF
               </button>
-
-              {nextStepsUrl ? (
-                <a
-                  href={nextStepsUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10"
-                >
-                  Go to next steps
-                </a>
-              ) : null}
             </div>
+
+            <footer className="pt-4 text-xs text-slate-400">
+              © {new Date().getFullYear()} MindCanvas
+            </footer>
           </main>
         </div>
       </div>

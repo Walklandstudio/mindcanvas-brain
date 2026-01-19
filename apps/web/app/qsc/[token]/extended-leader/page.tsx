@@ -144,37 +144,37 @@ function InsightSection({
     <section
       id={id}
       className={[
-        "scroll-mt-28 rounded-3xl border p-6 md:p-8 space-y-3",
-        danger
-          ? "border-rose-600/50 bg-gradient-to-br from-slate-950 via-slate-950 to-rose-950/40"
-          : "border-slate-800 bg-slate-950/80",
+        "scroll-mt-28 rounded-3xl border p-6 md:p-8 space-y-3 shadow-sm",
+        danger ? "border-rose-200 bg-white" : "border-slate-200 bg-white",
       ].join(" ")}
     >
       <div className="flex items-start gap-3">
         <div
           className={[
-            "mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+            "mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold border",
             danger
-              ? "bg-rose-500/20 text-rose-100 border border-rose-400/60"
-              : "bg-sky-500/15 text-sky-100 border border-sky-400/50",
+              ? "bg-rose-50 text-rose-700 border-rose-200"
+              : "bg-sky-50 text-sky-700 border-sky-200",
           ].join(" ")}
         >
           {number}
         </div>
+
         <div className="space-y-1.5">
           <h2
             className={[
               "text-lg md:text-xl font-semibold",
-              danger ? "text-rose-50" : "text-slate-50",
+              danger ? "text-rose-900" : "text-slate-900",
             ].join(" ")}
           >
             {title}
           </h2>
+
           {kicker && (
             <p
               className={[
                 "text-[15px] leading-relaxed",
-                danger ? "text-rose-100/80" : "text-slate-300",
+                danger ? "text-rose-800/80" : "text-slate-600",
               ].join(" ")}
             >
               {kicker}
@@ -186,7 +186,7 @@ function InsightSection({
       <div
         className={[
           "pt-3 text-[15px] leading-relaxed whitespace-pre-line",
-          danger ? "text-rose-50" : "text-slate-100",
+          danger ? "text-rose-900" : "text-slate-700",
         ].join(" ")}
       >
         {children}
@@ -195,7 +195,11 @@ function InsightSection({
   );
 }
 
-export default function QscLeaderExtendedPage({ params }: { params: { token: string } }) {
+export default function QscLeaderExtendedPage({
+  params,
+}: {
+  params: { token: string };
+}) {
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
@@ -215,7 +219,9 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
         setErr(null);
 
         const apiUrl = tid
-          ? `/api/public/qsc/${encodeURIComponent(token)}/extended-leader?tid=${encodeURIComponent(tid)}`
+          ? `/api/public/qsc/${encodeURIComponent(
+              token
+            )}/extended-leader?tid=${encodeURIComponent(tid)}`
           : `/api/public/qsc/${encodeURIComponent(token)}/extended-leader`;
 
         const res = await fetch(apiUrl, { cache: "no-store" });
@@ -223,13 +229,18 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
-          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
+          );
         }
 
         const j = (await res.json()) as any;
 
         if (!res.ok || j?.ok === false) {
-          if (res.status === 409 && String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")) {
+          if (
+            res.status === 409 &&
+            String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")
+          ) {
             throw new Error(
               "This link has multiple results. Please open the Leader Extended page from the Snapshot (or add ?tid=...) so we can load the correct report."
             );
@@ -301,7 +312,9 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
           </p>
-          <h1 className="mt-3 text-3xl font-bold">Preparing Leader Extended Source Code…</h1>
+          <h1 className="mt-3 text-3xl font-bold">
+            Preparing Leader Extended Source Code…
+          </h1>
         </main>
       </div>
     );
@@ -321,7 +334,8 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
           </p>
           <h1 className="text-3xl font-bold">Couldn&apos;t load insights</h1>
           <p className="text-[15px] text-slate-300">
-            We weren&apos;t able to load the Leader Extended Source Code internal insights for this profile.
+            We weren&apos;t able to load the Leader Extended Source Code internal
+            insights for this profile.
           </p>
 
           <div className="flex flex-wrap gap-2 pt-2">
@@ -357,7 +371,10 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <AppBackground />
-      <main ref={reportRef} className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
+      <main
+        ref={reportRef}
+        className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"
+      >
         <header className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
             <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
@@ -368,12 +385,16 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
             </h1>
             {takerDisplayName && (
               <p className="text-[15px] text-slate-300">
-                For: <span className="font-semibold text-slate-50">{takerDisplayName}</span>
+                For:{" "}
+                <span className="font-semibold text-slate-50">
+                  {takerDisplayName}
+                </span>
               </p>
             )}
             <p className="text-[15px] leading-relaxed text-slate-300 max-w-2xl">
-              Deep leadership, messaging and positioning insights for this profile. Use this as your reference
-              when coaching, leading, delegating and structuring accountability.
+              Deep leadership, messaging and positioning insights for this
+              profile. Use this as your reference when coaching, leading,
+              delegating and structuring accountability.
             </p>
           </div>
 
@@ -384,12 +405,14 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
             >
               Download PDF
             </button>
+
             <Link
               href={snapshotHref}
               className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800"
             >
               ← Back to Snapshot
             </Link>
+
             <span>
               Snapshot created{" "}
               {createdAt.toLocaleString(undefined, {
@@ -400,14 +423,18 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
                 minute: "2-digit",
               })}
             </span>
+
             <span className="text-[11px] text-slate-500">
-              Combined profile: <span className="font-semibold text-slate-100">{personaLabel}</span>
+              Combined profile:{" "}
+              <span className="font-semibold text-slate-100">{personaLabel}</span>
             </span>
+
             {extended && (
               <span className="text-[11px] text-slate-500">
                 Pattern:{" "}
                 <span className="font-semibold text-slate-100">
-                  {extended.personality_label} • {extended.mindset_label} ({extended.profile_code})
+                  {extended.personality_label} • {extended.mindset_label} (
+                  {extended.profile_code})
                 </span>
               </span>
             )}
@@ -415,15 +442,18 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
         </header>
 
         <div className="grid gap-8 md:grid-cols-[260px,minmax(0,1fr)] items-start">
+          {/* Keep sidebar dark */}
           <aside className="rounded-3xl border border-slate-800 bg-slate-950/90 p-5 md:p-6 md:sticky md:top-6 space-y-3">
             <div>
               <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                 Quick index
               </p>
               <p className="text-[13px] md:text-[14px] leading-relaxed text-slate-300">
-                Jump straight to the section you need during calls, coaching or leadership conversations.
+                Jump straight to the section you need during calls, coaching or
+                leadership conversations.
               </p>
             </div>
+
             <div className="mt-2 flex flex-col gap-2">
               {SECTIONS.map((sec) => (
                 <a
@@ -448,36 +478,47 @@ export default function QscLeaderExtendedPage({ params }: { params: { token: str
           </aside>
 
           <div className="space-y-8">
-            <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-8 space-y-4">
+            {/* ✅ Profile summary container WHITE */}
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 space-y-4 shadow-sm text-slate-800">
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-300/90">
+                <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-700">
                   Profile summary
                 </p>
-                <h2 className="text-lg md:text-xl font-semibold text-slate-50">
+                <h2 className="text-lg md:text-xl font-semibold text-slate-900">
                   How to lead this profile well
                 </h2>
-                <p className="text-[15px] leading-relaxed text-slate-200 max-w-2xl">
-                  This page is for you as the <span className="font-semibold">test owner</span>. It gives
-                  you the leadership, communication and trust insights you need for this profile — without
-                  needing the full Strategic Growth Report.
+                <p className="text-[15px] leading-relaxed text-slate-700 max-w-2xl">
+                  This page is for you as the{" "}
+                  <span className="font-semibold">test owner</span>. It gives
+                  you the leadership, communication and trust insights you need
+                  for this profile — without needing the full Strategic Growth
+                  Report.
                 </p>
               </div>
 
               {extended && (
-                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-[15px] text-slate-100 md:grid-cols-2">
+                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] text-slate-800 md:grid-cols-2">
                   <div>
-                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-500">
                       Personality layer
                     </p>
-                    <p className="mt-1 font-semibold">{extended.personality_label}</p>
-                    <p className="mt-1 text-xs text-slate-300">How they naturally think, lead and relate.</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {extended.personality_label}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      How they naturally think, lead and relate.
+                    </p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-500">
                       Mindset layer
                     </p>
-                    <p className="mt-1 font-semibold">{extended.mindset_label}</p>
-                    <p className="mt-1 text-xs text-slate-300">Where they are right now and what helps them grow.</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {extended.mindset_label}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Where they are right now and what helps them grow.
+                    </p>
                   </div>
                 </div>
               )}

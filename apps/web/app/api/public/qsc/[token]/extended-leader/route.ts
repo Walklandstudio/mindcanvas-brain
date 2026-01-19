@@ -86,6 +86,11 @@ function isUuidLike(s: string) {
   );
 }
 
+// For leader endpoints, accept leader OR NULL (legacy rows)
+function leaderAudienceFilter(q: any) {
+  return q.or("audience.eq.leader,audience.is.null");
+}
+
 function safeStr(v: any): string | null {
   const s = typeof v === "string" ? v : "";
   const t = s.trim();
@@ -223,22 +228,7 @@ function buildExtendedMerged(args: {
   const tableUsed = Boolean(extRow);
   const snapshotUsed =
     !tableUsed ||
-    [
-      extended.personality_layer,
-      extended.mindset_layer,
-      extended.combined_quantum_pattern,
-      extended.how_to_communicate,
-      extended.how_they_make_decisions,
-      extended.core_business_problems,
-      extended.what_builds_trust,
-      extended.what_offer_ready_for,
-      extended.what_blocks_sale,
-      extended.pre_call_questions,
-      extended.micro_scripts,
-      extended.green_red_flags,
-      extended.real_life_example,
-      extended.final_summary,
-    ].some((v) => v === null);
+    Object.values(extended).some((v) => v === null);
 
   return { extended, source: { tableUsed, snapshotUsed } };
 }
@@ -250,10 +240,7 @@ export async function GET(
   try {
     const tokenParam = String(params.token || "").trim();
     if (!tokenParam) {
-      return NextResponse.json(
-        { ok: false, error: "Missing token in URL" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Missing token in URL" }, { status: 400 });
     }
 
     const url = new URL(req.url);
@@ -275,7 +262,7 @@ export async function GET(
     let resultRow: QscResultsRow | null = null;
     let resolvedBy: "result_id" | "token+taker_id" | "token_unique" | null = null;
 
-    // (0) token is qsc_results.id
+    // (0) token is qsc_results.id (cannot pre-filter; guard later)
     if (isUuidLike(tokenParam)) {
       const { data, error } = await sb
         .from("qsc_results")
@@ -284,10 +271,7 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
       }
       if (data) {
         resultRow = data as any;
@@ -295,22 +279,21 @@ export async function GET(
       }
     }
 
-    // (1) token + tid
+    // (1) token + tid (leader-only OR legacy null audience)
     if (!resultRow && tid && isUuidLike(tid)) {
-      const { data, error } = await sb
+      const q = sb
         .from("qsc_results")
         .select(resultSelect)
         .eq("token", tokenParam)
-        .eq("taker_id", tid)
+        .eq("taker_id", tid);
+
+      const { data, error } = await leaderAudienceFilter(q)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
       }
       if (data) {
         resultRow = data as any;
@@ -318,46 +301,40 @@ export async function GET(
       }
     }
 
-    // (2) token only (must be unique)
+    // (2) token only (must be unique for leader-or-null)
     if (!resultRow) {
-      const { count, error: countErr } = await sb
+      const countQ = sb
         .from("qsc_results")
         .select("id", { count: "exact", head: true })
         .eq("token", tokenParam);
 
+      const { count, error: countErr } = await leaderAudienceFilter(countQ);
+
       if (countErr) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results count failed: ${countErr.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `qsc_results count failed: ${countErr.message}` }, { status: 500 });
       }
 
       const c = Number(count || 0);
       if (!tid && c > 1) {
         return NextResponse.json(
-          {
-            ok: false,
-            error: "AMBIGUOUS_TOKEN_REQUIRES_TID",
-            debug: { token: tokenParam, tid: tid || null, matches: c },
-          },
+          { ok: false, error: "AMBIGUOUS_TOKEN_REQUIRES_TID", debug: { token: tokenParam, tid: tid || null, matches: c } },
           { status: 409 }
         );
       }
 
       if (c === 1) {
-        const { data, error } = await sb
+        const q = sb
           .from("qsc_results")
           .select(resultSelect)
-          .eq("token", tokenParam)
+          .eq("token", tokenParam);
+
+        const { data, error } = await leaderAudienceFilter(q)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
         if (error) {
-          return NextResponse.json(
-            { ok: false, error: `qsc_results load failed: ${error.message}` },
-            { status: 500 }
-          );
+          return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
         }
         if (data) {
           resultRow = data as any;
@@ -373,14 +350,10 @@ export async function GET(
       );
     }
 
-    // ✅ Audience guard: leader-only endpoint
+    // Audience guard: leader-only endpoint
     if (resultRow.audience && resultRow.audience !== "leader") {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "WRONG_AUDIENCE",
-          debug: { expected: "leader", got: resultRow.audience },
-        },
+        { ok: false, error: "WRONG_AUDIENCE", debug: { expected: "leader", got: resultRow.audience } },
         { status: 400 }
       );
     }
@@ -408,7 +381,7 @@ export async function GET(
       if (!error && data) taker = data as any;
     }
 
-    // Load qsc_profiles snapshot (must exist for leader extended)
+    // Load qsc_profiles snapshot
     let profile: QscProfileRow | null = null;
 
     const profileSelect = `
@@ -434,15 +407,12 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_profiles load failed: ${error.message}` },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: `qsc_profiles load failed: ${error.message}` }, { status: 500 });
       }
       if (data) profile = data as any;
     }
 
-    // fallback: try by persona_code derived from combined_profile_code if needed
+    // fallback: try by persona_code derived from combined_profile_code
     if (!profile) {
       const personaCode = combinedToPersonaCode(resultRow.combined_profile_code);
       if (personaCode && looksLikePersonaCode(personaCode)) {
@@ -477,16 +447,12 @@ export async function GET(
 
     if (!personalityABCD) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "PERSONALITY_MAPPING_FAILED",
-          debug: { personality_code: profile.personality_code },
-        },
+        { ok: false, error: "PERSONALITY_MAPPING_FAILED", debug: { personality_code: profile.personality_code } },
         { status: 500 }
       );
     }
 
-    // Load leader extended row (global table)
+    // Load leader extended row
     const { data: extRow, error: extErr } = await sb
       .from("qsc_leader_extended_reports")
       .select(
@@ -516,10 +482,7 @@ export async function GET(
       .maybeSingle();
 
     if (extErr) {
-      return NextResponse.json(
-        { ok: false, error: `leader extended load failed: ${extErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: `leader extended load failed: ${extErr.message}` }, { status: 500 });
     }
 
     const { extended, source } = buildExtendedMerged({
@@ -553,9 +516,6 @@ export async function GET(
       { status: 200 }
     );
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Unexpected error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
