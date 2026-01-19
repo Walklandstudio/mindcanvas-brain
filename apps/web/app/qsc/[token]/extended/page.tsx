@@ -144,37 +144,39 @@ function InsightSection({
     <section
       id={id}
       className={[
-        "scroll-mt-28 rounded-3xl border p-6 md:p-8 space-y-3",
+        "scroll-mt-28 rounded-3xl border p-6 md:p-8 space-y-3 shadow-sm",
         danger
-          ? "border-rose-600/50 bg-gradient-to-br from-slate-950 via-slate-950 to-rose-950/40"
-          : "border-slate-800 bg-slate-950/80",
+          ? "border-rose-200 bg-white"
+          : "border-slate-200 bg-white",
       ].join(" ")}
     >
       <div className="flex items-start gap-3">
         <div
           className={[
-            "mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+            "mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold border",
             danger
-              ? "bg-rose-500/20 text-rose-100 border border-rose-400/60"
-              : "bg-sky-500/15 text-sky-100 border border-sky-400/50",
+              ? "bg-rose-50 text-rose-700 border-rose-200"
+              : "bg-sky-50 text-sky-700 border-sky-200",
           ].join(" ")}
         >
           {number}
         </div>
+
         <div className="space-y-1.5">
           <h2
             className={[
               "text-lg md:text-xl font-semibold",
-              danger ? "text-rose-50" : "text-slate-50",
+              danger ? "text-rose-900" : "text-slate-900",
             ].join(" ")}
           >
             {title}
           </h2>
+
           {kicker && (
             <p
               className={[
                 "text-[15px] leading-relaxed",
-                danger ? "text-rose-100/80" : "text-slate-300",
+                danger ? "text-rose-800/80" : "text-slate-600",
               ].join(" ")}
             >
               {kicker}
@@ -186,7 +188,7 @@ function InsightSection({
       <div
         className={[
           "pt-3 text-[15px] leading-relaxed whitespace-pre-line",
-          danger ? "text-rose-50" : "text-slate-100",
+          danger ? "text-rose-900" : "text-slate-700",
         ].join(" ")}
       >
         {children}
@@ -229,7 +231,6 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
         const j = (await res.json()) as any;
 
         if (!res.ok || j?.ok === false) {
-          // Special handling: ambiguous token now returns 409
           if (res.status === 409 && String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")) {
             throw new Error(
               "This link has multiple results. Please open the Extended page from the Snapshot (or add ?tid=...) so we can load the correct report."
@@ -416,6 +417,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
         </header>
 
         <div className="grid gap-8 md:grid-cols-[260px,minmax(0,1fr)] items-start">
+          {/* Keep sidebar dark */}
           <aside className="rounded-3xl border border-slate-800 bg-slate-950/90 p-5 md:p-6 md:sticky md:top-6 space-y-3">
             <div>
               <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
@@ -449,15 +451,16 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
           </aside>
 
           <div className="space-y-8">
-            <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 md:p-8 space-y-4">
+            {/* ✅ Profile summary container now WHITE */}
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 space-y-4 shadow-sm text-slate-800">
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-300/90">
+                <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-700">
                   Profile summary
                 </p>
-                <h2 className="text-lg md:text-xl font-semibold text-slate-50">
+                <h2 className="text-lg md:text-xl font-semibold text-slate-900">
                   How to sell to this buyer
                 </h2>
-                <p className="text-[15px] leading-relaxed text-slate-200 max-w-2xl">
+                <p className="text-[15px] leading-relaxed text-slate-700 max-w-2xl">
                   This page is for you as the <span className="font-semibold">test owner</span>. It gives
                   you the core sales, messaging and offer-fit insights you need to convert this profile —
                   without needing to read their entire Strategic Growth Report.
@@ -465,22 +468,22 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
               </div>
 
               {extended && (
-                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-700 bg-slate-900/90 px-4 py-3 text-[15px] text-slate-100 md:grid-cols-2">
+                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] text-slate-800 md:grid-cols-2">
                   <div>
-                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-500">
                       Personality layer
                     </p>
-                    <p className="mt-1 font-semibold">{extended.personality_label}</p>
-                    <p className="mt-1 text-xs text-slate-300">
+                    <p className="mt-1 font-semibold text-slate-900">{extended.personality_label}</p>
+                    <p className="mt-1 text-xs text-slate-600">
                       How they naturally think, lead and relate.
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-500">
                       Mindset layer
                     </p>
-                    <p className="mt-1 font-semibold">{extended.mindset_label}</p>
-                    <p className="mt-1 text-xs text-slate-300">
+                    <p className="mt-1 font-semibold text-slate-900">{extended.mindset_label}</p>
+                    <p className="mt-1 text-xs text-slate-600">
                       Where their business is right now and what it needs to grow sustainably.
                     </p>
                   </div>
