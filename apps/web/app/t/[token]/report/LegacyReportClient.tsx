@@ -11,7 +11,7 @@ type ProfileLabel = { code: string; name: string };
 
 type Block =
   | { type: "p"; text: string }
-  | { type: "h1" | "h2" | "h3"; text: string }
+  | { type: "h1" | "h2" | "h3" | "h4"; text: string }
   | { type: "ul"; items: string[] }
   | { type: "ol"; items: string[] }
   | { type: "quote"; text: string; cite?: string }
@@ -90,7 +90,9 @@ function safeText(v: any): string {
   }
 }
 
-function normaliseSections(sections: SectionsShape | null | undefined): Array<{
+function normaliseSections(
+  sections: SectionsShape | null | undefined
+): Array<{
   groupKey: string;
   sections: Section[];
 }> {
@@ -124,17 +126,40 @@ function BlockRenderer({ block }: { block: Block }) {
   }
 
   if (type === "h1") {
-    return <h1 className="text-2xl font-semibold text-white">{safeText((block as any).text)}</h1>;
+    return (
+      <h1 className="text-2xl font-semibold text-white">
+        {safeText((block as any).text)}
+      </h1>
+    );
   }
   if (type === "h2") {
-    return <h2 className="text-xl font-semibold text-white">{safeText((block as any).text)}</h2>;
+    return (
+      <h2 className="text-xl font-semibold text-white">
+        {safeText((block as any).text)}
+      </h2>
+    );
   }
   if (type === "h3") {
-    return <h3 className="text-lg font-semibold text-white">{safeText((block as any).text)}</h3>;
+    return (
+      <h3 className="text-lg font-semibold text-white">
+        {safeText((block as any).text)}
+      </h3>
+    );
+  }
+  if (type === "h4") {
+    return (
+      <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+        {safeText((block as any).text)}
+      </h4>
+    );
   }
 
   if (type === "p") {
-    return <p className="text-sm leading-relaxed text-slate-200">{safeText((block as any).text)}</p>;
+    return (
+      <p className="text-sm leading-relaxed text-slate-200">
+        {safeText((block as any).text)}
+      </p>
+    );
   }
 
   if (type === "ul") {
@@ -173,8 +198,12 @@ function BlockRenderer({ block }: { block: Block }) {
   // Unknown block type: render safely so content never disappears
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-      <p className="text-xs text-slate-400">Unsupported block type: {safeText(type)}</p>
-      <pre className="mt-2 overflow-auto text-xs text-slate-200">{JSON.stringify(block, null, 2)}</pre>
+      <p className="text-xs text-slate-400">
+        Unsupported block type: {safeText(type)}
+      </p>
+      <pre className="mt-2 overflow-auto text-xs text-slate-200">
+        {JSON.stringify(block, null, 2)}
+      </pre>
     </div>
   );
 }
@@ -212,7 +241,9 @@ export default function LegacyReportClient(props: { token: string; tid: string }
         try {
           json = text ? (JSON.parse(text) as API) : null;
         } catch {
-          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
+          );
         }
 
         if (!res.ok || !json || json.ok === false || !json.data) {
@@ -236,7 +267,10 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     };
   }, [token, tid]);
 
-  const sectionGroups = useMemo(() => normaliseSections(data?.sections ?? null), [data?.sections]);
+  const sectionGroups = useMemo(
+    () => normaliseSections(data?.sections ?? null),
+    [data?.sections]
+  );
 
   if (loading) {
     return (
@@ -258,7 +292,9 @@ export default function LegacyReportClient(props: { token: string; tid: string }
           <h1 className="text-2xl font-semibold">Personalised report</h1>
           <p className="text-sm text-red-400">Could not load your report.</p>
           <details className="rounded-lg border border-slate-700 bg-slate-950 p-4 text-xs text-slate-50">
-            <summary className="cursor-pointer font-medium">Debug information</summary>
+            <summary className="cursor-pointer font-medium">
+              Debug information
+            </summary>
             <div className="mt-2 space-y-2">
               <div>Error: {loadError ?? "Unknown"}</div>
               <div>token: {token}</div>
@@ -273,7 +309,6 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   const orgName = data.org_name || data.test_name || data.org_slug;
   const participantName = getFullName(data.taker);
 
-  // sorted top 3 profiles
   const sortedProfiles = [...data.profile_labels]
     .map((p) => ({ ...p, pct: data.profile_percentages[p.code] ?? 0 }))
     .sort((a, b) => (b.pct || 0) - (a.pct || 0));
@@ -289,14 +324,19 @@ export default function LegacyReportClient(props: { token: string; tid: string }
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-16 pt-8 md:px-6 space-y-8">
         {/* HEADER */}
         <header className="rounded-2xl border border-white/10 bg-white/5 p-6">
-          <p className="text-xs font-semibold tracking-[0.18em] text-slate-300">PERSONALISED REPORT</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">{data.test_name}</h1>
+          <p className="text-xs font-semibold tracking-[0.18em] text-slate-300">
+            PERSONALISED REPORT
+          </p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">
+            {data.test_name}
+          </h1>
           <p className="mt-2 text-sm text-slate-200">
-            For <span className="font-semibold">{participantName}</span> · Organisation:{" "}
-            <span className="font-semibold">{orgName}</span>
+            For <span className="font-semibold">{participantName}</span> ·
+            Organisation: <span className="font-semibold">{orgName}</span>
           </p>
           <p className="mt-1 text-sm text-slate-300">
-            Top profile: <span className="font-semibold">{data.top_profile_name}</span>
+            Top profile:{" "}
+            <span className="font-semibold">{data.top_profile_name}</span>
           </p>
         </header>
 
@@ -313,10 +353,15 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                       <span className="text-slate-100 font-medium">
                         {f.name} ({f.code})
                       </span>
-                      <span className="text-slate-300">{Math.round(v * 100)}%</span>
+                      <span className="text-slate-300">
+                        {Math.round(v * 100)}%
+                      </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-white/10">
-                      <div className="h-2 rounded-full bg-white/60" style={{ width: `${v * 100}%` }} />
+                      <div
+                        className="h-2 rounded-full bg-white/60"
+                        style={{ width: `${v * 100}%` }}
+                      />
                     </div>
                   </div>
                 );
@@ -327,15 +372,24 @@ export default function LegacyReportClient(props: { token: string; tid: string }
           <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
             <h2 className="text-lg font-semibold">Top profile mix</h2>
             <p className="mt-2 text-sm text-slate-300">
-              Primary: <span className="text-slate-100 font-semibold">{primary?.name}</span>
+              Primary:{" "}
+              <span className="text-slate-100 font-semibold">
+                {primary?.name}
+              </span>
               {secondary?.name ? (
                 <>
-                  {" · "}Secondary: <span className="text-slate-100 font-semibold">{secondary.name}</span>
+                  {" · "}Secondary:{" "}
+                  <span className="text-slate-100 font-semibold">
+                    {secondary.name}
+                  </span>
                 </>
               ) : null}
               {tertiary?.name ? (
                 <>
-                  {" · "}Tertiary: <span className="text-slate-100 font-semibold">{tertiary.name}</span>
+                  {" · "}Tertiary:{" "}
+                  <span className="text-slate-100 font-semibold">
+                    {tertiary.name}
+                  </span>
                 </>
               ) : null}
             </p>
@@ -347,10 +401,15 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                   <div key={p.code} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-100 font-medium">{p.name}</span>
-                      <span className="text-slate-300">{Math.round(v * 100)}%</span>
+                      <span className="text-slate-300">
+                        {Math.round(v * 100)}%
+                      </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-white/10">
-                      <div className="h-2 rounded-full bg-white/60" style={{ width: `${v * 100}%` }} />
+                      <div
+                        className="h-2 rounded-full bg-white/60"
+                        style={{ width: `${v * 100}%` }}
+                      />
                     </div>
                   </div>
                 );
@@ -371,7 +430,9 @@ export default function LegacyReportClient(props: { token: string; tid: string }
           ) : (
             sectionGroups.map((g) => (
               <div key={g.groupKey} className="space-y-4">
-                <h2 className="text-xl font-semibold">{titleForGroupKey(g.groupKey)}</h2>
+                <h2 className="text-xl font-semibold">
+                  {titleForGroupKey(g.groupKey)}
+                </h2>
 
                 {g.sections.map((s, idx) => (
                   <article
@@ -379,7 +440,9 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                     className="rounded-2xl border border-white/10 bg-white/5 p-6"
                   >
                     {s.title ? (
-                      <h3 className="text-lg font-semibold text-white">{safeText(s.title)}</h3>
+                      <h3 className="text-lg font-semibold text-white">
+                        {safeText(s.title)}
+                      </h3>
                     ) : null}
 
                     {Array.isArray(s.blocks) && s.blocks.length > 0 ? (
@@ -407,3 +470,4 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     </div>
   );
 }
+
