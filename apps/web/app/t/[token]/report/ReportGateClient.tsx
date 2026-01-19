@@ -3,10 +3,9 @@
 
 import { useEffect, useState } from "react";
 import AppBackground from "@/components/ui/AppBackground";
-import { getBaseUrl } from "@/lib/server-url";
 
 import LegacyReportClient from "./LegacyReportClient"; // ✅ LEAD storage renderer
-import LegacyOrgReportClient from "./LegacyOrgReportClient"; // ✅ Team Puzzle / Competency Coach full legacy renderer
+import LegacyOrgReportClient from "./LegacyOrgReportClient"; // ✅ Team Puzzle / Competency Coach + base legacy renderer
 
 type GateMode = "loading" | "storage" | "legacy" | "error";
 
@@ -26,6 +25,14 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
   const [mode, setMode] = useState<GateMode>("loading");
   const [err, setErr] = useState<string | null>(null);
 
+  // Optional: show what decision was made (helps debug quickly without guessing)
+  const [decisionDebug, setDecisionDebug] = useState<{
+    url?: string;
+    version?: string;
+    useStorageFramework?: boolean;
+    decided?: "storage" | "legacy";
+  } | null>(null);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -33,6 +40,7 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
       try {
         setMode("loading");
         setErr(null);
+        setDecisionDebug(null);
 
         if (!tid) {
           setMode("error");
@@ -40,20 +48,21 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
           return;
         }
 
-        const base = await getBaseUrl();
-        if (cancelled) return;
-
-        // We only use this call to decide which renderer to show.
-        // - LEAD tests return portal-v2-storage-optin and sections/debug.useStorageFramework true.
-        const url = `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(
-          tid
-        )}`;
+        // IMPORTANT:
+        // Use relative URL so we don't depend on base-url resolution,
+        // and we avoid any environment mismatch.
+        const url = `/api/public/test/${encodeURIComponent(
+          token
+        )}/report?tid=${encodeURIComponent(tid)}`;
 
         const res = await fetch(url, { cache: "no-store" });
         const ct = res.headers.get("content-type") ?? "";
+
         if (!ct.includes("application/json")) {
           const text = await res.text();
-          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
+          );
         }
 
         const json = (await res.json()) as GateAPI;
@@ -62,12 +71,29 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
           throw new Error(json.error || `HTTP ${res.status}`);
         }
 
-        const useStorage =
-          Boolean(json.data?.debug?.useStorageFramework) ||
-          Boolean(json.data?.sections) ||
-          String(json.data?.version || "").includes("storage");
+        // ✅ FIX:
+        // Do NOT treat "sections" as proof of storage.
+        // Legacy responses can also contain sections.
+        // Only use explicit opt-in signals.
+        const explicitStorageFlag = Boolean(
+          json.data?.debug?.useStorageFramework
+        );
+        const version = String(json.data?.version || "");
+        const versionSuggestsStorage =
+          version.toLowerCase().includes("storage") ||
+          version.toLowerCase().includes("portal-v2");
+
+        const useStorage = explicitStorageFlag || versionSuggestsStorage;
 
         if (cancelled) return;
+
+        setDecisionDebug({
+          url,
+          version: json.data?.version,
+          useStorageFramework: json.data?.debug?.useStorageFramework,
+          decided: useStorage ? "storage" : "legacy",
+        });
+
         setMode(useStorage ? "storage" : "legacy");
       } catch (e: any) {
         if (cancelled) return;
@@ -102,9 +128,12 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
           <h1 className="text-2xl font-semibold">Personalised report</h1>
           <p className="text-sm text-red-400">Could not load your report.</p>
           <details className="rounded-lg border border-slate-700 bg-slate-950 p-4 text-xs text-slate-50">
-            <summary className="cursor-pointer font-medium">Debug information</summary>
+            <summary className="cursor-pointer font-medium">
+              Debug information
+            </summary>
             <div className="mt-2 space-y-2">
               <div>Error: {err ?? "Unknown"}</div>
+              {decisionDebug?.url ? <div>URL: {decisionDebug.url}</div> : null}
             </div>
           </details>
         </main>
@@ -117,6 +146,6 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
     return <LegacyReportClient token={token} tid={tid} />;
   }
 
-  // ✅ Team Puzzle / Competency Coach full signed-off legacy renderer
+  // ✅ Team Puzzle / Competency Coach / base legacy renderer
   return <LegacyOrgReportClient token={token} tid={tid} />;
 }
