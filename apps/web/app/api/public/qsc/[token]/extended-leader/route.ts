@@ -8,7 +8,6 @@ import { createClient } from "@supabase/supabase-js";
 
 type Audience = "entrepreneur" | "leader";
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
-type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
 
 type QscResultsRow = {
   id: string;
@@ -16,7 +15,7 @@ type QscResultsRow = {
   token: string;
   taker_id: string | null;
   audience: Audience | null;
-  combined_profile_code: string | null; // may be FLOW_VECTOR
+  combined_profile_code: string | null; // may be FLOW_VECTOR or A1..D5
   qsc_profile_id: string | null;
   created_at: string;
 };
@@ -28,7 +27,6 @@ type QscProfileRow = {
   profile_code: string | null; // A1..D5
   profile_label: string | null;
 
-  // snapshot fallback fields
   how_to_communicate: string | null;
   decision_style: string | null;
   business_challenges: string | null;
@@ -76,7 +74,9 @@ type LeaderExtendedRow = {
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
@@ -94,7 +94,7 @@ function safeStr(v: any): string | null {
 
 function looksLikePersonaCode(v: string | null | undefined) {
   if (!v) return false;
-  return /^[ABCD][1-5]$/i.test(v.trim());
+  return /^[ABCD][1-5]$/i.test(String(v).trim());
 }
 
 function toABCD(code: string | null | undefined): "A" | "B" | "C" | "D" | null {
@@ -131,7 +131,6 @@ function combinedToPersonaCode(combined: string | null | undefined): string | nu
   const raw = String(combined || "").trim().toUpperCase();
   if (!raw) return null;
 
-  // already A1..D5
   if (looksLikePersonaCode(raw)) return raw;
 
   // expected PERSONALITY_MINDSET e.g. FLOW_VECTOR
@@ -142,19 +141,28 @@ function combinedToPersonaCode(combined: string | null | undefined): string | nu
   const mindset = parts[1];
 
   const letter =
-    personality === "FIRE" ? "A"
-    : personality === "FLOW" ? "B"
-    : personality === "FORM" ? "C"
-    : personality === "FIELD" ? "D"
-    : null;
+    personality === "FIRE"
+      ? "A"
+      : personality === "FLOW"
+      ? "B"
+      : personality === "FORM"
+      ? "C"
+      : personality === "FIELD"
+      ? "D"
+      : null;
 
   const lvl =
-    mindset === "ORIGIN" ? 1
-    : mindset === "MOMENTUM" ? 2
-    : mindset === "VECTOR" ? 3
-    : mindset === "ORBIT" ? 4
-    : mindset === "QUANTUM" ? 5
-    : null;
+    mindset === "ORIGIN"
+      ? 1
+      : mindset === "MOMENTUM"
+      ? 2
+      : mindset === "VECTOR"
+      ? 3
+      : mindset === "ORBIT"
+      ? 4
+      : mindset === "QUANTUM"
+      ? 5
+      : null;
 
   if (!letter || !lvl) return null;
   return `${letter}${lvl}`;
@@ -249,13 +257,10 @@ export async function GET(
     }
 
     const url = new URL(req.url);
-    const tid = String(url.searchParams.get("tid") || "").trim(); // test_takers.id (UUID)
+    const tid = String(url.searchParams.get("tid") || "").trim();
 
     const sb = supa();
 
-    // ---------------------------
-    // 1) Resolve qsc_results row
-    // ---------------------------
     const resultSelect = `
       id,
       test_id,
@@ -268,9 +273,30 @@ export async function GET(
     `;
 
     let resultRow: QscResultsRow | null = null;
+    let resolvedBy: "result_id" | "token+taker_id" | "token_unique" | null = null;
 
-    // token + tid
-    if (tid && isUuidLike(tid)) {
+    // (0) token is qsc_results.id
+    if (isUuidLike(tokenParam)) {
+      const { data, error } = await sb
+        .from("qsc_results")
+        .select(resultSelect)
+        .eq("id", tokenParam)
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
+      }
+      if (data) {
+        resultRow = data as any;
+        resolvedBy = "result_id";
+      }
+    }
+
+    // (1) token + tid
+    if (!resultRow && tid && isUuidLike(tid)) {
       const { data, error } = await sb
         .from("qsc_results")
         .select(resultSelect)
@@ -286,57 +312,68 @@ export async function GET(
           { status: 500 }
         );
       }
-      if (data) resultRow = data as unknown as QscResultsRow;
+      if (data) {
+        resultRow = data as any;
+        resolvedBy = "token+taker_id";
+      }
     }
 
-    // token latest
+    // (2) token only (must be unique)
     if (!resultRow) {
-      const { data, error } = await sb
+      const { count, error: countErr } = await sb
         .from("qsc_results")
-        .select(resultSelect)
-        .eq("token", tokenParam)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .select("id", { count: "exact", head: true })
+        .eq("token", tokenParam);
 
-      if (error) {
+      if (countErr) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { ok: false, error: `qsc_results count failed: ${countErr.message}` },
           { status: 500 }
         );
       }
-      if (data) resultRow = data as unknown as QscResultsRow;
-    }
 
-    // tokenParam might be qsc_results.id
-    if (!resultRow && isUuidLike(tokenParam)) {
-      const { data, error } = await sb
-        .from("qsc_results")
-        .select(resultSelect)
-        .eq("id", tokenParam)
-        .maybeSingle();
-
-      if (error) {
+      const c = Number(count || 0);
+      if (!tid && c > 1) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
+          {
+            ok: false,
+            error: "AMBIGUOUS_TOKEN_REQUIRES_TID",
+            debug: { token: tokenParam, tid: tid || null, matches: c },
+          },
+          { status: 409 }
         );
       }
-      if (data) resultRow = data as unknown as QscResultsRow;
+
+      if (c === 1) {
+        const { data, error } = await sb
+          .from("qsc_results")
+          .select(resultSelect)
+          .eq("token", tokenParam)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          return NextResponse.json(
+            { ok: false, error: `qsc_results load failed: ${error.message}` },
+            { status: 500 }
+          );
+        }
+        if (data) {
+          resultRow = data as any;
+          resolvedBy = "token_unique";
+        }
+      }
     }
 
     if (!resultRow) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "RESULT_NOT_FOUND",
-          debug: { token: tokenParam, tid: tid || null },
-        },
+        { ok: false, error: "RESULT_NOT_FOUND", debug: { token: tokenParam, tid: tid || null } },
         { status: 404 }
       );
     }
 
-    // guard: leader only
+    // ✅ Audience guard: leader-only endpoint
     if (resultRow.audience && resultRow.audience !== "leader") {
       return NextResponse.json(
         {
@@ -348,9 +385,7 @@ export async function GET(
       );
     }
 
-    // ---------------------------
-    // 2) Load taker
-    // ---------------------------
+    // Load taker
     let taker: TestTakerRow | null = null;
 
     if (resultRow.taker_id) {
@@ -359,8 +394,7 @@ export async function GET(
         .select("id, first_name, last_name, email, company, role_title")
         .eq("id", resultRow.taker_id)
         .maybeSingle();
-
-      if (!error && data) taker = data as unknown as TestTakerRow;
+      if (!error && data) taker = data as any;
     }
 
     if (!taker) {
@@ -371,13 +405,10 @@ export async function GET(
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-
-      if (!error && data) taker = data as unknown as TestTakerRow;
+      if (!error && data) taker = data as any;
     }
 
-    // ---------------------------
-    // 3) Load qsc_profiles snapshot (WITH fallback columns)
-    // ---------------------------
+    // Load qsc_profiles snapshot (must exist for leader extended)
     let profile: QscProfileRow | null = null;
 
     const profileSelect = `
@@ -395,7 +426,6 @@ export async function GET(
       full_internal_insights
     `;
 
-    // primary: by qsc_profile_id (best)
     if (resultRow.qsc_profile_id) {
       const { data, error } = await sb
         .from("qsc_profiles")
@@ -409,28 +439,20 @@ export async function GET(
           { status: 500 }
         );
       }
-      if (data) profile = data as unknown as QscProfileRow;
+      if (data) profile = data as any;
     }
 
-    // fallback: by profile_code
-    // IMPORTANT: combined_profile_code may be FLOW_VECTOR so map it -> B3 first
+    // fallback: try by persona_code derived from combined_profile_code if needed
     if (!profile) {
       const personaCode = combinedToPersonaCode(resultRow.combined_profile_code);
-      const profileCodeToTry =
-        (personaCode && looksLikePersonaCode(personaCode) ? personaCode : null) ||
-        (looksLikePersonaCode(resultRow.combined_profile_code || "")
-          ? String(resultRow.combined_profile_code).trim().toUpperCase()
-          : null);
-
-      if (profileCodeToTry) {
+      if (personaCode && looksLikePersonaCode(personaCode)) {
         const { data } = await sb
           .from("qsc_profiles")
           .select(profileSelect)
-          .eq("profile_code", profileCodeToTry)
+          .eq("profile_code", personaCode)
           .limit(1)
           .maybeSingle();
-
-        if (data) profile = data as unknown as QscProfileRow;
+        if (data) profile = data as any;
       }
     }
 
@@ -464,9 +486,7 @@ export async function GET(
       );
     }
 
-    // ---------------------------
-    // 4) Load leader extended row
-    // ---------------------------
+    // Load leader extended row (global table)
     const { data: extRow, error: extErr } = await sb
       .from("qsc_leader_extended_reports")
       .select(
@@ -520,6 +540,7 @@ export async function GET(
         __debug: {
           token: tokenParam,
           tid: tid || null,
+          resolved_by: resolvedBy,
           combined_profile_code_raw: resultRow.combined_profile_code,
           combined_profile_code_mapped: combinedToPersonaCode(resultRow.combined_profile_code),
           personality_code_raw: profile.personality_code,
@@ -527,7 +548,6 @@ export async function GET(
           mindset_level: mindsetLevel,
           extended_found: Boolean(extRow),
           merge_source: source,
-          resolved_by: tid && isUuidLike(tid) ? "token+taker_id" : "token_latest",
         },
       },
       { status: 200 }

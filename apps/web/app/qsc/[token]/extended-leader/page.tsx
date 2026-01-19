@@ -1,3 +1,4 @@
+// apps/web/app/qsc/[token]/extended-leader/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -194,11 +195,7 @@ function InsightSection({
   );
 }
 
-export default function QscLeaderExtendedPage({
-  params,
-}: {
-  params: { token: string };
-}) {
+export default function QscLeaderExtendedPage({ params }: { params: { token: string } }) {
   const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
@@ -218,9 +215,7 @@ export default function QscLeaderExtendedPage({
         setErr(null);
 
         const apiUrl = tid
-          ? `/api/public/qsc/${encodeURIComponent(
-              token
-            )}/extended-leader?tid=${encodeURIComponent(tid)}`
+          ? `/api/public/qsc/${encodeURIComponent(token)}/extended-leader?tid=${encodeURIComponent(tid)}`
           : `/api/public/qsc/${encodeURIComponent(token)}/extended-leader`;
 
         const res = await fetch(apiUrl, { cache: "no-store" });
@@ -228,14 +223,17 @@ export default function QscLeaderExtendedPage({
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const text = await res.text();
-          throw new Error(
-            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
-          );
+          throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
         }
 
         const j = (await res.json()) as any;
 
         if (!res.ok || j?.ok === false) {
+          if (res.status === 409 && String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")) {
+            throw new Error(
+              "This link has multiple results. Please open the Leader Extended page from the Snapshot (or add ?tid=...) so we can load the correct report."
+            );
+          }
           throw new Error(j?.error || `HTTP ${res.status}`);
         }
 
@@ -303,15 +301,17 @@ export default function QscLeaderExtendedPage({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
             Quantum Source Code
           </p>
-          <h1 className="mt-3 text-3xl font-bold">
-            Preparing Leader Extended Source Code…
-          </h1>
+          <h1 className="mt-3 text-3xl font-bold">Preparing Leader Extended Source Code…</h1>
         </main>
       </div>
     );
   }
 
   if (err || !results) {
+    const snapshotHref = tid
+      ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
+      : `/qsc/${encodeURIComponent(token)}`;
+
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
         <AppBackground />
@@ -321,9 +321,18 @@ export default function QscLeaderExtendedPage({
           </p>
           <h1 className="text-3xl font-bold">Couldn&apos;t load insights</h1>
           <p className="text-[15px] text-slate-300">
-            We weren&apos;t able to load the Leader Extended Source Code internal
-            insights for this profile.
+            We weren&apos;t able to load the Leader Extended Source Code internal insights for this profile.
           </p>
+
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Link
+              href={snapshotHref}
+              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium hover:bg-slate-800"
+            >
+              ← Back to Snapshot
+            </Link>
+          </div>
+
           <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs text-slate-100 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
@@ -348,10 +357,7 @@ export default function QscLeaderExtendedPage({
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <AppBackground />
-      <main
-        ref={reportRef}
-        className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"
-      >
+      <main ref={reportRef} className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
         <header className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
             <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
@@ -362,16 +368,12 @@ export default function QscLeaderExtendedPage({
             </h1>
             {takerDisplayName && (
               <p className="text-[15px] text-slate-300">
-                For:{" "}
-                <span className="font-semibold text-slate-50">
-                  {takerDisplayName}
-                </span>
+                For: <span className="font-semibold text-slate-50">{takerDisplayName}</span>
               </p>
             )}
             <p className="text-[15px] leading-relaxed text-slate-300 max-w-2xl">
-              Deep leadership, messaging and positioning insights for this
-              profile. Use this as your reference when coaching, leading,
-              delegating and structuring accountability.
+              Deep leadership, messaging and positioning insights for this profile. Use this as your reference
+              when coaching, leading, delegating and structuring accountability.
             </p>
           </div>
 
@@ -399,17 +401,13 @@ export default function QscLeaderExtendedPage({
               })}
             </span>
             <span className="text-[11px] text-slate-500">
-              Combined profile:{" "}
-              <span className="font-semibold text-slate-100">
-                {personaLabel}
-              </span>
+              Combined profile: <span className="font-semibold text-slate-100">{personaLabel}</span>
             </span>
             {extended && (
               <span className="text-[11px] text-slate-500">
                 Pattern:{" "}
                 <span className="font-semibold text-slate-100">
-                  {extended.personality_label} • {extended.mindset_label} (
-                  {extended.profile_code})
+                  {extended.personality_label} • {extended.mindset_label} ({extended.profile_code})
                 </span>
               </span>
             )}
@@ -423,8 +421,7 @@ export default function QscLeaderExtendedPage({
                 Quick index
               </p>
               <p className="text-[13px] md:text-[14px] leading-relaxed text-slate-300">
-                Jump straight to the section you need during calls, coaching or
-                leadership conversations.
+                Jump straight to the section you need during calls, coaching or leadership conversations.
               </p>
             </div>
             <div className="mt-2 flex flex-col gap-2">
@@ -460,11 +457,9 @@ export default function QscLeaderExtendedPage({
                   How to lead this profile well
                 </h2>
                 <p className="text-[15px] leading-relaxed text-slate-200 max-w-2xl">
-                  This page is for you as the{" "}
-                  <span className="font-semibold">test owner</span>. It gives
-                  you the leadership, communication and trust insights you need
-                  for this profile — without needing the full Strategic Growth
-                  Report.
+                  This page is for you as the <span className="font-semibold">test owner</span>. It gives
+                  you the leadership, communication and trust insights you need for this profile — without
+                  needing the full Strategic Growth Report.
                 </p>
               </div>
 
@@ -474,23 +469,15 @@ export default function QscLeaderExtendedPage({
                     <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                       Personality layer
                     </p>
-                    <p className="mt-1 font-semibold">
-                      {extended.personality_label}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-300">
-                      How they naturally think, lead and relate.
-                    </p>
+                    <p className="mt-1 font-semibold">{extended.personality_label}</p>
+                    <p className="mt-1 text-xs text-slate-300">How they naturally think, lead and relate.</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
                       Mindset layer
                     </p>
-                    <p className="mt-1 font-semibold">
-                      {extended.mindset_label}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-300">
-                      Where they are right now and what helps them grow.
-                    </p>
+                    <p className="mt-1 font-semibold">{extended.mindset_label}</p>
+                    <p className="mt-1 text-xs text-slate-300">Where they are right now and what helps them grow.</p>
                   </div>
                 </div>
               )}

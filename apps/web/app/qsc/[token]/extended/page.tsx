@@ -226,28 +226,24 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
           throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
         }
 
-        const j = (await res.json()) as
-          | ({
-              ok?: boolean;
-              error?: string;
-              results?: QscResultsRow;
-              profile?: QscProfileRow | null;
-              extended?: QscExtendedRow | null;
-              taker?: QscTakerRow | null;
-            } & Record<string, unknown>)
-          | { ok?: boolean; error?: string };
+        const j = (await res.json()) as any;
 
-        if (!res.ok || (j as any).ok === false) {
-          throw new Error((j as any).error || `HTTP ${res.status}`);
+        if (!res.ok || j?.ok === false) {
+          // Special handling: ambiguous token now returns 409
+          if (res.status === 409 && String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")) {
+            throw new Error(
+              "This link has multiple results. Please open the Extended page from the Snapshot (or add ?tid=...) so we can load the correct report."
+            );
+          }
+          throw new Error(j?.error || `HTTP ${res.status}`);
         }
 
-        const cast = j as any;
-        if (alive && cast.results) {
+        if (alive && j?.results) {
           setPayload({
-            results: cast.results,
-            profile: cast.profile ?? null,
-            extended: cast.extended ?? null,
-            taker: cast.taker ?? null,
+            results: j.results,
+            profile: j.profile ?? null,
+            extended: j.extended ?? null,
+            taker: j.taker ?? null,
           });
         }
       } catch (e: any) {
@@ -313,6 +309,10 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
   }
 
   if (err || !results) {
+    const snapshotHref = tid
+      ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
+      : `/qsc/${encodeURIComponent(token)}`;
+
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
         <AppBackground />
@@ -324,6 +324,16 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
           <p className="text-[15px] text-slate-300">
             We weren&apos;t able to load the Extended Source Code internal insights for this profile.
           </p>
+
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Link
+              href={snapshotHref}
+              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium hover:bg-slate-800"
+            >
+              ← Back to Snapshot
+            </Link>
+          </div>
+
           <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs text-slate-100 whitespace-pre-wrap">
             {err || "No data"}
           </pre>
@@ -663,5 +673,6 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
     </div>
   );
 }
+
 
 
