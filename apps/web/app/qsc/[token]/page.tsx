@@ -100,6 +100,7 @@ type ApiPayload = {
   persona?: QscLeaderPersonaRow | QscEntrepreneurPersonaRow | null;
   taker?: TestTakerRow | null;
   __debug?: any;
+  error?: string;
 };
 
 const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
@@ -170,8 +171,7 @@ const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
 };
 
 function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
-  const total =
-    data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
+  const total = data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
 
   const radius = 60;
   const strokeWidth = 20;
@@ -243,7 +243,6 @@ export default function QscSnapshotPage() {
 
   const snapshotRef = useRef<HTMLDivElement>(null);
 
-  // ✅ derive data safely (no hooks after returns)
   const data = payload?.results ?? null;
   const isLeader = data?.audience === "leader";
   const takerName = getFullName(payload?.taker);
@@ -334,9 +333,10 @@ export default function QscSnapshotPage() {
   if (loading) return <div className="p-10">Loading snapshot…</div>;
   if (error || !data) return <div className="p-10 text-red-600">{error || "No data"}</div>;
 
-  const strategicHref = isLeader
-    ? `/qsc/${encodeURIComponent(token)}/leader${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`
-    : `/qsc/${encodeURIComponent(token)}/entrepreneur${tid ? `?tid=${encodeURIComponent(tid)}` : ""}`;
+  // ✅ PUBLIC, taker-facing Strategic Growth Report (same for leader & entrepreneur)
+  const strategicHref = `/qsc/${encodeURIComponent(token)}/strategic${
+    tid ? `?tid=${encodeURIComponent(tid)}` : ""
+  }`;
 
   const personaLabelRaw =
     (payload?.persona as any)?.profile_label || payload?.profile?.profile_label || null;
@@ -351,36 +351,25 @@ export default function QscSnapshotPage() {
     null;
 
   const howToCommunicate =
-    safeText((payload?.persona as any)?.how_to_communicate) ||
-    safeText(payload?.profile?.how_to_communicate);
+    safeText((payload?.persona as any)?.how_to_communicate) || safeText(payload?.profile?.how_to_communicate);
 
   const decisionStyle =
-    safeText((payload?.persona as any)?.decision_style) ||
-    safeText(payload?.profile?.decision_style);
+    safeText((payload?.persona as any)?.decision_style) || safeText(payload?.profile?.decision_style);
 
   const businessChallenges =
-    safeText((payload?.persona as any)?.business_challenges) ||
-    safeText(payload?.profile?.business_challenges);
+    safeText((payload?.persona as any)?.business_challenges) || safeText(payload?.profile?.business_challenges);
 
   const trustSignals =
-    safeText((payload?.persona as any)?.trust_signals) ||
-    safeText(payload?.profile?.trust_signals);
+    safeText((payload?.persona as any)?.trust_signals) || safeText(payload?.profile?.trust_signals);
 
   const offerFit =
-    safeText((payload?.persona as any)?.offer_fit) ||
-    safeText(payload?.profile?.offer_fit);
+    safeText((payload?.persona as any)?.offer_fit) || safeText(payload?.profile?.offer_fit);
 
   const saleBlockers =
-    safeText((payload?.persona as any)?.sale_blockers) ||
-    safeText(payload?.profile?.sale_blockers);
+    safeText((payload?.persona as any)?.sale_blockers) || safeText(payload?.profile?.sale_blockers);
 
   const hasPlaybook =
-    !!howToCommunicate ||
-    !!decisionStyle ||
-    !!businessChallenges ||
-    !!trustSignals ||
-    !!offerFit ||
-    !!saleBlockers;
+    !!howToCommunicate || !!decisionStyle || !!businessChallenges || !!trustSignals || !!offerFit || !!saleBlockers;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -391,15 +380,18 @@ export default function QscSnapshotPage() {
             <h1 className="text-3xl font-bold">
               {isLeader ? "Your Leadership Snapshot" : "Your Buyer Persona Snapshot"}
             </h1>
-            <p className="text-sm text-slate-600">Quantum Source Code Overview</p>
+            <p className="text-sm text-slate-400">Quantum Source Code Overview</p>
             {takerName && (
               <p className="text-xs text-slate-500 mt-1">
-                For: <span className="font-semibold">{takerName}</span>
+                For: <span className="font-semibold text-slate-200">{takerName}</span>
               </p>
             )}
           </div>
 
-          <button onClick={downloadPdf} className="rounded-lg border px-3 py-1.5 text-xs bg-white">
+          <button
+            onClick={downloadPdf}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs bg-slate-900 text-slate-50 hover:bg-slate-800"
+          >
             Download PDF
           </button>
         </header>
@@ -437,9 +429,7 @@ export default function QscSnapshotPage() {
                       Secondary personality
                     </div>
                     <div className="text-slate-100 font-semibold">
-                      {data.secondary_personality
-                        ? PERSONALITY_LABELS[data.secondary_personality]
-                        : "—"}
+                      {data.secondary_personality ? PERSONALITY_LABELS[data.secondary_personality] : "—"}
                     </div>
                   </div>
                   <div>
@@ -540,7 +530,7 @@ export default function QscSnapshotPage() {
           </div>
         </section>
 
-        {/* ADD BACK THE 2 GRAPH CARDS (from strategic report) */}
+        {/* Graph cards */}
         <section className="grid gap-6 md:grid-cols-2 items-start">
           <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
             <h2 className="text-lg font-semibold">
@@ -597,7 +587,7 @@ export default function QscSnapshotPage() {
         </section>
 
         {/* Matrix (keep) */}
-        <section className="rounded-xl bg-white border p-6">
+        <section className="rounded-xl bg-white border p-6 text-slate-900">
           <h2 className="font-semibold mb-3">Persona Matrix</h2>
           <QscMatrix primaryPersonality={data.primary_personality} primaryMindset={data.primary_mindset} />
         </section>
@@ -611,3 +601,4 @@ export default function QscSnapshotPage() {
     </div>
   );
 }
+
