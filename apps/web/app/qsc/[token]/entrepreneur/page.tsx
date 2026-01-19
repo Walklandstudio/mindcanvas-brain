@@ -548,12 +548,6 @@ export default function QscEntrepreneurStrategicReportPage({
                 {downloading ? "Preparing PDF…" : "Download PDF"}
               </button>
 
-              <Link
-                href={snapshotHref}
-                className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-50 hover:bg-slate-800"
-              >
-                Back to Snapshot
-              </Link>
             </div>
 
             <span>

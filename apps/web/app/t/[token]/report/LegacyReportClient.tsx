@@ -98,7 +98,9 @@ function getFullName(taker: ResultData["taker"]): string {
   return full || "Participant";
 }
 
-function normaliseSections(sections: SectionsShape | null | undefined): Array<{ groupKey: string; sections: Section[] }> {
+function normaliseSections(
+  sections: SectionsShape | null | undefined
+): Array<{ groupKey: string; sections: Section[] }> {
   if (!sections) return [];
   if (Array.isArray(sections)) return [{ groupKey: "sections", sections }];
   if (typeof sections === "object") {
@@ -137,9 +139,23 @@ function isIntroLetterSectionTitle(title?: string): boolean {
   return t.startsWith("welcome from");
 }
 
-function cardClass(): string {
-  // Dark “real report” card style (like your reference screenshot)
-  return "rounded-2xl border border-white/10 bg-white/5 p-6 md:p-7 shadow-[0_10px_30px_rgba(0,0,0,0.35)]";
+function looksLikeProfileDeepDiveTitle(title: string, topProfileName: string): boolean {
+  const t = (title || "").trim().toLowerCase();
+  const p = (topProfileName || "").trim().toLowerCase();
+  if (!t) return false;
+  if (p && t.includes(p)) return true;
+  if (t.includes("operating style") || t.includes("in depth")) return true;
+  if (t.includes("your profile") || t.includes("your style")) return true;
+  return false;
+}
+
+function whiteCardClass(): string {
+  // White containers like your other reports
+  return "rounded-2xl border border-slate-200 bg-white p-6 md:p-7 shadow-sm";
+}
+
+function darkSidebarCardClass(): string {
+  return "rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_10px_30px_rgba(0,0,0,0.35)]";
 }
 
 // ---------------- blocks ----------------
@@ -147,29 +163,29 @@ function cardClass(): string {
 function BlockRenderer({ block }: { block: Block }) {
   const type = block?.type;
 
-  if (type === "divider") return <hr className="my-6 border-white/10" />;
+  if (type === "divider") return <hr className="my-6 border-slate-200" />;
 
-  if (type === "h1") return <h1 className="text-2xl font-semibold text-white">{safeText((block as any).text)}</h1>;
-  if (type === "h2") return <h2 className="text-xl font-semibold text-white">{safeText((block as any).text)}</h2>;
-  if (type === "h3") return <h3 className="text-lg font-semibold text-white">{safeText((block as any).text)}</h3>;
+  if (type === "h1") return <h1 className="text-2xl font-semibold text-slate-900">{safeText((block as any).text)}</h1>;
+  if (type === "h2") return <h2 className="text-xl font-semibold text-slate-900">{safeText((block as any).text)}</h2>;
+  if (type === "h3") return <h3 className="text-lg font-semibold text-slate-900">{safeText((block as any).text)}</h3>;
 
   // ✅ h4 used heavily in LEAD content as sub-headers
   if (type === "h4") {
     return (
-      <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+      <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
         {safeText((block as any).text)}
       </h4>
     );
   }
 
   if (type === "p") {
-    return <p className="text-sm leading-relaxed text-slate-200">{safeText((block as any).text)}</p>;
+    return <p className="text-sm leading-relaxed text-slate-700">{safeText((block as any).text)}</p>;
   }
 
   if (type === "ul") {
     const items = Array.isArray((block as any).items) ? (block as any).items : [];
     return (
-      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-200">
+      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
         {items.map((it: string, i: number) => (
           <li key={i}>{safeText(it)}</li>
         ))}
@@ -180,7 +196,7 @@ function BlockRenderer({ block }: { block: Block }) {
   if (type === "ol") {
     const items = Array.isArray((block as any).items) ? (block as any).items : [];
     return (
-      <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-200">
+      <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-700">
         {items.map((it: string, i: number) => (
           <li key={i}>{safeText(it)}</li>
         ))}
@@ -192,18 +208,18 @@ function BlockRenderer({ block }: { block: Block }) {
     const text = safeText((block as any).text);
     const cite = safeText((block as any).cite);
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <p className="text-sm italic leading-relaxed text-slate-100">“{text}”</p>
-        {cite ? <p className="mt-2 text-xs text-slate-400">— {cite}</p> : null}
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-sm italic leading-relaxed text-slate-800">“{text}”</p>
+        {cite ? <p className="mt-2 text-xs text-slate-500">— {cite}</p> : null}
       </div>
     );
   }
 
   // keep unknown visible (dev safety)
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-      <p className="text-xs text-slate-400">Unsupported block type: {safeText(type)}</p>
-      <pre className="mt-2 overflow-auto text-xs text-slate-200">{JSON.stringify(block, null, 2)}</pre>
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+      <p className="text-xs text-amber-800">Unsupported block type: {safeText(type)}</p>
+      <pre className="mt-2 overflow-auto text-xs text-slate-700">{JSON.stringify(block, null, 2)}</pre>
     </div>
   );
 }
@@ -220,14 +236,12 @@ function FrequencyDonut(props: {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
 
-  // Stable order A,B,C,D as provided
   const segments = props.labels.map((l) => ({
     code: l.code,
     name: l.name,
     v: pct01(props.values[l.code]),
   }));
 
-  // Build stroke segments around the circle
   let acc = 0;
   const rings = segments.map((s) => {
     const dash = s.v * c;
@@ -237,27 +251,17 @@ function FrequencyDonut(props: {
     return { ...s, dash, gap, offset };
   });
 
-  // “Real report” colors without external libs.
   const colorMap: Record<FrequencyCode, string> = {
-    A: "#38bdf8", // sky
-    B: "#34d399", // emerald
-    C: "#a78bfa", // violet
-    D: "#f59e0b", // amber
+    A: "#38bdf8",
+    B: "#34d399",
+    C: "#a78bfa",
+    D: "#f59e0b",
   };
 
   return (
     <div className="flex items-center gap-4">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        {/* track */}
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="rgba(255,255,255,0.10)"
-          strokeWidth={stroke}
-        />
-        {/* segments */}
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
         {rings.map((seg) => (
           <circle
             key={seg.code}
@@ -273,20 +277,11 @@ function FrequencyDonut(props: {
             transform={`rotate(-90 ${size / 2} ${size / 2})`}
           />
         ))}
-        {/* center */}
-        <circle cx={size / 2} cy={size / 2} r={r - stroke / 2} fill="rgba(5,9,20,0.9)" />
-        <text
-          x="50%"
-          y="48%"
-          textAnchor="middle"
-          fill="rgba(255,255,255,0.85)"
-          fontSize="10"
-          fontWeight="600"
-          letterSpacing="1.5"
-        >
+        <circle cx={size / 2} cy={size / 2} r={r - stroke / 2} fill="#0b1220" opacity="0.06" />
+        <text x="50%" y="48%" textAnchor="middle" fill="#0f172a" fontSize="10" fontWeight="700" letterSpacing="1.5">
           LEAD
         </text>
-        <text x="50%" y="60%" textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="9">
+        <text x="50%" y="60%" textAnchor="middle" fill="#334155" fontSize="9">
           Frequencies
         </text>
       </svg>
@@ -295,15 +290,12 @@ function FrequencyDonut(props: {
         {segments.map((s) => (
           <div key={s.code} className="flex items-center justify-between gap-4 text-sm">
             <div className="flex items-center gap-2">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: colorMap[s.code] }}
-              />
-              <span className="text-slate-100">
-                {s.name} <span className="text-slate-400">({s.code})</span>
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorMap[s.code] }} />
+              <span className="text-slate-800">
+                {s.name} <span className="text-slate-500">({s.code})</span>
               </span>
             </div>
-            <span className="text-slate-200">{Math.round(s.v * 100)}%</span>
+            <span className="text-slate-700">{Math.round(s.v * 100)}%</span>
           </div>
         ))}
       </div>
@@ -376,21 +368,26 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   const nextStepsUrl = (data?.link?.next_steps_url || "").trim();
   const hasNextSteps = Boolean(nextStepsUrl);
 
-  // Flatten all sections for indexing and rendering decisions
   const allSections = useMemo(() => {
     const out: Array<{ groupKey: string; section: Section }> = [];
-    for (const g of sectionGroupsRaw) {
-      for (const s of g.sections) out.push({ groupKey: g.groupKey, section: s });
-    }
+    for (const g of sectionGroupsRaw) for (const s of g.sections) out.push({ groupKey: g.groupKey, section: s });
     return out;
   }, [sectionGroupsRaw]);
 
-  // Intro letter first (usually: "Welcome from ...")
   const introSection = useMemo(() => {
     return allSections.find((x) => isIntroLetterSectionTitle(x.section.title));
   }, [allSections]);
 
-  // Sidebar index: exclude contents section and exclude intro section (because intro is shown first anyway)
+  // detect if we have a real profile deep dive section coming from storage
+  const hasProfileDeepDive = useMemo(() => {
+    if (!data) return false;
+    const top = data.top_profile_name || "";
+    return allSections.some((x) => {
+      const title = (x.section.title || "").trim();
+      return looksLikeProfileDeepDiveTitle(title, top);
+    });
+  }, [allSections, data]);
+
   const indexItems = useMemo(() => {
     const items: Array<{ id: string; title: string; groupKey: string }> = [];
     for (const x of allSections) {
@@ -402,8 +399,18 @@ export default function LegacyReportClient(props: { token: string; tid: string }
       const id = x.section.id ? slugify(x.section.id) : slugify(title);
       items.push({ id: id || slugify(title) || `section-${items.length + 1}`, title, groupKey: x.groupKey });
     }
+
+    // If storage did not return a profile deep dive section, ensure a nav target exists
+    if (data && !hasProfileDeepDive) {
+      items.splice(1, 0, {
+        id: "your-operating-style",
+        title: `Your Operating Style in Depth: ${data.top_profile_name}`,
+        groupKey: "generated",
+      });
+    }
+
     return items;
-  }, [allSections, introSection]);
+  }, [allSections, introSection, data, hasProfileDeepDive]);
 
   async function handleDownloadPdf() {
     if (!reportRef.current) return;
@@ -501,7 +508,6 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     );
   }
 
-  // top 3 profiles
   const sortedProfiles = [...data.profile_labels]
     .map((p) => ({ ...p, pct: data.profile_percentages[p.code] ?? 0 }))
     .sort((a, b) => (b.pct || 0) - (a.pct || 0));
@@ -510,19 +516,73 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   const secondary = sortedProfiles[1];
   const tertiary = sortedProfiles[2];
 
-  // Render groups, but:
-  // - Intro letter shown first separately
-  // - Contents section removed (sidebar replaces it)
-  // - Intro section removed from the rest
   const renderGroups = sectionGroupsRaw.map((g) => {
     const filtered = g.sections.filter((s) => {
       const title = (s.title || "").trim();
       if (title && isContentsSectionTitle(title)) return false;
       if (introSection?.section?.title && title === introSection.section.title) return false;
       return true;
+
     });
     return { ...g, sections: filtered };
   });
+
+  // Generated “profile deep dive” fallback if storage doesn’t include it
+  const GeneratedProfileDeepDive = () => {
+    const topName = data.top_profile_name;
+    const topFreq = data.top_freq;
+
+    const freqLabel = data.frequency_labels.find((f) => f.code === topFreq)?.name || topFreq;
+
+    const secondaryText = secondary?.name ? `, supported by ${secondary.name}` : "";
+    const tertiaryText = tertiary?.name ? ` and ${tertiary.name}` : "";
+
+    return (
+      <article id="your-operating-style" className={whiteCardClass()}>
+        <h3 className="text-lg font-semibold text-slate-900">Your Operating Style in Depth: {topName}</h3>
+
+        <div className="mt-4 space-y-3">
+          <p className="text-sm leading-relaxed text-slate-700">
+            Your dominant operating style is <span className="font-semibold">{topName}</span>. This is the pattern you
+            default to when you’re most yourself — especially under pressure or when it matters.
+          </p>
+
+          <p className="text-sm leading-relaxed text-slate-700">
+            Your strongest LEAD approach is <span className="font-semibold">{freqLabel}</span> ({topFreq}). That shapes
+            how you naturally initiate, decide, and drive momentum.
+          </p>
+
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Your mix</p>
+            <p className="mt-2 text-sm text-slate-700">
+              Primary: <span className="font-semibold">{primary?.name}</span>
+              {secondaryText}
+              {tertiaryText}.
+            </p>
+          </div>
+
+          <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Strengths to lean into</h4>
+          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+            <li>Use your natural strengths deliberately — don’t apologise for the way you create value.</li>
+            <li>Communicate your intent early, so people can follow your direction without guessing.</li>
+            <li>Build simple routines that protect your energy and stop overextension.</li>
+          </ul>
+
+          <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Watch-outs</h4>
+          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+            <li>When stressed, your dominant style can become overused — and it can crowd out other approaches.</li>
+            <li>People with different styles may interpret your speed/precision/structure differently than you intend.</li>
+            <li>Balance your strengths by partnering with someone strong in your lower-percentage areas.</li>
+          </ul>
+
+          <p className="text-sm leading-relaxed text-slate-700">
+            If your stored report sections already include a detailed profile write-up, we’ll show that instead of this
+            fallback. This ensures the report never feels “missing” the core profile content again.
+          </p>
+        </div>
+      </article>
+    );
+  };
 
   return (
     <div ref={reportRef} className="relative min-h-screen bg-[#050914] text-white overflow-hidden">
@@ -561,11 +621,11 @@ export default function LegacyReportClient(props: { token: string; tid: string }
             </div>
           </header>
 
-          {/* LAYOUT: Sidebar (index) + Main */}
+          {/* LAYOUT */}
           <div className="mt-8 grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
             {/* SIDEBAR */}
             <aside className="lg:sticky lg:top-6 h-fit">
-              <div className={cardClass()}>
+              <div className={darkSidebarCardClass()}>
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">Quick index</p>
                   <p className="text-xs text-slate-400">
@@ -618,31 +678,45 @@ export default function LegacyReportClient(props: { token: string; tid: string }
 
             {/* MAIN */}
             <main className="space-y-6">
-              {/* Score summary (now looks like a real report) */}
-              <section className="grid gap-4 md:grid-cols-2">
-                <div className={cardClass()}>
-                  <h2 className="text-lg font-semibold text-white">Frequencies</h2>
-                  <p className="mt-2 text-sm text-slate-300">
-                    Your energy distribution across the four LEAD approaches.
-                  </p>
+              {/* ✅ Welcome letter FIRST (top of page content) */}
+              {introSection?.section ? (
+                <section className={whiteCardClass()}>
+                  <h2 className="text-lg font-semibold text-slate-900">{safeText(introSection.section.title || "Welcome")}</h2>
 
+                  {Array.isArray(introSection.section.blocks) && introSection.section.blocks.length > 0 ? (
+                    <div className="mt-4 space-y-3">
+                      {introSection.section.blocks.map((b: any, i: number) => (
+                        <BlockRenderer key={i} block={b} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-slate-600">No intro content found.</p>
+                  )}
+                </section>
+              ) : null}
+
+              {/* Score summary */}
+              <section className="grid gap-4 md:grid-cols-2">
+                <div className={whiteCardClass()}>
+                  <h2 className="text-lg font-semibold text-slate-900">Frequencies</h2>
+                  <p className="mt-2 text-sm text-slate-600">Your energy distribution across the four LEAD approaches.</p>
                   <div className="mt-5">
                     <FrequencyDonut labels={data.frequency_labels} values={data.frequency_percentages} />
                   </div>
                 </div>
 
-                <div className={cardClass()}>
-                  <h2 className="text-lg font-semibold text-white">Top profile mix</h2>
-                  <p className="mt-2 text-sm text-slate-300">
-                    Primary: <span className="font-semibold text-slate-100">{primary?.name}</span>
+                <div className={whiteCardClass()}>
+                  <h2 className="text-lg font-semibold text-slate-900">Top profile mix</h2>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Primary: <span className="font-semibold text-slate-900">{primary?.name}</span>
                     {secondary?.name ? (
                       <>
-                        {" · "}Secondary: <span className="font-semibold text-slate-100">{secondary.name}</span>
+                        {" · "}Secondary: <span className="font-semibold text-slate-900">{secondary.name}</span>
                       </>
                     ) : null}
                     {tertiary?.name ? (
                       <>
-                        {" · "}Tertiary: <span className="font-semibold text-slate-100">{tertiary.name}</span>
+                        {" · "}Tertiary: <span className="font-semibold text-slate-900">{tertiary.name}</span>
                       </>
                     ) : null}
                   </p>
@@ -653,12 +727,12 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                       const pc = v * 100;
                       return (
                         <div key={p.code} className="grid grid-cols-12 items-center gap-3">
-                          <div className="col-span-4 text-sm text-slate-100">{p.name}</div>
+                          <div className="col-span-4 text-sm text-slate-800">{p.name}</div>
                           <div className="col-span-8">
-                            <div className="h-2 w-full rounded-full bg-white/10">
-                              <div className="h-2 rounded-full bg-sky-400/80" style={{ width: `${pc.toFixed(0)}%` }} />
+                            <div className="h-2 w-full rounded-full bg-slate-200">
+                              <div className="h-2 rounded-full bg-sky-600" style={{ width: `${pc.toFixed(0)}%` }} />
                             </div>
-                            <div className="mt-1 text-xs text-slate-300">{pc.toFixed(0)}%</div>
+                            <div className="mt-1 text-xs text-slate-500">{pc.toFixed(0)}%</div>
                           </div>
                         </div>
                       );
@@ -667,26 +741,8 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                 </div>
               </section>
 
-              {/* ✅ Intro letter FIRST */}
-              {introSection?.section ? (
-                <section className={cardClass()}>
-                  {introSection.section.title ? (
-                    <h2 className="text-lg font-semibold text-white">{safeText(introSection.section.title)}</h2>
-                  ) : (
-                    <h2 className="text-lg font-semibold text-white">Introduction</h2>
-                  )}
-
-                  {Array.isArray(introSection.section.blocks) && introSection.section.blocks.length > 0 ? (
-                    <div className="mt-4 space-y-3">
-                      {introSection.section.blocks.map((b: any, i: number) => (
-                        <BlockRenderer key={i} block={b} />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-sm text-slate-300">No intro content found.</p>
-                  )}
-                </section>
-              ) : null}
+              {/* ✅ Ensure we always have a profile deep dive section */}
+              {!hasProfileDeepDive ? <GeneratedProfileDeepDive /> : null}
 
               {/* Remaining sections */}
               {renderGroups
@@ -703,8 +759,8 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                       const anchorId = id || slugify(title) || `${g.groupKey}-${idx}`;
 
                       return (
-                        <article id={anchorId} key={s.id || `${g.groupKey}-${idx}`} className={cardClass()}>
-                          {title ? <h3 className="text-lg font-semibold text-white">{safeText(title)}</h3> : null}
+                        <article id={anchorId} key={s.id || `${g.groupKey}-${idx}`} className={whiteCardClass()}>
+                          {title ? <h3 className="text-lg font-semibold text-slate-900">{safeText(title)}</h3> : null}
 
                           {Array.isArray(s.blocks) && s.blocks.length > 0 ? (
                             <div className="mt-4 space-y-3">
@@ -713,7 +769,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                               ))}
                             </div>
                           ) : (
-                            <div className="mt-4 text-sm text-slate-300">No blocks found for this section.</div>
+                            <div className="mt-4 text-sm text-slate-600">No blocks found for this section.</div>
                           )}
                         </article>
                       );
