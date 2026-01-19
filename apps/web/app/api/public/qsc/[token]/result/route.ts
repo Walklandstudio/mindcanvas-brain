@@ -69,7 +69,6 @@ type TestMetaRow = {
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  // IMPORTANT: prefer service role. If not present, fallback (dev only).
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_ROLE ||
@@ -115,10 +114,8 @@ function normalizeSlug(s: any) {
 }
 
 /**
- * Resolve wrapper test_id -> canonical content test_id (global fix)
- * - Wrapper is identified by tests.meta.wrapper === true
- * - Uses meta.source_tests + meta.default_source_test
- * - Picks by slug:
+ * Resolve wrapper test_id -> canonical content test_id
+ * Picks by slug:
  *    leader => qsc-leaders
  *    entrepreneur => qsc-core
  */
@@ -152,8 +149,7 @@ async function resolveContentTestId(
       ? meta.default_source_test
       : null;
 
-  const preferredSlug =
-    audienceHint === "leader" ? "qsc-leaders" : "qsc-core";
+  const preferredSlug = audienceHint === "leader" ? "qsc-leaders" : "qsc-core";
 
   if (sourceTests.length) {
     const { data: candidates } = await sb
@@ -163,9 +159,7 @@ async function resolveContentTestId(
 
     const list = (candidates ?? []) as unknown as TestMetaRow[];
 
-    const preferred = list.find(
-      (t) => normalizeSlug(t.slug) === preferredSlug
-    );
+    const preferred = list.find((t) => normalizeSlug(t.slug) === preferredSlug);
     if (preferred?.id) {
       return {
         contentTestId: preferred.id,
@@ -203,7 +197,6 @@ function resolvePersonaCode(args: {
 
   const combinedRaw = String(resultRow.combined_profile_code || "").trim();
 
-  // (1) already A1..D5
   if (looksLikePersonaCode(combinedRaw)) {
     return {
       personaCode: combinedRaw.toUpperCase(),
@@ -211,7 +204,6 @@ function resolvePersonaCode(args: {
     };
   }
 
-  // (2) profile.profile_code is best if present
   const pcode = String(profile?.profile_code || "").trim();
   if (looksLikePersonaCode(pcode)) {
     return {
@@ -220,7 +212,6 @@ function resolvePersonaCode(args: {
     };
   }
 
-  // (3) derive from personality + mindset_level
   const letter =
     personalityToLetter(profile?.personality_code) ||
     personalityToLetter(resultRow.primary_personality);
@@ -329,9 +320,8 @@ export async function GET(
       }
     }
 
-    // (2) token only — MUST be unique OR we reject (global fix)
+    // (2) token only — unique OR reject
     if (!resultRow) {
-      // First: count how many results exist for this token
       const { count, error: countErr } = await sb
         .from("qsc_results")
         .select("id", { count: "exact", head: true })
@@ -346,8 +336,6 @@ export async function GET(
 
       const c = Number(count || 0);
 
-      // If multiple results share the same token, we cannot guess.
-      // This is the core “wrong report / muddled org” failure mode.
       if (!tid && c > 1) {
         return NextResponse.json(
           {
@@ -365,7 +353,6 @@ export async function GET(
         );
       }
 
-      // If exactly one result exists, load it.
       if (c === 1) {
         const { data, error } = await sb
           .from("qsc_results")
@@ -388,12 +375,7 @@ export async function GET(
         }
       }
 
-      // If zero results, we fall through to NOT_FOUND below.
-      // If c>1 with tid missing, we already returned a 409 above.
-      // If tid was provided but no match exists, also fall through to NOT_FOUND.
       if (!resultRow && c > 0) {
-        // We only ever hit this when tid was provided but didn't match a result,
-        // or some other edge case — as a last resort, keep old behavior.
         const { data, error } = await sb
           .from("qsc_results")
           .select(baseSelect)
@@ -430,7 +412,6 @@ export async function GET(
     const wrapperTestId = String(resultRow.test_id);
     const audience = (resultRow.audience ?? null) as Audience | null;
 
-    // ✅ Global: resolve canonical content test for persona lookups
     const { contentTestId, resolvedBy: contentResolvedBy } =
       await resolveContentTestId(sb, wrapperTestId, audience);
 
@@ -449,7 +430,6 @@ export async function GET(
       if (!error && data) taker = data as unknown as TestTakerRow;
     }
 
-    // fallback: try to locate taker by link_token (not always reliable, but useful)
     if (!taker) {
       const { data, error } = await sb
         .from("test_takers")
@@ -503,7 +483,9 @@ export async function GET(
     });
 
     // ---------------------------------------------------------------------
-    // Load persona content (from canonical contentTestId, NOT wrapper)
+    // Load persona content (THIS IS THE FIX)
+    // - leader -> qsc_leader_personas
+    // - entrepreneur -> qsc_entrepreneur_personas  ✅ (NOT qsc_personas)
     // ---------------------------------------------------------------------
     let persona: any = null;
     const persona_debug: any = {
@@ -520,7 +502,7 @@ export async function GET(
       if (audience === "leader") {
         persona_debug.table = "qsc_leader_personas";
 
-        // 1) test-specific leader persona (canonical test id)
+        // 1) test-specific
         {
           const { data, error } = await sb
             .from("qsc_leader_personas")
@@ -535,7 +517,7 @@ export async function GET(
           }
         }
 
-        // 2) global fallback: profile_code only
+        // 2) global fallback
         if (!persona) {
           const { data, error } = await sb
             .from("qsc_leader_personas")
@@ -550,12 +532,13 @@ export async function GET(
           }
         }
       } else {
-        persona_debug.table = "qsc_personas";
+        // ✅ entrepreneur strategic persona table
+        persona_debug.table = "qsc_entrepreneur_personas";
 
-        // 1) prefer canonical test_id (only if column exists; errors are ignored)
+        // 1) test-specific (canonical)
         {
           const { data, error } = await sb
-            .from("qsc_personas")
+            .from("qsc_entrepreneur_personas")
             .select("*")
             .eq("test_id", contentTestId)
             .eq("profile_code", personaCode)
@@ -567,10 +550,10 @@ export async function GET(
           }
         }
 
-        // 2) fallback: profile_code only
+        // 2) global fallback
         if (!persona) {
           const { data, error } = await sb
-            .from("qsc_personas")
+            .from("qsc_entrepreneur_personas")
             .select("*")
             .eq("profile_code", personaCode)
             .limit(1)
@@ -612,3 +595,4 @@ export async function GET(
     );
   }
 }
+

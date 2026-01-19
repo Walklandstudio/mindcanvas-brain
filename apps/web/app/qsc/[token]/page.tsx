@@ -334,9 +334,7 @@ export default function QscSnapshotPage() {
   if (error || !data) return <div className="p-10 text-red-600">{error || "No data"}</div>;
 
   // ✅ PUBLIC, taker-facing Strategic Growth Report (same for leader & entrepreneur)
-  const strategicHref = `/qsc/${encodeURIComponent(token)}/strategic${
-    tid ? `?tid=${encodeURIComponent(tid)}` : ""
-  }`;
+
 
   const personaLabelRaw =
     (payload?.persona as any)?.profile_label || payload?.profile?.profile_label || null;
@@ -593,8 +591,6 @@ export default function QscSnapshotPage() {
         </section>
 
         <footer className="flex justify-end">
-          <Link href={strategicHref} className="rounded-lg bg-slate-900 text-white px-4 py-2 text-sm">
-            View Strategic Report →
           </Link>
         </footer>
       </main>
