@@ -3,12 +3,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import AppBackground from "@/components/ui/AppBackground";
-
 import { QscMatrix } from "../QscMatrix";
+import AppBackground from "@/components/ui/AppBackground";
 
 type Audience = "entrepreneur" | "leader";
 
@@ -22,6 +21,7 @@ type QscResultsRow = {
   id: string;
   test_id: string;
   token: string;
+  taker_id: string | null;
   audience: Audience | null;
 
   personality_totals: Record<string, number> | null;
@@ -36,7 +36,6 @@ type QscResultsRow = {
 
   combined_profile_code: string | null;
   qsc_profile_id: string | null;
-
   created_at: string;
 };
 
@@ -46,45 +45,16 @@ type QscProfileRow = {
   mindset_level: number | null;
   profile_code: string | null;
   profile_label: string | null;
-
-  how_to_communicate?: string | null;
-  decision_style?: string | null;
-  business_challenges?: string | null;
-  trust_signals?: string | null;
-  offer_fit?: string | null;
-  sale_blockers?: string | null;
-
-  full_internal_insights?: any;
-  created_at?: string | null;
 };
 
-type QscLeaderPersonaRow = {
+type QscPersonaRow = {
   id: string;
-  test_id: string;
-  profile_code: string | null;
-  profile_label: string | null;
-  personality_code: string | null;
-  mindset_level: number | null;
-  sections?: any | null;
+  test_id?: string | null;
+  profile_code?: string | null;
+  profile_label?: string | null;
 };
 
-type QscEntrepreneurPersonaRow = {
-  id: string;
-  test_id: string;
-  personality_code: string | null;
-  mindset_level: number | null;
-  profile_code: string | null;
-  profile_label: string | null;
-
-  how_to_communicate?: string | null;
-  decision_style?: string | null;
-  business_challenges?: string | null;
-  trust_signals?: string | null;
-  offer_fit?: string | null;
-  sale_blockers?: string | null;
-};
-
-type TestTakerRow = {
+type QscTakerRow = {
   id: string;
   first_name: string | null;
   last_name: string | null;
@@ -95,10 +65,10 @@ type TestTakerRow = {
 
 type ApiPayload = {
   ok: boolean;
-  results: QscResultsRow;
+  results?: QscResultsRow;
   profile?: QscProfileRow | null;
-  persona?: QscLeaderPersonaRow | QscEntrepreneurPersonaRow | null;
-  taker?: TestTakerRow | null;
+  persona?: QscPersonaRow | null;
+  taker?: QscTakerRow | null;
   __debug?: any;
   error?: string;
 };
@@ -118,49 +88,27 @@ const MINDSET_LABELS: Record<MindsetKey, string> = {
   QUANTUM: "Quantum",
 };
 
-function normalisePercent(raw?: number | null): number {
+function normalisePercent(raw: number | undefined | null): number {
   if (raw == null || !Number.isFinite(raw)) return 0;
+  // Handle 0–1 style values (rare)
   if (raw > 0 && raw <= 1.5) return Math.min(100, Math.max(0, raw * 100));
   return Math.min(100, Math.max(0, raw));
 }
 
-function titleCase(s: string) {
-  return s
-    .split(/[\s_-]+/g)
-    .filter(Boolean)
-    .map((w) => w.slice(0, 1).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
-}
-
-function safeText(v?: string | null) {
-  const t = (v || "").trim();
-  return t.length ? t : null;
-}
-
-function fallbackCombinedLabel(results: QscResultsRow) {
-  const p = results.primary_personality ? PERSONALITY_LABELS[results.primary_personality] : null;
-  const m = results.primary_mindset ? MINDSET_LABELS[results.primary_mindset] : null;
-  if (p && m) return `${p} ${m}`;
-  return "Your Combined Profile";
-}
-
-function getFullName(taker?: TestTakerRow | null) {
-  const first = (taker?.first_name || "").trim();
-  const last = (taker?.last_name || "").trim();
+function getFullName(taker: QscTakerRow | null | undefined): string | null {
+  if (!taker) return null;
+  const first = (taker.first_name || "").trim();
+  const last = (taker.last_name || "").trim();
   const full = `${first} ${last}`.trim();
   if (full) return full;
-  const email = (taker?.email || "").trim();
+  const email = (taker.email || "").trim();
   return email || null;
 }
-
-/* -------------------- */
-/* Graph components     */
-/* -------------------- */
 
 type FrequencyDonutDatum = {
   key: PersonalityKey;
   label: string;
-  value: number;
+  value: number; // 0–100
 };
 
 const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
@@ -171,17 +119,18 @@ const FREQUENCY_COLORS: Record<PersonalityKey, string> = {
 };
 
 function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
-  const total = data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
+  const total =
+    data.reduce((sum, d) => sum + (isFinite(d.value) ? d.value : 0), 0) || 1;
 
-  const radius = 60;
-  const strokeWidth = 20;
-  const center = 80;
+  const radius = 56;
+  const strokeWidth = 18;
+  const center = 72;
   const circumference = 2 * Math.PI * radius;
 
   let offset = 0;
 
   return (
-    <svg viewBox="0 0 160 160" className="h-40 w-40 md:h-48 md:w-48" aria-hidden="true">
+    <svg viewBox="0 0 144 144" className="h-36 w-36" aria-hidden="true">
       <circle
         cx={center}
         cy={center}
@@ -214,87 +163,60 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         );
       })}
 
-      <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
+      <circle
+        cx={center}
+        cy={center}
+        r={radius - strokeWidth}
+        fill="#020617"
+      />
 
-      <text x={center} y={center - 4} textAnchor="middle" className="text-[10px]" fill="#e5e7eb">
-        QSC
+      <text
+        x={center}
+        y={center - 4}
+        textAnchor="middle"
+        className="text-[9px]"
+        fill="#e5e7eb"
+      >
+        BUYER
       </text>
-      <text x={center} y={center + 10} textAnchor="middle" className="text-[10px]" fill="#e5e7eb">
-        FREQUENCY
+      <text
+        x={center}
+        y={center + 10}
+        textAnchor="middle"
+        className="text-[9px]"
+        fill="#e5e7eb"
+      >
+        SNAPSHOT
       </text>
     </svg>
   );
 }
 
-/* -------------------- */
-/* Page                 */
-/* -------------------- */
-
-export default function QscSnapshotPage() {
-  const routeParams = useParams<{ token?: string }>();
-  const token = (routeParams?.token || "").toString();
-
+export default function QscSnapshotPage({ params }: { params: { token: string } }) {
+  const token = params.token;
   const searchParams = useSearchParams();
   const tid = searchParams?.get("tid") ?? "";
+  const router = useRouter();
 
-  const [payload, setPayload] = useState<ApiPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [payload, setPayload] = useState<ApiPayload | null>(null);
 
-  const snapshotRef = useRef<HTMLDivElement>(null);
-
-  const data = payload?.results ?? null;
-  const isLeader = data?.audience === "leader";
-  const takerName = getFullName(payload?.taker);
-
-  const personalityPerc = useMemo(() => {
-    const p = data?.personality_percentages ?? {};
-    return {
-      FIRE: normalisePercent(p.FIRE),
-      FLOW: normalisePercent(p.FLOW),
-      FORM: normalisePercent(p.FORM),
-      FIELD: normalisePercent(p.FIELD),
-    };
-  }, [data]);
-
-  const mindsetPerc = useMemo(() => {
-    const m = data?.mindset_percentages ?? {};
-    return {
-      ORIGIN: normalisePercent(m.ORIGIN),
-      MOMENTUM: normalisePercent(m.MOMENTUM),
-      VECTOR: normalisePercent(m.VECTOR),
-      ORBIT: normalisePercent(m.ORBIT),
-      QUANTUM: normalisePercent(m.QUANTUM),
-    };
-  }, [data]);
-
-  const frequencyDonutData: FrequencyDonutDatum[] = useMemo(() => {
-    return (["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).map((key) => ({
-      key,
-      label: PERSONALITY_LABELS[key],
-      value: personalityPerc[key] ?? 0,
-    }));
-  }, [personalityPerc]);
+  const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      setError("Missing token in route (/qsc/[token]).");
-      setLoading(false);
-      return;
-    }
-
     let alive = true;
 
     (async () => {
       try {
         setLoading(true);
-        setError(null);
+        setErr(null);
 
-        const url = tid
+        const apiUrl = tid
           ? `/api/public/qsc/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(tid)}`
           : `/api/public/qsc/${encodeURIComponent(token)}/result`;
 
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await fetch(apiUrl, { cache: "no-store" });
 
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
@@ -302,15 +224,26 @@ export default function QscSnapshotPage() {
           throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
         }
 
-        const json = (await res.json()) as ApiPayload;
+        const j = (await res.json()) as ApiPayload;
 
-        if (!res.ok || !json.ok) {
-          throw new Error((json as any)?.error || "Failed to load QSC snapshot");
+        if (!res.ok || j.ok === false) {
+          // Important: token ambiguity handling
+          if (
+            res.status === 409 &&
+            String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")
+          ) {
+            throw new Error(
+              "This link has multiple results. Please open the report from the portal (or add ?tid=...) so we can load the correct report."
+            );
+          }
+          throw new Error(j?.error || `HTTP ${res.status}`);
         }
 
-        if (alive) setPayload(json);
+        if (!j.results) throw new Error("No QSC results found.");
+
+        if (alive) setPayload(j);
       } catch (e: any) {
-        if (alive) setError(String(e?.message || e || "Unknown error"));
+        if (alive) setErr(String(e?.message || e || "Unknown error"));
       } finally {
         if (alive) setLoading(false);
       }
@@ -321,261 +254,233 @@ export default function QscSnapshotPage() {
     };
   }, [token, tid]);
 
+  const result = payload?.results ?? null;
+  const profile = payload?.profile ?? null;
+  const persona = payload?.persona ?? null;
+  const taker = payload?.taker ?? null;
+
+  const takerName = getFullName(taker);
+
+  const personalityPerc = useMemo(() => {
+    const raw = (result?.personality_percentages ?? {}) as PersonalityPercMap;
+    return {
+      FIRE: normalisePercent(raw.FIRE ?? 0),
+      FLOW: normalisePercent(raw.FLOW ?? 0),
+      FORM: normalisePercent(raw.FORM ?? 0),
+      FIELD: normalisePercent(raw.FIELD ?? 0),
+    } as PersonalityPercMap;
+  }, [result]);
+
+  const mindsetPerc = useMemo(() => {
+    const raw = (result?.mindset_percentages ?? {}) as MindsetPercMap;
+    return {
+      ORIGIN: normalisePercent(raw.ORIGIN ?? 0),
+      MOMENTUM: normalisePercent(raw.MOMENTUM ?? 0),
+      VECTOR: normalisePercent(raw.VECTOR ?? 0),
+      ORBIT: normalisePercent(raw.ORBIT ?? 0),
+      QUANTUM: normalisePercent(raw.QUANTUM ?? 0),
+    } as MindsetPercMap;
+  }, [result]);
+
+  const frequencyDonutData: FrequencyDonutDatum[] = useMemo(() => {
+    return (["FIRE", "FLOW", "FORM", "FIELD"] as PersonalityKey[]).map((key) => ({
+      key,
+      label: PERSONALITY_LABELS[key],
+      value: personalityPerc[key] ?? 0,
+    }));
+  }, [personalityPerc]);
+
   async function downloadPdf() {
-    if (!snapshotRef.current) return;
-    const canvas = await html2canvas(snapshotRef.current, { scale: 2, useCORS: true });
-    const img = canvas.toDataURL("image/png");
+    if (!reportRef.current) return;
+
+    const element = reportRef.current;
+
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#020617",
+      windowWidth: element.scrollWidth,
+      windowHeight: element.scrollHeight,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");
-    pdf.addImage(img, "PNG", 0, 0, 210, 297);
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
     pdf.save(`qsc-snapshot-${token}.pdf`);
   }
 
-  if (loading) return <div className="p-10">Loading snapshot…</div>;
-  if (error || !data) return <div className="p-10 text-red-600">{error || "No data"}</div>;
+  // Strategic Growth Report routes (no /strategic route required)
+  const strategicPath =
+    result?.audience === "leader" ? "leader" : "entrepreneur";
 
-  // ✅ PUBLIC, taker-facing Strategic Growth Report (same for leader & entrepreneur)
+  const strategicHref = tid
+    ? `/qsc/${encodeURIComponent(token)}/${strategicPath}?tid=${encodeURIComponent(tid)}`
+    : `/qsc/${encodeURIComponent(token)}/${strategicPath}`;
 
+  const extendedHref = tid
+    ? `/qsc/${encodeURIComponent(token)}/extended?tid=${encodeURIComponent(tid)}`
+    : `/qsc/${encodeURIComponent(token)}/extended`;
 
-  const personaLabelRaw =
-    (payload?.persona as any)?.profile_label || payload?.profile?.profile_label || null;
+  if (loading && !result) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
+        <main className="mx-auto max-w-6xl px-6 py-12 space-y-3">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+            Quantum Source Code
+          </p>
+          <h1 className="text-3xl font-bold">Loading QSC Snapshot…</h1>
+        </main>
+      </div>
+    );
+  }
 
-  const combinedLabel =
-    (personaLabelRaw && titleCase(String(personaLabelRaw))) || fallbackCombinedLabel(data);
+  if (err || !result) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
+        <main className="mx-auto max-w-6xl px-6 py-12 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+            Quantum Source Code
+          </p>
+          <h1 className="text-3xl font-bold">Couldn&apos;t load snapshot</h1>
 
-  const combinedCode =
-    safeText(data.combined_profile_code) ||
-    safeText((payload?.persona as any)?.profile_code) ||
-    safeText(payload?.profile?.profile_code) ||
-    null;
+          <pre className="rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+            {err || "No data"}
+          </pre>
 
-  const howToCommunicate =
-    safeText((payload?.persona as any)?.how_to_communicate) || safeText(payload?.profile?.how_to_communicate);
+          {/* Optional debug */}
+          {payload?.__debug && (
+            <pre className="rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-[11px] text-slate-400 whitespace-pre-wrap">
+              {JSON.stringify(payload.__debug, null, 2)}
+            </pre>
+          )}
+        </main>
+      </div>
+    );
+  }
 
-  const decisionStyle =
-    safeText((payload?.persona as any)?.decision_style) || safeText(payload?.profile?.decision_style);
-
-  const businessChallenges =
-    safeText((payload?.persona as any)?.business_challenges) || safeText(payload?.profile?.business_challenges);
-
-  const trustSignals =
-    safeText((payload?.persona as any)?.trust_signals) || safeText(payload?.profile?.trust_signals);
-
-  const offerFit =
-    safeText((payload?.persona as any)?.offer_fit) || safeText(payload?.profile?.offer_fit);
-
-  const saleBlockers =
-    safeText((payload?.persona as any)?.sale_blockers) || safeText(payload?.profile?.sale_blockers);
-
-  const hasPlaybook =
-    !!howToCommunicate || !!decisionStyle || !!businessChallenges || !!trustSignals || !!offerFit || !!saleBlockers;
+  const personaLabel =
+    (persona?.profile_label || profile?.profile_label || "").trim() ||
+    "Your Quantum Profile";
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <AppBackground />
-      <main ref={snapshotRef} className="mx-auto max-w-5xl px-6 py-10 space-y-10">
-        <header className="flex justify-between items-start gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">
-              {isLeader ? "Your Leadership Snapshot" : "Your Buyer Persona Snapshot"}
+
+      <main ref={reportRef} className="mx-auto max-w-6xl px-6 py-10 space-y-8">
+        <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+              Quantum Source Code
+            </p>
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
+              Buyer Persona Snapshot
             </h1>
-            <p className="text-sm text-slate-400">Quantum Source Code Overview</p>
-            {takerName && (
-              <p className="text-xs text-slate-500 mt-1">
-                For: <span className="font-semibold text-slate-200">{takerName}</span>
-              </p>
-            )}
+            <p className="text-sm text-slate-300">
+              {takerName ? (
+                <>
+                  For: <span className="font-semibold text-slate-100">{takerName}</span>
+                </>
+              ) : (
+                <>Snapshot overview</>
+              )}
+            </p>
+            <p className="text-sm text-slate-400">
+              Profile: <span className="font-semibold text-slate-200">{personaLabel}</span>
+            </p>
           </div>
 
-          <button
-            onClick={downloadPdf}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs bg-slate-900 text-slate-50 hover:bg-slate-800"
-          >
-            Download PDF
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={downloadPdf}
+              className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 hover:bg-slate-800"
+            >
+              Download PDF
+            </button>
+
+            {/* ✅ This replaces the deleted /strategic link */}
+            <Link
+              href={strategicHref}
+              className="inline-flex items-center rounded-xl border border-sky-700/50 bg-sky-950/30 px-4 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-950/50"
+            >
+              Open Strategic Growth Report →
+            </Link>
+
+            {/* Optional: keep extended link if you still use it */}
+            <Link
+              href={extendedHref}
+              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 hover:bg-slate-800"
+            >
+              Open Extended Snapshot →
+            </Link>
+          </div>
         </header>
 
-        {/* BLACK CONTAINER (keep) */}
-        <section className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-8">
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-                Quantum Source Code
-              </p>
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 md:p-6">
-                <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-                  Combined profile
-                </p>
-                <h2 className="mt-2 text-2xl md:text-3xl font-semibold">{combinedLabel}</h2>
-                {combinedCode && (
-                  <p className="mt-1 text-xs text-slate-300">
-                    Code: <span className="font-mono">{combinedCode}</span>
-                  </p>
-                )}
-
-                <div className="mt-4 grid grid-cols-2 gap-4 text-xs text-slate-300">
-                  <div>
-                    <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-400">
-                      Primary personality
-                    </div>
-                    <div className="text-slate-100 font-semibold">
-                      {data.primary_personality ? PERSONALITY_LABELS[data.primary_personality] : "—"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-400">
-                      Secondary personality
-                    </div>
-                    <div className="text-slate-100 font-semibold">
-                      {data.secondary_personality ? PERSONALITY_LABELS[data.secondary_personality] : "—"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-400">
-                      Primary mindset
-                    </div>
-                    <div className="text-slate-100 font-semibold">
-                      {data.primary_mindset ? MINDSET_LABELS[data.primary_mindset] : "—"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[0.65rem] uppercase tracking-[0.18em] text-slate-400">
-                      Secondary mindset
-                    </div>
-                    <div className="text-slate-100 font-semibold">
-                      {data.secondary_mindset ? MINDSET_LABELS[data.secondary_mindset] : "—"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-1 md:pl-6">
-              <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
-                Snapshot for your sales playbook
-              </p>
-
-              {!hasPlaybook ? (
-                <div className="mt-3 rounded-2xl border border-rose-900/40 bg-rose-950/20 p-4 text-sm text-rose-200">
-                  <div className="font-semibold">Missing playbook content</div>
-                  <div className="mt-1 text-xs text-rose-200/80">
-                    Expected fields like <code>how_to_communicate</code>, <code>decision_style</code>,{" "}
-                    <code>trust_signals</code>, etc.
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-3 grid gap-5">
-                  {howToCommunicate && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-50">How to communicate</h3>
-                      <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
-                        {howToCommunicate}
-                      </p>
-                    </div>
-                  )}
-
-                  {decisionStyle && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-50">Decision style</h3>
-                      <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
-                        {decisionStyle}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {businessChallenges && (
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-50">Core challenges</h3>
-                        <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
-                          {businessChallenges}
-                        </p>
-                      </div>
-                    )}
-
-                    {trustSignals && (
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-50">Trust signals</h3>
-                        <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
-                          {trustSignals}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {offerFit && (
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-50">Offer fit</h3>
-                        <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
-                          {offerFit}
-                        </p>
-                      </div>
-                    )}
-
-                    {saleBlockers && (
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-50">Sale blockers</h3>
-                        <p className="mt-1 text-sm text-slate-300 whitespace-pre-line leading-relaxed">
-                          {saleBlockers}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* Graph cards */}
-        <section className="grid gap-6 md:grid-cols-2 items-start">
-          <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
-            <h2 className="text-lg font-semibold">
-              {isLeader ? "Leadership Frequency Type" : "Buyer Frequency Type"}
-            </h2>
+        <section className="grid gap-6 md:grid-cols-2">
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 space-y-4">
+            <h2 className="text-lg font-semibold">Buyer Frequency</h2>
             <p className="text-sm text-slate-300">
-              {isLeader
-                ? "Your energetic style across Fire, Flow, Form and Field in how you lead."
-                : "Your emotional & energetic style across Fire, Flow, Form and Field in the way you buy and build."}
+              Your buyer frequency split across Fire, Flow, Form and Field.
             </p>
 
-            <div className="mt-4 grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-center">
+            <div className="mt-2 grid gap-6 md:grid-cols-[auto_1fr] items-center">
               <div className="flex justify-center">
                 <FrequencyDonut data={frequencyDonutData} />
               </div>
-              <div className="space-y-3 text-sm">
+
+              <div className="space-y-2 text-sm">
                 {frequencyDonutData.map((d) => (
-                  <div key={d.key} className="flex items-center justify-between gap-3">
-                    <span>{d.label}</span>
-                    <span className="tabular-nums">{Math.round(d.value)}%</span>
+                  <div key={d.key} className="flex items-center justify-between gap-4">
+                    <span className="text-slate-200">{d.label}</span>
+                    <span className="tabular-nums text-slate-100">
+                      {Math.round(d.value)}%
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
 
-          <div className="rounded-3xl bg-[#020617] text-slate-50 border border-slate-800 p-6 md:p-7 space-y-4">
-            <h2 className="text-lg font-semibold">
-              {isLeader ? "Leadership Mindset Levels" : "Buyer Mindset Levels"}
-            </h2>
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 space-y-4">
+            <h2 className="text-lg font-semibold">Mindset Levels</h2>
             <p className="text-sm text-slate-300">
-              {isLeader
-                ? "Where your focus and energy sit across the 5 growth stages."
-                : "Where your focus and energy are distributed across the 5 Quantum growth stages."}
+              Your distribution across the 5 mindset stages.
             </p>
 
             <div className="space-y-2 pt-2 text-xs">
-              {(["ORIGIN", "MOMENTUM", "VECTOR", "ORBIT", "QUANTUM"] as MindsetKey[]).map((key) => {
+              {(Object.keys(MINDSET_LABELS) as MindsetKey[]).map((key) => {
                 const pct = Math.round(mindsetPerc[key] ?? 0);
                 return (
                   <div key={key} className="space-y-1">
                     <div className="flex justify-between">
-                      <span>{MINDSET_LABELS[key]}</span>
-                      <span className="tabular-nums">{pct}%</span>
+                      <span className="text-slate-300">{MINDSET_LABELS[key]}</span>
+                      <span className="tabular-nums text-slate-100">{pct}%</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-900">
-                      <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${pct}%` }} />
+                      <div
+                        className="h-2 rounded-full bg-emerald-400"
+                        style={{ width: `${pct}%` }}
+                      />
                     </div>
                   </div>
                 );
@@ -584,17 +489,26 @@ export default function QscSnapshotPage() {
           </div>
         </section>
 
-        {/* Matrix (keep) */}
-        <section className="rounded-xl bg-white border p-6 text-slate-900">
-          <h2 className="font-semibold mb-3">Persona Matrix</h2>
-          <QscMatrix primaryPersonality={data.primary_personality} primaryMindset={data.primary_mindset} />
+        <section className="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 space-y-4">
+          <h2 className="text-lg font-semibold">Buyer Persona Matrix</h2>
+          <p className="text-sm text-slate-300">
+            Where your buyer frequency meets your dominant mindset stage.
+          </p>
+
+          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/70">
+            <QscMatrix
+              primaryPersonality={result.primary_personality}
+              primaryMindset={result.primary_mindset}
+            />
+          </div>
         </section>
 
-        <footer className="flex justify-end">
-          </Link>
+        <footer className="pt-4 text-xs text-slate-500">
+          © {new Date().getFullYear()} MindCanvas — Profiletest.ai
         </footer>
       </main>
     </div>
   );
 }
+
 
