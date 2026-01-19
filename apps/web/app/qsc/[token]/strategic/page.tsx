@@ -32,20 +32,199 @@ function safeTitle(s: ReportSection) {
   return (s.title || "").trim() || (s.section_key || "").trim() || "Section";
 }
 
-/**
- * Minimal renderer: for now we show the JSON cleanly.
- * This avoids empty placeholder pages and proves the data is loading.
- */
+function titleCase(s: string) {
+  return s
+    .split(/[\s_-]+/g)
+    .filter(Boolean)
+    .map((w) => w.slice(0, 1).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+const PERSONALITY_LABELS: Record<string, string> = {
+  FIRE: "Fire",
+  FLOW: "Flow",
+  FORM: "Form",
+  FIELD: "Field",
+};
+
+const PERSONALITY_CODES: Record<string, string> = {
+  FIRE: "A",
+  FLOW: "B",
+  FORM: "C",
+  FIELD: "D",
+};
+
+const MINDSET_LABELS: Record<string, string> = {
+  ORIGIN: "Origin",
+  MOMENTUM: "Momentum",
+  VECTOR: "Vector",
+  ORBIT: "Orbit",
+  QUANTUM: "Quantum",
+};
+
+const MINDSET_LEVELS: Record<string, string> = {
+  ORIGIN: "1",
+  MOMENTUM: "2",
+  VECTOR: "3",
+  ORBIT: "4",
+  QUANTUM: "5",
+};
+
+function buildPlaceholderMap(payload: ApiPayload | null) {
+  const r = payload?.results ?? {};
+  const p = payload?.profile ?? {};
+
+  const primaryPersonalityKey = String(r?.primary_personality || "").toUpperCase();
+  const primaryMindsetKey = String(r?.primary_mindset || "").toUpperCase();
+
+  const primaryPersonalityLabel =
+    PERSONALITY_LABELS[primaryPersonalityKey] || titleCase(primaryPersonalityKey || "");
+  const primaryPersonalityCode =
+    PERSONALITY_CODES[primaryPersonalityKey] || String(p?.personality_code || "").trim();
+
+  const primaryMindsetLabel =
+    MINDSET_LABELS[primaryMindsetKey] || titleCase(primaryMindsetKey || "");
+  const primaryMindsetLevel =
+    MINDSET_LEVELS[primaryMindsetKey] ||
+    (typeof p?.mindset_level === "number" ? String(p.mindset_level) : "");
+
+  const combinedProfile =
+    (typeof p?.profile_label === "string" && p.profile_label.trim()) ||
+    (primaryPersonalityLabel && primaryMindsetLabel
+      ? `${primaryPersonalityLabel} ${primaryMindsetLabel}`
+      : "") ||
+    (typeof r?.combined_profile_code === "string" ? r.combined_profile_code : "");
+
+  return {
+    "{{PRIMARY_PERSONALITY_LABEL}}": primaryPersonalityLabel || "—",
+    "{{PRIMARY_PERSONALITY_CODE}}": primaryPersonalityCode || "—",
+    "{{PRIMARY_MINDSET_LABEL}}": primaryMindsetLabel || "—",
+    "{{PRIMARY_MINDSET_LEVEL}}": primaryMindsetLevel || "—",
+    "{{COMBINED_PROFILE}}": combinedProfile || "—",
+  };
+}
+
+function replacePlaceholdersInString(input: string, map: Record<string, string>) {
+  let out = input;
+  for (const [k, v] of Object.entries(map)) {
+    out = out.split(k).join(v);
+  }
+  return out;
+}
+
+function deepReplacePlaceholders(value: any, map: Record<string, string>): any {
+  if (value == null) return value;
+
+  if (typeof value === "string") {
+    return replacePlaceholdersInString(value, map);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((v) => deepReplacePlaceholders(v, map));
+  }
+
+  if (typeof value === "object") {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = deepReplacePlaceholders(v, map);
+    }
+    return out;
+  }
+
+  return value;
+}
+
+// --- TipTap-ish doc to plain text (good enough for deadline) ---
+function tiptapToText(node: any): string {
+  if (!node) return "";
+
+  // blocks format (your seeded ones)
+  if (node?.type === "doc" && Array.isArray(node?.blocks)) {
+    return node.blocks
+      .map((b: any) => {
+        const t = (b?.text || "").trim();
+        if (!t) return "";
+        if (b?.type === "heading") return `\n${t}\n`;
+        return t;
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  // tiptap format
+  if (node?.type === "text") return String(node.text || "");
+
+  const type = node?.type;
+  const content = Array.isArray(node?.content) ? node.content : [];
+
+  if (type === "paragraph") {
+    const inner = content.map(tiptapToText).join("").trim();
+    return inner ? `${inner}\n` : "";
+  }
+
+  if (type === "heading") {
+    const inner = content.map(tiptapToText).join("").trim();
+    return inner ? `\n${inner}\n` : "";
+  }
+
+  if (type === "bulletList") {
+    const items = content
+      .map((c: any) => tiptapToText(c).trim())
+      .filter(Boolean)
+      .map((s: string) =>
+        s
+          .split("\n")
+          .map((line) => (line.trim() ? `• ${line.trim()}` : ""))
+          .filter(Boolean)
+          .join("\n")
+      )
+      .join("\n");
+    return items ? `${items}\n` : "";
+  }
+
+  if (type === "orderedList") {
+    let i = 1;
+    const items = content
+      .map((c: any) => tiptapToText(c).trim())
+      .filter(Boolean)
+      .map((s: string) => {
+        const lines = s.split("\n").map((l) => l.trim()).filter(Boolean);
+        const first = lines.shift() || "";
+        const rest = lines.map((l) => `   ${l}`).join("\n");
+        const head = `${i++}. ${first}`;
+        return rest ? `${head}\n${rest}` : head;
+      })
+      .join("\n");
+    return items ? `${items}\n` : "";
+  }
+
+  if (type === "listItem") {
+    const inner = content.map(tiptapToText).join("").trim();
+    return inner ? `${inner}\n` : "";
+  }
+
+  // default recurse
+  return content.map(tiptapToText).join("");
+}
+
 function SectionBody({ content }: { content: any }) {
   if (content == null) {
     return <p className="text-sm text-slate-300">No content.</p>;
   }
 
-  // If it looks like a plain string, show it nicely.
   if (typeof content === "string") {
     return <p className="text-sm text-slate-200 whitespace-pre-line">{content}</p>;
   }
 
+  // If it looks like a doc, render readable text for the deadline
+  if (typeof content === "object" && content?.type === "doc") {
+    const text = tiptapToText(content).trim();
+    if (text) {
+      return <div className="text-sm text-slate-200 whitespace-pre-line leading-relaxed">{text}</div>;
+    }
+  }
+
+  // Fallback: show JSON (debug)
   return (
     <pre className="text-xs text-slate-200 whitespace-pre-wrap break-words">
       {JSON.stringify(content, null, 2)}
@@ -63,8 +242,6 @@ export default function QscStrategicPage({ params }: { params: { token: string }
   const [payload, setPayload] = useState<ApiPayload | null>(null);
 
   const reportRef = useRef<HTMLDivElement | null>(null);
-
-  const sections = useMemo(() => payload?.sections ?? [], [payload]);
 
   useEffect(() => {
     let alive = true;
@@ -89,7 +266,6 @@ export default function QscStrategicPage({ params }: { params: { token: string }
         const j = (await res.json()) as ApiPayload;
 
         if (!res.ok || j?.ok === false) {
-          // Special handling: if you implemented this pattern elsewhere.
           if (res.status === 409 && String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")) {
             throw new Error(
               "This link has multiple results. Please open the Strategic report from the Snapshot (or add ?tid=...) so we can load the correct report."
@@ -110,6 +286,16 @@ export default function QscStrategicPage({ params }: { params: { token: string }
       alive = false;
     };
   }, [token, tid]);
+
+  const sections = useMemo(() => {
+    const raw = payload?.sections ?? [];
+    const map = buildPlaceholderMap(payload);
+    return raw.map((s) => ({
+      ...s,
+      title: typeof s.title === "string" ? replacePlaceholdersInString(s.title, map) : s.title,
+      content: deepReplacePlaceholders(s.content, map),
+    }));
+  }, [payload]);
 
   async function downloadPdf() {
     if (!reportRef.current) return;
@@ -198,7 +384,8 @@ export default function QscStrategicPage({ params }: { params: { token: string }
               Strategic Growth Report
             </h1>
             <p className="text-sm text-slate-300">
-              Loaded sections: <span className="font-semibold text-slate-100">{sectionCount}</span>
+              Loaded sections:{" "}
+              <span className="font-semibold text-slate-100">{sectionCount}</span>
             </p>
           </div>
 
@@ -222,8 +409,8 @@ export default function QscStrategicPage({ params }: { params: { token: string }
           <section className="rounded-2xl border border-rose-800 bg-rose-950/20 p-6">
             <h2 className="text-lg font-semibold text-rose-100">No report sections found</h2>
             <p className="mt-2 text-sm text-rose-100/80">
-              The API returned ok=true but sections=[].
-              This usually means the report_sections are stored against a different test_id than the one being resolved.
+              The API returned ok=true but sections=[]. This means report_sections aren’t being found
+              for the resolved content_test_id.
             </p>
             <pre className="mt-4 text-xs text-rose-100/80 whitespace-pre-wrap">
               {JSON.stringify(payload?.__debug ?? {}, null, 2)}
