@@ -150,7 +150,6 @@ function pickSavedProfileTotals(saved: Record<string, number> | null | undefined
 // --- Supabase client (admin) ---
 function sbAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_ANON_KEY ||
@@ -203,12 +202,10 @@ async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
 }
 
 // Fetch latest submission for (taker_id, token)
-// ✅ Fix: accept legacy rows where link_token is NULL
-async function fetchLatestSubmission(taker_id: string, token: string): Promise<{ row: SubmissionRow | null; matched: "token" | "null" | "none" }> {
+// (kept strict to token because your debug shows it matches)
+async function fetchLatestSubmission(taker_id: string, token: string): Promise<SubmissionRow | null> {
   const sb = sbAdmin();
-
-  // First try strict match: link_token == token
-  const strict = await sb
+  const q = await sb
     .from("test_submissions")
     .select("id, taker_id, link_token, totals, answers_json, created_at")
     .eq("taker_id", taker_id)
@@ -217,37 +214,49 @@ async function fetchLatestSubmission(taker_id: string, token: string): Promise<{
     .limit(1)
     .maybeSingle();
 
-  if (!strict.error && strict.data) return { row: strict.data as SubmissionRow, matched: "token" };
-
-  // Fallback: link_token IS NULL (legacy inserts)
-  const legacy = await sb
-    .from("test_submissions")
-    .select("id, taker_id, link_token, totals, answers_json, created_at")
-    .eq("taker_id", taker_id)
-    .is("link_token", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!legacy.error && legacy.data) return { row: legacy.data as SubmissionRow, matched: "null" };
-
-  return { row: null, matched: "none" };
+  if (q.error || !q.data) return null;
+  return q.data as SubmissionRow;
 }
 
-// Minimal questions map (id, profile_map) for this test
-async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionMapRow>> {
+// ✅ Load question maps from the correct place.
+// 1) Try portal.test_questions (standard)
+// 2) If none usable, try portal.custom_test_questions (builder)
+// Only keep rows with non-empty profile_map.
+async function fetchQuestionMaps(test_id: string): Promise<{ map: Map<string, QuestionMapRow>; source: string }> {
   const sb = sbAdmin();
 
-  const q = (await sb
+  function build(rows: QuestionMapRow[] | null | undefined) {
+    const map = new Map<string, QuestionMapRow>();
+    for (const row of rows || []) {
+      if (!row?.id) continue;
+      if (!Array.isArray(row.profile_map) || row.profile_map.length === 0) continue;
+      map.set(String(row.id), row);
+    }
+    return map;
+  }
+
+  // 1) Standard
+  const q1 = (await sb
     .from("test_questions")
     .select("id, profile_map")
     .eq("test_id", test_id)
     .order("idx", { ascending: true })) as PostgrestSingleResponse<QuestionMapRow[]>;
 
-  if (q.error || !Array.isArray(q.data)) return new Map();
-  const map = new Map<string, QuestionMapRow>();
-  for (const row of q.data) map.set(row.id, row);
-  return map;
+  const map1 = !q1.error ? build(q1.data) : new Map<string, QuestionMapRow>();
+  if (map1.size > 0) return { map: map1, source: "test_questions" };
+
+  // 2) Builder fallback
+  const q2 = (await sb
+    .from("custom_test_questions")
+    .select("id, profile_map")
+    .eq("test_id", test_id)
+    .order("idx", { ascending: true })) as PostgrestSingleResponse<QuestionMapRow[]>;
+
+  const map2 = !q2.error ? build(q2.data) : new Map<string, QuestionMapRow>();
+  if (map2.size > 0) return { map: map2, source: "custom_test_questions" };
+
+  // Nothing found
+  return { map: new Map<string, QuestionMapRow>(), source: q1.error ? `test_questions_error:${q1.error.message}` : "none" };
 }
 
 async function fetchTestRow(test_id: string): Promise<TestRow | null> {
@@ -292,7 +301,7 @@ async function downloadFrameworkJSON(bucket: string, path: string): Promise<any 
   }
 }
 
-// --- Support LEAD v1 schema ---
+// --- LEAD v1 schema helpers ---
 
 function pickCommonSections(frameworkJson: any): any[] | null {
   const fw = frameworkJson?.framework || frameworkJson;
@@ -325,11 +334,7 @@ function findProfileReport(frameworkJson: any, profileCode: string) {
   const reports = fw?.reports;
   if (reports && typeof reports === "object") {
     for (const v of Object.values(reports)) {
-      const p =
-        (v as any)?.profile_code ||
-        (v as any)?.profileCode ||
-        (v as any)?.code ||
-        "";
+      const p = (v as any)?.profile_code || (v as any)?.profileCode || (v as any)?.code || "";
       if (String(p).toUpperCase() === pc) return v;
     }
   }
@@ -394,28 +399,20 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       return { code, name: fromMeta || fromLegacy || `Profile ${n}` };
     });
 
-    const subRes = await fetchLatestSubmission(takerId, token);
-    const sub = subRes.row;
-
+    const sub = await fetchLatestSubmission(takerId, token);
     if (!sub) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Submission not found for this taker/token.",
-          debug: {
-            takerId,
-            token,
-            note:
-              "No submission matched link_token == token, and no legacy submission with link_token NULL was found for this taker.",
-          },
-        },
+        { ok: false, error: "Submission not found for this taker/token." },
         { status: 404 },
       );
     }
 
     const taker = await fetchTakerRow(takerId);
 
-    const qmap = await fetchQuestionMaps(meta.test_id);
+    // ✅ Critical: Load question maps correctly for this test
+    const qm = await fetchQuestionMaps(meta.test_id);
+    const qmap = qm.map;
+
     const comp = computeFromAnswers(sub.answers_json, qmap);
 
     const saved = (sub.totals || {}) as Record<string, number>;
@@ -452,20 +449,21 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       top_profile_code;
 
     let sections: any = null;
-    let report_title: string | null = null;
-
-    if (useStorageFramework) {
-      const common = pickCommonSections(fw) || [];
+    if (useStorageFramework && top_profile_code) {
+      const common = pickCommonSections(fw);
       const rep = findProfileReport(fw, top_profile_code);
 
-      const profileSections = rep?.sections;
-      const profileArr = Array.isArray(profileSections) ? profileSections : [];
-
-      report_title = rep?.title || pickReportTitle(fw) || null;
+      const profileSections = rep?.sections || null;
+      const profileMissing = !Array.isArray(profileSections) || profileSections.length === 0;
 
       sections = {
-        common,
-        profile: profileArr,
+        common: common || null,
+        profile: profileMissing ? null : profileSections,
+        report_title: rep?.title || pickReportTitle(fw) || null,
+        profile_missing: profileMissing,
+        framework_version: rf?.version || null,
+        framework_bucket: rf?.bucket || null,
+        framework_path: rf?.path || null,
       };
     }
 
@@ -499,7 +497,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         top_profile_name,
 
         sections,
-        report_title,
 
         debug: {
           frameworkSource,
@@ -507,8 +504,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           useStorageFramework,
           schema: "portal",
           submission_link_token: sub.link_token,
-          submission_match: subRes.matched,
+          submission_match: "token",
           qmap_size: qmap.size,
+          qmap_source: qm.source,
           answers_count: Array.isArray(sub.answers_json) ? sub.answers_json.length : 0,
           used_saved_profiles: savedProfileSum > 0,
           used_saved_frequencies: savedADSum > 0,
@@ -522,7 +520,4 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
-
-
-
 
