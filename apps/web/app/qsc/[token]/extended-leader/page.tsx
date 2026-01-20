@@ -1,7 +1,6 @@
 // apps/web/app/qsc/[token]/extended-leader/page.tsx
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
@@ -321,10 +320,6 @@ export default function QscLeaderExtendedPage({
   }
 
   if (err || !results) {
-    const snapshotHref = tid
-      ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
-      : `/qsc/${encodeURIComponent(token)}`;
-
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
         <AppBackground />
@@ -337,15 +332,6 @@ export default function QscLeaderExtendedPage({
             We weren&apos;t able to load the Leader Extended Source Code internal
             insights for this profile.
           </p>
-
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Link
-              href={snapshotHref}
-              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium hover:bg-slate-800"
-            >
-              ← Back to Snapshot
-            </Link>
-          </div>
 
           <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs text-slate-100 whitespace-pre-wrap">
             {err || "No data"}
@@ -363,10 +349,6 @@ export default function QscLeaderExtendedPage({
     "Leader profile";
 
   const takerDisplayName = getFullName(taker);
-
-  const snapshotHref = tid
-    ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
-    : `/qsc/${encodeURIComponent(token)}`;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -406,13 +388,6 @@ export default function QscLeaderExtendedPage({
               Download PDF
             </button>
 
-            <Link
-              href={snapshotHref}
-              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800"
-            >
-              ← Back to Snapshot
-            </Link>
-
             <span>
               Snapshot created{" "}
               {createdAt.toLocaleString(undefined, {
@@ -426,7 +401,9 @@ export default function QscLeaderExtendedPage({
 
             <span className="text-[11px] text-slate-500">
               Combined profile:{" "}
-              <span className="font-semibold text-slate-100">{personaLabel}</span>
+              <span className="font-semibold text-slate-100">
+                {personaLabel}
+              </span>
             </span>
 
             {extended && (
@@ -442,7 +419,7 @@ export default function QscLeaderExtendedPage({
         </header>
 
         <div className="grid gap-8 md:grid-cols-[260px,minmax(0,1fr)] items-start">
-          {/* Keep sidebar dark */}
+          {/* Sidebar stays dark */}
           <aside className="rounded-3xl border border-slate-800 bg-slate-950/90 p-5 md:p-6 md:sticky md:top-6 space-y-3">
             <div>
               <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
@@ -478,8 +455,8 @@ export default function QscLeaderExtendedPage({
           </aside>
 
           <div className="space-y-8">
-            {/* ✅ Profile summary container WHITE */}
-            <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 space-y-4 shadow-sm text-slate-800">
+            {/* ✅ Profile summary WHITE */}
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 space-y-4 shadow-sm">
               <div className="space-y-3">
                 <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-700">
                   Profile summary

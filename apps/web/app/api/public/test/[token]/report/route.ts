@@ -33,7 +33,7 @@ type LinkMeta = {
   test_id: string;
   org_slug: string | null;
   test_name: string | null;
-  link_meta?: any | null; // stored link meta (show_results etc)
+  link_meta?: any | null;
 };
 
 type ReportFrameworkMeta = {
@@ -50,9 +50,6 @@ type TestMeta = {
   frequencies?: Array<{ code: AB; label: string }>;
   profiles?: Array<{ code: string; name: string; frequency?: AB; description?: string }>;
   reportFramework?: ReportFrameworkMeta;
-
-  // optional convenience fields you may add later:
-  next_steps_url?: string;
 };
 
 type TestRow = {
@@ -106,10 +103,7 @@ function selectedIndex(a: any): number {
   return Math.max(0, safeNumber(idx, 0));
 }
 
-function computeFromAnswers(
-  answers: AnswerShape[] | null | undefined,
-  qmap: Map<string, QuestionMapRow>,
-) {
+function computeFromAnswers(answers: AnswerShape[] | null | undefined, qmap: Map<string, QuestionMapRow>) {
   const freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
   const profileTotals: Record<string, number> = {};
 
@@ -143,26 +137,22 @@ function computeFromAnswers(
   return { freqTotals, profileTotals };
 }
 
-function normaliseKey(v: any): string {
-  return String(v ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-");
-}
-
-function slugifyName(v: any): string {
-  return String(v ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/['"]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function pickSavedProfileTotals(saved: Record<string, number> | null | undefined) {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(saved || {})) {
+    const key = String(k || "").toUpperCase();
+    if (key.startsWith("PROFILE_")) out[key] = safeNumber(v, 0);
+  }
+  const sum = Object.values(out).reduce((a, b) => a + (Number(b) || 0), 0);
+  return { out, sum };
 }
 
 // --- Supabase client (admin) ---
 function sbAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 
+  // Prefer service role. (Anon fallback kept only so local dev doesn't hard-crash,
+  // but for Storage reads of private buckets you want service role.)
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_ANON_KEY ||
@@ -233,11 +223,14 @@ async function fetchLatestSubmission(taker_id: string, token: string): Promise<S
 // Minimal questions map (id, profile_map) for this test
 async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionMapRow>> {
   const sb = sbAdmin();
+
+  // IMPORTANT:
+  // Do NOT filter by category. Several tests (including LEAD) may not use "scored".
+  // Filtering can return an empty qmap, which yields 0% scores.
   const q = (await sb
     .from("test_questions")
     .select("id, profile_map")
     .eq("test_id", test_id)
-    .in("category", ["scored", null])
     .order("idx", { ascending: true })) as PostgrestSingleResponse<QuestionMapRow[]>;
 
   if (q.error || !Array.isArray(q.data)) return new Map();
@@ -288,106 +281,36 @@ async function downloadFrameworkJSON(bucket: string, path: string): Promise<any 
   }
 }
 
-// --- Extractors (robust) ---
-
-function pickFrameworkRoot(frameworkJson: any) {
-  // support either raw or wrapped
-  return frameworkJson?.framework ?? frameworkJson ?? null;
-}
+// --- Support LEAD v1 schema ---
 
 function pickCommonSections(frameworkJson: any): any[] | null {
-  const fw = pickFrameworkRoot(frameworkJson);
-  if (!fw) return null;
-
-  // Most common (your LEAD v1): fw.common.sections = [...]
+  const fw = frameworkJson?.framework || frameworkJson;
   if (fw?.common?.sections && Array.isArray(fw.common.sections)) return fw.common.sections;
-
-  // Some variants: fw.common = [...]
-  if (fw?.common && Array.isArray(fw.common)) return fw.common;
-
-  // Rare: fw.sections.common = [...]
-  if (fw?.sections?.common && Array.isArray(fw.sections.common)) return fw.sections.common;
-
+  if (fw?.framework?.common?.sections && Array.isArray(fw.framework.common.sections))
+    return fw.framework.common.sections;
   return null;
 }
 
 function pickReportTitle(frameworkJson: any): string | null {
-  const fw = pickFrameworkRoot(frameworkJson);
-  if (!fw) return null;
-
-  return (
-    fw?.common?.report_title ||
-    fw?.common?.reportTitle ||
-    fw?.report_title ||
-    fw?.reportTitle ||
-    null
-  );
+  const fw = frameworkJson?.framework || frameworkJson;
+  return fw?.common?.report_title || fw?.report_title || null;
 }
 
-function pickFrameworkNextStepsUrl(frameworkJson: any): string | null {
-  const fw = pickFrameworkRoot(frameworkJson);
-  if (!fw) return null;
+function findProfileReport(frameworkJson: any, profileCode: string) {
+  const fw = frameworkJson?.framework || frameworkJson;
+  const pc = String(profileCode || "").toUpperCase();
 
-  const url =
-    fw?.common?.next_steps_url ||
-    fw?.common?.nextStepsUrl ||
-    fw?.next_steps_url ||
-    fw?.nextStepsUrl ||
-    null;
-
-  return typeof url === "string" && url.trim() ? url.trim() : null;
-}
-
-function findProfileReport(frameworkJson: any, profileCode: string, profileName?: string | null) {
-  const fw = pickFrameworkRoot(frameworkJson);
-  if (!fw) return null;
-
-  const pc = String(profileCode || "").toUpperCase().trim();
-  const pnSlug = slugifyName(profileName || "");
-
-  // 1) YOUR LEAD v1 likely: fw.profiles is an object keyed by PROFILE_1..PROFILE_8 (or by name)
-  if (fw?.profiles && typeof fw.profiles === "object" && !Array.isArray(fw.profiles)) {
-    // exact hit
-    if (fw.profiles[pc]) return fw.profiles[pc];
-
-    // case-insensitive / dash-normalised key match
-    const entries = Object.entries(fw.profiles);
-    const hitByKey = entries.find(([k]) => String(k).toUpperCase() === pc);
-    if (hitByKey?.[1]) return hitByKey[1];
-
-    // try by slugged profile name key (trailblazer, spark, etc.)
-    if (pnSlug) {
-      const byNameKey = entries.find(([k]) => slugifyName(k) === pnSlug);
-      if (byNameKey?.[1]) return byNameKey[1];
-    }
+  if (fw?.profiles && typeof fw.profiles === "object") {
+    const hit = fw.profiles[pc];
+    if (hit) return hit;
   }
 
-  // 2) fw.profiles could be an array of { code/name, sections }
-  if (Array.isArray(fw?.profiles)) {
-    const byCode = fw.profiles.find((p: any) => String(p?.code || p?.profile_code || "").toUpperCase() === pc);
-    if (byCode) return byCode;
-
-    if (pnSlug) {
-      const byName = fw.profiles.find((p: any) => slugifyName(p?.name) === pnSlug);
-      if (byName) return byName;
-    }
-  }
-
-  // 3) older schema: reports_by_profile
   const reportsByProfile = fw?.reports_by_profile;
   if (reportsByProfile && typeof reportsByProfile === "object") {
-    if (reportsByProfile[pc]) return reportsByProfile[pc];
-
-    const hit = Object.entries(reportsByProfile).find(([k]) => String(k).toUpperCase() === pc);
-    if (hit?.[1]) return hit[1];
-
-    if (pnSlug) {
-      const byName = Object.entries(reportsByProfile).find(([k]) => slugifyName(k) === pnSlug);
-      if (byName?.[1]) return byName[1];
-    }
+    const hit = reportsByProfile[pc];
+    if (hit) return hit;
   }
 
-  // 4) older schema: fw.reports object/list
   const reports = fw?.reports;
   if (reports && typeof reports === "object") {
     for (const v of Object.values(reports)) {
@@ -397,23 +320,6 @@ function findProfileReport(frameworkJson: any, profileCode: string, profileName?
         (v as any)?.code ||
         "";
       if (String(p).toUpperCase() === pc) return v;
-
-      if (pnSlug) {
-        const name = (v as any)?.name || (v as any)?.title || "";
-        if (slugifyName(name) === pnSlug) return v;
-      }
-    }
-  }
-
-  // 5) sometimes nested: fw.profile_reports
-  const pr = fw?.profile_reports;
-  if (pr && typeof pr === "object" && !Array.isArray(pr)) {
-    if (pr[pc]) return pr[pc];
-    const hit = Object.entries(pr).find(([k]) => String(k).toUpperCase() === pc);
-    if (hit?.[1]) return hit[1];
-    if (pnSlug) {
-      const byName = Object.entries(pr).find(([k]) => slugifyName(k) === pnSlug);
-      if (byName?.[1]) return byName[1];
     }
   }
 
@@ -440,11 +346,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const testRow = await fetchTestRow(meta.test_id);
     const testMeta = (testRow?.meta || {}) as TestMeta;
 
-    // storage framework definition from tests.meta.reportFramework
     const rf: ReportFrameworkMeta | null = (testRow?.meta as any)?.reportFramework || null;
     const useStorageFramework = Boolean(rf?.bucket && rf?.path);
 
-    // org slug priority
     const orgSlug = String(
       meta.org_slug || testMeta?.orgSlug || process.env.DEFAULT_ORG_SLUG || "competency-coach",
     ).trim();
@@ -453,22 +357,16 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     let fw: any = await loadFrameworkBySlug(orgSlug);
     let frameworkSource: "filesystem" | "storage" = "filesystem";
 
-    // opt-in storage override
     if (useStorageFramework && rf?.bucket && rf?.path) {
       const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
       if (storageFw) {
         fw = storageFw;
         frameworkSource = "storage";
-      } else {
-        // keep filesystem fallback
-        frameworkSource = "filesystem";
       }
     }
 
-    // Lookups for legacy tests
     const look = buildLookups(fw);
 
-    // labels: prefer tests.meta for LEAD
     const metaFreqs = Array.isArray(testMeta?.frequencies) ? testMeta.frequencies : null;
     const metaProfiles = Array.isArray(testMeta?.profiles) ? testMeta.profiles : null;
 
@@ -500,10 +398,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const comp = computeFromAnswers(sub.answers_json, qmap);
 
     const saved = (sub.totals || {}) as Record<string, number>;
-    const savedSum = Object.values(saved).reduce((a, b) => a + (Number(b) || 0), 0);
 
+    // Frequencies: use saved A-D if present, else computed.
+    const savedADSum = ["A", "B", "C", "D"].reduce((a, k) => a + (Number(saved[k]) || 0), 0);
     const freqTotals: Record<AB, number> =
-      savedSum > 0
+      savedADSum > 0
         ? {
             A: safeNumber(saved.A, 0),
             B: safeNumber(saved.B, 0),
@@ -512,7 +411,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           }
         : comp.freqTotals;
 
-    const profileTotals = comp.profileTotals;
+    // Profiles: if submission.totals already includes PROFILE_*, prefer it.
+    const { out: savedProfileTotals, sum: savedProfileSum } = pickSavedProfileTotals(saved);
+    const profileTotals: Record<string, number> = savedProfileSum > 0 ? savedProfileTotals : comp.profileTotals;
 
     const frequency_percentages = toPercentages<AB>(freqTotals);
     const profile_percentages = toPercentages<string>(profileTotals);
@@ -524,7 +425,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const top_profile_entry =
       Object.entries(profileTotals).sort((a, b) => b[1] - a[1])[0] || ["PROFILE_1", 0];
 
-    const top_profile_code = top_profile_entry[0];
+    const top_profile_code = String(top_profile_entry[0] || "PROFILE_1").toUpperCase();
     const top_profile_name =
       profile_labels.find((p) => p.code === top_profile_code)?.name ||
       look.profileByCode.get(top_profile_code)?.name ||
@@ -535,48 +436,22 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     let report_title: string | null = null;
 
     if (useStorageFramework) {
-      const common = pickCommonSections(fw);
-      const rep = findProfileReport(fw, top_profile_code, top_profile_name);
+      const common = pickCommonSections(fw) || [];
+      const rep = findProfileReport(fw, top_profile_code);
 
-      const profileSections = rep?.sections || rep?.content || null; // allow alt key
-      const profileMissing = !Array.isArray(profileSections) || profileSections.length === 0;
+      const profileSections = rep?.sections;
+      const profileArr = Array.isArray(profileSections) ? profileSections : [];
 
-      report_title = rep?.title || rep?.report_title || pickReportTitle(fw) || null;
+      report_title = rep?.title || pickReportTitle(fw) || null;
 
-      // IMPORTANT: keep sections grouped as arrays (your renderer expects groups)
+      // IMPORTANT: only keep array-valued keys here so the client can iterate cleanly.
       sections = {
-        common: common || null,
-        profile: profileMissing ? null : profileSections,
-      };
-
-      // Helpful debugging (doesn't break UI)
-      (sections as any).__meta = {
-        profile_missing: profileMissing,
-        framework_version: rf?.version || null,
-        framework_bucket: rf?.bucket || null,
-        framework_path: rf?.path || null,
-        resolved_profile_code: top_profile_code,
-        resolved_profile_name: top_profile_name,
+        common,
+        profile: profileArr,
       };
     }
 
-    // Link meta: prefer test_links.meta if present
     const linkMeta = meta.link_meta || null;
-
-    // Next steps fallback chain
-    const nextStepsFallback =
-      (typeof linkMeta?.next_steps_url === "string" && linkMeta.next_steps_url.trim()) ||
-      (typeof (testRow?.meta as any)?.next_steps_url === "string" && (testRow?.meta as any).next_steps_url.trim()) ||
-      pickFrameworkNextStepsUrl(fw) ||
-      "";
-
-    const mergedLink =
-      linkMeta || nextStepsFallback
-        ? {
-            ...(linkMeta || {}),
-            next_steps_url: nextStepsFallback || (linkMeta?.next_steps_url ?? null),
-          }
-        : undefined;
 
     return NextResponse.json({
       ok: true,
@@ -591,7 +466,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           last_name: taker?.last_name ?? null,
         },
 
-        link: mergedLink,
+        link: linkMeta || undefined,
 
         frequency_labels,
         frequency_totals: freqTotals,
@@ -605,10 +480,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         top_profile_code,
         top_profile_name,
 
-        // keep existing field
         sections,
-
-        // optional: sometimes nice for clients to use directly
         report_title,
 
         debug: {
@@ -616,6 +488,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           reportFramework: rf,
           useStorageFramework,
           schema: "portal",
+          qmap_size: qmap.size,
+          answers_count: Array.isArray(sub.answers_json) ? sub.answers_json.length : 0,
+          used_saved_profiles: savedProfileSum > 0,
+          used_saved_frequencies: savedADSum > 0,
         },
 
         version: useStorageFramework ? "portal-v2-storage-optin" : "portal-v1",
@@ -626,6 +502,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
 
 
 
