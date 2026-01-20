@@ -145,9 +145,7 @@ function InsightSection({
       id={id}
       className={[
         "scroll-mt-28 rounded-3xl border p-6 md:p-8 space-y-3 shadow-sm",
-        danger
-          ? "border-rose-200 bg-white"
-          : "border-slate-200 bg-white",
+        danger ? "border-rose-200 bg-white" : "border-slate-200 bg-white",
       ].join(" ")}
     >
       <div className="flex items-start gap-3">
@@ -161,7 +159,6 @@ function InsightSection({
         >
           {number}
         </div>
-
         <div className="space-y-1.5">
           <h2
             className={[
@@ -171,7 +168,6 @@ function InsightSection({
           >
             {title}
           </h2>
-
           {kicker && (
             <p
               className={[
@@ -231,6 +227,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
         const j = (await res.json()) as any;
 
         if (!res.ok || j?.ok === false) {
+          // Special handling: ambiguous token now returns 409
           if (res.status === 409 && String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")) {
             throw new Error(
               "This link has multiple results. Please open the Extended page from the Snapshot (or add ?tid=...) so we can load the correct report."
@@ -263,7 +260,11 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
     if (!reportRef.current) return;
 
     const element = reportRef.current;
-    const canvas = await html2canvas(element, { scale: 2, useCORS: true });
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#0b1220", // keeps the captured background consistent with dark theme
+    });
 
     const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");
@@ -352,13 +353,10 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
 
   const takerDisplayName = getFullName(taker);
 
-  const snapshotHref = tid
-    ? `/qsc/${encodeURIComponent(token)}?tid=${encodeURIComponent(tid)}`
-    : `/qsc/${encodeURIComponent(token)}`;
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <AppBackground />
+
       <main ref={reportRef} className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
         <header className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
@@ -386,12 +384,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
             >
               Download PDF
             </button>
-            <Link
-              href={snapshotHref}
-              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium hover:bg-slate-800"
-            >
-              ← Back to Snapshot
-            </Link>
+
             <span>
               Snapshot created{" "}
               {createdAt.toLocaleString(undefined, {
@@ -402,9 +395,11 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
                 minute: "2-digit",
               })}
             </span>
+
             <span className="text-[11px] text-slate-500">
               Combined profile: <span className="font-semibold text-slate-100">{personaLabel}</span>
             </span>
+
             {extended && (
               <span className="text-[11px] text-slate-500">
                 Pattern:{" "}
@@ -417,7 +412,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
         </header>
 
         <div className="grid gap-8 md:grid-cols-[260px,minmax(0,1fr)] items-start">
-          {/* Keep sidebar dark */}
+          {/* Sidebar stays dark */}
           <aside className="rounded-3xl border border-slate-800 bg-slate-950/90 p-5 md:p-6 md:sticky md:top-6 space-y-3">
             <div>
               <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
@@ -451,7 +446,7 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
           </aside>
 
           <div className="space-y-8">
-            {/* ✅ Profile summary container now WHITE */}
+            {/* Profile summary now white */}
             <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 space-y-4 shadow-sm text-slate-800">
               <div className="space-y-3">
                 <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-700">
@@ -676,6 +671,3 @@ export default function QscExtendedPage({ params }: { params: { token: string } 
     </div>
   );
 }
-
-
-
