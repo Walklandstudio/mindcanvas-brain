@@ -97,6 +97,13 @@ function normaliseId(s: string) {
     .replace(/\-+/g, "-");
 }
 
+function sectionKey(s: ReportSection): string {
+  const id = safeText(s.id).trim();
+  if (id) return `id:${id.toLowerCase()}`;
+  const t = safeText(s.title).trim();
+  return `title:${t.toLowerCase()}`;
+}
+
 function findWelcomeIndex(sections: ReportSection[]) {
   const idx = sections.findIndex((s) => {
     const id = (s.id || "").toLowerCase();
@@ -110,8 +117,13 @@ function findWelcomeIndex(sections: ReportSection[]) {
   return idx;
 }
 
+function isPlaceholderLine(text: string) {
+  // Matches "{{SOMETHING}}" or "{{ SOME_THING }}" (common template tokens)
+  const t = (text || "").trim();
+  return /^\{\{\s*[\w\.\-\_]+\s*\}\}$/.test(t);
+}
+
 function Donut(props: { value: number; label: string }) {
-  // value is 0..1
   const v = Math.max(0, Math.min(1, props.value || 0));
   const size = 120;
   const stroke = 14;
@@ -170,9 +182,7 @@ function Donut(props: { value: number; label: string }) {
         <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
           {props.label}
         </div>
-        <div className="mt-1 text-sm text-slate-700">
-          Your dominant frequency
-        </div>
+        <div className="mt-1 text-sm text-slate-700">Your dominant frequency</div>
       </div>
     </div>
   );
@@ -219,6 +229,14 @@ function BlockRenderer({ block }: { block: SectionBlock }) {
 
   if (type === "p") {
     const t = safeText((block as any).text);
+    if (isPlaceholderLine(t)) {
+      return (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold text-slate-600">Template placeholder</p>
+          <p className="mt-1 text-xs text-slate-500">{t}</p>
+        </div>
+      );
+    }
     return <p className="text-sm leading-relaxed text-slate-700">{t}</p>;
   }
 
@@ -272,6 +290,8 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<ResultData | null>(null);
 
+  const [redirecting, setRedirecting] = useState(false);
+
   const reportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -289,9 +309,9 @@ export default function LegacyReportClient(props: { token: string; tid: string }
         }
 
         const base = await getBaseUrl();
-        const url = `${base}/api/public/test/${encodeURIComponent(
-          token
-        )}/report?tid=${encodeURIComponent(tid)}`;
+        const url = `${base}/api/public/test/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(
+          tid
+        )}`;
 
         const res = await fetch(url, { cache: "no-store" });
         const ct = res.headers.get("content-type") ?? "";
@@ -321,30 +341,69 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     };
   }, [token, tid]);
 
+  // Hidden results / redirect handling
+  useEffect(() => {
+    if (!data) return;
+
+    const showResults = data.link?.show_results ?? true;
+    if (showResults) return;
+
+    const redirectUrl = (data.link?.redirect_url || "").trim();
+    if (!redirectUrl) return;
+
+    setRedirecting(true);
+    window.location.assign(redirectUrl);
+  }, [data]);
+
   const mergedSections = useMemo(() => {
     const common = (data?.sections?.common || []) as ReportSection[];
     const profile = (data?.sections?.profile || []) as ReportSection[];
 
     const all = [...common, ...profile].filter(Boolean);
 
-    // Force Welcome to first if present
-    const idx = findWelcomeIndex(all);
-    if (idx > 0) {
-      const welcome = all[idx];
-      all.splice(idx, 1);
-      all.unshift(welcome);
+    // De-dupe by id/title key (stable)
+    const seen = new Set<string>();
+    const deduped: ReportSection[] = [];
+    for (const s of all) {
+      const k = sectionKey(s);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      deduped.push(s);
     }
 
-    return all;
+    // Force Welcome to first if present
+    const idx = findWelcomeIndex(deduped);
+    if (idx > 0) {
+      const welcome = deduped[idx];
+      deduped.splice(idx, 1);
+      deduped.unshift(welcome);
+    }
+
+    return deduped;
   }, [data]);
 
   const quickIndex = useMemo(() => {
-    return mergedSections
-      .filter((s) => safeText(s.title).trim().length > 0)
-      .map((s) => {
-        const id = s.id ? String(s.id) : normaliseId(String(s.title || "section"));
-        return { id, title: String(s.title), raw: s };
-      });
+    const out: Array<{ id: string; title: string }> = [];
+
+    for (const s of mergedSections) {
+      const title = safeText(s.title).trim();
+      if (!title) continue;
+
+      const id = safeText(s.id).trim() || normaliseId(title);
+      out.push({ id, title });
+    }
+
+    // Stable de-dupe by id (keeps first occurrence)
+    const seen = new Set<string>();
+    const deduped: Array<{ id: string; title: string }> = [];
+    for (const row of out) {
+      const k = row.id.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      deduped.push(row);
+    }
+
+    return deduped;
   }, [mergedSections]);
 
   async function handleDownloadPdf() {
@@ -446,12 +505,48 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     );
   }
 
+  // Hidden results message (when show_results = false and no redirect_url)
+  const showResults = data.link?.show_results ?? true;
+  const hiddenMessage = (data.link?.hidden_results_message || "").trim();
+  const redirectUrl = (data.link?.redirect_url || "").trim();
+
+  if (!showResults) {
+    if (redirecting && redirectUrl) {
+      return (
+        <div className="min-h-screen bg-[#050914] text-white">
+          <AppBackground />
+          <main className="relative z-10 mx-auto max-w-3xl px-4 py-10 space-y-3">
+            <h1 className="text-2xl font-semibold">Thanks — redirecting…</h1>
+            <p className="text-sm text-slate-300">Taking you to the next step now.</p>
+          </main>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen bg-[#050914] text-white">
+        <AppBackground />
+        <main className="relative z-10 mx-auto max-w-3xl px-4 py-10 space-y-4">
+          <h1 className="text-2xl font-semibold">Thank you</h1>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-slate-200 whitespace-pre-wrap">
+              {hiddenMessage ||
+                "Thank you for completing this assessment. Your facilitator will share your insights with you next."}
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const participant = fullName(data.taker?.first_name, data.taker?.last_name);
-  const orgName = data.org_name || data.test_name || "Organisation";
-  const reportTitle =
-    data.sections?.report_title ||
-    data.test_name ||
-    "Personalised report";
+
+  const reportTitle = data.sections?.report_title || data.test_name || "Personalised report";
+
+  // If org_name is null, don’t pretend test_name is an org
+  const hasOrgName = Boolean((data.org_name || "").trim());
+  const orgNameLabel = hasOrgName ? "Organisation" : "Test";
+  const orgNameValue = hasOrgName ? (data.org_name as string) : data.test_name;
 
   const nextStepsUrl = (data.link?.next_steps_url || "").trim();
   const hasNextSteps = Boolean(nextStepsUrl);
@@ -460,8 +555,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
   const topFreqCode = data.top_freq;
   const topFreqPct = data.frequency_percentages?.[topFreqCode] ?? 0;
   const topFreqName =
-    data.frequency_labels.find((f) => f.code === topFreqCode)?.name ||
-    topFreqCode;
+    data.frequency_labels.find((f) => f.code === topFreqCode)?.name || topFreqCode;
 
   // profile sorting
   const sortedProfiles = [...data.profile_labels]
@@ -482,11 +576,9 @@ export default function LegacyReportClient(props: { token: string; tid: string }
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">
             Personalised report
           </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">
-            {reportTitle}
-          </h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">{reportTitle}</h1>
           <p className="mt-2 text-sm text-slate-200">
-            For {participant} · Organisation: {orgName}
+            For {participant} · {orgNameLabel}: {orgNameValue}
           </p>
           <p className="mt-1 text-sm text-slate-200">
             Top profile: <span className="font-semibold">{data.top_profile_name}</span>
@@ -527,9 +619,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                     <span className="font-medium">
                       {f.name} ({f.code})
                     </span>
-                    <span className="text-slate-700">
-                      {pctLabel(data.frequency_percentages?.[f.code])}
-                    </span>
+                    <span className="text-slate-700">{pctLabel(data.frequency_percentages?.[f.code])}</span>
                   </div>
                 ))}
               </div>
@@ -574,17 +664,13 @@ export default function LegacyReportClient(props: { token: string; tid: string }
         <div className="mt-6 grid gap-4 md:grid-cols-[280px_1fr]">
           {/* Quick index */}
           <aside className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">
-              Quick index
-            </p>
-            <p className="mt-1 text-xs text-slate-300">
-              Jump straight to the section you need.
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Quick index</p>
+            <p className="mt-1 text-xs text-slate-300">Jump straight to the section you need.</p>
 
             <div className="mt-4 space-y-2">
-              {quickIndex.slice(0, 30).map((s, i) => (
+              {quickIndex.slice(0, 40).map((s, i) => (
                 <button
-                  key={s.id + i}
+                  key={s.id}
                   onClick={() => scrollToSection(s.id)}
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10"
                 >
@@ -593,9 +679,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
                       {i + 1}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-white">
-                        {s.title}
-                      </div>
+                      <div className="truncate text-sm font-medium text-white">{s.title}</div>
                     </div>
                     <div className="text-xs text-slate-300">View</div>
                   </div>
@@ -608,30 +692,31 @@ export default function LegacyReportClient(props: { token: string; tid: string }
           <main className="space-y-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <h2 className="text-lg font-semibold">Core sections</h2>
+              {data?.sections?.profile_missing ? (
+                <p className="mt-1 text-xs text-amber-200">
+                  Note: profile-specific sections are missing for this profile in the storage framework.
+                </p>
+              ) : null}
             </div>
 
             {mergedSections.length === 0 ? (
               <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
                 <p className="text-sm text-slate-200">
-                  No sections were returned for this report. (This usually means the storage framework
-                  file is missing content or the report route didn’t attach sections.profile.)
+                  No sections were returned for this report. (Usually means the storage framework file is missing
+                  content or the report route didn’t attach sections.profile.)
                 </p>
               </div>
             ) : null}
 
             {mergedSections.map((section, idx) => {
-              const id = section.id ? String(section.id) : normaliseId(String(section.title || `section-${idx}`));
+              const id = safeText(section.id).trim() || normaliseId(safeText(section.title) || `section-${idx}`);
               const title = safeText(section.title);
 
               return (
-                <section key={id + idx} id={id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  {/* White container inside (matches your “all reports have this” requirement) */}
+                <section key={`${id}-${idx}`} id={id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  {/* White container inside */}
                   <div className="rounded-2xl bg-white p-6 text-slate-900">
-                    {title ? (
-                      <h2 className="text-xl font-semibold text-slate-900">
-                        {title}
-                      </h2>
-                    ) : null}
+                    {title ? <h2 className="text-xl font-semibold text-slate-900">{title}</h2> : null}
 
                     <div className={title ? "mt-4 space-y-3" : "space-y-3"}>
                       {(section.blocks || []).map((b, i) => (
@@ -643,18 +728,26 @@ export default function LegacyReportClient(props: { token: string; tid: string }
               );
             })}
 
-            <div className="pt-2">
+            {/* Bottom actions */}
+            <div className="pt-2 flex flex-wrap gap-3">
               <button
                 onClick={handleDownloadPdf}
                 className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
                 Download PDF
               </button>
+
+              {hasNextSteps && (
+                <button
+                  onClick={() => window.open(nextStepsUrl, "_blank", "noopener,noreferrer")}
+                  className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
+                >
+                  Next steps
+                </button>
+              )}
             </div>
 
-            <footer className="pt-4 text-xs text-slate-400">
-              © {new Date().getFullYear()} MindCanvas
-            </footer>
+            <footer className="pt-4 text-xs text-slate-400">© {new Date().getFullYear()} MindCanvas</footer>
           </main>
         </div>
       </div>
