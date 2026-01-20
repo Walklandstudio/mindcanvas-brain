@@ -201,8 +201,6 @@ async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   };
 }
 
-// Fetch latest submission for (taker_id, token)
-// (kept strict to token because your debug shows it matches)
 async function fetchLatestSubmission(taker_id: string, token: string): Promise<SubmissionRow | null> {
   const sb = sbAdmin();
   const q = await sb
@@ -218,10 +216,7 @@ async function fetchLatestSubmission(taker_id: string, token: string): Promise<S
   return q.data as SubmissionRow;
 }
 
-// ✅ Load question maps from the correct place.
-// 1) Try portal.test_questions (standard)
-// 2) If none usable, try portal.custom_test_questions (builder)
-// Only keep rows with non-empty profile_map.
+// ✅ Load maps from either table; keep only rows that have a non-empty profile_map
 async function fetchQuestionMaps(test_id: string): Promise<{ map: Map<string, QuestionMapRow>; source: string }> {
   const sb = sbAdmin();
 
@@ -235,7 +230,6 @@ async function fetchQuestionMaps(test_id: string): Promise<{ map: Map<string, Qu
     return map;
   }
 
-  // 1) Standard
   const q1 = (await sb
     .from("test_questions")
     .select("id, profile_map")
@@ -245,7 +239,6 @@ async function fetchQuestionMaps(test_id: string): Promise<{ map: Map<string, Qu
   const map1 = !q1.error ? build(q1.data) : new Map<string, QuestionMapRow>();
   if (map1.size > 0) return { map: map1, source: "test_questions" };
 
-  // 2) Builder fallback
   const q2 = (await sb
     .from("custom_test_questions")
     .select("id, profile_map")
@@ -255,7 +248,6 @@ async function fetchQuestionMaps(test_id: string): Promise<{ map: Map<string, Qu
   const map2 = !q2.error ? build(q2.data) : new Map<string, QuestionMapRow>();
   if (map2.size > 0) return { map: map2, source: "custom_test_questions" };
 
-  // Nothing found
   return { map: new Map<string, QuestionMapRow>(), source: q1.error ? `test_questions_error:${q1.error.message}` : "none" };
 }
 
@@ -342,6 +334,22 @@ function findProfileReport(frameworkJson: any, profileCode: string) {
   return null;
 }
 
+// 🔑 Normalize frameworkKey -> storage bucket/path
+function resolveStorageFromFrameworkKey(frameworkKey: string | null | undefined): { bucket: string; path: string } | null {
+  const key = String(frameworkKey || "").trim();
+  if (!key) return null;
+
+  // Required canonical key (your message)
+  if (key === "lead.lead_report_framework_v1.json") {
+    return { bucket: "framework", path: "lead/lead_report_framework_v1.json" };
+  }
+
+  // If in future you want to allow passing "lead/<file>.json" directly:
+  // if (key.startsWith("lead/") && key.endsWith(".json")) return { bucket: "framework", path: key };
+
+  return null;
+}
+
 // ---------------- Handler ----------------
 
 export async function GET(req: Request, { params }: { params: { token: string } }) {
@@ -362,21 +370,46 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const testRow = await fetchTestRow(meta.test_id);
     const testMeta = (testRow?.meta || {}) as TestMeta;
 
+    // Current storage opt-in
     const rf: ReportFrameworkMeta | null = (testRow?.meta as any)?.reportFramework || null;
-    const useStorageFramework = Boolean(rf?.bucket && rf?.path);
+
+    // ✅ New: frameworkKey override
+    const fkOverride = resolveStorageFromFrameworkKey((testRow?.meta as any)?.frameworkKey || testMeta.frameworkKey);
+
+    // Determine if we should use storage framework
+    const useStorageFramework = Boolean(
+      (fkOverride?.bucket && fkOverride?.path) || (rf?.bucket && rf?.path),
+    );
 
     const orgSlug = String(
       meta.org_slug || testMeta?.orgSlug || process.env.DEFAULT_ORG_SLUG || "competency-coach",
     ).trim();
 
+    // Legacy framework by orgSlug (unchanged)
     let fw: any = await loadFrameworkBySlug(orgSlug);
     let frameworkSource: "filesystem" | "storage" = "filesystem";
 
-    if (useStorageFramework && rf?.bucket && rf?.path) {
-      const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
-      if (storageFw) {
-        fw = storageFw;
-        frameworkSource = "storage";
+    // ✅ Choose storage bucket/path with correct precedence:
+    // 1) frameworkKey override (lead.lead_report_framework_v1.json)
+    // 2) reportFramework bucket/path (existing behaviour)
+    let usedBucket: string | null = null;
+    let usedPath: string | null = null;
+
+    if (useStorageFramework) {
+      const bucket = fkOverride?.bucket || rf?.bucket || null;
+      const path = fkOverride?.path || rf?.path || null;
+
+      if (bucket && path) {
+        const storageFw = await downloadFrameworkJSON(String(bucket), String(path));
+        if (storageFw) {
+          fw = storageFw;
+          frameworkSource = "storage";
+          usedBucket = String(bucket);
+          usedPath = String(path);
+        } else {
+          usedBucket = String(bucket);
+          usedPath = String(path);
+        }
       }
     }
 
@@ -409,7 +442,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const taker = await fetchTakerRow(takerId);
 
-    // ✅ Critical: Load question maps correctly for this test
     const qm = await fetchQuestionMaps(meta.test_id);
     const qmap = qm.map;
 
@@ -448,6 +480,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       look.profileByCode.get(top_profile_code)?.name ||
       top_profile_code;
 
+    // Storage sections payload (LEAD)
     let sections: any = null;
     if (useStorageFramework && top_profile_code) {
       const common = pickCommonSections(fw);
@@ -462,8 +495,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         report_title: rep?.title || pickReportTitle(fw) || null,
         profile_missing: profileMissing,
         framework_version: rf?.version || null,
-        framework_bucket: rf?.bucket || null,
-        framework_path: rf?.path || null,
+        framework_bucket: usedBucket || rf?.bucket || fkOverride?.bucket || null,
+        framework_path: usedPath || rf?.path || fkOverride?.path || null,
+        framework_key: (testRow?.meta as any)?.frameworkKey || testMeta.frameworkKey || null,
       };
     }
 
@@ -501,6 +535,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         debug: {
           frameworkSource,
           reportFramework: rf,
+          frameworkKey: (testRow?.meta as any)?.frameworkKey || testMeta.frameworkKey || null,
+          storageUsed: { bucket: usedBucket, path: usedPath },
           useStorageFramework,
           schema: "portal",
           submission_link_token: sub.link_token,
