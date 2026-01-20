@@ -226,17 +226,12 @@ function buildExtendedMerged(args: {
   };
 
   const tableUsed = Boolean(extRow);
-  const snapshotUsed =
-    !tableUsed ||
-    Object.values(extended).some((v) => v === null);
+  const snapshotUsed = !tableUsed || Object.values(extended).some((v) => v === null);
 
   return { extended, source: { tableUsed, snapshotUsed } };
 }
 
-export async function GET(
-  req: Request,
-  { params }: { params: { token: string } }
-) {
+export async function GET(req: Request, { params }: { params: { token: string } }) {
   try {
     const tokenParam = String(params.token || "").trim();
     if (!tokenParam) {
@@ -271,7 +266,10 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
       if (data) {
         resultRow = data as any;
@@ -293,7 +291,10 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
       if (data) {
         resultRow = data as any;
@@ -311,22 +312,26 @@ export async function GET(
       const { count, error: countErr } = await leaderAudienceFilter(countQ);
 
       if (countErr) {
-        return NextResponse.json({ ok: false, error: `qsc_results count failed: ${countErr.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_results count failed: ${countErr.message}` },
+          { status: 500 }
+        );
       }
 
       const c = Number(count || 0);
       if (!tid && c > 1) {
         return NextResponse.json(
-          { ok: false, error: "AMBIGUOUS_TOKEN_REQUIRES_TID", debug: { token: tokenParam, tid: tid || null, matches: c } },
+          {
+            ok: false,
+            error: "AMBIGUOUS_TOKEN_REQUIRES_TID",
+            debug: { token: tokenParam, tid: tid || null, matches: c },
+          },
           { status: 409 }
         );
       }
 
       if (c === 1) {
-        const q = sb
-          .from("qsc_results")
-          .select(resultSelect)
-          .eq("token", tokenParam);
+        const q = sb.from("qsc_results").select(resultSelect).eq("token", tokenParam);
 
         const { data, error } = await leaderAudienceFilter(q)
           .order("created_at", { ascending: false })
@@ -334,7 +339,10 @@ export async function GET(
           .maybeSingle();
 
         if (error) {
-          return NextResponse.json({ ok: false, error: `qsc_results load failed: ${error.message}` }, { status: 500 });
+          return NextResponse.json(
+            { ok: false, error: `qsc_results load failed: ${error.message}` },
+            { status: 500 }
+          );
         }
         if (data) {
           resultRow = data as any;
@@ -407,7 +415,10 @@ export async function GET(
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ ok: false, error: `qsc_profiles load failed: ${error.message}` }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, error: `qsc_profiles load failed: ${error.message}` },
+          { status: 500 }
+        );
       }
       if (data) profile = data as any;
     }
@@ -482,7 +493,10 @@ export async function GET(
       .maybeSingle();
 
     if (extErr) {
-      return NextResponse.json({ ok: false, error: `leader extended load failed: ${extErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `leader extended load failed: ${extErr.message}` },
+        { status: 500 }
+      );
     }
 
     const { extended, source } = buildExtendedMerged({
@@ -519,3 +533,4 @@ export async function GET(
     return NextResponse.json({ ok: false, error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
+

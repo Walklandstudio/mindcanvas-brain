@@ -563,7 +563,8 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
               <h2 className="text-lg font-semibold text-slate-900">{welcomeTitle}</h2>
               <p className="mt-1 text-sm font-medium text-slate-500">A note from the creator of this framework.</p>
 
-              <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-start">
+              {/* UPDATED: founder image now stacks below the letter (not beside it) */}
+              <div className="mt-4 flex flex-col gap-6">
                 <div className="space-y-3 text-sm leading-relaxed text-slate-700">
                   {welcomeBody.map((p, idx) => (
                     <p key={idx}>{p}</p>
@@ -571,16 +572,14 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
                 </div>
 
                 {orgAssets?.founderPhotoSrc && (
-                  <div className="flex flex-col items-center gap-3 md:items-start">
+                  <div className="flex flex-col items-center gap-3">
                     <img
                       src={orgAssets.founderPhotoSrc}
                       alt={orgAssets.founderCaption || "Founder"}
                       className="h-28 w-28 rounded-full object-cover border border-slate-200"
                     />
                     {orgAssets.founderCaption && (
-                      <p className="text-xs text-slate-500 text-center md:text-left">
-                        {orgAssets.founderCaption}
-                      </p>
+                      <p className="text-xs text-slate-500 text-center">{orgAssets.founderCaption}</p>
                     )}
                   </div>
                 )}
@@ -833,7 +832,10 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
                 const profileImg = isTeamPuzzle && p.name ? getTeamPuzzleProfileImage(p.name) : null;
 
                 return (
-                  <div key={p.code} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 text-slate-900">
+                  <div
+                    key={p.code}
+                    className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 text-slate-900"
+                  >
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
 
                     {profileImg && (
@@ -849,15 +851,18 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
                     <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs text-slate-700">
                       <li>
                         <span className="font-semibold">Key traits:</span>{" "}
-                        {asText(copy?.traits) || "How this profile most naturally contributes when things are going well."}
+                        {asText(copy?.traits) ||
+                          "How this profile most naturally contributes when things are going well."}
                       </li>
                       <li>
                         <span className="font-semibold">Motivators:</span>{" "}
-                        {asText(copy?.motivators) || "Conditions that help this style feel energising and sustainable."}
+                        {asText(copy?.motivators) ||
+                          "Conditions that help this style feel energising and sustainable."}
                       </li>
                       <li>
                         <span className="font-semibold">Watch outs:</span>{" "}
-                        {asText(copy?.blind_spots) || "Things to watch out for when this style is over-used or under pressure."}
+                        {asText(copy?.blind_spots) ||
+                          "Things to watch out for when this style is over-used or under pressure."}
                       </li>
                     </ul>
                   </div>
@@ -870,10 +875,10 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
               <h2 className="text-lg font-semibold text-slate-900">Energy mix – how your profiles work together</h2>
               <p className="mt-2 text-sm text-slate-700">
                 Your top three profiles form an energy mix that shapes how you show up day to day. Your primary profile,{" "}
-                <span className="font-semibold">{primary?.name}</span>, is the style you’re most likely to default to under
-                pressure. Your secondary profile, <span className="font-semibold">{secondary?.name}</span>, adds a supporting
-                pattern you can lean on. Your tertiary profile, <span className="font-semibold">{tertiary?.name}</span>, is a
-                backup style you can draw on when needed.
+                <span className="font-semibold">{primary?.name}</span>, is the style you’re most likely to default to
+                under pressure. Your secondary profile, <span className="font-semibold">{secondary?.name}</span>, adds a
+                supporting pattern you can lean on. Your tertiary profile,{" "}
+                <span className="font-semibold">{tertiary?.name}</span>, is a backup style you can draw on when needed.
               </p>
               <p className="mt-3 text-sm text-slate-700">{primaryExample}</p>
             </div>
@@ -883,28 +888,41 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
               <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
                 <h2 className="text-lg font-semibold text-slate-900">Strengths</h2>
                 <p className="mt-2 text-sm text-slate-700">
-                  These are areas where your natural energy is most likely to add value when your work and environment are a good fit.
+                  These are areas where your natural energy is most likely to add value when your work and environment
+                  are a good fit.
                 </p>
                 <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
                   <li>
-                    Leaning into your <span className="font-semibold">{data.top_freq}</span> energy when decisions need to be made or momentum is required.
+                    Leaning into your <span className="font-semibold">{data.top_freq}</span> energy when decisions need to
+                    be made or momentum is required.
                   </li>
                   <li>
-                    Using your <span className="font-semibold">{primary?.name}</span> profile to bring something that others may not – whether that’s ideas, people focus, structure, or depth.
+                    Using your <span className="font-semibold">{primary?.name}</span> profile to bring something that
+                    others may not – whether that’s ideas, people focus, structure, or depth.
                   </li>
-                  <li>Combining your top three profiles to adapt to different people and contexts without losing your authenticity.</li>
+                  <li>
+                    Combining your top three profiles to adapt to different people and contexts without losing your
+                    authenticity.
+                  </li>
                 </ul>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-900">
                 <h2 className="text-lg font-semibold text-slate-900">Development areas</h2>
                 <p className="mt-2 text-sm text-slate-700">
-                  Development areas are not weaknesses. They’re places where a small shift in awareness or behaviour can unlock more ease and impact.
+                  Development areas are not weaknesses. They’re places where a small shift in awareness or behaviour can
+                  unlock more ease and impact.
                 </p>
                 <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
                   <li>Noticing when your dominant frequency is over-used and crowding out other perspectives.</li>
-                  <li>Experimenting with lower-percentage frequencies in low-risk situations so they become more available when you need them.</li>
-                  <li>Asking for support or partnership in areas that drain your energy, rather than trying to do everything alone.</li>
+                  <li>
+                    Experimenting with lower-percentage frequencies in low-risk situations so they become more available
+                    when you need them.
+                  </li>
+                  <li>
+                    Asking for support or partnership in areas that drain your energy, rather than trying to do
+                    everything alone.
+                  </li>
                 </ul>
               </div>
             </div>
@@ -913,12 +931,22 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
             <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
               <h2 className="text-lg font-semibold text-slate-900">Collaboration</h2>
               <p className="mt-2 text-sm text-slate-700">
-                Your profile doesn’t exist in isolation – it plays out in relationship with other people and profiles on your team.
+                Your profile doesn’t exist in isolation – it plays out in relationship with other people and profiles
+                on your team.
               </p>
               <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                <li>Look for partners whose strengths sit in lower-frequency areas for you. They can help you see risks and opportunities you might otherwise miss.</li>
-                <li>Share this report with your manager or coach and talk about how your role can make the most of your natural energy.</li>
-                <li>When conflict shows up, ask: “Is this about style rather than intent?” Often, different profiles are reaching for the same outcome in different ways.</li>
+                <li>
+                  Look for partners whose strengths sit in lower-frequency areas for you. They can help you see risks
+                  and opportunities you might otherwise miss.
+                </li>
+                <li>
+                  Share this report with your manager or coach and talk about how your role can make the most of your
+                  natural energy.
+                </li>
+                <li>
+                  When conflict shows up, ask: “Is this about style rather than intent?” Often, different profiles are
+                  reaching for the same outcome in different ways.
+                </li>
               </ul>
             </div>
 
@@ -936,7 +964,8 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
                 frequency shapes how you naturally approach decisions, problems, and collaboration.
               </p>
               <p className="mt-3 text-sm text-slate-700">
-                No profile is better than another. The aim is not to change who you are, but to understand how you work best, and how to create environments where you and your team can do your best thinking and contribution.
+                No profile is better than another. The aim is not to change who you are, but to understand how you work
+                best, and how to create environments where you and your team can do your best thinking and contribution.
               </p>
             </div>
 
@@ -944,7 +973,8 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
             <div className="rounded-2xl border border-slate-200 bg-white p-6 md:p-7 text-slate-900">
               <h2 className="text-lg font-semibold text-slate-900">Next steps</h2>
               <p className="mt-2 text-sm text-slate-700">
-                A profile report is most powerful when it turns into conversation and action. Use these suggestions to decide what you want to do with your insights:
+                A profile report is most powerful when it turns into conversation and action. Use these suggestions to
+                decide what you want to do with your insights:
               </p>
 
               <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-700">
@@ -976,3 +1006,4 @@ export default function LegacyOrgReportClient(props: { token: string; tid: strin
     </div>
   );
 }
+
