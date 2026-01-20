@@ -151,8 +151,6 @@ function pickSavedProfileTotals(saved: Record<string, number> | null | undefined
 function sbAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-  // Prefer service role. (Anon fallback kept only so local dev doesn't hard-crash,
-  // but for Storage reads of private buckets you want service role.)
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_ANON_KEY ||
@@ -205,9 +203,12 @@ async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
 }
 
 // Fetch latest submission for (taker_id, token)
-async function fetchLatestSubmission(taker_id: string, token: string): Promise<SubmissionRow | null> {
+// ✅ Fix: accept legacy rows where link_token is NULL
+async function fetchLatestSubmission(taker_id: string, token: string): Promise<{ row: SubmissionRow | null; matched: "token" | "null" | "none" }> {
   const sb = sbAdmin();
-  const q = await sb
+
+  // First try strict match: link_token == token
+  const strict = await sb
     .from("test_submissions")
     .select("id, taker_id, link_token, totals, answers_json, created_at")
     .eq("taker_id", taker_id)
@@ -216,17 +217,27 @@ async function fetchLatestSubmission(taker_id: string, token: string): Promise<S
     .limit(1)
     .maybeSingle();
 
-  if (q.error || !q.data) return null;
-  return q.data as SubmissionRow;
+  if (!strict.error && strict.data) return { row: strict.data as SubmissionRow, matched: "token" };
+
+  // Fallback: link_token IS NULL (legacy inserts)
+  const legacy = await sb
+    .from("test_submissions")
+    .select("id, taker_id, link_token, totals, answers_json, created_at")
+    .eq("taker_id", taker_id)
+    .is("link_token", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!legacy.error && legacy.data) return { row: legacy.data as SubmissionRow, matched: "null" };
+
+  return { row: null, matched: "none" };
 }
 
 // Minimal questions map (id, profile_map) for this test
 async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionMapRow>> {
   const sb = sbAdmin();
 
-  // IMPORTANT:
-  // Do NOT filter by category. Several tests (including LEAD) may not use "scored".
-  // Filtering can return an empty qmap, which yields 0% scores.
   const q = (await sb
     .from("test_questions")
     .select("id, profile_map")
@@ -353,7 +364,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       meta.org_slug || testMeta?.orgSlug || process.env.DEFAULT_ORG_SLUG || "competency-coach",
     ).trim();
 
-    // legacy framework by orgSlug (unchanged)
     let fw: any = await loadFrameworkBySlug(orgSlug);
     let frameworkSource: "filesystem" | "storage" = "filesystem";
 
@@ -384,10 +394,21 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       return { code, name: fromMeta || fromLegacy || `Profile ${n}` };
     });
 
-    const sub = await fetchLatestSubmission(takerId, token);
+    const subRes = await fetchLatestSubmission(takerId, token);
+    const sub = subRes.row;
+
     if (!sub) {
       return NextResponse.json(
-        { ok: false, error: "Submission not found for this taker/token." },
+        {
+          ok: false,
+          error: "Submission not found for this taker/token.",
+          debug: {
+            takerId,
+            token,
+            note:
+              "No submission matched link_token == token, and no legacy submission with link_token NULL was found for this taker.",
+          },
+        },
         { status: 404 },
       );
     }
@@ -399,7 +420,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const saved = (sub.totals || {}) as Record<string, number>;
 
-    // Frequencies: use saved A-D if present, else computed.
     const savedADSum = ["A", "B", "C", "D"].reduce((a, k) => a + (Number(saved[k]) || 0), 0);
     const freqTotals: Record<AB, number> =
       savedADSum > 0
@@ -411,9 +431,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           }
         : comp.freqTotals;
 
-    // Profiles: if submission.totals already includes PROFILE_*, prefer it.
     const { out: savedProfileTotals, sum: savedProfileSum } = pickSavedProfileTotals(saved);
-    const profileTotals: Record<string, number> = savedProfileSum > 0 ? savedProfileTotals : comp.profileTotals;
+    const profileTotals: Record<string, number> =
+      savedProfileSum > 0 ? savedProfileTotals : comp.profileTotals;
 
     const frequency_percentages = toPercentages<AB>(freqTotals);
     const profile_percentages = toPercentages<string>(profileTotals);
@@ -431,7 +451,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       look.profileByCode.get(top_profile_code)?.name ||
       top_profile_code;
 
-    // Storage sections payload (LEAD)
     let sections: any = null;
     let report_title: string | null = null;
 
@@ -444,7 +463,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
       report_title = rep?.title || pickReportTitle(fw) || null;
 
-      // IMPORTANT: only keep array-valued keys here so the client can iterate cleanly.
       sections = {
         common,
         profile: profileArr,
@@ -488,6 +506,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           reportFramework: rf,
           useStorageFramework,
           schema: "portal",
+          submission_link_token: sub.link_token,
+          submission_match: subRes.matched,
           qmap_size: qmap.size,
           answers_count: Array.isArray(sub.answers_json) ? sub.answers_json.length : 0,
           used_saved_profiles: savedProfileSum > 0,
