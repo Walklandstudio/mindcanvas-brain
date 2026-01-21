@@ -499,13 +499,6 @@ export default function QscLeaderStrategicReportPage({
               >
                 {downloading ? "Preparing PDF…" : "Download PDF"}
               </button>
-
-              <Link
-                href={snapshotHref}
-                className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-800"
-              >
-                Back to Snapshot
-              </Link>
             </div>
 
             {createdAt && (
