@@ -85,6 +85,8 @@ function BarRow({
   );
 }
 
+type QscAudience = "entrepreneur" | "leader";
+
 export default async function TakerDetail({
   params,
 }: {
@@ -210,7 +212,10 @@ export default async function TakerDetail({
 
     if (isFreqTotals) {
       frequencyScores = Object.fromEntries(
-        Object.entries(totalsRaw).map(([k, v]) => [k.toUpperCase(), Number(v) || 0])
+        Object.entries(totalsRaw).map(([k, v]) => [
+          k.toUpperCase(),
+          Number(v) || 0,
+        ])
       );
     } else {
       // Assume these are profile scores keyed by profile name
@@ -221,12 +226,15 @@ export default async function TakerDetail({
       const p2f = Object.fromEntries(
         profiles.map((p) => [p.name, (p.frequency || "").toUpperCase()])
       );
-      frequencyScores = Object.entries(profileScores).reduce((acc, [pName, score]) => {
-        const f = p2f[pName] || "";
-        if (!f) return acc;
-        acc[f] = (acc[f] || 0) + (Number(score) || 0);
-        return acc;
-      }, {} as Record<string, number>);
+      frequencyScores = Object.entries(profileScores).reduce(
+        (acc, [pName, score]) => {
+          const f = p2f[pName] || "";
+          if (!f) return acc;
+          acc[f] = (acc[f] || 0) + (Number(score) || 0);
+          return acc;
+        },
+        {} as Record<string, number>
+      );
     }
   }
 
@@ -315,20 +323,47 @@ export default async function TakerDetail({
   let qscExtendedUrl: string | null = null;
   let qscStrategicUrl: string | null = null;
 
+  // ✅ Determine QSC audience server-side so we build correct URLs (leader vs entrepreneur)
+  let qscAudience: QscAudience | null = null;
+
   if (isQsc && taker.link_token) {
+    // Prefer the actual qsc_results.audience for THIS token+taker
+    const { data: qscRow } = await sb
+      .from("qsc_results")
+      .select("audience, created_at")
+      .eq("token", taker.link_token)
+      .eq("taker_id", taker.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const aud = (qscRow?.audience as QscAudience | null) ?? null;
+
+    // Fallbacks:
+    // - if this is the leaders test, treat null audience as leader (legacy rows)
+    // - otherwise default to entrepreneur
+    if (aud === "leader" || aud === "entrepreneur") {
+      qscAudience = aud;
+    } else if (test?.slug === "qsc-leaders") {
+      qscAudience = "leader";
+    } else {
+      qscAudience = "entrepreneur";
+    }
+
     const base = `/qsc/${encodeURIComponent(taker.link_token)}`;
     const query = `?tid=${encodeURIComponent(taker.id)}`;
 
-    // 1) Buyer Persona Snapshot (portal-only but same viewer)
+    // 1) Snapshot (same viewer, audience decides what buttons should do)
     qscSnapshotUrl = `${base}${query}`;
 
-    // 2) Extended Source Code Snapshot (portal-only)
-    qscExtendedUrl = `${base}/extended${query}`;
+    // 2) ✅ Extended Source Code Snapshot (portal-only) — audience-aware
+    const extendedPath = qscAudience === "leader" ? "/extended-leader" : "/extended";
+    qscExtendedUrl = `${base}${extendedPath}${query}`;
 
-    // 3) Strategic Growth Report (public, taker-facing)
-    // We don't know audience here reliably on server without another query,
-    // but /entrepreneur page already redirects to /leader if audience=leader.
-    qscStrategicUrl = `${base}/entrepreneur${query}`;
+    // 3) ✅ Strategic report (public, taker-facing) — audience-aware
+    // This avoids relying on redirects and prevents landing on the wrong report.
+    const strategicPath = qscAudience === "leader" ? "/leader" : "/entrepreneur";
+    qscStrategicUrl = `${base}${strategicPath}${query}`;
   }
 
   // --- Main report URL (what "Open test-taker report" should open) ----------
@@ -546,5 +581,3 @@ export default async function TakerDetail({
     </div>
   );
 }
-
-
