@@ -32,7 +32,10 @@ type SubmissionRow = {
   id: string;
   taker_id: string;
   link_token: string | null;
-  totals: Record<string, number> | null;
+  // IMPORTANT: totals shape varies by org/version:
+  // - Legacy: { A,B,C,D, PROFILE_1..PROFILE_8, ... }
+  // - Nested: { frequencies: {A..D}, profiles: {PROFILE_*}, meta: { wrapper_test_id, effective_test_id } }
+  totals: any | null;
   answers_json: AnswerShape[] | null;
   created_at: string;
 };
@@ -161,10 +164,8 @@ function computeFromAnswers(
     if (!row) continue;
 
     // Prefer profile_map, but if missing, fall back to weights.
-    const entries =
-      coerceMapEntries(row.profile_map).length > 0
-        ? coerceMapEntries(row.profile_map)
-        : coerceMapEntries(row.weights);
+    const pm = coerceMapEntries(row.profile_map);
+    const entries = pm.length > 0 ? pm : coerceMapEntries(row.weights);
 
     if (!Array.isArray(entries) || entries.length === 0) continue;
 
@@ -186,30 +187,50 @@ function computeFromAnswers(
   return { freqTotals, profileTotals, used: usedAny ? ("qmap" as const) : ("none" as const) };
 }
 
-function pickSavedProfileTotals(saved: Record<string, number> | null | undefined) {
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(saved || {})) {
+/**
+ * Read saved totals from submission.totals, supporting BOTH shapes:
+ *  - Legacy flat: totals.A / totals.PROFILE_1
+ *  - Nested: totals.frequencies.A / totals.profiles.PROFILE_1
+ */
+function readSavedTotals(totals: any) {
+  const raw = totals && typeof totals === "object" ? totals : {};
+
+  const nestedFreq = raw?.frequencies && typeof raw.frequencies === "object" ? raw.frequencies : null;
+  const nestedProfiles = raw?.profiles && typeof raw.profiles === "object" ? raw.profiles : null;
+
+  // Frequencies
+  const freqSrc = nestedFreq || raw;
+  const freqTotals: Record<AB, number> = {
+    A: safeNumber(freqSrc?.A, 0),
+    B: safeNumber(freqSrc?.B, 0),
+    C: safeNumber(freqSrc?.C, 0),
+    D: safeNumber(freqSrc?.D, 0),
+  };
+  const freqSum = freqTotals.A + freqTotals.B + freqTotals.C + freqTotals.D;
+
+  // Profiles
+  const profSrc = nestedProfiles || raw;
+  const profileTotals: Record<string, number> = {};
+  for (const [k, v] of Object.entries(profSrc || {})) {
     const key = String(k || "").toUpperCase().trim();
-
-    // We only accept PROFILE_# keys here.
-    if (key.startsWith("PROFILE_")) out[key] = safeNumber(v, 0);
+    if (key.startsWith("PROFILE_")) profileTotals[key] = safeNumber(v, 0);
   }
-  const sum = Object.values(out).reduce((a, b) => a + (Number(b) || 0), 0);
-  return { out, sum };
-}
+  const profileSum = Object.values(profileTotals).reduce((a, b) => a + (Number(b) || 0), 0);
 
-function pickSavedFrequencyTotals(saved: Record<string, number> | null | undefined) {
-  const out: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
-  const a = safeNumber((saved || {})["A"], 0);
-  const b = safeNumber((saved || {})["B"], 0);
-  const c = safeNumber((saved || {})["C"], 0);
-  const d = safeNumber((saved || {})["D"], 0);
-  out.A = a;
-  out.B = b;
-  out.C = c;
-  out.D = d;
-  const sum = a + b + c + d;
-  return { out, sum };
+  // Meta (wrapper/effective)
+  const meta = raw?.meta && typeof raw.meta === "object" ? raw.meta : null;
+  const wrapper_test_id = typeof meta?.wrapper_test_id === "string" ? meta.wrapper_test_id : null;
+  const effective_test_id = typeof meta?.effective_test_id === "string" ? meta.effective_test_id : null;
+
+  return {
+    freqTotals,
+    freqSum,
+    profileTotals,
+    profileSum,
+    wrapper_test_id,
+    effective_test_id,
+    shape: nestedFreq || nestedProfiles ? ("nested" as const) : ("flat" as const),
+  };
 }
 
 // --- Supabase client (admin) ---
@@ -489,21 +510,20 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     }
 
     const taker = await fetchTakerRow(takerId);
-    const saved = (sub.totals || {}) as Record<string, number>;
+
+    // Read saved totals (supports nested + flat)
+    const savedRead = readSavedTotals(sub.totals);
 
     // 1) Prefer saved totals if present (most stable)
-    const { out: savedFreqTotals, sum: savedFreqSum } = pickSavedFrequencyTotals(saved);
-    const { out: savedProfileTotals, sum: savedProfileSum } = pickSavedProfileTotals(saved);
-
     // 2) If no saved totals, compute from answers + question maps (profile_map OR weights)
+    //    NOTE: still fetch qmap for fallback/debug even if saved totals exist.
     const qmap = await fetchQuestionMaps(meta.test_id);
     const comp = computeFromAnswers(sub.answers_json, qmap);
 
-    const freqTotals: Record<AB, number> =
-      savedFreqSum > 0 ? savedFreqTotals : comp.freqTotals;
+    const freqTotals: Record<AB, number> = savedRead.freqSum > 0 ? savedRead.freqTotals : comp.freqTotals;
 
     const profileTotals: Record<string, number> =
-      savedProfileSum > 0 ? savedProfileTotals : comp.profileTotals;
+      savedRead.profileSum > 0 ? savedRead.profileTotals : comp.profileTotals;
 
     const frequency_percentages = toPercentages<AB>(freqTotals);
     const profile_percentages = toPercentages<string>(profileTotals);
@@ -548,9 +568,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     // Strong debug signal when scores are zero because qmap missing
     const answersCount = Array.isArray(sub.answers_json) ? sub.answers_json.length : 0;
     const computedSum = Object.values(profileTotals || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+
     const scoringWarning =
-      savedFreqSum <= 0 &&
-      savedProfileSum <= 0 &&
+      savedRead.freqSum <= 0 &&
+      savedRead.profileSum <= 0 &&
       (qmap.size === 0 || comp.used === "none") &&
       answersCount > 0 &&
       computedSum === 0
@@ -597,8 +618,14 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           submission_match: subRes.matched,
           qmap_size: qmap.size,
           answers_count: answersCount,
-          used_saved_profiles: savedProfileSum > 0,
-          used_saved_frequencies: savedFreqSum > 0,
+
+          // ✅ New: totals diagnostics
+          totals_shape: savedRead.shape,
+          wrapper_test_id: savedRead.wrapper_test_id,
+          effective_test_id: savedRead.effective_test_id,
+
+          used_saved_profiles: savedRead.profileSum > 0,
+          used_saved_frequencies: savedRead.freqSum > 0,
           computed_from_qmap: comp.used,
           scoring_warning: scoringWarning,
         },
@@ -611,4 +638,3 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
-
