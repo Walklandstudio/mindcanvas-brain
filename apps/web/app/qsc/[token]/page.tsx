@@ -85,21 +85,6 @@ const MINDSETS: { key: MindsetKey; label: string; level: number }[] = [
   { key: "QUANTUM", label: "Quantum", level: 5 },
 ];
 
-const PERSONALITY_LABELS: Record<PersonalityKey, string> = {
-  FIRE: "Fire",
-  FLOW: "Flow",
-  FORM: "Form",
-  FIELD: "Field",
-};
-
-const MINDSET_LABELS: Record<MindsetKey, string> = {
-  ORIGIN: "Origin",
-  MOMENTUM: "Momentum",
-  VECTOR: "Vector",
-  ORBIT: "Orbit",
-  QUANTUM: "Quantum",
-};
-
 function buildMatrix(): MatrixCell[] {
   const cells: MatrixCell[] = [];
   for (const m of MINDSETS) {
@@ -203,7 +188,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
 
   return (
     <svg viewBox="0 0 160 160" className="h-40 w-40 md:h-48 md:w-48" aria-hidden="true">
-      {/* Background ring */}
       <circle
         cx={center}
         cy={center}
@@ -234,7 +218,6 @@ function FrequencyDonut({ data }: { data: FrequencyDonutDatum[] }) {
         );
       })}
 
-      {/* Inner circle */}
       <circle cx={center} cy={center} r={radius - strokeWidth} fill="#020617" />
 
       <text
@@ -292,19 +275,16 @@ export default function QscResultPage({ params }: { params: { token: string } })
           throw new Error(`Non-JSON response (${res.status}): ${text.slice(0, 200)}`);
         }
 
-        const j = (await res.json()) as
-          | ({ ok?: boolean; error?: string } & QscPayload)
-          | { ok?: boolean; error?: string };
+        const j = (await res.json()) as any;
 
-        if (!res.ok || (j as any).ok === false) {
-          throw new Error((j as any).error || `HTTP ${res.status}`);
+        if (!res.ok || j?.ok === false) {
+          throw new Error(j?.error || `HTTP ${res.status}`);
         }
 
-        const cast = j as any;
         if (alive) {
           setPayload({
-            results: cast.results,
-            profile: cast.profile ?? null,
+            results: j.results,
+            profile: j.profile ?? null,
           });
         }
       } catch (e: any) {
@@ -326,10 +306,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
     result,
   ]);
   const mindsetPerc = useMemo<MindsetPercMap>(() => result?.mindset_percentages || {}, [result]);
-
-  // ---------------------------------------------------------------------------
-  // Early states
-  // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
@@ -366,38 +342,29 @@ export default function QscResultPage({ params }: { params: { token: string } })
     );
   }
 
-  // Helper labels
   const primaryPersonaLabel = profile?.profile_label || "Combined profile";
   const createdAt = new Date(result.created_at);
 
-  // Donut data for Buyer Frequency
   const frequencyDonutData: FrequencyDonutDatum[] = PERSONALITIES.map((p) => ({
     key: p.key,
     label: p.label,
     value: normalisePercent(personalityPerc[p.key]),
   }));
 
-  // ✅ FIX: build the Extended Source Code link based on audience
-  // entrepreneur -> /extended
-  // leader        -> /extended-leader
+  // ✅ Extended Source Code href (audience-aware) — EXACTLY as agreed
   const extendedReportHref = (() => {
     const base =
-      result.audience === "leader"
+      result?.audience === "leader"
         ? `/qsc/${encodeURIComponent(token)}/extended-leader`
         : `/qsc/${encodeURIComponent(token)}/extended`;
 
     return tid ? `${base}?tid=${encodeURIComponent(tid)}` : base;
   })();
 
-  // ---------------------------------------------------------------------------
-  // Main layout
-  // ---------------------------------------------------------------------------
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <AppBackground />
       <main className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10">
-        {/* Snapshot header */}
         <section className="space-y-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
@@ -414,7 +381,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
               </p>
             </div>
 
-            {/* Extended Source Code button */}
             <div className="flex md:items-end">
               <Link
                 href={extendedReportHref}
@@ -426,7 +392,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
           </div>
 
           <div className="grid gap-6 md:grid-cols-2">
-            {/* Combined profile card */}
             <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 md:p-7 shadow-xl shadow-black/50">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
                 Combined profile
@@ -468,7 +433,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
               </p>
             </div>
 
-            {/* Sales playbook snapshot */}
             <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40 space-y-4">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
                 Snapshot for your sales playbook
@@ -523,9 +487,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
           </div>
         </section>
 
-        {/* Frequency + Mindset summaries */}
         <section className="grid gap-6 md:grid-cols-2">
-          {/* Buyer Frequency Types – donut chart */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
             <h2 className="text-lg font-semibold">Buyer Frequency Type</h2>
             <p className="mt-1 text-sm text-slate-300">
@@ -554,7 +516,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
             </div>
           </div>
 
-          {/* Buyer Mindset Levels – bars */}
           <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 md:p-7 shadow-lg shadow-black/40">
             <h2 className="text-lg font-semibold">Buyer Mindset Levels</h2>
             <p className="mt-1 text-sm text-slate-300">Where they are in their current business journey.</p>
@@ -576,7 +537,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
           </div>
         </section>
 
-        {/* Buyer Persona Matrix (heatmap) */}
         <section className="space-y-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -591,10 +551,8 @@ export default function QscResultPage({ params }: { params: { token: string } })
 
           <div className="mt-4 overflow-x-auto">
             <div className="inline-grid grid-cols-[auto_repeat(4,minmax(140px,1fr))] gap-3 md:gap-4 items-stretch">
-              {/* Empty corner cell */}
               <div />
 
-              {/* Column headers: personalities */}
               {PERSONALITIES.map((p) => (
                 <div
                   key={p.key}
@@ -605,16 +563,13 @@ export default function QscResultPage({ params }: { params: { token: string } })
                 </div>
               ))}
 
-              {/* Rows: each mindset + 4 cells */}
               {MINDSETS.map((m) => (
                 <div key={m.key} className="contents">
-                  {/* Row header */}
                   <div className="flex flex-col justify-center text-xs font-medium text-slate-300 pr-2">
                     <span>{m.label}</span>
                     <span className="text-[11px] text-slate-500">Mindset {m.level}</span>
                   </div>
 
-                  {/* Row cells */}
                   {PERSONALITIES.map((p) => {
                     const cell = MATRIX.find((c) => c.personality === p.key && c.mindset === m.key)!;
                     const cat = classifyCell(result, cell);
@@ -657,7 +612,6 @@ export default function QscResultPage({ params }: { params: { token: string } })
             </div>
           </div>
 
-          {/* Legend */}
           <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-slate-300">
             <div className="inline-flex items-center gap-2">
               <span className="h-3 w-3 rounded-full bg-sky-500" />
@@ -683,6 +637,7 @@ export default function QscResultPage({ params }: { params: { token: string } })
     </div>
   );
 }
+
 
 
 
