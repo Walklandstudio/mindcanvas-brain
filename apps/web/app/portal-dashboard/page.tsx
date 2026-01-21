@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import PortalDashboardClient from './PortalDashboardClient';
+import PortalDashboardClient from '../portal/[slug]/dashboard/PortalDashboardClient';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;     // valid here (server file)
