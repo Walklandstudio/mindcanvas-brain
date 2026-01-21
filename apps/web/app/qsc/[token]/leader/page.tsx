@@ -470,17 +470,15 @@ export default function QscLeaderStrategicReportPage({
               </p>
             )}
 
+            {debug && (
             <p className="text-[15px] text-slate-300 max-w-2xl">
-              This report is rendered from{" "}
-              <code className="text-slate-100">
-                portal.qsc_leader_report_templates
-              </code>{" "}
-              and{" "}
-              <code className="text-slate-100">
-                portal.qsc_leader_report_sections
-              </code>
-              .
-            </p>
+             This report is rendered from{" "}
+            <code className="text-slate-100">portal.qsc_leader_report_templates</code>{" "}
+            and{" "}
+           <code className="text-slate-100">portal.qsc_leader_report_sections</code>.
+           </p>
+           )}
+
 
             {debug && data && (
               <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[11px] text-slate-200 whitespace-pre-wrap">
