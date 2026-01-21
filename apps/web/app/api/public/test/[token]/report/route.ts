@@ -6,6 +6,10 @@ import { createClient } from "@supabase/supabase-js";
 import type { PostgrestSingleResponse } from "@supabase/supabase-js";
 import { loadFrameworkBySlug, buildLookups, type FrequencyCode } from "@/lib/frameworks";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // --- Types ---
 type AB = "A" | "B" | "C" | "D";
 
@@ -15,11 +19,13 @@ type AnswerShape =
   | { question_id: string; selected: number }
   | { question_id: string; selected_index: number };
 
-type ProfileMapEntry = { points: number; profile: string };
+type MapEntry = { points: number; profile: string };
 
 type QuestionMapRow = {
   id: string;
-  profile_map: Array<ProfileMapEntry> | Record<string, ProfileMapEntry> | null;
+  profile_map: MapEntry[] | null;
+  // Some orgs may store scoring here instead of profile_map
+  weights: any | null;
 };
 
 type SubmissionRow = {
@@ -86,7 +92,8 @@ function toPercentages<T extends string>(totals: Partial<Record<T, number>>): Re
 }
 
 function profileCodeToAB(pcode: string): AB | null {
-  const m = String(pcode || "").toUpperCase().match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
+  const pc = String(pcode || "").toUpperCase();
+  const m = pc.match(/^P(?:ROFILE)?[_\s-]?([1-8])$/);
   if (!m) return null;
   const n = Number(m[1]);
   if (n <= 2) return "A";
@@ -96,108 +103,113 @@ function profileCodeToAB(pcode: string): AB | null {
 }
 
 function selectedIndex(a: any): number {
-  const v = a?.value != null ? Number(a.value) - 1 : undefined;
+  const v = a?.value != null ? Number(a.value) - 1 : undefined; // 1..N (1-based)
   const idx =
     v ??
     (a?.index != null ? Number(a.index) : undefined) ??
     (a?.selected != null ? Number(a.selected) : undefined) ??
     (a?.selected_index != null ? Number(a.selected_index) : undefined);
+
   return Math.max(0, safeNumber(idx, 0));
 }
 
-function normaliseProfileMap(pm: any): ProfileMapEntry[] {
-  if (Array.isArray(pm)) return pm;
+function coerceMapEntries(x: any): MapEntry[] {
+  // We support a few shapes:
+  // - profile_map: [{points, profile}, ...]
+  // - weights: same array
+  // - weights: { map: [...] } or { options: [...] }
+  if (Array.isArray(x)) {
+    return x
+      .map((e) => ({
+        points: safeNumber((e as any)?.points, 0),
+        profile: String((e as any)?.profile || "").toUpperCase(),
+      }))
+      .filter((e) => e.points > 0 && !!e.profile);
+  }
 
-  // Some older shapes store it as { "0": {...}, "1": {...} }
-  if (pm && typeof pm === "object") {
-    const keys = Object.keys(pm);
-    const numeric = keys.every((k) => String(Number(k)) === k);
-    if (numeric) {
-      return keys
-        .map((k) => ({ k: Number(k), v: pm[k] }))
-        .sort((a, b) => a.k - b.k)
-        .map((x) => x.v);
-    }
-    return Object.values(pm);
+  if (x && typeof x === "object") {
+    const maybe =
+      (x as any)?.profile_map ||
+      (x as any)?.weights ||
+      (x as any)?.map ||
+      (x as any)?.options ||
+      null;
+    if (Array.isArray(maybe)) return coerceMapEntries(maybe);
   }
 
   return [];
 }
 
-function computeFromAnswers(answers: AnswerShape[] | null | undefined, qmap: Map<string, QuestionMapRow>) {
+function computeFromAnswers(
+  answers: AnswerShape[] | null | undefined,
+  qmap: Map<string, QuestionMapRow>,
+) {
   const freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
   const profileTotals: Record<string, number> = {};
 
   if (!Array.isArray(answers) || answers.length === 0) {
-    return { freqTotals, profileTotals };
+    return { freqTotals, profileTotals, used: "none" as const };
   }
+
+  let usedAny = false;
 
   for (const a of answers) {
     const qid = (a as any)?.question_id;
     if (!qid) continue;
 
     const row = qmap.get(String(qid));
-    const pmRaw = row?.profile_map;
-    const pm = normaliseProfileMap(pmRaw);
-    if (!Array.isArray(pm) || pm.length === 0) continue;
+    if (!row) continue;
+
+    // Prefer profile_map, but if missing, fall back to weights.
+    const entries =
+      coerceMapEntries(row.profile_map).length > 0
+        ? coerceMapEntries(row.profile_map)
+        : coerceMapEntries(row.weights);
+
+    if (!Array.isArray(entries) || entries.length === 0) continue;
 
     const sel = selectedIndex(a);
-    const entry = pm[sel];
+    const entry = entries[sel];
     if (!entry) continue;
 
-    const pts = safeNumber((entry as any).points, 0);
-    const pcode = String((entry as any).profile || "").toUpperCase();
-
+    const pts = safeNumber(entry.points, 0);
+    const pcode = String(entry.profile || "").toUpperCase();
     if (pts <= 0 || !pcode) continue;
 
-    profileTotals[pcode] = (profileTotals[pcode] || 0) + pts;
+    usedAny = true;
 
+    profileTotals[pcode] = (profileTotals[pcode] || 0) + pts;
     const ab = profileCodeToAB(pcode);
     if (ab) freqTotals[ab] = (freqTotals[ab] || 0) + pts;
   }
 
-  return { freqTotals, profileTotals };
+  return { freqTotals, profileTotals, used: usedAny ? ("qmap" as const) : ("none" as const) };
 }
 
-function hasAnyABTotals(totals: Record<string, number> | null | undefined): boolean {
-  if (!totals) return false;
-  return ["A", "B", "C", "D"].some((k) => safeNumber((totals as any)[k], 0) > 0);
-}
-
-function extractABTotals(totals: Record<string, number> | null | undefined): Record<AB, number> {
-  return {
-    A: safeNumber(totals?.A, 0),
-    B: safeNumber(totals?.B, 0),
-    C: safeNumber(totals?.C, 0),
-    D: safeNumber(totals?.D, 0),
-  };
-}
-
-function hasAnyProfileTotals(totals: Record<string, number> | null | undefined): boolean {
-  if (!totals) return false;
-  return Object.keys(totals).some((k) => /^PROFILE_[1-8]$/i.test(k) && safeNumber((totals as any)[k], 0) > 0);
-}
-
-function extractProfileTotals(totals: Record<string, number> | null | undefined): Record<string, number> {
+function pickSavedProfileTotals(saved: Record<string, number> | null | undefined) {
   const out: Record<string, number> = {};
-  if (!totals) return out;
-  for (const [k, v] of Object.entries(totals)) {
-    const kk = String(k || "").toUpperCase().trim();
-    if (!/^PROFILE_[1-8]$/.test(kk)) continue;
-    const nv = safeNumber(v, 0);
-    if (nv > 0) out[kk] = nv;
+  for (const [k, v] of Object.entries(saved || {})) {
+    const key = String(k || "").toUpperCase().trim();
+
+    // We only accept PROFILE_# keys here.
+    if (key.startsWith("PROFILE_")) out[key] = safeNumber(v, 0);
   }
-  return out;
+  const sum = Object.values(out).reduce((a, b) => a + (Number(b) || 0), 0);
+  return { out, sum };
 }
 
-function deriveFreqTotalsFromProfiles(profileTotals: Record<string, number>): Record<AB, number> {
-  const freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
-  for (const [pcode, pts] of Object.entries(profileTotals || {})) {
-    const ab = profileCodeToAB(pcode);
-    if (!ab) continue;
-    freqTotals[ab] += safeNumber(pts, 0);
-  }
-  return freqTotals;
+function pickSavedFrequencyTotals(saved: Record<string, number> | null | undefined) {
+  const out: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
+  const a = safeNumber((saved || {})["A"], 0);
+  const b = safeNumber((saved || {})["B"], 0);
+  const c = safeNumber((saved || {})["C"], 0);
+  const d = safeNumber((saved || {})["D"], 0);
+  out.A = a;
+  out.B = b;
+  out.C = c;
+  out.D = d;
+  const sum = a + b + c + d;
+  return { out, sum };
 }
 
 // --- Supabase client (admin) ---
@@ -256,9 +268,14 @@ async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
 }
 
 // Fetch latest submission for (taker_id, token)
-async function fetchLatestSubmission(taker_id: string, token: string): Promise<SubmissionRow | null> {
+// ✅ Accept legacy rows where link_token is NULL
+async function fetchLatestSubmission(
+  taker_id: string,
+  token: string,
+): Promise<{ row: SubmissionRow | null; matched: "token" | "null" | "none" }> {
   const sb = sbAdmin();
-  const q = await sb
+
+  const strict = await sb
     .from("test_submissions")
     .select("id, taker_id, link_token, totals, answers_json, created_at")
     .eq("taker_id", taker_id)
@@ -267,19 +284,30 @@ async function fetchLatestSubmission(taker_id: string, token: string): Promise<S
     .limit(1)
     .maybeSingle();
 
-  if (q.error || !q.data) return null;
-  return q.data as SubmissionRow;
+  if (!strict.error && strict.data) return { row: strict.data as SubmissionRow, matched: "token" };
+
+  const legacy = await sb
+    .from("test_submissions")
+    .select("id, taker_id, link_token, totals, answers_json, created_at")
+    .eq("taker_id", taker_id)
+    .is("link_token", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!legacy.error && legacy.data) return { row: legacy.data as SubmissionRow, matched: "null" };
+
+  return { row: null, matched: "none" };
 }
 
-// ✅ FIX: pull ALL questions with profile_map for this test (don’t filter on category)
+// Minimal questions map (id, profile_map, weights) for this test
 async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionMapRow>> {
   const sb = sbAdmin();
 
   const q = (await sb
     .from("test_questions")
-    .select("id, profile_map")
+    .select("id, profile_map, weights")
     .eq("test_id", test_id)
-    .not("profile_map", "is", null)
     .order("idx", { ascending: true })) as PostgrestSingleResponse<QuestionMapRow[]>;
 
   if (q.error || !Array.isArray(q.data)) return new Map();
@@ -290,14 +318,24 @@ async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionM
 
 async function fetchTestRow(test_id: string): Promise<TestRow | null> {
   const sb = sbAdmin();
-  const q = await sb.from("tests").select("id, slug, name, meta").eq("id", test_id).maybeSingle();
+  const q = await sb
+    .from("tests")
+    .select("id, slug, name, meta")
+    .eq("id", test_id)
+    .maybeSingle();
+
   if (q.error || !q.data) return null;
   return q.data as TestRow;
 }
 
 async function fetchTakerRow(taker_id: string): Promise<TakerRow | null> {
   const sb = sbAdmin();
-  const q = await sb.from("test_takers").select("id, first_name, last_name").eq("id", taker_id).maybeSingle();
+  const q = await sb
+    .from("test_takers")
+    .select("id, first_name, last_name")
+    .eq("id", taker_id)
+    .maybeSingle();
+
   if (q.error || !q.data) return null;
   return q.data as TakerRow;
 }
@@ -320,41 +358,47 @@ async function downloadFrameworkJSON(bucket: string, path: string): Promise<any 
   }
 }
 
-// --- framework helpers ---
+// --- Support LEAD v1 schema ---
 
 function pickCommonSections(frameworkJson: any): any[] | null {
   const fw = frameworkJson?.framework || frameworkJson;
-
   if (fw?.common?.sections && Array.isArray(fw.common.sections)) return fw.common.sections;
-  if (fw?.framework?.common?.sections && Array.isArray(fw.framework.common.sections)) return fw.framework.common.sections;
-
+  if (fw?.framework?.common?.sections && Array.isArray(fw.framework.common.sections))
+    return fw.framework.common.sections;
   return null;
 }
 
 function pickReportTitle(frameworkJson: any): string | null {
   const fw = frameworkJson?.framework || frameworkJson;
-  return fw?.common?.report_title || fw?.report_title || fw?.reportTitle || null;
+  return fw?.common?.report_title || fw?.report_title || null;
 }
 
 function findProfileReport(frameworkJson: any, profileCode: string) {
   const fw = frameworkJson?.framework || frameworkJson;
   const pc = String(profileCode || "").toUpperCase();
 
+  // ✅ LEAD v1 schema: profiles: { PROFILE_1: { title, sections } }
   if (fw?.profiles && typeof fw.profiles === "object") {
     const hit = fw.profiles[pc];
     if (hit) return hit;
   }
 
+  // older schema: reports_by_profile
   const reportsByProfile = fw?.reports_by_profile;
   if (reportsByProfile && typeof reportsByProfile === "object") {
     const hit = reportsByProfile[pc];
     if (hit) return hit;
   }
 
+  // older schema: reports list
   const reports = fw?.reports;
   if (reports && typeof reports === "object") {
     for (const v of Object.values(reports)) {
-      const p = (v as any)?.profile_code || (v as any)?.profileCode || (v as any)?.code || "";
+      const p =
+        (v as any)?.profile_code ||
+        (v as any)?.profileCode ||
+        (v as any)?.code ||
+        "";
       if (String(p).toUpperCase() === pc) return v;
     }
   }
@@ -382,16 +426,20 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const testRow = await fetchTestRow(meta.test_id);
     const testMeta = (testRow?.meta || {}) as TestMeta;
 
+    // reportFramework meta (storage opt-in)
     const rf: ReportFrameworkMeta | null = (testRow?.meta as any)?.reportFramework || null;
     const useStorageFramework = Boolean(rf?.bucket && rf?.path);
 
+    // Prefer v_org_tests org_slug, then tests.meta.orgSlug, then default
     const orgSlug = String(
       meta.org_slug || testMeta?.orgSlug || process.env.DEFAULT_ORG_SLUG || "competency-coach",
     ).trim();
 
+    // Legacy framework by orgSlug (filesystem) — used for lookups + old orgs
     let fw: any = await loadFrameworkBySlug(orgSlug);
     let frameworkSource: "filesystem" | "storage" = "filesystem";
 
+    // Storage override if enabled
     if (useStorageFramework && rf?.bucket && rf?.path) {
       const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
       if (storageFw) {
@@ -402,6 +450,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const look = buildLookups(fw);
 
+    // ✅ Labels: for LEAD use tests.meta first (Launch/Energise/Align/Discern + real profile names)
     const metaFreqs = Array.isArray(testMeta?.frequencies) ? testMeta.frequencies : null;
     const metaProfiles = Array.isArray(testMeta?.profiles) ? testMeta.profiles : null;
 
@@ -419,33 +468,47 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       return { code, name: fromMeta || fromLegacy || `Profile ${n}` };
     });
 
-    const sub = await fetchLatestSubmission(takerId, token);
+    const subRes = await fetchLatestSubmission(takerId, token);
+    const sub = subRes.row;
+
     if (!sub) {
-      return NextResponse.json({ ok: false, error: "Submission not found for this taker/token." }, { status: 404 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Submission not found for this taker/token.",
+          debug: {
+            takerId,
+            token,
+            test_id: meta.test_id,
+            note:
+              "No submission matched link_token == token, and no legacy submission with link_token NULL was found for this taker.",
+          },
+        },
+        { status: 404 },
+      );
     }
 
     const taker = await fetchTakerRow(takerId);
+    const saved = (sub.totals || {}) as Record<string, number>;
 
-    // --- scoring ---
+    // 1) Prefer saved totals if present (most stable)
+    const { out: savedFreqTotals, sum: savedFreqSum } = pickSavedFrequencyTotals(saved);
+    const { out: savedProfileTotals, sum: savedProfileSum } = pickSavedProfileTotals(saved);
+
+    // 2) If no saved totals, compute from answers + question maps (profile_map OR weights)
     const qmap = await fetchQuestionMaps(meta.test_id);
     const comp = computeFromAnswers(sub.answers_json, qmap);
 
-    const savedTotals = (sub.totals || {}) as Record<string, number>;
+    const freqTotals: Record<AB, number> =
+      savedFreqSum > 0 ? savedFreqTotals : comp.freqTotals;
 
-    const used_saved_profiles = hasAnyProfileTotals(savedTotals);
-    const used_saved_frequencies = hasAnyABTotals(savedTotals);
-
-    const profileTotals: Record<string, number> = used_saved_profiles
-      ? extractProfileTotals(savedTotals)
-      : comp.profileTotals;
-
-    const freqTotals: Record<AB, number> = used_saved_frequencies
-      ? extractABTotals(savedTotals)
-      : deriveFreqTotalsFromProfiles(profileTotals);
+    const profileTotals: Record<string, number> =
+      savedProfileSum > 0 ? savedProfileTotals : comp.profileTotals;
 
     const frequency_percentages = toPercentages<AB>(freqTotals);
     const profile_percentages = toPercentages<string>(profileTotals);
 
+    // Determine top freq / profile
     const top_freq =
       (Object.entries(freqTotals) as [AB, number][])
         .sort((a, b) => b[1] - a[1])[0]?.[0] || "A";
@@ -453,33 +516,46 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const top_profile_entry =
       Object.entries(profileTotals).sort((a, b) => b[1] - a[1])[0] || ["PROFILE_1", 0];
 
-    const top_profile_code = top_profile_entry[0];
+    const top_profile_code = String(top_profile_entry[0] || "PROFILE_1").toUpperCase();
     const top_profile_name =
       profile_labels.find((p) => p.code === top_profile_code)?.name ||
       look.profileByCode.get(top_profile_code)?.name ||
       top_profile_code;
 
-    // --- storage sections payload ---
+    // Storage sections payload (LEAD)
     let sections: any = null;
-    if (useStorageFramework && top_profile_code) {
-      const common = pickCommonSections(fw);
+    if (useStorageFramework) {
+      const common = pickCommonSections(fw) || [];
       const rep = findProfileReport(fw, top_profile_code);
 
-      const profileSections = rep?.sections || null;
-      const profileMissing = !Array.isArray(profileSections) || profileSections.length === 0;
+      const profileSections = rep?.sections;
+      const profileArr = Array.isArray(profileSections) ? profileSections : [];
 
       sections = {
-        common: common || null,
-        profile: profileMissing ? null : profileSections,
+        common,
+        profile: profileArr,
         report_title: rep?.title || pickReportTitle(fw) || null,
-        profile_missing: profileMissing,
+        profile_missing: profileArr.length === 0,
         framework_version: rf?.version || null,
         framework_bucket: rf?.bucket || null,
         framework_path: rf?.path || null,
       };
     }
 
+    // Link meta (show_results etc) – prefer stored test_links.meta if present
     const linkMeta = meta.link_meta || null;
+
+    // Strong debug signal when scores are zero because qmap missing
+    const answersCount = Array.isArray(sub.answers_json) ? sub.answers_json.length : 0;
+    const computedSum = Object.values(profileTotals || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+    const scoringWarning =
+      savedFreqSum <= 0 &&
+      savedProfileSum <= 0 &&
+      (qmap.size === 0 || comp.used === "none") &&
+      answersCount > 0 &&
+      computedSum === 0
+        ? "Scores are zero because no question scoring map was found for this test_id (test_questions missing, or no profile_map/weights set)."
+        : null;
 
     return NextResponse.json({
       ok: true,
@@ -515,12 +591,16 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           reportFramework: rf,
           useStorageFramework,
           schema: "portal",
+          test_id: meta.test_id,
           submission_id: sub.id,
           submission_link_token: sub.link_token,
+          submission_match: subRes.matched,
           qmap_size: qmap.size,
-          answers_count: Array.isArray(sub.answers_json) ? sub.answers_json.length : 0,
-          used_saved_profiles,
-          used_saved_frequencies,
+          answers_count: answersCount,
+          used_saved_profiles: savedProfileSum > 0,
+          used_saved_frequencies: savedFreqSum > 0,
+          computed_from_qmap: comp.used,
+          scoring_warning: scoringWarning,
         },
 
         version: useStorageFramework ? "portal-v2-storage-optin" : "portal-v1",
@@ -531,3 +611,4 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
