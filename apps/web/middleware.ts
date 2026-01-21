@@ -39,42 +39,77 @@ function isPortalPath(pathname: string) {
 }
 
 function getOrgSlugFromPortalPath(pathname: string) {
-  const parts = pathname.split("/").filter(Boolean);
+  const parts = pathname.split("/").filter(Boolean); // ["portal", "slug", ...]
   if (parts[0] !== "portal") return null;
   return parts[1] || null;
 }
 
 async function isSuperAdmin(sb: any, userId: string) {
-  const { data } = await sb
+  const { data, error } = await sb
     .schema("portal")
     .from("superadmins")
     .select("user_id")
     .eq("user_id", userId)
     .maybeSingle();
+
+  if (error) return false;
   return !!data?.user_id;
 }
 
+/**
+ * Robust: get the user's first org slug using TWO QUERIES (no nested join).
+ */
 async function getFirstOrgSlug(sb: any, userId: string) {
-  const { data } = await sb
+  const { data: mem, error: mErr } = await sb
     .schema("portal")
     .from("user_orgs")
-    .select("orgs:org_id ( slug )")
+    .select("org_id")
     .eq("user_id", userId)
-    .limit(1);
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
-  const slug = data?.[0]?.orgs?.slug;
+  if (mErr || !mem?.org_id) return null;
+
+  const { data: org, error: oErr } = await sb
+    .schema("portal")
+    .from("orgs")
+    .select("slug")
+    .eq("id", mem.org_id)
+    .maybeSingle();
+
+  if (oErr) return null;
+
+  const slug = org?.slug;
   return typeof slug === "string" && slug.trim() ? slug.trim() : null;
 }
 
+/**
+ * Robust: verify the user belongs to the org slug (two-step).
+ */
 async function userHasOrgAccess(sb: any, userId: string, orgSlug: string) {
-  const { data } = await sb
+  // Get org id by slug
+  const { data: org, error: oErr } = await sb
+    .schema("portal")
+    .from("orgs")
+    .select("id")
+    .eq("slug", orgSlug)
+    .maybeSingle();
+
+  if (oErr || !org?.id) return false;
+
+  // Check membership
+  const { data: mem, error: mErr } = await sb
     .schema("portal")
     .from("user_orgs")
-    .select("orgs:org_id ( slug )")
+    .select("id")
     .eq("user_id", userId)
-    .limit(100);
+    .eq("org_id", org.id)
+    .limit(1)
+    .maybeSingle();
 
-  return (data || []).some((r: any) => r?.orgs?.slug === orgSlug);
+  if (mErr) return false;
+  return !!mem?.id;
 }
 
 export async function middleware(req: NextRequest) {
@@ -87,7 +122,7 @@ export async function middleware(req: NextRequest) {
 
   const pathname = req.nextUrl.pathname;
 
-  // ✅ Not logged in -> send to /portal/login (NOT /login)
+  // Not logged in -> send to /portal/login
   if (!user) {
     const loginUrl = req.nextUrl.clone();
     loginUrl.pathname = "/portal/login";
@@ -97,6 +132,7 @@ export async function middleware(req: NextRequest) {
 
   const userId = user.id;
 
+  // Admin portal protection: superadmins only
   if (isAdminPath(pathname)) {
     const ok = await isSuperAdmin(sb, userId);
     if (!ok) {
@@ -108,9 +144,11 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
+  // Portal protection: must belong to org
   if (isPortalPath(pathname)) {
     const orgSlug = getOrgSlugFromPortalPath(pathname);
 
+    // /portal -> redirect to first org dashboard
     if (!orgSlug) {
       const first = await getFirstOrgSlug(sb, userId);
       const dest = req.nextUrl.clone();
@@ -118,6 +156,7 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(dest);
     }
 
+    // /portal/[slug]/... -> enforce membership
     const ok = await userHasOrgAccess(sb, userId, orgSlug);
     if (!ok) {
       const first = await getFirstOrgSlug(sb, userId);
@@ -131,5 +170,6 @@ export async function middleware(req: NextRequest) {
 
   return res;
 }
+
 
 
