@@ -7,7 +7,7 @@ export const revalidate = 0;
 export const runtime = "nodejs";
 
 export default function Page() {
-  // Let middleware handle routing the user to /portal/[orgSlug]/dashboard
+  // Legacy route: push into the real portal routing
   redirect("/portal");
 }
 
