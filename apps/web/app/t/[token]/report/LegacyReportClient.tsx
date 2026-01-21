@@ -610,14 +610,13 @@ export default function LegacyReportClient(props: { token: string; tid: string }
             })}
 
             {/* Bottom CTA row */}
-            <div className="pt-2 flex flex-wrap gap-3">
+            <div className="mt-6 flex flex-wrap gap-3">
               <button
                 onClick={handleDownloadPdf}
                 className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
                 Download PDF
               </button>
-
               {hasNextSteps && (
                 <button
                   onClick={openNextSteps}

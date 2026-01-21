@@ -1,53 +1,37 @@
-// apps/web/app/api/public/qsc/[token]/extended-leader/route.ts
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// apps/web/app/qsc/[token]/extended-leader/page.tsx
+"use client";
 
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import AppBackground from "@/components/ui/AppBackground";
 
-type Audience = "entrepreneur" | "leader";
 type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
+type MindsetKey = "ORIGIN" | "MOMENTUM" | "VECTOR" | "ORBIT" | "QUANTUM";
 
 type QscResultsRow = {
   id: string;
   test_id: string;
   token: string;
-  taker_id: string | null;
-  audience: Audience | null;
-  combined_profile_code: string | null; // may be FLOW_VECTOR or A1..D5
-  qsc_profile_id: string | null;
+  primary_personality: PersonalityKey | null;
+  secondary_personality: PersonalityKey | null;
+  primary_mindset: MindsetKey | null;
+  secondary_mindset: MindsetKey | null;
+  combined_profile_code: string | null;
+  audience: "entrepreneur" | "leader" | null;
   created_at: string;
 };
 
 type QscProfileRow = {
   id: string;
-  personality_code: PersonalityKey | string | null; // FIRE/FLOW/FORM/FIELD or A-D
-  mindset_level: number | null; // 1..5
-  profile_code: string | null; // A1..D5
+  personality_code: string | null;
+  mindset_level: number | null;
+  profile_code: string | null;
   profile_label: string | null;
-
-  how_to_communicate: string | null;
-  decision_style: string | null;
-  business_challenges: string | null;
-  trust_signals: string | null;
-  offer_fit: string | null;
-  sale_blockers: string | null;
-
-  full_internal_insights: any | null;
 };
 
-type TestTakerRow = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  company: string | null;
-  role_title: string | null;
-  link_token?: string | null;
-};
-
-type LeaderExtendedRow = {
+type QscExtendedRow = {
   persona_label: string | null;
   personality_label: string | null;
   mindset_label: string | null;
@@ -71,475 +55,635 @@ type LeaderExtendedRow = {
   final_summary: string | null;
 };
 
-function supa() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_ANON_KEY!;
-  return createClient(url, key, { db: { schema: "portal" } });
+type QscTakerRow = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+};
+
+type QscExtendedPayload = {
+  results: QscResultsRow;
+  profile: QscProfileRow | null;
+  extended: QscExtendedRow | null;
+  taker: QscTakerRow | null;
+};
+
+type SectionMeta = {
+  id: string;
+  number: number;
+  title: string;
+};
+
+const SECTIONS: SectionMeta[] = [
+  { id: "sec-1-personality", number: 1, title: "Personality Layer" },
+  { id: "sec-2-mindset", number: 2, title: "Mindset Layer" },
+  { id: "sec-3-quantum", number: 3, title: "Combined Quantum Pattern" },
+  { id: "sec-4-communicate", number: 4, title: "How to Communicate" },
+  { id: "sec-5-decisions", number: 5, title: "How They Make Decisions" },
+  { id: "sec-6-problems", number: 6, title: "Core Business Problems" },
+  { id: "sec-7-trust", number: 7, title: "What Builds Trust" },
+  { id: "sec-8-offer", number: 8, title: "What Offer They Are Ready For" },
+  { id: "sec-9-blockers", number: 9, title: "What Blocks the Sale Completely" },
+  { id: "sec-10-precall", number: 10, title: "Pre-Call Questions" },
+  { id: "sec-11-microscripts", number: 11, title: "Micro Scripts" },
+  { id: "sec-12-flags", number: 12, title: "Green & Red Flags" },
+  { id: "sec-13-example", number: 13, title: "Real-Life Example" },
+  { id: "sec-14-summary", number: 14, title: "Final Summary" },
+];
+
+function fallbackCopy(value: string | null | undefined, fallback: string) {
+  const trimmed = (value || "").trim();
+  return trimmed.length > 0 ? trimmed : fallback;
 }
 
-function isUuidLike(s: string) {
-  return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(
-    String(s || "").trim()
+function getFullName(taker: QscTakerRow | null | undefined): string | null {
+  if (!taker) return null;
+
+  const rawFirst =
+    (typeof taker.first_name === "string" && taker.first_name) ||
+    (typeof taker.firstName === "string" && taker.firstName) ||
+    "";
+  const rawLast =
+    (typeof taker.last_name === "string" && taker.last_name) ||
+    (typeof taker.lastName === "string" && taker.lastName) ||
+    "";
+
+  const first = rawFirst.trim();
+  const last = rawLast.trim();
+  const full = `${first} ${last}`.trim();
+  if (full) return full;
+
+  const email = (taker.email || "").trim();
+  return email || null;
+}
+
+type InsightSectionProps = {
+  id: string;
+  number: number;
+  title: string;
+  kicker?: string;
+  children: string;
+  variant?: "default" | "danger";
+};
+
+function InsightSection({
+  id,
+  number,
+  title,
+  kicker,
+  children,
+  variant = "default",
+}: InsightSectionProps) {
+  const danger = variant === "danger";
+
+  return (
+    <section
+      id={id}
+      className={[
+        "scroll-mt-28 rounded-3xl border p-6 md:p-8 space-y-3 shadow-sm",
+        danger ? "border-rose-200 bg-white" : "border-slate-200 bg-white",
+      ].join(" ")}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={[
+            "mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold border",
+            danger
+              ? "bg-rose-50 text-rose-700 border-rose-200"
+              : "bg-sky-50 text-sky-700 border-sky-200",
+          ].join(" ")}
+        >
+          {number}
+        </div>
+
+        <div className="space-y-1.5">
+          <h2
+            className={[
+              "text-lg md:text-xl font-semibold",
+              danger ? "text-rose-900" : "text-slate-900",
+            ].join(" ")}
+          >
+            {title}
+          </h2>
+
+          {kicker && (
+            <p
+              className={[
+                "text-[15px] leading-relaxed",
+                danger ? "text-rose-800/80" : "text-slate-600",
+              ].join(" ")}
+            >
+              {kicker}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div
+        className={[
+          "pt-3 text-[15px] leading-relaxed whitespace-pre-line",
+          danger ? "text-rose-900" : "text-slate-700",
+        ].join(" ")}
+      >
+        {children}
+      </div>
+    </section>
   );
 }
 
-// ✅ IMPORTANT:
-// For leader endpoints, we ONLY ever resolve leader rows (or legacy null audience).
-// This prevents accidentally selecting an entrepreneur row when tokens collide / duplicates exist.
-function leaderAudienceFilter(q: any) {
-  return q.or("audience.eq.leader,audience.is.null");
-}
+export default function QscLeaderExtendedPage({
+  params,
+}: {
+  params: { token: string };
+}) {
+  const token = params.token;
+  const searchParams = useSearchParams();
+  const tid = searchParams?.get("tid") ?? "";
 
-function safeStr(v: any): string | null {
-  const s = typeof v === "string" ? v : "";
-  const t = s.trim();
-  return t.length ? t : null;
-}
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [payload, setPayload] = useState<QscExtendedPayload | null>(null);
 
-function looksLikePersonaCode(v: string | null | undefined) {
-  if (!v) return false;
-  return /^[ABCD][1-5]$/i.test(String(v).trim());
-}
+  const reportRef = useRef<HTMLDivElement | null>(null);
 
-function toABCD(code: string | null | undefined): "A" | "B" | "C" | "D" | null {
-  const c = String(code || "").toUpperCase().trim();
-  if (c === "A" || c === "B" || c === "C" || c === "D") return c;
-  if (c === "FIRE") return "A";
-  if (c === "FLOW") return "B";
-  if (c === "FORM") return "C";
-  if (c === "FIELD") return "D";
-  return null;
-}
+  useEffect(() => {
+    let alive = true;
 
-function personalityLabelFromABCD(abcd: "A" | "B" | "C" | "D" | null) {
-  if (!abcd) return null;
-  if (abcd === "A") return "Fire";
-  if (abcd === "B") return "Flow";
-  if (abcd === "C") return "Form";
-  if (abcd === "D") return "Field";
-  return null;
-}
+    (async () => {
+      try {
+        setLoading(true);
+        setErr(null);
 
-function mindsetLabel(level: number | null | undefined) {
-  if (!level || !Number.isFinite(level)) return null;
-  const n = Number(level);
-  if (n === 1) return "Origin";
-  if (n === 2) return "Momentum";
-  if (n === 3) return "Vector";
-  if (n === 4) return "Orbit";
-  if (n === 5) return "Quantum";
-  return `Level ${n}`;
-}
+        const apiUrl = tid
+          ? `/api/public/qsc/${encodeURIComponent(
+              token
+            )}/extended-leader?tid=${encodeURIComponent(tid)}`
+          : `/api/public/qsc/${encodeURIComponent(token)}/extended-leader`;
 
-function combinedToPersonaCode(combined: string | null | undefined): string | null {
-  const raw = String(combined || "").trim().toUpperCase();
-  if (!raw) return null;
+        const res = await fetch(apiUrl, { cache: "no-store" });
 
-  if (looksLikePersonaCode(raw)) return raw;
-
-  // expected PERSONALITY_MINDSET e.g. FLOW_VECTOR
-  const parts = raw.split("_").filter(Boolean);
-  if (parts.length < 2) return null;
-
-  const personality = parts[0];
-  const mindset = parts[1];
-
-  const letter =
-    personality === "FIRE"
-      ? "A"
-      : personality === "FLOW"
-      ? "B"
-      : personality === "FORM"
-      ? "C"
-      : personality === "FIELD"
-      ? "D"
-      : null;
-
-  const lvl =
-    mindset === "ORIGIN"
-      ? 1
-      : mindset === "MOMENTUM"
-      ? 2
-      : mindset === "VECTOR"
-      ? 3
-      : mindset === "ORBIT"
-      ? 4
-      : mindset === "QUANTUM"
-      ? 5
-      : null;
-
-  if (!letter || !lvl) return null;
-  return `${letter}${lvl}`;
-}
-
-function buildExtendedMerged(args: {
-  extRow: any | null;
-  profile: QscProfileRow;
-  personalityABCD: "A" | "B" | "C" | "D";
-  mindsetLevel: number;
-  combinedProfileCode: string | null;
-}): { extended: LeaderExtendedRow; source: { tableUsed: boolean; snapshotUsed: boolean } } {
-  const { extRow, profile, personalityABCD, mindsetLevel, combinedProfileCode } = args;
-
-  const insights = profile.full_internal_insights ?? null;
-
-  const pick = (tableVal: any, snapshotVal: any) =>
-    safeStr(tableVal) ?? safeStr(snapshotVal) ?? null;
-
-  const personaLabel =
-    safeStr(extRow?.persona_label) ??
-    safeStr(profile.profile_label) ??
-    safeStr(combinedProfileCode) ??
-    "Quantum Profile";
-
-  const extended: LeaderExtendedRow = {
-    persona_label: personaLabel,
-    personality_label:
-      safeStr(extRow?.personality_label) ?? personalityLabelFromABCD(personalityABCD),
-    mindset_label: safeStr(extRow?.mindset_label) ?? mindsetLabel(mindsetLevel),
-    profile_code:
-      safeStr(extRow?.profile_code) ??
-      safeStr(profile.profile_code) ??
-      safeStr(combinedProfileCode),
-
-    personality_layer: pick(extRow?.personality_layer, insights?.personality_layer),
-    mindset_layer: pick(extRow?.mindset_layer, insights?.mindset_layer),
-    combined_quantum_pattern: pick(
-      extRow?.combined_quantum_pattern,
-      insights?.combined_quantum_pattern
-    ),
-
-    how_to_communicate: pick(extRow?.how_to_communicate, profile.how_to_communicate),
-    how_they_make_decisions: pick(extRow?.how_they_make_decisions, profile.decision_style),
-    core_business_problems: pick(extRow?.core_business_problems, profile.business_challenges),
-    what_builds_trust: pick(extRow?.what_builds_trust, profile.trust_signals),
-    what_offer_ready_for: pick(extRow?.what_offer_ready_for, profile.offer_fit),
-    what_blocks_sale: pick(extRow?.what_blocks_sale, profile.sale_blockers),
-
-    pre_call_questions: pick(extRow?.pre_call_questions, insights?.pre_call_questions),
-    micro_scripts: pick(extRow?.micro_scripts, insights?.micro_scripts),
-    green_red_flags: pick(extRow?.green_red_flags, insights?.green_red_flags),
-    real_life_example: pick(extRow?.real_life_example, insights?.real_life_example),
-    final_summary: pick(extRow?.final_summary, insights?.final_summary),
-  };
-
-  const tableUsed = Boolean(extRow);
-  const snapshotUsed = !tableUsed || Object.values(extended).some((v) => v === null);
-
-  return { extended, source: { tableUsed, snapshotUsed } };
-}
-
-export async function GET(req: Request, { params }: { params: { token: string } }) {
-  try {
-    const tokenParam = String(params.token || "").trim();
-    if (!tokenParam) {
-      return NextResponse.json({ ok: false, error: "Missing token in URL" }, { status: 400 });
-    }
-
-    const url = new URL(req.url);
-    const tid = String(url.searchParams.get("tid") || "").trim();
-
-    const sb = supa();
-
-    const resultSelect = `
-      id,
-      test_id,
-      token,
-      taker_id,
-      audience,
-      combined_profile_code,
-      qsc_profile_id,
-      created_at
-    `;
-
-    let resultRow: QscResultsRow | null = null;
-    let resolvedBy: "result_id" | "token+taker_id" | "token_unique" | null = null;
-
-    // (0) token is qsc_results.id (cannot pre-filter; guard later)
-    if (isUuidLike(tokenParam)) {
-      const { data, error } = await sb
-        .from("qsc_results")
-        .select(resultSelect)
-        .eq("id", tokenParam)
-        .maybeSingle();
-
-      if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
-        );
-      }
-      if (data) {
-        resultRow = data as any;
-        resolvedBy = "result_id";
-      }
-    }
-
-    // (1) token + tid (leader only OR legacy null audience)
-    if (!resultRow && tid && isUuidLike(tid)) {
-      const q = sb
-        .from("qsc_results")
-        .select(resultSelect)
-        .eq("token", tokenParam)
-        .eq("taker_id", tid);
-
-      const { data, error } = await leaderAudienceFilter(q)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
-        );
-      }
-      if (data) {
-        resultRow = data as any;
-        resolvedBy = "token+taker_id";
-      }
-    }
-
-    // (2) token only (must be unique WITHIN leader-or-null)
-    if (!resultRow) {
-      const countQ = sb
-        .from("qsc_results")
-        .select("id", { count: "exact", head: true })
-        .eq("token", tokenParam);
-
-      const { count, error: countErr } = await leaderAudienceFilter(countQ);
-
-      if (countErr) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_results count failed: ${countErr.message}` },
-          { status: 500 }
-        );
-      }
-
-      const c = Number(count || 0);
-      if (!tid && c > 1) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "AMBIGUOUS_TOKEN_REQUIRES_TID",
-            debug: { token: tokenParam, tid: tid || null, matches: c },
-          },
-          { status: 409 }
-        );
-      }
-
-      if (c === 1) {
-        const q = sb.from("qsc_results").select(resultSelect).eq("token", tokenParam);
-
-        const { data, error } = await leaderAudienceFilter(q)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (error) {
-          return NextResponse.json(
-            { ok: false, error: `qsc_results load failed: ${error.message}` },
-            { status: 500 }
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) {
+          const text = await res.text();
+          throw new Error(
+            `Non-JSON response (${res.status}): ${text.slice(0, 200)}`
           );
         }
-        if (data) {
-          resultRow = data as any;
-          resolvedBy = "token_unique";
+
+        const j = (await res.json()) as any;
+
+        if (!res.ok || j?.ok === false) {
+          if (
+            res.status === 409 &&
+            String(j?.error || "").includes("AMBIGUOUS_TOKEN_REQUIRES_TID")
+          ) {
+            throw new Error(
+              "This link has multiple results. Please open the Leader Extended page from the Snapshot (or add ?tid=...) so we can load the correct report."
+            );
+          }
+          throw new Error(j?.error || `HTTP ${res.status}`);
         }
+
+        if (alive && j?.results) {
+          setPayload({
+            results: j.results,
+            profile: j.profile ?? null,
+            extended: j.extended ?? null,
+            taker: j.taker ?? null,
+          });
+        }
+      } catch (e: any) {
+        if (alive) setErr(String(e?.message || e || "Unknown error"));
+      } finally {
+        if (alive) setLoading(false);
       }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [token, tid]);
+
+  async function handleDownloadPdf() {
+    if (!reportRef.current) return;
+
+    const element = reportRef.current;
+    const canvas = await html2canvas(element, { scale: 2, useCORS: true });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
     }
 
-    if (!resultRow) {
-      return NextResponse.json(
-        { ok: false, error: "RESULT_NOT_FOUND", debug: { token: tokenParam, tid: tid || null } },
-        { status: 404 }
-      );
-    }
-
-    // Final guard (still necessary for the "token is id" path)
-    if (resultRow.audience && resultRow.audience !== "leader") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "WRONG_AUDIENCE",
-          debug: { expected: "leader", got: resultRow.audience },
-        },
-        { status: 400 }
-      );
-    }
-
-    // Load taker
-    let taker: TestTakerRow | null = null;
-
-    if (resultRow.taker_id) {
-      const { data, error } = await sb
-        .from("test_takers")
-        .select("id, first_name, last_name, email, company, role_title")
-        .eq("id", resultRow.taker_id)
-        .maybeSingle();
-      if (!error && data) taker = data as any;
-    }
-
-    if (!taker) {
-      const { data, error } = await sb
-        .from("test_takers")
-        .select("id, first_name, last_name, email, company, role_title, link_token")
-        .eq("link_token", resultRow.token)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!error && data) taker = data as any;
-    }
-
-    // Load qsc_profiles snapshot
-    let profile: QscProfileRow | null = null;
-
-    const profileSelect = `
-      id,
-      personality_code,
-      mindset_level,
-      profile_code,
-      profile_label,
-      how_to_communicate,
-      decision_style,
-      business_challenges,
-      trust_signals,
-      offer_fit,
-      sale_blockers,
-      full_internal_insights
-    `;
-
-    if (resultRow.qsc_profile_id) {
-      const { data, error } = await sb
-        .from("qsc_profiles")
-        .select(profileSelect)
-        .eq("id", resultRow.qsc_profile_id)
-        .maybeSingle();
-
-      if (error) {
-        return NextResponse.json(
-          { ok: false, error: `qsc_profiles load failed: ${error.message}` },
-          { status: 500 }
-        );
-      }
-      if (data) profile = data as any;
-    }
-
-    // fallback: try by persona_code derived from combined_profile_code
-    if (!profile) {
-      const personaCode = combinedToPersonaCode(resultRow.combined_profile_code);
-      if (personaCode && looksLikePersonaCode(personaCode)) {
-        const { data } = await sb
-          .from("qsc_profiles")
-          .select(profileSelect)
-          .eq("profile_code", personaCode)
-          .limit(1)
-          .maybeSingle();
-        if (data) profile = data as any;
-      }
-    }
-
-    if (!profile?.mindset_level || !profile?.personality_code) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "PROFILE_NOT_RESOLVED",
-          debug: {
-            result_id: resultRow.id,
-            qsc_profile_id: resultRow.qsc_profile_id,
-            combined_profile_code: resultRow.combined_profile_code,
-            profile: profile ?? null,
-          },
-        },
-        { status: 404 }
-      );
-    }
-
-    const mindsetLevel = Number(profile.mindset_level);
-    const personalityABCD = toABCD(profile.personality_code);
-
-    if (!personalityABCD) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "PERSONALITY_MAPPING_FAILED",
-          debug: { personality_code: profile.personality_code },
-        },
-        { status: 500 }
-      );
-    }
-
-    // Load leader extended row
-    const { data: extRow, error: extErr } = await sb
-      .from("qsc_leader_extended_reports")
-      .select(
-        `
-        persona_label,
-        personality_label,
-        mindset_label,
-        profile_code,
-        personality_layer,
-        mindset_layer,
-        combined_quantum_pattern,
-        how_to_communicate,
-        how_they_make_decisions,
-        core_business_problems,
-        what_builds_trust,
-        what_offer_ready_for,
-        what_blocks_sale,
-        pre_call_questions,
-        micro_scripts,
-        green_red_flags,
-        real_life_example,
-        final_summary
-      `
-      )
-      .eq("personality_code", personalityABCD)
-      .eq("mindset_level", mindsetLevel)
-      .maybeSingle();
-
-    if (extErr) {
-      return NextResponse.json(
-        { ok: false, error: `leader extended load failed: ${extErr.message}` },
-        { status: 500 }
-      );
-    }
-
-    const { extended, source } = buildExtendedMerged({
-      extRow: extRow ?? null,
-      profile,
-      personalityABCD,
-      mindsetLevel,
-      combinedProfileCode: resultRow.combined_profile_code ?? null,
-    });
-
-    return NextResponse.json(
-      {
-        ok: true,
-        results: resultRow,
-        profile,
-        extended,
-        taker,
-        __debug: {
-          token: tokenParam,
-          tid: tid || null,
-          resolved_by: resolvedBy,
-          combined_profile_code_raw: resultRow.combined_profile_code,
-          combined_profile_code_mapped: combinedToPersonaCode(resultRow.combined_profile_code),
-          personality_code_raw: profile.personality_code,
-          personality_code_abcd: personalityABCD,
-          mindset_level: mindsetLevel,
-          extended_found: Boolean(extRow),
-          merge_source: source,
-        },
-      },
-      { status: 200 }
-    );
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unexpected error" }, { status: 500 });
+    pdf.save(`qsc-extended-leader-${token}.pdf`);
   }
+
+  const results = payload?.results ?? null;
+  const profile = payload?.profile ?? null;
+  const extended = payload?.extended ?? null;
+  const taker = payload?.taker ?? null;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
+        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+            Quantum Source Code
+          </p>
+          <h1 className="mt-3 text-3xl font-bold">
+            Preparing Leader Extended Source Code…
+          </h1>
+        </main>
+      </div>
+    );
+  }
+
+  if (err || !results) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <AppBackground />
+        <main className="mx-auto max-w-5xl px-4 py-12 space-y-4">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+            Quantum Source Code
+          </p>
+          <h1 className="text-3xl font-bold">Couldn&apos;t load insights</h1>
+          <p className="text-[15px] text-slate-300">
+            We weren&apos;t able to load the Leader Extended Source Code internal
+            insights for this profile.
+          </p>
+
+          <pre className="mt-2 rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs text-slate-100 whitespace-pre-wrap">
+            {err || "No data"}
+          </pre>
+        </main>
+      </div>
+    );
+  }
+
+  const createdAt = new Date(results.created_at);
+  const personaLabel =
+    extended?.persona_label ||
+    profile?.profile_label ||
+    results.combined_profile_code ||
+    "Leader profile";
+
+  const takerDisplayName = getFullName(taker);
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-50">
+      <AppBackground />
+      <main
+        ref={reportRef}
+        className="mx-auto max-w-6xl px-4 py-10 md:py-12 space-y-10"
+      >
+        <header className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-3">
+            <p className="text-xs font-semibold tracking-[0.25em] uppercase text-sky-300/80">
+              Quantum Source Code
+            </p>
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
+              Leader Extended Source Code — Internal Insights
+            </h1>
+            {takerDisplayName && (
+              <p className="text-[15px] text-slate-300">
+                For:{" "}
+                <span className="font-semibold text-slate-50">
+                  {takerDisplayName}
+                </span>
+              </p>
+            )}
+            <p className="text-[15px] leading-relaxed text-slate-300 max-w-2xl">
+              Deep leadership, messaging and positioning insights for this
+              profile. Use this as your reference when coaching, leading,
+              delegating and structuring accountability.
+            </p>
+          </div>
+
+          <div className="flex flex-col items-end gap-2 text-xs text-slate-400">
+            <button
+              onClick={handleDownloadPdf}
+              className="inline-flex items-center rounded-xl border border-slate-600 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-800"
+            >
+              Download PDF
+            </button>
+
+            <span>
+              Snapshot created{" "}
+              {createdAt.toLocaleString(undefined, {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+
+            <span className="text-[11px] text-slate-500">
+              Combined profile:{" "}
+              <span className="font-semibold text-slate-100">
+                {personaLabel}
+              </span>
+            </span>
+
+            {extended && (
+              <span className="text-[11px] text-slate-500">
+                Pattern:{" "}
+                <span className="font-semibold text-slate-100">
+                  {extended.personality_label} • {extended.mindset_label} (
+                  {extended.profile_code})
+                </span>
+              </span>
+            )}
+          </div>
+        </header>
+
+        <div className="grid gap-8 md:grid-cols-[260px,minmax(0,1fr)] items-start">
+          {/* Sidebar stays dark */}
+          <aside className="rounded-3xl border border-slate-800 bg-slate-950/90 p-5 md:p-6 md:sticky md:top-6 space-y-3">
+            <div>
+              <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-400">
+                Quick index
+              </p>
+              <p className="text-[13px] md:text-[14px] leading-relaxed text-slate-300">
+                Jump straight to the section you need during calls, coaching or
+                leadership conversations.
+              </p>
+            </div>
+
+            <div className="mt-2 flex flex-col gap-2">
+              {SECTIONS.map((sec) => (
+                <a
+                  key={sec.id}
+                  href={`#${sec.id}`}
+                  className="group inline-flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-[14px] hover:border-sky-500/80 hover:bg-slate-900"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-100 group-hover:bg-sky-500 group-hover:text-slate-950">
+                      {sec.number}
+                    </span>
+                    <span className="font-medium text-slate-100 group-hover:text-sky-50">
+                      {sec.title}
+                    </span>
+                  </div>
+                  <span className="hidden text-[11px] text-slate-500 group-hover:text-sky-200 lg:inline">
+                    View
+                  </span>
+                </a>
+              ))}
+            </div>
+          </aside>
+
+          <div className="space-y-8">
+            {/* ✅ Profile summary WHITE */}
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 space-y-4 shadow-sm">
+              <div className="space-y-3">
+                <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-sky-700">
+                  Profile summary
+                </p>
+                <h2 className="text-lg md:text-xl font-semibold text-slate-900">
+                  How to lead this profile well
+                </h2>
+                <p className="text-[15px] leading-relaxed text-slate-700 max-w-2xl">
+                  This page is for you as the{" "}
+                  <span className="font-semibold">test owner</span>. It gives
+                  you the leadership, communication and trust insights you need
+                  for this profile — without needing the full Strategic Growth
+                  Report.
+                </p>
+              </div>
+
+              {extended && (
+                <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] text-slate-800 md:grid-cols-2">
+                  <div>
+                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-500">
+                      Personality layer
+                    </p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {extended.personality_label}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      How they naturally think, lead and relate.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-slate-500">
+                      Mindset layer
+                    </p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {extended.mindset_label}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Where they are right now and what helps them grow.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
+                  Diagnostic layers • Who they are &amp; where they are
+                </h2>
+                <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
+              </div>
+
+              <InsightSection
+                id="sec-1-personality"
+                number={1}
+                title="Personality Layer"
+                kicker="How they think, behave and decide at this stage."
+                children={fallbackCopy(
+                  extended?.personality_layer,
+                  "Personality layer details have not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-2-mindset"
+                number={2}
+                title="Mindset Layer"
+                kicker="Where they are in their current journey."
+                children={fallbackCopy(
+                  extended?.mindset_layer,
+                  "Mindset layer details have not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-3-quantum"
+                number={3}
+                title="Combined Quantum Pattern"
+                kicker="How their behaviour and mindset interact to create patterns."
+                children={fallbackCopy(
+                  extended?.combined_quantum_pattern,
+                  "Combined Quantum pattern has not been defined yet."
+                )}
+              />
+            </div>
+
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pt-4">
+                <h2 className="text-[11px] font-semibold tracking-[0.22em] uppercase text-slate-400">
+                  Leadership playbook • How to communicate, trust &amp; lead
+                </h2>
+                <div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-700/60 via-slate-800 to-transparent" />
+              </div>
+
+              <InsightSection
+                id="sec-4-communicate"
+                number={4}
+                title="How to Communicate"
+                kicker="Tone, language and delivery style that makes them feel safe and clear."
+                children={fallbackCopy(
+                  extended?.how_to_communicate,
+                  "No communication guidance is available yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-5-decisions"
+                number={5}
+                title="How They Make Decisions"
+                kicker="What helps them commit, what makes them hesitate, and how they filter choices."
+                children={fallbackCopy(
+                  extended?.how_they_make_decisions,
+                  "Decision style has not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-6-problems"
+                number={6}
+                title="Core Business Problems"
+                kicker="The recurring patterns and friction points that show up most often."
+                children={fallbackCopy(
+                  extended?.core_business_problems,
+                  "Core business problems have not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-7-trust"
+                number={7}
+                title="What Builds Trust"
+                kicker="Signals, proof and experiences that help them trust you and the process."
+                children={fallbackCopy(
+                  extended?.what_builds_trust,
+                  "Trust-building patterns have not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-8-offer"
+                number={8}
+                title="What Offer They Are Ready For"
+                kicker="The structure, support and expectations most likely to unlock performance."
+                children={fallbackCopy(
+                  extended?.what_offer_ready_for,
+                  "Offer readiness has not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-9-blockers"
+                number={9}
+                title="What Blocks the Sale Completely"
+                kicker="Fear triggers and misalignments that stop buy-in or commitment."
+                variant="danger"
+                children={fallbackCopy(
+                  extended?.what_blocks_sale,
+                  "Sale blockers have not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-10-precall"
+                number={10}
+                title="Pre-Call Questions"
+                kicker="Questions that reveal emotional and structural gaps."
+                children={fallbackCopy(
+                  extended?.pre_call_questions,
+                  "Pre-call questions have not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-11-microscripts"
+                number={11}
+                title="Micro Scripts"
+                kicker="Short lines you can use in meetings, coaching, delegation and feedback."
+                children={fallbackCopy(
+                  extended?.micro_scripts,
+                  "Micro scripts have not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-12-flags"
+                number={12}
+                title="Green & Red Flags"
+                kicker="What signals strong fit and momentum — and what signals risk."
+                children={fallbackCopy(
+                  extended?.green_red_flags,
+                  "Green and red flags have not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-13-example"
+                number={13}
+                title="Real-Life Example"
+                kicker="A simple narrative you can keep in mind for this profile."
+                children={fallbackCopy(
+                  extended?.real_life_example,
+                  "Real-life example has not been defined yet."
+                )}
+              />
+
+              <InsightSection
+                id="sec-14-summary"
+                number={14}
+                title="Final Summary"
+                kicker="How to hold this profile in your mind when leading."
+                children={fallbackCopy(
+                  extended?.final_summary,
+                  "Final summary has not been defined yet."
+                )}
+              />
+            </div>
+
+            <footer className="pt-2 pb-8 text-xs text-slate-500 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <span>© {new Date().getFullYear()} MindCanvas — Profiletest.ai</span>
+              <span className="text-[11px] text-slate-500">
+                Internal use only — Leader Extended Source Code for test owners.
+              </span>
+            </footer>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
 }
 
