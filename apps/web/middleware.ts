@@ -44,6 +44,18 @@ function getOrgSlugFromPortalPath(pathname: string) {
   return parts[1] || null;
 }
 
+// ✅ Public routes that MUST NOT be protected by middleware
+function isPublicPortalRoute(pathname: string) {
+  return (
+    pathname === "/portal/login" ||
+    pathname.startsWith("/portal/login/") ||
+    pathname === "/portal/logout" ||
+    pathname.startsWith("/portal/logout/") ||
+    pathname === "/portal/reset-password" ||
+    pathname.startsWith("/portal/reset-password/")
+  );
+}
+
 async function isSuperAdmin(sb: any, userId: string) {
   const { data, error } = await sb
     .schema("portal")
@@ -56,9 +68,6 @@ async function isSuperAdmin(sb: any, userId: string) {
   return !!data?.user_id;
 }
 
-/**
- * Robust: get the user's first org slug using TWO QUERIES (no nested join).
- */
 async function getFirstOrgSlug(sb: any, userId: string) {
   const { data: mem, error: mErr } = await sb
     .schema("portal")
@@ -84,11 +93,7 @@ async function getFirstOrgSlug(sb: any, userId: string) {
   return typeof slug === "string" && slug.trim() ? slug.trim() : null;
 }
 
-/**
- * Robust: verify the user belongs to the org slug (two-step).
- */
 async function userHasOrgAccess(sb: any, userId: string, orgSlug: string) {
-  // Get org id by slug
   const { data: org, error: oErr } = await sb
     .schema("portal")
     .from("orgs")
@@ -98,7 +103,6 @@ async function userHasOrgAccess(sb: any, userId: string, orgSlug: string) {
 
   if (oErr || !org?.id) return false;
 
-  // Check membership
   const { data: mem, error: mErr } = await sb
     .schema("portal")
     .from("user_orgs")
@@ -113,6 +117,13 @@ async function userHasOrgAccess(sb: any, userId: string, orgSlug: string) {
 }
 
 export async function middleware(req: NextRequest) {
+  const pathname = req.nextUrl.pathname;
+
+  // ✅ IMPORTANT: allow login/reset pages through without auth
+  if (isPublicPortalRoute(pathname)) {
+    return NextResponse.next();
+  }
+
   const res = NextResponse.next();
   const sb = getSupabase(req, res);
   if (!sb) return res;
@@ -120,9 +131,7 @@ export async function middleware(req: NextRequest) {
   const { data: sessionData } = await sb.auth.getSession();
   const user = sessionData?.session?.user;
 
-  const pathname = req.nextUrl.pathname;
-
-  // Not logged in -> send to /portal/login
+  // Not logged in -> send to /portal/login (but never loop on /portal/login)
   if (!user) {
     const loginUrl = req.nextUrl.clone();
     loginUrl.pathname = "/portal/login";
@@ -156,6 +165,11 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(dest);
     }
 
+    // If the first segment is "login", let it through (extra safety)
+    if (orgSlug === "login") {
+      return res;
+    }
+
     // /portal/[slug]/... -> enforce membership
     const ok = await userHasOrgAccess(sb, userId, orgSlug);
     if (!ok) {
@@ -170,6 +184,3 @@ export async function middleware(req: NextRequest) {
 
   return res;
 }
-
-
-
