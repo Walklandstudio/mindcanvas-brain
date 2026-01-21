@@ -11,20 +11,20 @@ type PersonalityKey = "FIRE" | "FLOW" | "FORM" | "FIELD";
 
 type QscResultsRow = {
   id: string;
-  test_id: string;
+  test_id: string; // wrapper (or canonical)
   token: string;
   taker_id: string | null;
   audience: Audience | null;
-  combined_profile_code: string | null; // e.g. "B1"
+  combined_profile_code: string | null; // should be A1..D5 ideally, but can be messy
   qsc_profile_id: string | null;
   created_at: string;
 };
 
 type QscProfileRow = {
   id: string;
-  personality_code: PersonalityKey | string | null;
-  mindset_level: number | null;
-  profile_code: string | null;
+  personality_code: PersonalityKey | string | null; // FIRE/FLOW/FORM/FIELD or A-D
+  mindset_level: number | null; // 1..5
+  profile_code: string | null; // A1..D5
   profile_label: string | null;
 };
 
@@ -65,7 +65,9 @@ type TestTakerRow = {
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
@@ -81,7 +83,11 @@ function safeStr(v: any): string | null {
   return t.length ? t : null;
 }
 
-// Extended tables enforce A/B/C/D
+function looksLikePersonaCode(v: string | null | undefined) {
+  if (!v) return false;
+  return /^[ABCD][1-5]$/i.test(String(v).trim());
+}
+
 function toABCD(code: string | null | undefined): "A" | "B" | "C" | "D" | null {
   const c = String(code || "").toUpperCase().trim();
   if (c === "A" || c === "B" || c === "C" || c === "D") return c;
@@ -117,7 +123,6 @@ function parseCombinedProfileCode(code: string | null | undefined): {
   mindset_level: number | null;
 } {
   const c = String(code || "").trim().toUpperCase();
-  // Accept formats like "B1" or "B-1" or "B 1"
   const m = c.match(/^([ABCD])\s*[-_ ]?\s*([1-5])$/);
   if (!m) return { personality_code: null, mindset_level: null };
   return { personality_code: m[1] as any, mindset_level: Number(m[2]) };
@@ -137,11 +142,10 @@ export async function GET(
     }
 
     const url = new URL(req.url);
-    const tid = String(url.searchParams.get("tid") || "").trim(); // test_takers.id uuid
+    const tid = String(url.searchParams.get("tid") || "").trim();
 
     const sb = supa();
 
-    // 1) Resolve qsc_results
     const resultSelect = `
       id,
       test_id,
@@ -154,8 +158,30 @@ export async function GET(
     `;
 
     let result: QscResultsRow | null = null;
+    let resolvedBy: "result_id" | "token+taker_id" | "token_unique" | null = null;
 
-    if (tid && isUuidLike(tid)) {
+    // (0) token is qsc_results.id
+    if (isUuidLike(tokenParam)) {
+      const { data, error } = await sb
+        .from("qsc_results")
+        .select(resultSelect)
+        .eq("id", tokenParam)
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
+      }
+      if (data) {
+        result = data as any;
+        resolvedBy = "result_id";
+      }
+    }
+
+    // (1) token + tid
+    if (!result && tid && isUuidLike(tid)) {
       const { data, error } = await sb
         .from("qsc_results")
         .select(resultSelect)
@@ -165,44 +191,64 @@ export async function GET(
         .limit(1)
         .maybeSingle();
 
-      if (error)
+      if (error) {
         return NextResponse.json(
           { ok: false, error: `qsc_results load failed: ${error.message}` },
           { status: 500 }
         );
-      if (data) result = data as unknown as QscResultsRow;
+      }
+      if (data) {
+        result = data as any;
+        resolvedBy = "token+taker_id";
+      }
     }
 
+    // (2) token only (must be unique)
     if (!result) {
-      const { data, error } = await sb
+      const { count, error: countErr } = await sb
         .from("qsc_results")
-        .select(resultSelect)
-        .eq("token", tokenParam)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .select("id", { count: "exact", head: true })
+        .eq("token", tokenParam);
 
-      if (error)
+      if (countErr) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { ok: false, error: `qsc_results count failed: ${countErr.message}` },
           { status: 500 }
         );
-      if (data) result = data as unknown as QscResultsRow;
-    }
+      }
 
-    if (!result && isUuidLike(tokenParam)) {
-      const { data, error } = await sb
-        .from("qsc_results")
-        .select(resultSelect)
-        .eq("id", tokenParam)
-        .maybeSingle();
-
-      if (error)
+      const c = Number(count || 0);
+      if (!tid && c > 1) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
+          {
+            ok: false,
+            error: "AMBIGUOUS_TOKEN_REQUIRES_TID",
+            debug: { token: tokenParam, tid: tid || null, matches: c },
+          },
+          { status: 409 }
         );
-      if (data) result = data as unknown as QscResultsRow;
+      }
+
+      if (c === 1) {
+        const { data, error } = await sb
+          .from("qsc_results")
+          .select(resultSelect)
+          .eq("token", tokenParam)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          return NextResponse.json(
+            { ok: false, error: `qsc_results load failed: ${error.message}` },
+            { status: 500 }
+          );
+        }
+        if (data) {
+          result = data as any;
+          resolvedBy = "token_unique";
+        }
+      }
     }
 
     if (!result) {
@@ -212,7 +258,19 @@ export async function GET(
       );
     }
 
-    // 2) Load taker
+    // ✅ Audience guard: entrepreneur-only endpoint
+    if (result.audience && result.audience !== "entrepreneur") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "WRONG_AUDIENCE",
+          debug: { expected: "entrepreneur", got: result.audience },
+        },
+        { status: 400 }
+      );
+    }
+
+    // Load taker
     let taker: TestTakerRow | null = null;
 
     if (result.taker_id) {
@@ -221,7 +279,7 @@ export async function GET(
         .select("id, first_name, last_name, email, company, role_title")
         .eq("id", result.taker_id)
         .maybeSingle();
-      if (data) taker = data as unknown as TestTakerRow;
+      if (data) taker = data as any;
     }
 
     if (!taker) {
@@ -232,10 +290,11 @@ export async function GET(
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (data) taker = data as unknown as TestTakerRow;
+      if (data) taker = data as any;
     }
 
-    // 3) Derive key primarily from combined_profile_code (B1)
+    // Resolve personality + mindset key:
+    // Prefer combined_profile_code if it is already A1..D5
     let personalityABCD: "A" | "B" | "C" | "D" | null = null;
     let mindsetLevel: number | null = null;
 
@@ -245,7 +304,7 @@ export async function GET(
       mindsetLevel = parsed.mindset_level;
     }
 
-    // Fallback: use qsc_profiles (only if needed)
+    // Fallback: qsc_profiles snapshot
     let profile: QscProfileRow | null = null;
 
     if (!personalityABCD || !mindsetLevel) {
@@ -255,17 +314,7 @@ export async function GET(
           .select("id, personality_code, mindset_level, profile_code, profile_label")
           .eq("id", result.qsc_profile_id)
           .maybeSingle();
-        if (data) profile = data as unknown as QscProfileRow;
-      }
-
-      if (!profile && result.combined_profile_code) {
-        const { data } = await sb
-          .from("qsc_profiles")
-          .select("id, personality_code, mindset_level, profile_code, profile_label")
-          .eq("profile_code", result.combined_profile_code)
-          .limit(1)
-          .maybeSingle();
-        if (data) profile = data as unknown as QscProfileRow;
+        if (data) profile = data as any;
       }
 
       if (profile?.mindset_level && profile?.personality_code) {
@@ -287,13 +336,14 @@ export async function GET(
             combined_profile_code: result.combined_profile_code,
             parsed,
             profile,
+            resolved_by: resolvedBy,
           },
         },
         { status: 200 }
       );
     }
 
-    // 4) Load Entrepreneur Extended row from portal.qsc_entrepreneur_extended_reports
+    // Load extended row (global table)
     const { data: extRow, error: extErr } = await sb
       .from("qsc_entrepreneur_extended_reports")
       .select(
@@ -333,10 +383,15 @@ export async function GET(
       ? {
           persona_label: safeStr(extRow.persona_label),
           personality_label:
-            safeStr(extRow.personality_label) ?? personalityLabelFromABCD(personalityABCD),
+            safeStr(extRow.personality_label) ??
+            personalityLabelFromABCD(personalityABCD),
           mindset_label: safeStr(extRow.mindset_label) ?? mindsetLabel(mindsetLevel),
           profile_code:
-            safeStr(extRow.profile_code) ?? result.combined_profile_code ?? profile?.profile_code ?? null,
+            safeStr(extRow.profile_code) ??
+            (looksLikePersonaCode(result.combined_profile_code || "")
+              ? String(result.combined_profile_code).trim().toUpperCase()
+              : null) ??
+            safeStr(profile?.profile_code),
 
           personality_layer: safeStr(extRow.personality_layer),
           mindset_layer: safeStr(extRow.mindset_layer),
@@ -367,11 +422,14 @@ export async function GET(
         __debug: {
           token: tokenParam,
           tid: tid || null,
+          resolved_by: resolvedBy,
           personality_code_abcd: personalityABCD,
           mindset_level: mindsetLevel,
           extended_found: Boolean(extRow),
-          resolved_by: tid && isUuidLike(tid) ? "token+taker_id" : "token_latest",
-          key_source: parsed.personality_code && parsed.mindset_level ? "combined_profile_code" : "qsc_profiles_fallback",
+          key_source:
+            parsed.personality_code && parsed.mindset_level
+              ? "combined_profile_code"
+              : "qsc_profiles_fallback",
         },
       },
       { status: 200 }

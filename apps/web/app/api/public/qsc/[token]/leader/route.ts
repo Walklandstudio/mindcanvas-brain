@@ -28,7 +28,7 @@ type QscResultsRow = {
   primary_mindset: MindsetKey | null;
   secondary_mindset: MindsetKey | null;
 
-  combined_profile_code: string | null; // SHOULD be A1..D5 but is currently FORM_QUANTUM in your debug
+  combined_profile_code: string | null;
   qsc_profile_id: string | null;
 
   created_at: string;
@@ -36,9 +36,9 @@ type QscResultsRow = {
 
 type QscProfileRow = {
   id: string;
-  personality_code: string | null; // often "FORM"
-  mindset_level: number | null; // 1..5
-  profile_code: string | null; // often "C5"
+  personality_code: string | null;
+  mindset_level: number | null;
+  profile_code: string | null;
   profile_label: string | null;
 };
 
@@ -50,6 +50,12 @@ type QscTakerRow = {
   company: string | null;
   role_title: string | null;
   link_token?: string | null;
+};
+
+type TestMetaRow = {
+  id: string;
+  slug: string | null;
+  meta: any | null;
 };
 
 type TemplateRow = {
@@ -74,7 +80,9 @@ type PersonaSectionRow = {
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
@@ -100,16 +108,140 @@ function safeJsonParse(v: any) {
 
 function looksLikePersonaCode(v: string | null | undefined) {
   if (!v) return false;
-  return /^[ABCD][1-5]$/i.test(v.trim());
+  return /^[ABCD][1-5]$/i.test(String(v).trim());
 }
 
-function personalityToLetter(p: string | null | undefined): "A" | "B" | "C" | "D" | null {
+function personalityToLetter(
+  p: string | null | undefined
+): "A" | "B" | "C" | "D" | null {
   const x = String(p || "").trim().toUpperCase();
+  if (x === "A" || x === "B" || x === "C" || x === "D") return x as any;
   if (x === "FIRE") return "A";
   if (x === "FLOW") return "B";
   if (x === "FORM") return "C";
   if (x === "FIELD") return "D";
   return null;
+}
+
+function normalizeSlug(s: any) {
+  return String(s || "").trim().toLowerCase();
+}
+
+/**
+ * Resolve wrapper test_id -> canonical content test_id (LEADER)
+ * - Wrapper identified by tests.meta.wrapper === true
+ * - Uses meta.source_tests + meta.default_source_test
+ * - Picks by slug: leader => qsc-leaders
+ */
+async function resolveContentTestId(
+  sb: ReturnType<typeof supa>,
+  wrapperTestId: string,
+  audienceHint: Audience | null
+): Promise<{ contentTestId: string; resolvedBy: string }> {
+  const { data: testRow, error } = await sb
+    .from("tests")
+    .select("id, slug, meta")
+    .eq("id", wrapperTestId)
+    .maybeSingle();
+
+  if (error || !testRow) {
+    return { contentTestId: wrapperTestId, resolvedBy: "tests.lookup_failed" };
+  }
+
+  const meta = (testRow as any)?.meta ?? {};
+  const isWrapper = meta?.wrapper === true;
+
+  if (!isWrapper) {
+    return { contentTestId: wrapperTestId, resolvedBy: "not_wrapper" };
+  }
+
+  const sourceTests: string[] = Array.isArray(meta?.source_tests)
+    ? meta.source_tests
+    : [];
+  const defaultSource: string | null =
+    typeof meta?.default_source_test === "string"
+      ? meta.default_source_test
+      : null;
+
+  const preferredSlug =
+    audienceHint === "leader" ? "qsc-leaders" : "qsc-core";
+
+  if (sourceTests.length) {
+    const { data: candidates } = await sb
+      .from("tests")
+      .select("id, slug, meta")
+      .in("id", sourceTests);
+
+    const list = (candidates ?? []) as unknown as TestMetaRow[];
+
+    const preferred = list.find(
+      (t) => normalizeSlug(t.slug) === preferredSlug
+    );
+    if (preferred?.id) {
+      return {
+        contentTestId: preferred.id,
+        resolvedBy: `meta.source_tests.slug=${preferredSlug}`,
+      };
+    }
+
+    if (defaultSource && isUuidLike(defaultSource)) {
+      return {
+        contentTestId: defaultSource,
+        resolvedBy: "meta.default_source_test",
+      };
+    }
+
+    const first = list.find((t) => isUuidLike(t.id));
+    if (first?.id) {
+      return { contentTestId: first.id, resolvedBy: "meta.source_tests[0]" };
+    }
+  }
+
+  return { contentTestId: wrapperTestId, resolvedBy: "wrapper_no_sources" };
+}
+
+/**
+ * Resolve persona code A1..D5 using same strategy as result endpoint
+ */
+function resolvePersonaCode(args: {
+  resultRow: QscResultsRow;
+  profile: QscProfileRow | null;
+}): { personaCode: string | null; source: string | null } {
+  const { resultRow, profile } = args;
+
+  const combinedRaw = String(resultRow.combined_profile_code || "").trim();
+
+  if (looksLikePersonaCode(combinedRaw)) {
+    return {
+      personaCode: combinedRaw.toUpperCase(),
+      source: "qsc_results.combined_profile_code",
+    };
+  }
+
+  const pcode = String(profile?.profile_code || "").trim();
+  if (looksLikePersonaCode(pcode)) {
+    return {
+      personaCode: pcode.toUpperCase(),
+      source: "qsc_profiles.profile_code",
+    };
+  }
+
+  const letter =
+    personalityToLetter(profile?.personality_code) ||
+    personalityToLetter(resultRow.primary_personality);
+
+  const level =
+    typeof profile?.mindset_level === "number" &&
+    Number.isFinite(profile.mindset_level)
+      ? Number(profile.mindset_level)
+      : null;
+
+  if (letter && level && level >= 1 && level <= 5) {
+    const derived = `${letter}${level}`;
+    return { personaCode: derived, source: "derived(personality+mindset)" };
+  }
+
+  return { personaCode: null, source: null };
 }
 
 export async function GET(
@@ -150,10 +282,35 @@ export async function GET(
     `;
 
     let results: QscResultsRow | null = null;
-    let resolvedBy: "token+taker_id" | "token_latest" | "result_id" | null = null;
+    let resolvedBy:
+      | "result_id"
+      | "token+taker_id"
+      | "token_unique"
+      | "token_latest"
+      | null = null;
 
-    // (1) token + tid
-    if (tid && isUuidLike(tid)) {
+    // (0) If token is a UUID, allow direct qsc_results.id lookup
+    if (isUuidLike(tokenParam)) {
+      const { data, error } = await sb
+        .from("qsc_results")
+        .select(resultSelect)
+        .eq("id", tokenParam)
+        .maybeSingle();
+
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { status: 500 }
+        );
+      }
+      if (data) {
+        results = data as unknown as QscResultsRow;
+        resolvedBy = "result_id";
+      }
+    }
+
+    // (1) token + tid (deterministic)
+    if (!results && tid && isUuidLike(tid)) {
       const { data, error } = await sb
         .from("qsc_results")
         .select(resultSelect)
@@ -175,45 +332,80 @@ export async function GET(
       }
     }
 
-    // (2) token latest
+    // (2) token only — MUST be unique OR we reject
     if (!results) {
-      const { data, error } = await sb
+      const { count, error: countErr } = await sb
         .from("qsc_results")
-        .select(resultSelect)
-        .eq("token", tokenParam)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .select("id", { count: "exact", head: true })
+        .eq("token", tokenParam);
 
-      if (error) {
+      if (countErr) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
+          { ok: false, error: `qsc_results count failed: ${countErr.message}` },
           { status: 500 }
         );
       }
-      if (data) {
-        results = data as unknown as QscResultsRow;
-        resolvedBy = "token_latest";
-      }
-    }
 
-    // (3) tokenParam might be qsc_results.id
-    if (!results && isUuidLike(tokenParam)) {
-      const { data, error } = await sb
-        .from("qsc_results")
-        .select(resultSelect)
-        .eq("id", tokenParam)
-        .maybeSingle();
+      const c = Number(count || 0);
 
-      if (error) {
+      if (!tid && c > 1) {
         return NextResponse.json(
-          { ok: false, error: `qsc_results load failed: ${error.message}` },
-          { status: 500 }
+          {
+            ok: false,
+            error: "AMBIGUOUS_TOKEN_REQUIRES_TID",
+            debug: {
+              token: tokenParam,
+              tid: tid || null,
+              matches: c,
+              hint:
+                "Pass ?tid=<test_takers.id> when loading this report to disambiguate shared tokens.",
+            },
+          },
+          { status: 409 }
         );
       }
-      if (data) {
-        results = data as unknown as QscResultsRow;
-        resolvedBy = "result_id";
+
+      if (c === 1) {
+        const { data, error } = await sb
+          .from("qsc_results")
+          .select(resultSelect)
+          .eq("token", tokenParam)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          return NextResponse.json(
+            { ok: false, error: `qsc_results load failed: ${error.message}` },
+            { status: 500 }
+          );
+        }
+        if (data) {
+          results = data as unknown as QscResultsRow;
+          resolvedBy = "token_unique";
+        }
+      }
+
+      // last-resort fallback (kept for edge cases)
+      if (!results && c > 0) {
+        const { data, error } = await sb
+          .from("qsc_results")
+          .select(resultSelect)
+          .eq("token", tokenParam)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          return NextResponse.json(
+            { ok: false, error: `qsc_results load failed: ${error.message}` },
+            { status: 500 }
+          );
+        }
+        if (data) {
+          results = data as unknown as QscResultsRow;
+          resolvedBy = "token_latest";
+        }
       }
     }
 
@@ -239,6 +431,11 @@ export async function GET(
         { status: 400 }
       );
     }
+
+    // ✅ wrapper -> canonical content test (qsc-leaders)
+    const wrapperTestId = String(results.test_id);
+    const { contentTestId, resolvedBy: contentResolvedBy } =
+      await resolveContentTestId(sb, wrapperTestId, "leader");
 
     // Load taker
     let taker: QscTakerRow | null = null;
@@ -296,69 +493,51 @@ export async function GET(
       if (data) profile = data as unknown as QscProfileRow;
     }
 
-    // ✅ Resolve persona_code (must be A1..D5)
-    const combinedRaw = (results.combined_profile_code || "").trim();
-    const fromCombined = looksLikePersonaCode(combinedRaw) ? combinedRaw.toUpperCase() : null;
+    // ✅ persona_code A1..D5
+    const { personaCode, source: personaCodeSource } = resolvePersonaCode({
+      resultRow: results,
+      profile,
+    });
 
-    const fromProfileCode =
-      looksLikePersonaCode(profile?.profile_code || "")
-        ? String(profile?.profile_code).trim().toUpperCase()
-        : null;
-
-    const letter =
-      personalityToLetter(profile?.personality_code) ||
-      personalityToLetter(results.primary_personality);
-
-    const lvl =
-      typeof profile?.mindset_level === "number" && Number.isFinite(profile.mindset_level)
-        ? profile.mindset_level
-        : null;
-
-    const fromDerived = letter && lvl ? `${letter}${lvl}` : null;
-
-    const personaCode =
-      fromCombined || fromProfileCode || (looksLikePersonaCode(fromDerived || "") ? fromDerived : null);
-
-    const personaCodeSource =
-      fromCombined ? "qsc_results.combined_profile_code" :
-      fromProfileCode ? "qsc_profiles.profile_code" :
-      fromDerived ? "derived(personality_code + mindset_level)" :
-      null;
-
-    // Templates (global per test)
-    const testId = results.test_id;
-
+    // Templates (per canonical content test)
     const { data: templateRows, error: tplErr } = await sb
       .from("qsc_leader_report_templates")
       .select("id, test_id, section_key, content, sort_order, is_active")
-      .eq("test_id", testId)
+      .eq("test_id", contentTestId)
       .eq("is_active", true)
       .order("sort_order", { ascending: true });
 
     if (tplErr) {
       return NextResponse.json(
-        { ok: false, error: `qsc_leader_report_templates load failed: ${tplErr.message}` },
+        {
+          ok: false,
+          error: `qsc_leader_report_templates load failed: ${tplErr.message}`,
+        },
         { status: 500 }
       );
     }
 
-    // Persona sections
+    // Persona sections (canonical content test + persona_code)
     let sectionRows: PersonaSectionRow[] = [];
     if (personaCode) {
       const { data: secRows, error: secErr } = await sb
         .from("qsc_leader_report_sections")
         .select("id, test_id, persona_code, section_key, content, sort_order, is_active")
-        .eq("test_id", testId)
+        .eq("test_id", contentTestId)
         .eq("persona_code", personaCode)
         .eq("is_active", true)
         .order("sort_order", { ascending: true });
 
       if (secErr) {
         return NextResponse.json(
-          { ok: false, error: `qsc_leader_report_sections load failed: ${secErr.message}` },
+          {
+            ok: false,
+            error: `qsc_leader_report_sections load failed: ${secErr.message}`,
+          },
           { status: 500 }
         );
       }
+
       sectionRows = (secRows ?? []) as any;
     }
 
@@ -379,7 +558,7 @@ export async function GET(
         profile,
         taker,
         report: {
-          test_id: testId,
+          test_id: contentTestId,
           persona_code: personaCode,
           templates,
           sections,
@@ -388,10 +567,13 @@ export async function GET(
           token: tokenParam,
           tid: tid || null,
           resolved_by: resolvedBy,
-          test_id: testId,
+          audience: "leader",
+          wrapper_test_id: wrapperTestId,
+          content_test_id: contentTestId,
+          content_resolved_by: contentResolvedBy,
           persona_code: personaCode,
           persona_code_source: personaCodeSource,
-          combined_profile_code_raw: results.combined_profile_code,
+          combined_profile_code_raw: results.combined_profile_code ?? null,
           profile_code: profile?.profile_code ?? null,
           profile_personality_code: profile?.personality_code ?? null,
           profile_mindset_level: profile?.mindset_level ?? null,
