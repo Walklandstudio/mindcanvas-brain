@@ -86,7 +86,9 @@ function isUuidLike(s: string) {
   );
 }
 
-// For leader endpoints, accept leader OR NULL (legacy rows)
+// ✅ IMPORTANT:
+// For leader endpoints, we ONLY ever resolve leader rows (or legacy null audience).
+// This prevents accidentally selecting an entrepreneur row when tokens collide / duplicates exist.
 function leaderAudienceFilter(q: any) {
   return q.or("audience.eq.leader,audience.is.null");
 }
@@ -196,8 +198,7 @@ function buildExtendedMerged(args: {
   const extended: LeaderExtendedRow = {
     persona_label: personaLabel,
     personality_label:
-      safeStr(extRow?.personality_label) ??
-      personalityLabelFromABCD(personalityABCD),
+      safeStr(extRow?.personality_label) ?? personalityLabelFromABCD(personalityABCD),
     mindset_label: safeStr(extRow?.mindset_label) ?? mindsetLabel(mindsetLevel),
     profile_code:
       safeStr(extRow?.profile_code) ??
@@ -277,7 +278,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       }
     }
 
-    // (1) token + tid (leader-only OR legacy null audience)
+    // (1) token + tid (leader only OR legacy null audience)
     if (!resultRow && tid && isUuidLike(tid)) {
       const q = sb
         .from("qsc_results")
@@ -302,7 +303,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       }
     }
 
-    // (2) token only (must be unique for leader-or-null)
+    // (2) token only (must be unique WITHIN leader-or-null)
     if (!resultRow) {
       const countQ = sb
         .from("qsc_results")
@@ -358,10 +359,14 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       );
     }
 
-    // Audience guard: leader-only endpoint
+    // Final guard (still necessary for the "token is id" path)
     if (resultRow.audience && resultRow.audience !== "leader") {
       return NextResponse.json(
-        { ok: false, error: "WRONG_AUDIENCE", debug: { expected: "leader", got: resultRow.audience } },
+        {
+          ok: false,
+          error: "WRONG_AUDIENCE",
+          debug: { expected: "leader", got: resultRow.audience },
+        },
         { status: 400 }
       );
     }
