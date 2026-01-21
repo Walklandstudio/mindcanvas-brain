@@ -184,11 +184,19 @@ function BlockRenderer({ block }: { block: SectionBlock }) {
   }
 
   if (type === "h1") {
-    return <h1 className="text-2xl font-bold tracking-tight text-slate-900">{safeText((block as any).text)}</h1>;
+    return (
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+        {safeText((block as any).text)}
+      </h1>
+    );
   }
 
   if (type === "h2") {
-    return <h2 className="text-xl font-semibold tracking-tight text-slate-900">{safeText((block as any).text)}</h2>;
+    return (
+      <h2 className="text-xl font-semibold tracking-tight text-slate-900">
+        {safeText((block as any).text)}
+      </h2>
+    );
   }
 
   if (type === "h3") {
@@ -595,7 +603,6 @@ export default function LegacyReportClient(props: { token: string; tid: string }
 
               return (
                 <section key={id + idx} id={id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  {/* White container inside */}
                   <div className="rounded-2xl bg-white p-6 text-slate-900">
                     {title ? <h2 className="text-xl font-semibold text-slate-900">{title}</h2> : null}
 
@@ -609,23 +616,17 @@ export default function LegacyReportClient(props: { token: string; tid: string }
               );
             })}
 
-            {/* Bottom CTA row */}
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                onClick={handleDownloadPdf}
-                className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                Download PDF
-              </button>
-              {hasNextSteps && (
+            {/* Bottom CTA row — Next steps only */}
+            {hasNextSteps ? (
+              <div className="pt-2">
                 <button
                   onClick={openNextSteps}
                   className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
                 >
                   Next steps
                 </button>
-              )}
-            </div>
+              </div>
+            ) : null}
 
             <footer className="pt-4 text-xs text-slate-400">© {new Date().getFullYear()} MindCanvas</footer>
           </main>
@@ -634,4 +635,5 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     </div>
   );
 }
+
 
