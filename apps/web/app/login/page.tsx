@@ -1,13 +1,25 @@
 // apps/web/app/login/page.tsx
-import "server-only";
-import { redirect } from "next/navigation";
+"use client";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+import { useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
-export default function Page() {
-  // Single source of truth for logins
-  redirect("/portal/login");
+export default function LoginRedirect() {
+  const sp = useSearchParams();
+
+  useEffect(() => {
+    const next = sp?.get("next") || sp?.get("redirect") || "";
+    const q = new URLSearchParams();
+    if (next) q.set("next", next.startsWith("/") ? next : `/${next}`);
+    const url = `/portal/login${q.toString() ? `?${q.toString()}` : ""}`;
+    window.location.replace(url);
+  }, [sp]);
+
+  return (
+    <main className="p-8">
+      Redirecting to login…
+    </main>
+  );
 }
 
 

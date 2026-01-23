@@ -32,7 +32,10 @@ export async function POST(req: Request) {
 
     // 1) Sign in with SSR client (sets auth cookies)
     const sb = await getServerSupabase();
-    const { data: auth, error } = await sb.auth.signInWithPassword({ email, password });
+    const { data: auth, error } = await sb.auth.signInWithPassword({
+      email,
+      password,
+    });
 
     if (error || !auth?.user) {
       return NextResponse.json(
@@ -64,14 +67,14 @@ export async function POST(req: Request) {
     const is_superadmin = !!sa?.user_id;
 
     if (is_superadmin) {
-      // If your admin UI lives elsewhere, change this target.
+      // If your true admin home is /admin or /portal/admin, change it here.
       return NextResponse.json(
         { ok: true, is_superadmin: true, org_slug: null, next: "/dashboard" } satisfies LoginResponse,
         { status: 200 }
       );
     }
 
-    // First org membership (NO created_at column exists, so do NOT order)
+    // First org membership (portal.user_orgs has NO created_at, so do NOT order)
     const { data: mem, error: mErr } = await portal
       .from("user_orgs")
       .select("org_id")
@@ -93,7 +96,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Resolve slug
+    // Resolve org slug
     const { data: org, error: oErr } = await portal
       .from("orgs")
       .select("slug")
@@ -123,3 +126,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

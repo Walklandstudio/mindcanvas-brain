@@ -56,9 +56,10 @@ export default function LoginPage() {
 
       if (!res.ok || !json?.ok) {
         setError(json?.error || `Login failed (HTTP ${res.status})`);
-        setLoading(false);
         return;
       }
+
+      const isSuper = !!json.is_superadmin;
 
       // Priority:
       // 1) explicit ?next=...
@@ -67,7 +68,7 @@ export default function LoginPage() {
       const nextFromUrl = getNextFromUrl();
       const nextFromServer = json?.next;
 
-      const computedFallback = json?.is_superadmin
+      const computedFallback = isSuper
         ? "/dashboard"
         : json?.org_slug
           ? `/portal/${json.org_slug}/dashboard`
@@ -76,9 +77,18 @@ export default function LoginPage() {
       let target = safeNextPath(nextFromUrl || nextFromServer, computedFallback);
 
       // Guardrails:
-      // - Org users must never land in /dashboard
-      if (!json?.is_superadmin && (target === "/dashboard" || target.startsWith("/dashboard/"))) {
+      // - Org users must never land in /dashboard or /admin
+      if (!isSuper && (target === "/dashboard" || target.startsWith("/dashboard/"))) {
         target = computedFallback;
+      }
+      if (!isSuper && (target === "/admin" || target.startsWith("/admin/"))) {
+        target = computedFallback;
+      }
+
+      // - Superadmin should not be forced into a portal org path unless explicitly requested
+      // (If you WANT superadmins to be able to land on a portal org, remove this.)
+      if (isSuper && target.startsWith("/portal/") && !nextFromUrl) {
+        target = "/dashboard";
       }
 
       window.location.href = target;
