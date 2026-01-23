@@ -58,7 +58,7 @@ function isPublicPortalRoute(pathname: string) {
 async function isSuperAdmin(sb: any, userId: string) {
   const { data, error } = await sb
     .schema("portal")
-    .from("superadmins")
+    .from("superadmin")
     .select("user_id")
     .eq("user_id", userId)
     .maybeSingle();

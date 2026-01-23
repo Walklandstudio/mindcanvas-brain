@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
     // Superadmin?
     const { data: sa, error: saErr } = await portal
-      .from("superadmins")
+      .from("superadmin")
       .select("user_id")
       .eq("user_id", userId)
       .maybeSingle();

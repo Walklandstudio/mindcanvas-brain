@@ -52,9 +52,9 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
     redirect("/login?redirect=/admin");
   }
 
-  // 2) Check if this user is a superadmin in portal.superadmins
+  // 2) Check if this user is a superadmin in portal.superadmin
   const { data: superRow, error: superError } = await supabase
-    .from("superadmins")
+    .from("superadmin")
     .select("user_id")
     .eq("user_id", user.id)
     .maybeSingle();
