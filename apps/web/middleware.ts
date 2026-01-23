@@ -27,8 +27,8 @@ function getSupabase(req: NextRequest, res: NextResponse) {
 
 function isAdminPath(pathname: string) {
   return (
-    pathname === "/dashboard" ||
-    pathname.startsWith("/dashboard/") ||
+    pathname === "/admin" ||
+    pathname.startsWith("/admin/") ||
     pathname === "/admin" ||
     pathname.startsWith("/admin/")
   );

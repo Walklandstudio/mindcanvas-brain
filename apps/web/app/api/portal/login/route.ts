@@ -1,9 +1,7 @@
-// apps/web/app/api/portal/login/route.ts
 import { NextResponse } from "next/server";
 import { getServerSupabase, getAdminClient } from "@/app/_lib/portal";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 type LoginResponse =
   | {
@@ -16,114 +14,86 @@ type LoginResponse =
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => null)) as
-      | { email?: string; password?: string }
-      | null;
-
+    const body = await req.json();
     const email = (body?.email || "").trim();
     const password = String(body?.password || "");
 
     if (!email || !password) {
       return NextResponse.json(
-        { ok: false, error: "Email and password required" } satisfies LoginResponse,
+        { ok: false, error: "Email and password required" },
         { status: 400 }
       );
     }
 
-    // 1) Sign in with SSR client (sets auth cookies)
+    // 1) Authenticate + set SSR cookies
     const sb = await getServerSupabase();
-    const { data: auth, error } = await sb.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
 
-    if (error || !auth?.user) {
+    if (error || !data?.user) {
       return NextResponse.json(
-        { ok: false, error: error?.message || "Invalid credentials" } satisfies LoginResponse,
+        { ok: false, error: error?.message || "Invalid credentials" },
         { status: 401 }
       );
     }
 
-    const userId = auth.user.id;
+    const userId = data.user.id;
 
-    // 2) Service-role for portal schema lookups
+    // 2) Admin check (service role)
     const admin = await getAdminClient();
     const portal = admin.schema("portal");
 
-    // Superadmin?
-    const { data: sa, error: saErr } = await portal
-      .from("superadmin")
+    const { data: adminRow } = await portal
+      .from("superadmin") // ✅ singular
       .select("user_id")
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (saErr) {
-      return NextResponse.json(
-        { ok: false, error: saErr.message } satisfies LoginResponse,
-        { status: 400 }
-      );
-    }
-
-    const is_superadmin = !!sa?.user_id;
+    const is_superadmin = !!adminRow?.user_id;
 
     if (is_superadmin) {
-      // If your true admin home is /admin or /portal/admin, change it here.
-      return NextResponse.json(
-        { ok: true, is_superadmin: true, org_slug: null, next: "/dashboard" } satisfies LoginResponse,
-        { status: 200 }
-      );
+      return NextResponse.json({
+        ok: true,
+        is_superadmin: true,
+        org_slug: null,
+        next: "/admin",
+      });
     }
 
-    // First org membership (portal.user_orgs has NO created_at, so do NOT order)
-    const { data: mem, error: mErr } = await portal
+    // 3) Org user
+    const { data: mem } = await portal
       .from("user_orgs")
       .select("org_id")
       .eq("user_id", userId)
       .limit(1)
       .maybeSingle();
 
-    if (mErr) {
-      return NextResponse.json(
-        { ok: false, error: mErr.message } satisfies LoginResponse,
-        { status: 400 }
-      );
-    }
-
     if (!mem?.org_id) {
-      return NextResponse.json(
-        { ok: true, is_superadmin: false, org_slug: null, next: "/onboarding" } satisfies LoginResponse,
-        { status: 200 }
-      );
+      return NextResponse.json({
+        ok: true,
+        is_superadmin: false,
+        org_slug: null,
+        next: "/onboarding",
+      });
     }
 
-    // Resolve org slug
-    const { data: org, error: oErr } = await portal
+    const { data: org } = await portal
       .from("orgs")
       .select("slug")
       .eq("id", mem.org_id)
       .maybeSingle();
 
-    if (oErr) {
-      return NextResponse.json(
-        { ok: false, error: oErr.message } satisfies LoginResponse,
-        { status: 400 }
-      );
-    }
-
-    const org_slug =
-      typeof org?.slug === "string" && org.slug.trim() ? org.slug.trim() : null;
-
-    const next = org_slug ? `/portal/${org_slug}/dashboard` : "/portal";
-
-    return NextResponse.json(
-      { ok: true, is_superadmin: false, org_slug, next } satisfies LoginResponse,
-      { status: 200 }
-    );
+    return NextResponse.json({
+      ok: true,
+      is_superadmin: false,
+      org_slug: org?.slug ?? null,
+      next: org?.slug ? `/portal/${org.slug}/dashboard` : "/portal",
+    });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Unexpected error" } satisfies LoginResponse,
+      { ok: false, error: e?.message || "Unexpected error" },
       { status: 500 }
     );
   }
 }
+
 
