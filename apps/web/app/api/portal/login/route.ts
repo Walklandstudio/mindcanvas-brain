@@ -1,62 +1,129 @@
 // apps/web/app/api/portal/login/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getServerSupabase } from "@/app/_lib/portal";
+import { getServerSupabase, getAdminClient } from "@/app/_lib/portal";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type LoginResponse =
+  | {
+      ok: true;
+      next: string;
+      is_superadmin: boolean;
+      org_slug: string | null;
+    }
+  | { ok: false; error: string };
 
 export async function POST(req: Request) {
   try {
-    const sb = await getServerSupabase();
+    const body = (await req.json().catch(() => null)) as
+      | { email?: string; password?: string }
+      | null;
 
-    // Always parse JSON body; if it fails, return a clear error
-    const body = await req.json().catch(() => null as any);
-    if (!body || !body.email || !body.password) {
+    const email = (body?.email || "").trim();
+    const password = String(body?.password || "");
+
+    if (!email || !password) {
       return NextResponse.json(
-        { ok: false, error: "Email and password required" },
+        { ok: false, error: "Email and password required" } satisfies LoginResponse,
         { status: 400 }
       );
     }
 
-    const { email, password } = body as { email: string; password: string };
+    // 1) Sign in with SSR client (sets auth cookies)
+    const sb = await getServerSupabase();
+    const { data: auth, error } = await sb.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    // Sign in (SSR helper wires cookies)
-    const { data: auth, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 401 });
+    if (error || !auth?.user) {
+      return NextResponse.json(
+        { ok: false, error: error?.message || "Invalid credentials" } satisfies LoginResponse,
+        { status: 401 }
+      );
     }
 
-    // Find memberships; if exactly one, set active org cookie
     const userId = auth.user.id;
-    const { data: mems, error: mErr } = await sb
-      .from("portal_members")
+
+    // 2) Service-role for portal schema lookups
+    const admin = await getAdminClient();
+    const portal = admin.schema("portal");
+
+    // Superadmin?
+    const { data: sa, error: saErr } = await portal
+      .from("superadmins")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (saErr) {
+      return NextResponse.json(
+        { ok: false, error: saErr.message } satisfies LoginResponse,
+        { status: 400 }
+      );
+    }
+
+    const is_superadmin = !!sa?.user_id;
+
+    if (is_superadmin) {
+      // If your true admin home is /admin or /portal/admin, change it here.
+      return NextResponse.json(
+        { ok: true, is_superadmin: true, org_slug: null, next: "/dashboard" } satisfies LoginResponse,
+        { status: 200 }
+      );
+    }
+
+    // First org membership (portal.user_orgs has NO created_at, so do NOT order)
+    const { data: mem, error: mErr } = await portal
+      .from("user_orgs")
       .select("org_id")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
 
     if (mErr) {
-      return NextResponse.json({ ok: false, error: mErr.message }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: mErr.message } satisfies LoginResponse,
+        { status: 400 }
+      );
     }
 
-    let next = "/portal/home";
-    if (!mems || mems.length === 0) {
-      next = "/portal/orgs";
-    } else if (mems.length === 1) {
-      const cs = await cookies();
-      // @ts-ignore (Next server runtime supports set)
-      cs.set("portal_org_id", mems[0].org_id, {
-        httpOnly: true,
-        sameSite: "lax",
-        maxAge: 60 * 60,
-      });
-      next = "/portal/home";
-    } else {
-      next = "/portal/orgs";
+    if (!mem?.org_id) {
+      return NextResponse.json(
+        { ok: true, is_superadmin: false, org_slug: null, next: "/onboarding" } satisfies LoginResponse,
+        { status: 200 }
+      );
     }
 
-    // ✅ Always respond with JSON (no redirects from the API)
-    return NextResponse.json({ ok: true, next }, { status: 200 });
+    // Resolve org slug
+    const { data: org, error: oErr } = await portal
+      .from("orgs")
+      .select("slug")
+      .eq("id", mem.org_id)
+      .maybeSingle();
+
+    if (oErr) {
+      return NextResponse.json(
+        { ok: false, error: oErr.message } satisfies LoginResponse,
+        { status: 400 }
+      );
+    }
+
+    const org_slug =
+      typeof org?.slug === "string" && org.slug.trim() ? org.slug.trim() : null;
+
+    const next = org_slug ? `/portal/${org_slug}/dashboard` : "/portal";
+
+    return NextResponse.json(
+      { ok: true, is_superadmin: false, org_slug, next } satisfies LoginResponse,
+      { status: 200 }
+    );
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Unexpected error" },
+      { ok: false, error: e?.message ?? "Unexpected error" } satisfies LoginResponse,
       { status: 500 }
     );
   }
 }
+

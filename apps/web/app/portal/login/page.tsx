@@ -13,17 +13,14 @@ function safeNextPath(input: unknown, fallback: string) {
 type LoginResponse = {
   ok: boolean;
   error?: string;
-
-  // existing
   next?: string;
 
-  // optional (recommended from /api/portal/login)
-  is_super_admin?: boolean;
+  // returned by /api/portal/login
+  is_superadmin?: boolean;
   org_slug?: string | null;
 };
 
 function getNextFromUrl(): string | null {
-  // Safe because this only runs in the browser (client component)
   try {
     const usp = new URLSearchParams(window.location.search || "");
     const next = usp.get("next");
@@ -53,46 +50,45 @@ export default function LoginPage() {
       });
 
       const ct = res.headers.get("content-type") || "";
-      let json: LoginResponse | null = null;
-
-      if (ct.includes("application/json")) {
-        json = (await res.json().catch(() => null)) as LoginResponse | null;
-      } else {
-        const txt = await res.text().catch(() => "");
-        if (!res.ok) {
-          setError(txt || `Login failed (HTTP ${res.status})`);
-          setLoading(false);
-          return;
-        }
-        // If server didn’t return JSON, safest default
-        window.location.href = "/portal/home";
-        return;
-      }
+      const json = ct.includes("application/json")
+        ? ((await res.json().catch(() => null)) as LoginResponse | null)
+        : null;
 
       if (!res.ok || !json?.ok) {
         setError(json?.error || `Login failed (HTTP ${res.status})`);
-        setLoading(false);
         return;
       }
 
-      // 1) Explicit next=... from URL
-      const nextFromUrl = getNextFromUrl();
+      const isSuper = !!json.is_superadmin;
 
-      // 2) Server-provided next (current behavior)
+      // Priority:
+      // 1) explicit ?next=...
+      // 2) server-provided next
+      // 3) role-aware fallback
+      const nextFromUrl = getNextFromUrl();
       const nextFromServer = json?.next;
 
-      // 3) Role-aware fallback if next is missing
-      const computedFallback = json?.is_super_admin
-        ? "/portal/admin"
+      const computedFallback = isSuper
+        ? "/dashboard"
         : json?.org_slug
           ? `/portal/${json.org_slug}/dashboard`
-          : "/portal/home";
+          : "/portal";
 
       let target = safeNextPath(nextFromUrl || nextFromServer, computedFallback);
 
-      // ✅ Guardrail: super admin should never land on global /dashboard
-      if (json?.is_super_admin && target === "/dashboard") {
-        target = "/portal/admin";
+      // Guardrails:
+      // - Org users must never land in /dashboard or /admin
+      if (!isSuper && (target === "/dashboard" || target.startsWith("/dashboard/"))) {
+        target = computedFallback;
+      }
+      if (!isSuper && (target === "/admin" || target.startsWith("/admin/"))) {
+        target = computedFallback;
+      }
+
+      // - Superadmin should not be forced into a portal org path unless explicitly requested
+      // (If you WANT superadmins to be able to land on a portal org, remove this.)
+      if (isSuper && target.startsWith("/portal/") && !nextFromUrl) {
+        target = "/dashboard";
       }
 
       window.location.href = target;
@@ -114,9 +110,7 @@ export default function LoginPage() {
         {error && <div className="text-red-400 text-sm">{error}</div>}
 
         <div>
-          <label className="block text-sm mb-1">
-            User (enter email address)
-          </label>
+          <label className="block text-sm mb-1">User (enter email address)</label>
           <input
             className="w-full rounded-md border border-white/20 bg-transparent p-2"
             type="email"
@@ -129,9 +123,7 @@ export default function LoginPage() {
         </div>
 
         <div>
-          <label className="block text-sm mb-1">
-            Password (enter password)
-          </label>
+          <label className="block text-sm mb-1">Password (enter password)</label>
           <input
             className="w-full rounded-md border border-white/20 bg-transparent p-2"
             type="password"
