@@ -1,4 +1,3 @@
-// apps/web/app/portal/[slug]/dashboard/page.tsx
 import { Suspense } from "react";
 import PortalDashboardClient from "./PortalDashboardClient";
 
@@ -8,9 +7,20 @@ export const runtime = "nodejs";
 
 export default function Page({ params }: { params: { slug: string } }) {
   return (
-    <Suspense fallback={<div className="p-6 text-gray-600">Loading…</div>}>
-      <PortalDashboardClient orgSlug={params.slug} />
-    </Suspense>
+    <div className="min-h-dvh mc-bg text-white">
+      <div className="mx-auto max-w-6xl px-6 py-10">
+        <Suspense
+          fallback={
+            <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-slate-200">
+              Loading…
+            </div>
+          }
+        >
+          <PortalDashboardClient orgSlug={params.slug} />
+        </Suspense>
+      </div>
+    </div>
   );
 }
+
 
