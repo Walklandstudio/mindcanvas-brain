@@ -53,10 +53,9 @@ export async function getServerSupabase() {
         // This is what persists auth sessions (critical)
         for (const { name, value, options } of cookiesToSet) {
           try {
-            // Next expects { name, value, ...options }
             jar.set({ name, value, ...(options || {}) });
           } catch {
-            // Some runtimes (or server component contexts) may restrict mutation
+            // Some runtimes / server component contexts may restrict mutation
           }
         }
       },
@@ -103,20 +102,22 @@ export async function getActiveOrgId(sb?: AnyClient): Promise<string | null> {
   if (!user) return null;
 
   // ✅ Current system: portal.user_orgs
+  // NOTE: portal.user_orgs DOES NOT have created_at in your schema
   try {
     const r = await userSb
       .schema("portal")
       .from("user_orgs")
       .select("org_id")
       .eq("user_id", user.id)
-      .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
 
     if (!r.error && r.data?.org_id) return String(r.data.org_id);
   } catch {}
 
-  // (Legacy fallbacks kept, but ideally remove once confirmed unused)
+  // (Legacy fallbacks kept for safety — remove later when confirmed unused)
+
+  // A) portal_members
   try {
     const pm = await userSb
       .from("portal_members")
@@ -129,6 +130,7 @@ export async function getActiveOrgId(sb?: AnyClient): Promise<string | null> {
     if (!pm.error && pm.data?.org_id) return String(pm.data.org_id);
   } catch {}
 
+  // B) org_members
   try {
     const om = await userSb
       .from("org_members")
@@ -141,6 +143,7 @@ export async function getActiveOrgId(sb?: AnyClient): Promise<string | null> {
     if (!om.error && om.data?.org_id) return String(om.data.org_id);
   } catch {}
 
+  // C) profiles.default_org_id
   try {
     const prof = await userSb
       .from("profiles")
@@ -167,7 +170,6 @@ export const supabaseServer = getServerSupabase;
 // ── Optional admin lookups ────────────────────────────────────────────────────
 export async function getOrgBySlug(slug: string) {
   const admin = await getAdminClient();
-  // ✅ Align to current schema
   return admin
     .schema("portal")
     .from("orgs")
@@ -186,4 +188,3 @@ export async function getOrgName(orgId: string): Promise<string | null> {
     .maybeSingle();
   return (data?.name as string) ?? null;
 }
-

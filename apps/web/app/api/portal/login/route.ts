@@ -30,7 +30,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1) Sign in with SSR client (this is what sets auth cookies)
+    // 1) Sign in with SSR client (sets auth cookies)
     const sb = await getServerSupabase();
     const { data: auth, error } = await sb.auth.signInWithPassword({ email, password });
 
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
 
     const userId = auth.user.id;
 
-    // 2) Use service-role for portal schema lookups (avoids "permission denied for schema portal")
+    // 2) Service-role for portal schema lookups
     const admin = await getAdminClient();
     const portal = admin.schema("portal");
 
@@ -64,18 +64,18 @@ export async function POST(req: Request) {
     const is_superadmin = !!sa?.user_id;
 
     if (is_superadmin) {
+      // If your admin UI lives elsewhere, change this target.
       return NextResponse.json(
         { ok: true, is_superadmin: true, org_slug: null, next: "/dashboard" } satisfies LoginResponse,
         { status: 200 }
       );
     }
 
-    // First org membership
+    // First org membership (NO created_at column exists, so do NOT order)
     const { data: mem, error: mErr } = await portal
       .from("user_orgs")
       .select("org_id")
       .eq("user_id", userId)
-      .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
 
@@ -123,6 +123,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
-
-

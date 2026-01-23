@@ -39,12 +39,11 @@ function isPortalPath(pathname: string) {
 }
 
 function getOrgSlugFromPortalPath(pathname: string) {
-  const parts = pathname.split("/").filter(Boolean); // ["portal", "slug", ...]
+  const parts = pathname.split("/").filter(Boolean);
   if (parts[0] !== "portal") return null;
   return parts[1] || null;
 }
 
-// ✅ Public routes that MUST NOT be protected by middleware
 function isPublicPortalRoute(pathname: string) {
   return (
     pathname === "/portal/login" ||
@@ -69,12 +68,12 @@ async function isSuperAdmin(sb: any, userId: string) {
 }
 
 async function getFirstOrgSlug(sb: any, userId: string) {
+  // NO created_at column → do NOT order
   const { data: mem, error: mErr } = await sb
     .schema("portal")
     .from("user_orgs")
     .select("org_id")
     .eq("user_id", userId)
-    .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
 
@@ -106,20 +105,19 @@ async function userHasOrgAccess(sb: any, userId: string, orgSlug: string) {
   const { data: mem, error: mErr } = await sb
     .schema("portal")
     .from("user_orgs")
-    .select("id")
+    .select("org_id")
     .eq("user_id", userId)
     .eq("org_id", org.id)
     .limit(1)
     .maybeSingle();
 
   if (mErr) return false;
-  return !!mem?.id;
+  return !!mem?.org_id;
 }
 
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
-  // ✅ IMPORTANT: allow login/reset pages through without auth
   if (isPublicPortalRoute(pathname)) {
     return NextResponse.next();
   }
@@ -131,7 +129,6 @@ export async function middleware(req: NextRequest) {
   const { data: sessionData } = await sb.auth.getSession();
   const user = sessionData?.session?.user;
 
-  // Not logged in -> send to /portal/login (but never loop on /portal/login)
   if (!user) {
     const loginUrl = req.nextUrl.clone();
     loginUrl.pathname = "/portal/login";
@@ -141,7 +138,6 @@ export async function middleware(req: NextRequest) {
 
   const userId = user.id;
 
-  // Admin portal protection: superadmins only
   if (isAdminPath(pathname)) {
     const ok = await isSuperAdmin(sb, userId);
     if (!ok) {
@@ -153,11 +149,9 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  // Portal protection: must belong to org
   if (isPortalPath(pathname)) {
     const orgSlug = getOrgSlugFromPortalPath(pathname);
 
-    // /portal -> redirect to first org dashboard
     if (!orgSlug) {
       const first = await getFirstOrgSlug(sb, userId);
       const dest = req.nextUrl.clone();
@@ -165,12 +159,8 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(dest);
     }
 
-    // If the first segment is "login", let it through (extra safety)
-    if (orgSlug === "login") {
-      return res;
-    }
+    if (orgSlug === "login") return res;
 
-    // /portal/[slug]/... -> enforce membership
     const ok = await userHasOrgAccess(sb, userId, orgSlug);
     if (!ok) {
       const first = await getFirstOrgSlug(sb, userId);
