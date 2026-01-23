@@ -2,24 +2,21 @@
 "use client";
 
 import { useEffect } from "react";
-import { useSearchParams } from "next/navigation";
 
 export default function LoginRedirect() {
-  const sp = useSearchParams();
-
   useEffect(() => {
-    const next = sp?.get("next") || sp?.get("redirect") || "";
+    // Read params without next/navigation hooks (avoids Suspense build error)
+    const usp = new URLSearchParams(window.location.search || "");
+    const next = usp.get("next") || usp.get("redirect") || "";
+
     const q = new URLSearchParams();
     if (next) q.set("next", next.startsWith("/") ? next : `/${next}`);
+
     const url = `/portal/login${q.toString() ? `?${q.toString()}` : ""}`;
     window.location.replace(url);
-  }, [sp]);
+  }, []);
 
-  return (
-    <main className="p-8">
-      Redirecting to login…
-    </main>
-  );
+  return <main className="p-8">Redirecting to login…</main>;
 }
 
 
