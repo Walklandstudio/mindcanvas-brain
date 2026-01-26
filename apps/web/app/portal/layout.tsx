@@ -1,6 +1,7 @@
-import PortalChrome from "@/components/layout/PortalChrome";
-import { enableDarkGrid } from "@/lib/flags";
+// apps/web/app/portal/layout.tsx
+import React from "react";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return enableDarkGrid ? <PortalChrome>{children}</PortalChrome> : <>{children}</>;
+  return <>{children}</>;
 }
+
