@@ -26,8 +26,9 @@ export default async function AdminOrgsPage() {
         <header className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Organizations</h1>
           <div className="flex items-center gap-3">
+            {/* If your "add org" lives under /admin, keep it there */}
             <Link
-              href="/portal/admin/new"
+              href="/admin/orgs/new"
               className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition"
             >
               + Add organisation
@@ -52,8 +53,6 @@ export default async function AdminOrgsPage() {
                 <div className="font-medium">{o.name}</div>
                 <div className="text-xs text-slate-300">{o.slug}</div>
               </div>
-
-              {/* ✅ Go directly to the org dashboard */}
               <Link
                 className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition"
                 href={`/portal/${o.slug}/dashboard`}
@@ -67,4 +66,5 @@ export default async function AdminOrgsPage() {
     </div>
   );
 }
+
 
