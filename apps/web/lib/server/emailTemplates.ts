@@ -5,7 +5,8 @@ export type EmailTemplateType =
   | "report"
   | "resend_report"
   | "test_owner_notification"
-  | "send_test_link";
+  | "send_test_link"
+  | "test_taker_report";
 
 export type EmailTemplate = {
   type: EmailTemplateType;
@@ -32,6 +33,56 @@ function supaAdmin() {
 export function getDefaultTemplate(type: EmailTemplateType): EmailTemplate {
   switch (type) {
     case "report":
+      return {
+        type,
+        subject: "Your {{test_name}} Results",
+        body_html: `
+<p>Hi {{first_name}},</p>
+
+<p>
+Thank you for completing the <strong>{{test_name}}</strong>.
+Your personalised report is now ready.
+</p>
+
+<p style="margin: 24px 0;">
+  <a
+    href="{{report_link}}"
+    style="
+      display:inline-block;
+      padding:12px 20px;
+      background:#2563eb;
+      color:#ffffff;
+      text-decoration:none;
+      border-radius:6px;
+      font-weight:600;
+    "
+  >
+    View your report
+  </a>
+</p>
+
+<p>
+If the button above does not work, copy and paste the link below into your browser:
+</p>
+
+<p style="word-break:break-all;">
+  {{report_link}}
+</p>
+
+<p style="margin-top:32px;">
+Regards,<br />
+<strong>{{org_name}}</strong>
+</p>
+
+<p>
+For any queries, please contact us at
+<a href="mailto:{{support_email}}">{{support_email}}</a>.
+</p>
+        `.trim(),
+      };
+
+    case "test_taker_report":
+      // Default can mirror "report" unless you want separate copy later
       return {
         type,
         subject: "Your {{test_name}} Results",
@@ -237,9 +288,7 @@ function renderTemplate(
 /**
  * Load an org’s template overrides, falling back to defaults.
  */
-export async function loadOrgTemplates(
-  orgId: string
-): Promise<EmailTemplate[]> {
+export async function loadOrgTemplates(orgId: string): Promise<EmailTemplate[]> {
   const supa = supaAdmin();
   const { data } = await supa
     .from("communication_templates" as any)
@@ -252,6 +301,7 @@ export async function loadOrgTemplates(
 
   const allTypes: EmailTemplateType[] = [
     "report",
+    "test_taker_report",
     "resend_report",
     "send_test_link",
     "test_owner_notification",
@@ -315,7 +365,12 @@ export async function sendTemplatedEmail(args: {
 
     const text = await res.text();
     if (!res.ok) {
-      return { ok: false, error: "onesignal_error", status: res.status, body: text };
+      return {
+        ok: false,
+        error: "onesignal_error",
+        status: res.status,
+        body: text,
+      };
     }
 
     return { ok: true };
@@ -323,4 +378,5 @@ export async function sendTemplatedEmail(args: {
     return { ok: false, error: "unexpected_error" };
   }
 }
+
 
