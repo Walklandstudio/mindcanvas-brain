@@ -14,7 +14,8 @@ type QuestionRow = {
 
 function supa() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY!;
   return createClient(url, key, { db: { schema: "portal" } });
 }
 
@@ -28,7 +29,9 @@ function profileCodeToFreq(code: string): AB | null {
     return (n <= 2 ? "A" : n <= 4 ? "B" : n <= 6 ? "C" : "D") as AB;
   }
   const ch = s[0];
-  return ch === "A" || ch === "B" || ch === "C" || ch === "D" ? (ch as AB) : null;
+  return ch === "A" || ch === "B" || ch === "C" || ch === "D"
+    ? (ch as AB)
+    : null;
 }
 
 function toZeroBasedSelected(row: any): number | null {
@@ -43,7 +46,8 @@ function toZeroBasedSelected(row: any): number | null {
   return null;
 }
 
-const asNumber = (x: any, d = 0) => (Number.isFinite(Number(x)) ? Number(x) : d);
+const asNumber = (x: any, d = 0) =>
+  Number.isFinite(Number(x)) ? Number(x) : d;
 
 function normalizeEmail(v: any): string {
   const s = typeof v === "string" ? v.trim() : "";
@@ -51,7 +55,17 @@ function normalizeEmail(v: any): string {
 }
 
 function getDefaultInternalEmail() {
-  return normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) || "notifications@profiletest.ai";
+  return (
+    normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) ||
+    "notifications@profiletest.ai"
+  );
+}
+
+function getDefaultSupportEmail() {
+  return (
+    normalizeEmail(process.env.INTERNAL_NOTIFICATIONS_EMAIL) ||
+    "support@profiletest.ai"
+  );
 }
 
 /**
@@ -78,72 +92,94 @@ type LinkBehavior = {
   redirect_url: string | null;
   hidden_results_message: string | null;
   next_steps_url: string | null;
-  email_results: boolean; // optional column; defaults false if missing
+  email_report: boolean; // ✅ your real DB column
 };
 
-async function loadLinkBehavior(sb: ReturnType<typeof supa>, token: string): Promise<LinkBehavior> {
-  // Some DBs may not have email_results yet; try with it first, fallback without.
-  const attempt1 = await sb
+/**
+ * Load link behavior flags.
+ *
+ * Your DB column is `email_report`.
+ * Some older code referenced `email_results`, so we fall back to that if needed.
+ */
+async function loadLinkBehavior(
+  sb: ReturnType<typeof supa>,
+  token: string
+): Promise<LinkBehavior> {
+  // ✅ attempt using current schema (email_report)
+  const a1 = await sb
     .from("test_links")
-    .select("show_results, redirect_url, hidden_results_message, next_steps_url, email_results")
+    .select(
+      "show_results, redirect_url, hidden_results_message, next_steps_url, email_report"
+    )
     .eq("token", token)
     .maybeSingle();
 
-  if (!attempt1.error) {
-    const d: any = attempt1.data || {};
+  if (!a1.error) {
+    const d: any = a1.data || {};
     return {
       show_results: d.show_results ?? true,
       redirect_url: d.redirect_url ?? null,
       hidden_results_message: d.hidden_results_message ?? null,
       next_steps_url: d.next_steps_url ?? null,
-      email_results: d.email_results ?? false,
+      email_report: d.email_report ?? false,
     };
   }
 
-  // Fallback (no email_results column)
-  const attempt2 = await sb
+  // ⚠️ fallback: older schema might have email_results (not your case now, but safe)
+  const a2 = await sb
     .from("test_links")
-    .select("show_results, redirect_url, hidden_results_message, next_steps_url")
+    .select(
+      "show_results, redirect_url, hidden_results_message, next_steps_url, email_results"
+    )
     .eq("token", token)
     .maybeSingle();
 
-  if (attempt2.error) {
-    // Don’t fail submission for behavior metadata issues; default to show results.
-    console.warn("[submit] test_links behavior load failed", attempt2.error);
+  if (!a2.error) {
+    const d: any = a2.data || {};
     return {
-      show_results: true,
-      redirect_url: null,
-      hidden_results_message: null,
-      next_steps_url: null,
-      email_results: false,
+      show_results: d.show_results ?? true,
+      redirect_url: d.redirect_url ?? null,
+      hidden_results_message: d.hidden_results_message ?? null,
+      next_steps_url: d.next_steps_url ?? null,
+      email_report: d.email_results ?? false,
     };
   }
 
-  const d: any = attempt2.data || {};
+  // Final fallback: don't fail submission because of flags
+  console.warn("[submit] test_links behavior load failed", a2.error || a1.error);
   return {
-    show_results: d.show_results ?? true,
-    redirect_url: d.redirect_url ?? null,
-    hidden_results_message: d.hidden_results_message ?? null,
-    next_steps_url: d.next_steps_url ?? null,
-    email_results: false,
+    show_results: true,
+    redirect_url: null,
+    hidden_results_message: null,
+    next_steps_url: null,
+    email_report: false,
   };
 }
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export async function POST(
+  req: Request,
+  { params }: { params: { token: string } }
+) {
   try {
     const token = params.token?.trim();
     if (!token) {
-      return NextResponse.json({ ok: false, error: "Missing token" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing token" },
+        { status: 400 }
+      );
     }
 
     const body = (await req.json().catch(() => ({}))) as any;
     const takerId: string | undefined = body.taker_id || body.takerId || body.tid;
 
     if (!takerId) {
-      return NextResponse.json({ ok: false, error: "Missing taker_id" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing taker_id" },
+        { status: 400 }
+      );
     }
 
     const answers: any[] = Array.isArray(body.answers) ? body.answers : [];
@@ -155,13 +191,18 @@ export async function POST(req: Request, { params }: { params: { token: string }
     // Resolve taker → wrapper test (org-facing)
     const { data: taker, error: takerErr } = await sb
       .from("test_takers")
-      .select("id, org_id, test_id, link_token, first_name, last_name, email, company, role_title, phone, last_result_url")
+      .select(
+        "id, org_id, test_id, link_token, first_name, last_name, email, company, role_title, phone, last_result_url"
+      )
       .eq("id", takerId)
       .eq("link_token", token)
       .maybeSingle();
 
     if (takerErr || !taker) {
-      return NextResponse.json({ ok: false, error: "Taker not found for this token" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Taker not found for this token" },
+        { status: 404 }
+      );
     }
 
     // Load wrapper test row (the one linked to the token)
@@ -172,7 +213,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       .maybeSingle();
 
     if (testErr || !test) {
-      return NextResponse.json({ ok: false, error: "Test not found for taker" }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "Test not found for taker" },
+        { status: 500 }
+      );
     }
 
     // Determine effective test id for loading questions/labels/scoring
@@ -181,17 +225,24 @@ export async function POST(req: Request, { params }: { params: { token: string }
     // Determine test family/type
     const slug: string = (test.slug as string) || "";
     const meta: any = test.meta || {};
-    const frameworkType: string = (meta?.frameworkType as string) || (meta?.frameworktype as string) || "";
+    const frameworkType: string =
+      (meta?.frameworkType as string) ||
+      (meta?.frameworktype as string) ||
+      "";
     const kind: string = (meta?.kind as string) || "";
-    const resultType: string = (meta?.resultType as string) || (meta?.resulttype as string) || "";
-    const qscVariant: string = (meta?.qsc_variant as string) || (meta?.variant as string) || "";
+    const resultType: string =
+      (meta?.resultType as string) || (meta?.resulttype as string) || "";
+    const qscVariant: string =
+      (meta?.qsc_variant as string) || (meta?.variant as string) || "";
 
     const slugLower = slug.toLowerCase();
     const frameworkTypeLower = frameworkType.toLowerCase();
     const kindLower = kind.toLowerCase();
     const resultTypeLower = resultType.toLowerCase();
     const qscVariantLower = qscVariant.toLowerCase();
-    const testFamilyLower = String(meta?.test_family || meta?.testFamily || "").toLowerCase();
+    const testFamilyLower = String(
+      meta?.test_family || meta?.testFamily || ""
+    ).toLowerCase();
 
     const isQscTest =
       slugLower.startsWith("qsc-") ||
@@ -201,8 +252,13 @@ export async function POST(req: Request, { params }: { params: { token: string }
       testFamilyLower === "qsc" ||
       ["entrepreneur", "leader", "leaders"].includes(qscVariantLower);
 
-    const isQscEntrepreneur = isQscTest && (qscVariantLower === "entrepreneur" || slugLower.includes("core"));
-    const qscAudience: "entrepreneur" | "leader" = isQscEntrepreneur ? "entrepreneur" : "leader";
+    const isQscEntrepreneur =
+      isQscTest &&
+      (qscVariantLower === "entrepreneur" || slugLower.includes("core"));
+
+    const qscAudience: "entrepreneur" | "leader" = isQscEntrepreneur
+      ? "entrepreneur"
+      : "leader";
 
     // Load questions with profile_map FROM effective test
     const { data: questions, error: qErr } = await sb
@@ -213,7 +269,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       .order("created_at", { ascending: true });
 
     if (qErr) {
-      return NextResponse.json({ ok: false, error: `Questions load failed: ${qErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Questions load failed: ${qErr.message}` },
+        { status: 500 }
+      );
     }
 
     const byId: Record<string, QuestionRow> = {};
@@ -226,7 +285,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       .eq("test_id", effectiveTestId);
 
     if (labErr) {
-      return NextResponse.json({ ok: false, error: `Labels load failed: ${labErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Labels load failed: ${labErr.message}` },
+        { status: 500 }
+      );
     }
 
     const nameToCode = new Map<string, string>();
@@ -235,11 +297,14 @@ export async function POST(req: Request, { params }: { params: { token: string }
     for (const r of labels || []) {
       const code = String((r as any).profile_code || "").trim();
       const name = String((r as any).profile_name || "").trim();
-      const f = String((r as any).frequency_code || "").trim().toUpperCase();
+      const f = String((r as any).frequency_code || "")
+        .trim()
+        .toUpperCase();
 
       if (name && code) nameToCode.set(name, code);
       if (code) {
-        if (f === "A" || f === "B" || f === "C" || f === "D") codeToFreq.set(code, f as AB);
+        if (f === "A" || f === "B" || f === "C" || f === "D")
+          codeToFreq.set(code, f as AB);
         else {
           const implied = profileCodeToFreq(code);
           if (implied) codeToFreq.set(code, implied);
@@ -255,7 +320,8 @@ export async function POST(req: Request, { params }: { params: { token: string }
       const row = answers[idx];
       const qid = row?.question_id || row?.qid || row?.id;
       const q: QuestionRow | undefined = qid ? byId[qid] : undefined;
-      if (!q || !Array.isArray(q.profile_map) || q.profile_map.length === 0) continue;
+      if (!q || !Array.isArray(q.profile_map) || q.profile_map.length === 0)
+        continue;
 
       const sel = toZeroBasedSelected(row);
       if (sel == null || sel < 0 || sel >= q.profile_map.length) continue;
@@ -302,12 +368,21 @@ export async function POST(req: Request, { params }: { params: { token: string }
     });
 
     if (subErr) {
-      return NextResponse.json({ ok: false, error: `Submission insert failed: ${subErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Submission insert failed: ${subErr.message}` },
+        { status: 500 }
+      );
     }
 
-    const { error: upErr } = await sb.from("test_results").upsert({ taker_id: taker.id, totals }, { onConflict: "taker_id" });
+    const { error: upErr } = await sb
+      .from("test_results")
+      .upsert({ taker_id: taker.id, totals }, { onConflict: "taker_id" });
+
     if (upErr) {
-      return NextResponse.json({ ok: false, error: `Results upsert failed: ${upErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: `Results upsert failed: ${upErr.message}` },
+        { status: 500 }
+      );
     }
 
     // ---------------- QSC SCORING ----------------
@@ -334,8 +409,19 @@ export async function POST(req: Request, { params }: { params: { token: string }
         if (scoring.combinedProfileCode) {
           const [personalityKey, mindsetKey] = scoring.combinedProfileCode.split("_");
 
-          const personalityMap: Record<string, string> = { FIRE: "A", FLOW: "B", FORM: "C", FIELD: "D" };
-          const mindsetMap: Record<string, number> = { ORIGIN: 1, MOMENTUM: 2, VECTOR: 3, ORBIT: 4, QUANTUM: 5 };
+          const personalityMap: Record<string, string> = {
+            FIRE: "A",
+            FLOW: "B",
+            FORM: "C",
+            FIELD: "D",
+          };
+          const mindsetMap: Record<string, number> = {
+            ORIGIN: 1,
+            MOMENTUM: 2,
+            VECTOR: 3,
+            ORBIT: 4,
+            QUANTUM: 5,
+          };
 
           const personality_code = personalityMap[personalityKey];
           const mindset_level = mindsetMap[mindsetKey];
@@ -357,7 +443,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
           .upsert(
             {
               taker_id: taker.id,
-              test_id: taker.test_id, // wrapper for org reporting
+              test_id: taker.test_id,
               token,
               audience: qscAudience,
               personality_totals: scoring.personalityTotals,
@@ -374,7 +460,9 @@ export async function POST(req: Request, { params }: { params: { token: string }
             { onConflict: "taker_id" }
           );
 
-        if (qscUpsertError) console.error("QSC scoring: failed to upsert qsc_results", qscUpsertError);
+        if (qscUpsertError) {
+          console.error("QSC scoring: failed to upsert qsc_results", qscUpsertError);
+        }
       } catch (e) {
         console.error("QSC scoring: unexpected error", e);
       }
@@ -382,42 +470,64 @@ export async function POST(req: Request, { params }: { params: { token: string }
     // ---------------- END QSC SCORING ----------------
 
     // Mark completed
-    await sb.from("test_takers").update({ status: "completed" }).eq("id", taker.id).eq("link_token", token);
+    await sb
+      .from("test_takers")
+      .update({ status: "completed" })
+      .eq("id", taker.id)
+      .eq("link_token", token);
 
-    // Build canonical report links for emails/redirects
-    const origin = new URL(req.url).origin;
+    // Prefer APP_ORIGIN (public domain) for links in emails
+    const appOrigin = String(process.env.APP_ORIGIN || "").replace(/\/+$/, "");
+    const origin = appOrigin || new URL(req.url).origin;
 
-    // Base “results page” (internal to MindCanvas)
-    const baseResultUrl = `${origin}/t/${encodeURIComponent(token)}/result?tid=${encodeURIComponent(taker.id)}`;
+    // Base “results page”
+    const baseResultUrl = `${origin}/t/${encodeURIComponent(
+      token
+    )}/result?tid=${encodeURIComponent(taker.id)}`;
 
     // QSC report (internal)
-    const qscReportPath = `/qsc/${encodeURIComponent(token)}/report?tid=${encodeURIComponent(taker.id)}`;
+    const qscReportPath = `/qsc/${encodeURIComponent(
+      token
+    )}/report?tid=${encodeURIComponent(taker.id)}`;
     const qscReportUrl = `${origin}${qscReportPath}`;
 
     const reportUrlForEmail = isQscEntrepreneur ? qscReportUrl : baseResultUrl;
 
-    // ✅ Decide redirect:
-    // 1) QSC entrepreneur keeps special redirect into the QSC report UI
-    // 2) Else use link.redirect_url if present
-    // 3) Else if show_results=true, client will go to /t/.../result
-    // 4) Else (hide results) client will show message or next_steps_url
-    const redirectUrl: string | null =
-      isQscEntrepreneur ? qscReportPath : normalizeEmail(linkBehavior.redirect_url) ? linkBehavior.redirect_url : linkBehavior.redirect_url;
+    // ✅ Decide redirect
+    const redirectUrl: string | null = isQscEntrepreneur
+      ? qscReportPath
+      : linkBehavior.redirect_url
+      ? linkBehavior.redirect_url
+      : null;
+
+    // Load org (needed for email template placeholders)
+    const { data: orgRow } = await sb
+      .from("orgs")
+      .select("id, slug, name, support_email, notification_email, website_url")
+      .eq("id", taker.org_id)
+      .maybeSingle();
+
+    const orgName =
+      String((orgRow as any)?.name || (orgRow as any)?.slug || "").trim() ||
+      "MindCanvas";
+
+    const supportEmail =
+      normalizeEmail((orgRow as any)?.support_email) || getDefaultSupportEmail();
 
     // ✅ Email report link to test taker (if enabled)
-    // NOTE: This requires a template type to exist in your emailTemplates system.
-    // If your system uses a different type string, update it here.
     let takerEmailResult: any = null;
     try {
-      if (linkBehavior.email_results && normalizeEmail(taker.email)) {
+      if (linkBehavior.email_report && normalizeEmail(taker.email)) {
         takerEmailResult = await sendTemplatedEmail({
           orgId: taker.org_id,
-          type: "test_taker_report",
+          type: "test_taker_report", // if you prefer, set this to "report"
           to: String(taker.email),
           context: {
             first_name: taker.first_name || "there",
             test_name: (test.name as string) || slug || "your assessment",
             report_link: reportUrlForEmail,
+            org_name: orgName,
+            support_email: supportEmail,
           },
         });
 
@@ -429,29 +539,23 @@ export async function POST(req: Request, { params }: { params: { token: string }
       console.error("[submit] test_taker_report unexpected error", e);
     }
 
-    // ✅ Send internal notification (existing)
+    // ✅ Send internal notification (existing behavior)
     let ownerNotification: any = null;
     try {
-      const { data: org, error: orgErr } = await sb
-        .from("orgs")
-        .select("id, slug, name, notification_email, website_url")
-        .eq("id", taker.org_id)
-        .maybeSingle();
+      const sentTo =
+        normalizeEmail((orgRow as any)?.notification_email) ||
+        getDefaultInternalEmail();
 
-      if (orgErr || !org) {
-        console.warn("[submit] org lookup failed; skipping notification", orgErr);
-      } else {
-        const sentTo = normalizeEmail((org as any).notification_email) || getDefaultInternalEmail();
+      const firstName = (taker as any).first_name || "";
+      const lastName = (taker as any).last_name || "";
+      const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
 
-        const firstName = (taker as any).first_name || "";
-        const lastName = (taker as any).last_name || "";
-        const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
-
-        const internalReportLink = `${origin}/portal/${(org as any).slug}/database/${taker.id}`;
-        const internalResultsDashboardLink = `${origin}/portal/${(org as any).slug}/dashboard?testId=${taker.test_id}`;
+      if (normalizeEmail(sentTo)) {
+        const internalReportLink = `${origin}/portal/${(orgRow as any)?.slug}/database/${taker.id}`;
+        const internalResultsDashboardLink = `${origin}/portal/${(orgRow as any)?.slug}/dashboard?testId=${taker.test_id}`;
 
         ownerNotification = await sendTemplatedEmail({
-          orgId: (org as any).id,
+          orgId: (orgRow as any)?.id || taker.org_id,
           type: "test_owner_notification",
           to: sentTo,
           context: {
@@ -468,8 +572,8 @@ export async function POST(req: Request, { params }: { params: { token: string }
             internal_report_link: internalReportLink,
             internal_results_dashboard_link: internalResultsDashboardLink,
 
-            org_name: (org as any).name || (org as any).slug,
-            owner_website: (org as any).website_url || "",
+            org_name: orgName,
+            owner_website: (orgRow as any)?.website_url || "",
           },
         });
 
@@ -485,26 +589,24 @@ export async function POST(req: Request, { params }: { params: { token: string }
       ok: true,
       totals,
 
-      // Client behavior flags
       link: {
         show_results: linkBehavior.show_results,
         redirect_url: linkBehavior.redirect_url,
         hidden_results_message: linkBehavior.hidden_results_message,
         next_steps_url: linkBehavior.next_steps_url,
-        email_results: linkBehavior.email_results,
+        email_report: linkBehavior.email_report,
       },
 
-      // what client should do next
-      redirect: redirectUrl, // may be absolute external URL OR internal path OR null
-      result_url: baseResultUrl, // convenient fallback for client
+      redirect: redirectUrl,
+      result_url: baseResultUrl,
 
       owner_notification: ownerNotification,
       taker_email: takerEmailResult,
     });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message || "Unexpected error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Unexpected error" },
+      { status: 500 }
+    );
   }
 }
-
-
-
