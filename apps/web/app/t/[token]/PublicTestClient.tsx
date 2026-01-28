@@ -8,7 +8,7 @@ type Question = {
   idx?: number | null;
   order?: number | null;
   type?: string | null;
-  text?: string; // make optional – some tests may not have this shaped identically
+  text?: string;
   options?: string[] | null;
   category?: 'scored' | 'qual' | string | null;
 };
@@ -27,6 +27,14 @@ async function fetchJson(url: string, init?: RequestInit) {
   if (!r.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
   return j;
 }
+
+type SubmitResponse = {
+  ok: boolean;
+  redirect?: string | null;
+  show_results?: boolean;
+  next_steps_url?: string | null;
+  hidden_results_message?: string | null;
+};
 
 export default function PublicTestClient({ token }: { token: string }) {
   const router = useRouter();
@@ -55,6 +63,11 @@ export default function PublicTestClient({ token }: { token: string }) {
   const [takerId, setTakerId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
+
+  // If show_results=false and there is no redirect, we show a “completion” panel.
+  const [completedMessage, setCompletedMessage] = useState<string | null>(null);
+
+  const key = (k: string) => `mc_${k}_${token}`;
 
   // bootstrap: load link meta + questions
   useEffect(() => {
@@ -92,13 +105,10 @@ export default function PublicTestClient({ token }: { token: string }) {
         const qRes: any = await fetchJson(`/api/public/test/${token}/questions`);
         if (!alive) return;
 
-        const list: Question[] = Array.isArray(qRes?.questions)
-          ? qRes.questions
-          : [];
+        const list: Question[] = Array.isArray(qRes?.questions) ? qRes.questions : [];
         setQuestions(list);
 
         // 3) Restore local state (answers, details, taker_id)
-        const key = (k: string) => `mc_${k}_${token}`;
         if (typeof window !== 'undefined') {
           const savedAns = window.localStorage.getItem(key('answers'));
           if (savedAns) {
@@ -139,22 +149,21 @@ export default function PublicTestClient({ token }: { token: string }) {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   // persist answers & details
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(
-        `mc_answers_${token}`,
-        JSON.stringify(answers)
-      );
+      window.localStorage.setItem(key('answers'), JSON.stringify(answers));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answers, token]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(
-        `mc_details_${token}`,
+        key('details'),
         JSON.stringify({
           firstName,
           lastName,
@@ -166,14 +175,13 @@ export default function PublicTestClient({ token }: { token: string }) {
         })
       );
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstName, lastName, email, phone, company, roleTitle, dataConsent, token]);
 
   const q = questions[i];
 
   const allAnswered = useMemo(
-    () =>
-      questions.length > 0 &&
-      questions.every((qq) => Number(answers[qq.id]) >= 1),
+    () => questions.length > 0 && questions.every((qq) => Number(answers[qq.id]) >= 1),
     [questions, answers]
   );
 
@@ -223,7 +231,6 @@ export default function PublicTestClient({ token }: { token: string }) {
           phone: phone || null,
           company: company || null,
           role_title: roleTitle || null,
-          // Store consent flag for this taker
           data_consent: true,
         }),
       });
@@ -232,8 +239,9 @@ export default function PublicTestClient({ token }: { token: string }) {
       if (!tid) throw new Error('Failed to create taker');
 
       setTakerId(tid);
+
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem(`mc_taker_id_${token}`, tid);
+        window.localStorage.setItem(key('taker_id'), tid);
       }
 
       setStep('questions');
@@ -248,16 +256,15 @@ export default function PublicTestClient({ token }: { token: string }) {
     try {
       setSubmitting(true);
       setError('');
+      setCompletedMessage(null);
 
       if (!takerId) throw new Error('missing taker_id');
 
-      // ✅ send { question_id, selected } (0-based index)
-      const payloadAnswers = Object.entries(answers).map(
-        ([question_id, value]) => ({
-          question_id,
-          selected: Number(value) - 1, // backend expects 0..3
-        })
-      );
+      // send { question_id, selected } (0-based index)
+      const payloadAnswers = Object.entries(answers).map(([question_id, value]) => ({
+        question_id,
+        selected: Number(value) - 1,
+      }));
 
       const res = await fetch(`/api/public/test/${token}/submit`, {
         method: 'POST',
@@ -265,14 +272,38 @@ export default function PublicTestClient({ token }: { token: string }) {
         body: JSON.stringify({ taker_id: takerId, answers: payloadAnswers }),
       });
 
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || j?.ok === false)
-        throw new Error(j?.error || `HTTP ${res.status}`);
+      const j: SubmitResponse = await res.json().catch(() => ({} as any));
+      if (!res.ok || (j as any)?.ok === false) throw new Error((j as any)?.error || `HTTP ${res.status}`);
 
+      // clear local state now that it’s submitted
       if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(`mc_answers_${token}`);
+        window.localStorage.removeItem(key('answers'));
+        window.localStorage.removeItem(key('details'));
+        // keep taker_id for debugging; you can remove if desired
       }
 
+      // 1) Redirect wins (either internal report redirect or external)
+      if (j.redirect) {
+        if (typeof window !== 'undefined') window.location.href = j.redirect;
+        return;
+      }
+
+      // 2) If results should be hidden, go to next steps or show a message
+      if (j.show_results === false) {
+        const ns = j.next_steps_url || null;
+        if (ns) {
+          if (typeof window !== 'undefined') window.location.href = ns;
+          return;
+        }
+
+        setCompletedMessage(
+          j.hidden_results_message ||
+            'Thanks — your results have been sent to your organisation. You can close this page.'
+        );
+        return;
+      }
+
+      // 3) Default behavior: show result screen
       router.replace(`/t/${token}/result?tid=${encodeURIComponent(takerId)}`);
     } catch (e: any) {
       setError(String(e?.message || e));
@@ -295,31 +326,34 @@ export default function PublicTestClient({ token }: { token: string }) {
     return (
       <div className="min-h-screen mc-bg text-white p-6 space-y-4">
         <h1 className="text-2xl font-semibold">Couldn’t load test</h1>
-        <pre className="p-3 rounded bg.white text-black whitespace-pre-wrap border">
-          {error}
-        </pre>
+        <pre className="p-3 rounded bg.white text-black whitespace-pre-wrap border">{error}</pre>
         <div className="text-white/70 text-sm">
           Debug:
           <ul className="list-disc ml-5 mt-2">
             <li>
-              <a
-                className="underline"
-                href={`/api/public/test/${token}`}
-                target="_blank"
-              >
+              <a className="underline" href={`/api/public/test/${token}`} target="_blank">
                 /api/public/test/{token}
               </a>
             </li>
             <li>
-              <a
-                className="underline"
-                href={`/api/public/test/${token}/questions`}
-                target="_blank"
-              >
+              <a className="underline" href={`/api/public/test/${token}/questions`} target="_blank">
                 /api/public/test/{token}/questions
               </a>
             </li>
           </ul>
+        </div>
+      </div>
+    );
+  }
+
+  // If results are hidden and no redirect was provided, show completion panel
+  if (completedMessage) {
+    return (
+      <div className="min-h-screen mc-bg text-white p-6 space-y-6">
+        <h1 className="text-3xl font-bold">{testName || 'Profile Test'}</h1>
+        <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl space-y-3">
+          <div className="text-lg font-semibold">All done</div>
+          <p className="text-sm text-white/80">{completedMessage}</p>
         </div>
       </div>
     );
@@ -337,18 +371,12 @@ export default function PublicTestClient({ token }: { token: string }) {
     <div className="min-h-screen mc-bg text-white p-6 space-y-6">
       <h1 className="text-3xl font-bold">{testName || 'Profile Test'}</h1>
       <div className="text.white/70">
-        Token:{' '}
-        <code className="text-white">
-          {token}
-        </code>{' '}
-        • {started ? 'started' : 'not started'}
+        Token: <code className="text-white">{token}</code> • {started ? 'started' : 'not started'}
       </div>
 
       {step === 'details' ? (
         <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl space-y-4">
-          <div className="text-lg font-semibold">
-            Before we start, tell us about you
-          </div>
+          <div className="text-lg font-semibold">Before we start, tell us about you</div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="block">
@@ -387,29 +415,15 @@ export default function PublicTestClient({ token }: { token: string }) {
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Phone (optional)</span>
-              <input
-                className="w-full rounded-xl bg-white text-black p-3 mt-1"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={phone} onChange={(e) => setPhone(e.target.value)} />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Company (optional)</span>
-              <input
-                className="w-full rounded-xl bg-white text-black p-3 mt-1"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-              />
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={company} onChange={(e) => setCompany(e.target.value)} />
             </label>
             <label className="block md:col-span-2">
-              <span className="text-sm text-white/80">
-                Role / Department (optional)
-              </span>
-              <input
-                className="w-full rounded-xl bg-white text-black p-3 mt-1"
-                value={roleTitle}
-                onChange={(e) => setRoleTitle(e.target.value)}
-              />
+              <span className="text-sm text-white/80">Role / Department (optional)</span>
+              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} />
             </label>
           </div>
 
@@ -424,37 +438,22 @@ export default function PublicTestClient({ token }: { token: string }) {
                   setDetailsError(null);
                 }}
               />
-              <span className="text-sm text-white/90">
-                I agree that my responses can be used to build my profile and
-                report.
-              </span>
+              <span className="text-sm text-white/90">I agree that my responses can be used to build my profile and report.</span>
             </label>
             <p className="text-xs text-white/70">
               You can read our{' '}
-              <a
-                href="https://profiletest.ai/privacy-policy"
-                target="_blank"
-                className="underline"
-                rel="noopener noreferrer"
-              >
+              <a href="https://profiletest.ai/privacy-policy" target="_blank" className="underline" rel="noopener noreferrer">
                 Privacy Policy
               </a>{' '}
               and{' '}
-              <a
-                href="https://profiletest.ai/terms--conditions"
-                target="_blank"
-                className="underline"
-                rel="noopener noreferrer"
-              >
+              <a href="https://profiletest.ai/terms--conditions" target="_blank" className="underline" rel="noopener noreferrer">
                 Terms &amp; Conditions
               </a>{' '}
               for more details on how we handle your data.
             </p>
           </div>
 
-          {detailsError && (
-            <p className="text-sm text-red-300">{detailsError}</p>
-          )}
+          {detailsError && <p className="text-sm text-red-300">{detailsError}</p>}
 
           <div className="mt-2 flex gap-3">
             <button
@@ -468,13 +467,9 @@ export default function PublicTestClient({ token }: { token: string }) {
         </div>
       ) : noQuestions ? (
         <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
-          <div className="text-lg font-semibold mb-2">
-            This test isn&apos;t configured with any questions yet
-          </div>
+          <div className="text-lg font-semibold mb-2">This test isn&apos;t configured with any questions yet</div>
           <p className="text-sm text-white/70">
-            The link is valid, but no question set was found for this test. If
-            you believe this is an error, please contact the organiser or
-            MindCanvas support so they can add questions to this assessment.
+            The link is valid, but no question set was found for this test. If you believe this is an error, please contact the organiser or MindCanvas support so they can add questions to this assessment.
           </p>
         </div>
       ) : (
@@ -483,14 +478,10 @@ export default function PublicTestClient({ token }: { token: string }) {
             <div className="text-sm text-white/60 mb-2">
               Question {i + 1} / {questions.length}
               {q.category && (
-                <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">
-                  {q.category}
-                </span>
+                <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">{q.category}</span>
               )}
             </div>
-            <div className="text-lg font-medium mb-4">
-              {q.text || `Question ${i + 1}`}
-            </div>
+            <div className="text-lg font-medium mb-4">{q.text || `Question ${i + 1}`}</div>
 
             {Array.isArray(q.options) && q.options.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -503,9 +494,7 @@ export default function PublicTestClient({ token }: { token: string }) {
                       onClick={() => setChoice(q.id, val)}
                       className={[
                         'text-left px-3 py-3 rounded-xl border transition',
-                        selected
-                          ? 'bg-white text-black border-white'
-                          : 'bg-white/5 border-white/20 hover:bg-white/10',
+                        selected ? 'bg-white text-black border-white' : 'bg-white/5 border-white/20 hover:bg-white/10',
                       ].join(' ')}
                     >
                       {label}
@@ -521,9 +510,7 @@ export default function PublicTestClient({ token }: { token: string }) {
                     onClick={() => setChoice(q.id, val)}
                     className={[
                       'px-3 py-3 rounded-xl border transition',
-                      answers[q.id] === val
-                        ? 'bg-white text-black border-white'
-                        : 'bg-white/5 border-white/20 hover:bg-white/10',
+                      answers[q.id] === val ? 'bg-white text-black border-white' : 'bg-white/5 border-white/20 hover:bg-white/10',
                     ].join(' ')}
                   >
                     {val}
@@ -544,9 +531,7 @@ export default function PublicTestClient({ token }: { token: string }) {
 
             {i < questions.length - 1 ? (
               <button
-                onClick={() =>
-                  setI(Math.min(questions.length - 1, i + 1))
-                }
+                onClick={() => setI(Math.min(questions.length - 1, i + 1))}
                 className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 disabled:opacity-60"
                 disabled={!answers[q.id]}
               >
@@ -558,7 +543,7 @@ export default function PublicTestClient({ token }: { token: string }) {
                 disabled={!allAnswered || submitting}
                 className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50"
               >
-                {submitting ? 'Submitting…' : 'Submit & View Report'}
+                {submitting ? 'Submitting…' : 'Submit'}
               </button>
             )}
           </div>
@@ -567,6 +552,7 @@ export default function PublicTestClient({ token }: { token: string }) {
     </div>
   );
 }
+
 
 
 

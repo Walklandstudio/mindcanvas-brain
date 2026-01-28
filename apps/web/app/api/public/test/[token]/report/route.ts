@@ -32,9 +32,6 @@ type SubmissionRow = {
   id: string;
   taker_id: string;
   link_token: string | null;
-  // IMPORTANT: totals shape varies by org/version:
-  // - Legacy: { A,B,C,D, PROFILE_1..PROFILE_8, ... }
-  // - Nested: { frequencies: {A..D}, profiles: {PROFILE_*}, meta: { wrapper_test_id, effective_test_id } }
   totals: any | null;
   answers_json: AnswerShape[] | null;
   created_at: string;
@@ -117,10 +114,6 @@ function selectedIndex(a: any): number {
 }
 
 function coerceMapEntries(x: any): MapEntry[] {
-  // We support a few shapes:
-  // - profile_map: [{points, profile}, ...]
-  // - weights: same array
-  // - weights: { map: [...] } or { options: [...] }
   if (Array.isArray(x)) {
     return x
       .map((e) => ({
@@ -143,10 +136,7 @@ function coerceMapEntries(x: any): MapEntry[] {
   return [];
 }
 
-function computeFromAnswers(
-  answers: AnswerShape[] | null | undefined,
-  qmap: Map<string, QuestionMapRow>,
-) {
+function computeFromAnswers(answers: AnswerShape[] | null | undefined, qmap: Map<string, QuestionMapRow>) {
   const freqTotals: Record<AB, number> = { A: 0, B: 0, C: 0, D: 0 };
   const profileTotals: Record<string, number> = {};
 
@@ -163,10 +153,8 @@ function computeFromAnswers(
     const row = qmap.get(String(qid));
     if (!row) continue;
 
-    // Prefer profile_map, but if missing, fall back to weights.
     const pm = coerceMapEntries(row.profile_map);
     const entries = pm.length > 0 ? pm : coerceMapEntries(row.weights);
-
     if (!Array.isArray(entries) || entries.length === 0) continue;
 
     const sel = selectedIndex(a);
@@ -198,7 +186,6 @@ function readSavedTotals(totals: any) {
   const nestedFreq = raw?.frequencies && typeof raw.frequencies === "object" ? raw.frequencies : null;
   const nestedProfiles = raw?.profiles && typeof raw.profiles === "object" ? raw.profiles : null;
 
-  // Frequencies
   const freqSrc = nestedFreq || raw;
   const freqTotals: Record<AB, number> = {
     A: safeNumber(freqSrc?.A, 0),
@@ -208,7 +195,6 @@ function readSavedTotals(totals: any) {
   };
   const freqSum = freqTotals.A + freqTotals.B + freqTotals.C + freqTotals.D;
 
-  // Profiles
   const profSrc = nestedProfiles || raw;
   const profileTotals: Record<string, number> = {};
   for (const [k, v] of Object.entries(profSrc || {})) {
@@ -217,7 +203,6 @@ function readSavedTotals(totals: any) {
   }
   const profileSum = Object.values(profileTotals).reduce((a, b) => a + (Number(b) || 0), 0);
 
-  // Meta (wrapper/effective)
   const meta = raw?.meta && typeof raw.meta === "object" ? raw.meta : null;
   const wrapper_test_id = typeof meta?.wrapper_test_id === "string" ? meta.wrapper_test_id : null;
   const effective_test_id = typeof meta?.effective_test_id === "string" ? meta.effective_test_id : null;
@@ -255,13 +240,7 @@ function sbAdmin() {
 async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   const sb = sbAdmin();
 
-  const link = await sb
-    .from("test_links")
-    .select("test_id, token, meta")
-    .eq("token", token)
-    .limit(1)
-    .maybeSingle();
-
+  const link = await sb.from("test_links").select("test_id, token, meta").eq("token", token).limit(1).maybeSingle();
   if (link.error || !link.data?.test_id) return null;
 
   const vt = await sb
@@ -316,6 +295,9 @@ async function fetchLatestSubmission(
     .limit(1)
     .maybeSingle();
 
+  // NOTE: supabase-js method is `.maybeSingle()`; if you pasted "maybe Single" by accident earlier, fix it here.
+  // If your original file already has `.maybeSingle()`, keep it exactly.
+
   if (!legacy.error && legacy.data) return { row: legacy.data as SubmissionRow, matched: "null" };
 
   return { row: null, matched: "none" };
@@ -339,24 +321,14 @@ async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionM
 
 async function fetchTestRow(test_id: string): Promise<TestRow | null> {
   const sb = sbAdmin();
-  const q = await sb
-    .from("tests")
-    .select("id, slug, name, meta")
-    .eq("id", test_id)
-    .maybeSingle();
-
+  const q = await sb.from("tests").select("id, slug, name, meta").eq("id", test_id).maybeSingle();
   if (q.error || !q.data) return null;
   return q.data as TestRow;
 }
 
 async function fetchTakerRow(taker_id: string): Promise<TakerRow | null> {
   const sb = sbAdmin();
-  const q = await sb
-    .from("test_takers")
-    .select("id, first_name, last_name")
-    .eq("id", taker_id)
-    .maybeSingle();
-
+  const q = await sb.from("test_takers").select("id, first_name, last_name").eq("id", taker_id).maybeSingle();
   if (q.error || !q.data) return null;
   return q.data as TakerRow;
 }
@@ -384,8 +356,7 @@ async function downloadFrameworkJSON(bucket: string, path: string): Promise<any 
 function pickCommonSections(frameworkJson: any): any[] | null {
   const fw = frameworkJson?.framework || frameworkJson;
   if (fw?.common?.sections && Array.isArray(fw.common.sections)) return fw.common.sections;
-  if (fw?.framework?.common?.sections && Array.isArray(fw.framework.common.sections))
-    return fw.framework.common.sections;
+  if (fw?.framework?.common?.sections && Array.isArray(fw.framework.common.sections)) return fw.framework.common.sections;
   return null;
 }
 
@@ -415,16 +386,51 @@ function findProfileReport(frameworkJson: any, profileCode: string) {
   const reports = fw?.reports;
   if (reports && typeof reports === "object") {
     for (const v of Object.values(reports)) {
-      const p =
-        (v as any)?.profile_code ||
-        (v as any)?.profileCode ||
-        (v as any)?.code ||
-        "";
+      const p = (v as any)?.profile_code || (v as any)?.profileCode || (v as any)?.code || "";
       if (String(p).toUpperCase() === pc) return v;
     }
   }
 
   return null;
+}
+
+function normaliseSectionId(x: any): string {
+  return String(x || "")
+    .trim()
+    .toLowerCase();
+}
+
+function dedupeSectionsById(arr: any[]): any[] {
+  const out: any[] = [];
+  const seen = new Set<string>();
+  for (const s of arr || []) {
+    const key = normaliseSectionId(s?.id || s?.title);
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
+function enforceOptionA(commonIn: any[], profileIn: any[]) {
+  const common = Array.isArray(commonIn) ? commonIn : [];
+  const profile = Array.isArray(profileIn) ? profileIn : [];
+
+  const commonIds = new Set(common.map((s) => normaliseSectionId(s?.id)).filter(Boolean));
+
+  // Remove any “common” section accidentally repeated inside the profile list
+  const filteredProfile = profile.filter((s) => {
+    const id = normaliseSectionId(s?.id);
+    if (!id) return true; // if no id, keep (but your authoring should always include ids)
+    return !commonIds.has(id);
+  });
+
+  return {
+    common: dedupeSectionsById(common),
+    profile: dedupeSectionsById(filteredProfile),
+    removed_overlap_count: profile.length - filteredProfile.length,
+  };
 }
 
 // ---------------- Handler ----------------
@@ -447,20 +453,14 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const testRow = await fetchTestRow(meta.test_id);
     const testMeta = (testRow?.meta || {}) as TestMeta;
 
-    // reportFramework meta (storage opt-in)
     const rf: ReportFrameworkMeta | null = (testRow?.meta as any)?.reportFramework || null;
     const useStorageFramework = Boolean(rf?.bucket && rf?.path);
 
-    // Prefer v_org_tests org_slug, then tests.meta.orgSlug, then default
-    const orgSlug = String(
-      meta.org_slug || testMeta?.orgSlug || process.env.DEFAULT_ORG_SLUG || "competency-coach",
-    ).trim();
+    const orgSlug = String(meta.org_slug || testMeta?.orgSlug || process.env.DEFAULT_ORG_SLUG || "competency-coach").trim();
 
-    // Legacy framework by orgSlug (filesystem) — used for lookups + old orgs
     let fw: any = await loadFrameworkBySlug(orgSlug);
     let frameworkSource: "filesystem" | "storage" = "filesystem";
 
-    // Storage override if enabled
     if (useStorageFramework && rf?.bucket && rf?.path) {
       const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
       if (storageFw) {
@@ -471,7 +471,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const look = buildLookups(fw);
 
-    // ✅ Labels: for LEAD use tests.meta first (Launch/Energise/Align/Discern + real profile names)
     const metaFreqs = Array.isArray(testMeta?.frequencies) ? testMeta.frequencies : null;
     const metaProfiles = Array.isArray(testMeta?.profiles) ? testMeta.profiles : null;
 
@@ -511,30 +510,20 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const taker = await fetchTakerRow(takerId);
 
-    // Read saved totals (supports nested + flat)
     const savedRead = readSavedTotals(sub.totals);
-
-    // 1) Prefer saved totals if present (most stable)
-    // 2) If no saved totals, compute from answers + question maps (profile_map OR weights)
-    //    NOTE: still fetch qmap for fallback/debug even if saved totals exist.
     const qmap = await fetchQuestionMaps(meta.test_id);
     const comp = computeFromAnswers(sub.answers_json, qmap);
 
     const freqTotals: Record<AB, number> = savedRead.freqSum > 0 ? savedRead.freqTotals : comp.freqTotals;
-
-    const profileTotals: Record<string, number> =
-      savedRead.profileSum > 0 ? savedRead.profileTotals : comp.profileTotals;
+    const profileTotals: Record<string, number> = savedRead.profileSum > 0 ? savedRead.profileTotals : comp.profileTotals;
 
     const frequency_percentages = toPercentages<AB>(freqTotals);
     const profile_percentages = toPercentages<string>(profileTotals);
 
-    // Determine top freq / profile
     const top_freq =
-      (Object.entries(freqTotals) as [AB, number][])
-        .sort((a, b) => b[1] - a[1])[0]?.[0] || "A";
+      (Object.entries(freqTotals) as [AB, number][]).sort((a, b) => b[1] - a[1])[0]?.[0] || "A";
 
-    const top_profile_entry =
-      Object.entries(profileTotals).sort((a, b) => b[1] - a[1])[0] || ["PROFILE_1", 0];
+    const top_profile_entry = Object.entries(profileTotals).sort((a, b) => b[1] - a[1])[0] || ["PROFILE_1", 0];
 
     const top_profile_code = String(top_profile_entry[0] || "PROFILE_1").toUpperCase();
     const top_profile_name =
@@ -542,30 +531,33 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       look.profileByCode.get(top_profile_code)?.name ||
       top_profile_code;
 
-    // Storage sections payload (LEAD)
+    // Storage sections payload (LEAD) — enforce Option A here
     let sections: any = null;
+    let removed_overlap_count = 0;
+
     if (useStorageFramework) {
-      const common = pickCommonSections(fw) || [];
+      const commonRaw = pickCommonSections(fw) || [];
       const rep = findProfileReport(fw, top_profile_code);
 
       const profileSections = rep?.sections;
-      const profileArr = Array.isArray(profileSections) ? profileSections : [];
+      const profileRaw = Array.isArray(profileSections) ? profileSections : [];
+
+      const fixed = enforceOptionA(commonRaw, profileRaw);
+      removed_overlap_count = fixed.removed_overlap_count;
 
       sections = {
-        common,
-        profile: profileArr,
+        common: fixed.common,
+        profile: fixed.profile,
         report_title: rep?.title || pickReportTitle(fw) || null,
-        profile_missing: profileArr.length === 0,
+        profile_missing: fixed.profile.length === 0,
         framework_version: rf?.version || null,
         framework_bucket: rf?.bucket || null,
         framework_path: rf?.path || null,
       };
     }
 
-    // Link meta (show_results etc) – prefer stored test_links.meta if present
     const linkMeta = meta.link_meta || null;
 
-    // Strong debug signal when scores are zero because qmap missing
     const answersCount = Array.isArray(sub.answers_json) ? sub.answers_json.length : 0;
     const computedSum = Object.values(profileTotals || {}).reduce((a, b) => a + (Number(b) || 0), 0);
 
@@ -619,7 +611,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           qmap_size: qmap.size,
           answers_count: answersCount,
 
-          // ✅ New: totals diagnostics
           totals_shape: savedRead.shape,
           wrapper_test_id: savedRead.wrapper_test_id,
           effective_test_id: savedRead.effective_test_id,
@@ -628,6 +619,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           used_saved_frequencies: savedRead.freqSum > 0,
           computed_from_qmap: comp.used,
           scoring_warning: scoringWarning,
+
+          // ✅ NEW: confirms Option A cleanup happened (useful while you transition JSON)
+          removed_common_profile_overlap: removed_overlap_count,
         },
 
         version: useStorageFramework ? "portal-v2-storage-optin" : "portal-v1",
@@ -638,3 +632,4 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+

@@ -97,6 +97,14 @@ function normaliseId(s: string) {
     .replace(/\-+/g, "-");
 }
 
+function getSectionDomId(section: ReportSection, idx: number) {
+  const raw = (section.id || "").trim();
+  if (raw) return raw;
+  const title = safeText(section.title).trim();
+  if (title) return normaliseId(title);
+  return `section-${idx}`;
+}
+
 function findWelcomeIndex(sections: ReportSection[]) {
   const idx = sections.findIndex((s) => {
     const id = (s.id || "").toLowerCase();
@@ -108,6 +116,12 @@ function findWelcomeIndex(sections: ReportSection[]) {
     );
   });
   return idx;
+}
+
+function isNextStepsSection(s: ReportSection) {
+  const id = (s.id || "").toLowerCase();
+  const title = (s.title || "").toLowerCase();
+  return id === "next-steps" || title === "next steps" || title.includes("next steps");
 }
 
 function Donut(props: { value: number; label: string }) {
@@ -167,9 +181,7 @@ function Donut(props: { value: number; label: string }) {
       </svg>
 
       <div>
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          {props.label}
-        </div>
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{props.label}</div>
         <div className="mt-1 text-sm text-slate-700">Your dominant frequency</div>
       </div>
     </div>
@@ -185,17 +197,13 @@ function BlockRenderer({ block }: { block: SectionBlock }) {
 
   if (type === "h1") {
     return (
-      <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-        {safeText((block as any).text)}
-      </h1>
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900">{safeText((block as any).text)}</h1>
     );
   }
 
   if (type === "h2") {
     return (
-      <h2 className="text-xl font-semibold tracking-tight text-slate-900">
-        {safeText((block as any).text)}
-      </h2>
+      <h2 className="text-xl font-semibold tracking-tight text-slate-900">{safeText((block as any).text)}</h2>
     );
   }
 
@@ -317,24 +325,36 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     const common = (data?.sections?.common || []) as ReportSection[];
     const profile = (data?.sections?.profile || []) as ReportSection[];
 
-    const all = [...common, ...profile].filter(Boolean);
+    // Option A expects common + profile with NO overlap.
+    // Safety rail: dedupe by id/title in case a framework is uploaded incorrectly.
+    const combined = [...common, ...profile].filter(Boolean);
 
-    // Force Welcome to first if present
-    const idx = findWelcomeIndex(all);
-    if (idx > 0) {
-      const welcome = all[idx];
-      all.splice(idx, 1);
-      all.unshift(welcome);
+    const seen = new Set<string>();
+    const deduped: ReportSection[] = [];
+    for (let i = 0; i < combined.length; i++) {
+      const s = combined[i];
+      const key = getSectionDomId(s, i); // prefers s.id; falls back to title
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(s);
     }
 
-    return all;
+    // Force Welcome to first if present
+    const idx = findWelcomeIndex(deduped);
+    if (idx > 0) {
+      const welcome = deduped[idx];
+      deduped.splice(idx, 1);
+      deduped.unshift(welcome);
+    }
+
+    return deduped;
   }, [data]);
 
   const quickIndex = useMemo(() => {
     return mergedSections
       .filter((s) => safeText(s.title).trim().length > 0)
-      .map((s) => {
-        const id = s.id ? String(s.id) : normaliseId(String(s.title || "section"));
+      .map((s, i) => {
+        const id = getSectionDomId(s, i);
         return { id, title: String(s.title), raw: s };
       });
   }, [mergedSections]);
@@ -396,8 +416,23 @@ export default function LegacyReportClient(props: { token: string; tid: string }
 
   function openNextSteps() {
     const url = (data?.link?.next_steps_url || "").trim();
-    if (!url) return;
-    window.open(url, "_blank", "noopener,noreferrer");
+
+    // Preferred: go to your external next-steps flow if present
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    // Fallback: jump to the Next Steps section in the report
+    const next = mergedSections.find((s) => isNextStepsSection(s));
+    if (next) {
+      const id = getSectionDomId(next, 0) || "next-steps";
+      scrollToSection(id);
+      return;
+    }
+
+    // Last resort: try standard id
+    scrollToSection("next-steps");
   }
 
   if (!tid) {
@@ -489,6 +524,15 @@ export default function LegacyReportClient(props: { token: string; tid: string }
               Download PDF
             </button>
 
+            {/* Next Step CTA (always available; opens URL if configured, otherwise scrolls to Next Steps section) */}
+            <button
+              onClick={openNextSteps}
+              className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
+            >
+              Next Step
+            </button>
+
+            {/* Keep legacy button label if you still want it (optional) */}
             {hasNextSteps && (
               <button
                 onClick={openNextSteps}
@@ -598,7 +642,7 @@ export default function LegacyReportClient(props: { token: string; tid: string }
             ) : null}
 
             {mergedSections.map((section, idx) => {
-              const id = section.id ? String(section.id) : normaliseId(String(section.title || `section-${idx}`));
+              const id = getSectionDomId(section, idx);
               const title = safeText(section.title);
 
               return (
@@ -616,17 +660,15 @@ export default function LegacyReportClient(props: { token: string; tid: string }
               );
             })}
 
-            {/* Bottom CTA row — Next steps only */}
-            {hasNextSteps ? (
-              <div className="pt-2">
-                <button
-                  onClick={openNextSteps}
-                  className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
-                >
-                  Next steps
-                </button>
-              </div>
-            ) : null}
+            {/* Bottom CTA row — Next Step */}
+            <div className="pt-2">
+              <button
+                onClick={openNextSteps}
+                className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
+              >
+                Next Step
+              </button>
+            </div>
 
             <footer className="pt-4 text-xs text-slate-400">© {new Date().getFullYear()} MindCanvas</footer>
           </main>
@@ -635,5 +677,3 @@ export default function LegacyReportClient(props: { token: string; tid: string }
     </div>
   );
 }
-
-
