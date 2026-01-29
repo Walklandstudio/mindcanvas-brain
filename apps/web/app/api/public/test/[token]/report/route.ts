@@ -53,10 +53,19 @@ type ReportFrameworkMeta = {
 type TestMeta = {
   orgSlug?: string;
   test?: string;
+
+  // ✅ NEW (recommended): a single string key that points to the JSON in Storage
+  // e.g. "framework.operatingframe.operatingframe_report_framework_v1.json"
+  report_framework_key?: string;
+  report_framework_bucket?: string; // optional override; otherwise defaults
+
+  // legacy
   frameworkKey?: string;
   frameworkType?: string;
   frequencies?: Array<{ code: AB; label: string }>;
   profiles?: Array<{ code: string; name: string; frequency?: AB; description?: string }>;
+
+  // legacy storage shape
   reportFramework?: ReportFrameworkMeta;
 };
 
@@ -295,9 +304,6 @@ async function fetchLatestSubmission(
     .limit(1)
     .maybeSingle();
 
-  // NOTE: supabase-js method is `.maybeSingle()`; if you pasted "maybe Single" by accident earlier, fix it here.
-  // If your original file already has `.maybeSingle()`, keep it exactly.
-
   if (!legacy.error && legacy.data) return { row: legacy.data as SubmissionRow, matched: "null" };
 
   return { row: null, matched: "none" };
@@ -349,6 +355,47 @@ async function downloadFrameworkJSON(bucket: string, path: string): Promise<any 
     console.log("Storage framework JSON parse failed:", { bucket, path });
     return null;
   }
+}
+
+// ✅ NEW: resolve which storage framework to use (test meta driven)
+function resolveStorageFramework(testMeta: TestMeta | null | undefined) {
+  const meta = (testMeta || {}) as any;
+
+  // Preferred: report_framework_key (+ optional bucket)
+  const key = typeof meta.report_framework_key === "string" ? meta.report_framework_key.trim() : "";
+  const bucketOverride =
+    typeof meta.report_framework_bucket === "string" ? meta.report_framework_bucket.trim() : "";
+
+  if (key) {
+    const bucket =
+      bucketOverride ||
+      process.env.REPORT_FRAMEWORK_BUCKET ||
+      process.env.FRAMEWORK_BUCKET ||
+      "frameworks"; // sensible default
+    return {
+      use: true as const,
+      bucket,
+      path: key,
+      version: typeof meta.report_framework_version === "string" ? meta.report_framework_version : null,
+      source: "meta.report_framework_key" as const,
+    };
+  }
+
+  // Legacy: reportFramework: { bucket, path, version }
+  const rf: ReportFrameworkMeta | null = meta?.reportFramework || null;
+  const bucket = typeof rf?.bucket === "string" ? rf.bucket.trim() : "";
+  const path = typeof rf?.path === "string" ? rf.path.trim() : "";
+  if (bucket && path) {
+    return {
+      use: true as const,
+      bucket,
+      path,
+      version: typeof rf?.version === "string" ? rf.version : null,
+      source: "meta.reportFramework" as const,
+    };
+  }
+
+  return { use: false as const, bucket: "", path: "", version: null as any, source: "none" as const };
 }
 
 // --- Support LEAD v1 schema ---
@@ -453,19 +500,28 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const testRow = await fetchTestRow(meta.test_id);
     const testMeta = (testRow?.meta || {}) as TestMeta;
 
-    const rf: ReportFrameworkMeta | null = (testRow?.meta as any)?.reportFramework || null;
-    const useStorageFramework = Boolean(rf?.bucket && rf?.path);
+    // ✅ NEW: storage framework is chosen by meta.report_framework_key (preferred) or meta.reportFramework (legacy)
+    const storageChoice = resolveStorageFramework(testMeta);
+    const useStorageFramework = storageChoice.use;
 
     const orgSlug = String(meta.org_slug || testMeta?.orgSlug || process.env.DEFAULT_ORG_SLUG || "competency-coach").trim();
 
+    // Default: filesystem framework (by org)
     let fw: any = await loadFrameworkBySlug(orgSlug);
     let frameworkSource: "filesystem" | "storage" = "filesystem";
 
-    if (useStorageFramework && rf?.bucket && rf?.path) {
-      const storageFw = await downloadFrameworkJSON(String(rf.bucket), String(rf.path));
+    // If test opts into storage framework, download it
+    if (useStorageFramework && storageChoice.bucket && storageChoice.path) {
+      const storageFw = await downloadFrameworkJSON(storageChoice.bucket, storageChoice.path);
       if (storageFw) {
         fw = storageFw;
         frameworkSource = "storage";
+      } else {
+        // keep filesystem fallback
+        console.log("Storage framework missing; falling back to filesystem", {
+          bucket: storageChoice.bucket,
+          path: storageChoice.path,
+        });
       }
     }
 
@@ -535,7 +591,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     let sections: any = null;
     let removed_overlap_count = 0;
 
-    if (useStorageFramework) {
+    if (useStorageFramework && frameworkSource === "storage") {
       const commonRaw = pickCommonSections(fw) || [];
       const rep = findProfileReport(fw, top_profile_code);
 
@@ -550,9 +606,9 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         profile: fixed.profile,
         report_title: rep?.title || pickReportTitle(fw) || null,
         profile_missing: fixed.profile.length === 0,
-        framework_version: rf?.version || null,
-        framework_bucket: rf?.bucket || null,
-        framework_path: rf?.path || null,
+        framework_version: storageChoice.version || null,
+        framework_bucket: storageChoice.bucket || null,
+        framework_path: storageChoice.path || null,
       };
     }
 
@@ -601,8 +657,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
         debug: {
           frameworkSource,
-          reportFramework: rf,
           useStorageFramework,
+          storageFrameworkSource: storageChoice.source,
+          storageFrameworkBucket: storageChoice.bucket || null,
+          storageFrameworkPath: storageChoice.path || null,
+
           schema: "portal",
           test_id: meta.test_id,
           submission_id: sub.id,
@@ -620,11 +679,11 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           computed_from_qmap: comp.used,
           scoring_warning: scoringWarning,
 
-          // ✅ NEW: confirms Option A cleanup happened (useful while you transition JSON)
+          // ✅ confirms Option A cleanup happened (useful while you transition JSON)
           removed_common_profile_overlap: removed_overlap_count,
         },
 
-        version: useStorageFramework ? "portal-v2-storage-optin" : "portal-v1",
+        version: useStorageFramework ? "portal-v2-storage-meta" : "portal-v1",
       },
     });
   } catch (e: any) {
