@@ -269,34 +269,37 @@ function sbAdmin() {
   });
 }
 
-// Resolve org/test for a token
+// Resolve org/test for a token (canonical, no view fallback)
 async function resolveLinkMeta(token: string): Promise<LinkMeta | null> {
   const sb = sbAdmin();
 
-  const link = await sb.from("test_links").select("test_id, token, meta").eq("token", token).limit(1).maybeSingle();
-  if (link.error || !link.data?.test_id) return null;
-
-  const vt = await sb
-    .from("v_org_tests")
-    .select("test_id, org_slug, test_name")
-    .eq("test_id", link.data.test_id)
+  const q = await sb
+    .from("test_links")
+    .select(`
+      test_id,
+      token,
+      meta,
+      tests:tests (
+        id,
+        name,
+        org_id,
+        orgs:orgs ( slug )
+      )
+    `)
+    .eq("token", token)
     .limit(1)
     .maybeSingle();
 
-  if (vt.error) {
-    return {
-      test_id: link.data.test_id,
-      org_slug: null,
-      test_name: null,
-      link_meta: (link.data as any)?.meta ?? null,
-    };
-  }
+  if (q.error || !q.data?.test_id) return null;
+
+  const testName = (q.data as any)?.tests?.name ?? null;
+  const orgSlug = (q.data as any)?.tests?.orgs?.slug ?? null;
 
   return {
-    test_id: vt.data?.test_id || link.data.test_id,
-    org_slug: vt.data?.org_slug || null,
-    test_name: vt.data?.test_name || null,
-    link_meta: (link.data as any)?.meta ?? null,
+    test_id: q.data.test_id,
+    org_slug: orgSlug,
+    test_name: testName,
+    link_meta: (q.data as any)?.meta ?? null,
   };
 }
 
