@@ -6,7 +6,6 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/server/supabaseAdmin";
 import { buildCoachSummary } from "@/lib/report/buildCoachSummary";
-import ResendReportButton from "./ResendReportButton";
 
 export const dynamic = "force-dynamic";
 
@@ -457,10 +456,6 @@ export default async function TakerDetail({
                 </Link>
               )}
             </div>
-            <ResendReportButton
-              takerId={taker.id}
-              canSend={!!taker.email && !!taker.link_token}
-            />
           </div>
         </div>
 
@@ -581,3 +576,4 @@ export default async function TakerDetail({
     </div>
   );
 }
+

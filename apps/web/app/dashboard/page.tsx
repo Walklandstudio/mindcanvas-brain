@@ -1,3 +1,4 @@
+// apps/web/app/dashboard/page.tsx
 import Link from "next/link";
 
 type Onboarding = {
@@ -6,10 +7,20 @@ type Onboarding = {
   goals?: Record<string, any>;
 };
 
+const CREATE_ACCOUNT_URL =
+  "https://profiletest.ai/order-qsc?utm_source=profiletest.app&utm_medium=organic&utm_campaign=none&utm_term=clicked_create_account";
+
 // helper to load onboarding (server)
 async function getOnboarding(): Promise<Onboarding> {
-  const r = await fetch(`${process.env.NEXT_PUBLIC_VERCEL_URL ? 'https://' + process.env.NEXT_PUBLIC_VERCEL_URL : ''}/api/onboarding`, { cache: "no-store" })
-    .catch(() => undefined);
+  const r = await fetch(
+    `${
+      process.env.NEXT_PUBLIC_VERCEL_URL
+        ? "https://" + process.env.NEXT_PUBLIC_VERCEL_URL
+        : ""
+    }/api/onboarding`,
+    { cache: "no-store" }
+  ).catch(() => undefined);
+
   if (!r || !r.ok) return { company: {}, branding: {}, goals: {} };
   const j = await r.json();
   return j.onboarding ?? { company: {}, branding: {}, goals: {} };
@@ -22,7 +33,7 @@ export default async function Dashboard() {
     {
       key: "account",
       label: "Create Account",
-      href: "/onboarding/create-account",
+      href: CREATE_ACCOUNT_URL,
       done: !!(ob.company?.companyName && ob.company?.email),
     },
     {
@@ -45,7 +56,7 @@ export default async function Dashboard() {
     },
   ];
 
-  const completeCount = steps.filter(s => s.done).length;
+  const completeCount = steps.filter((s) => s.done).length;
   const pct = Math.round((completeCount / steps.length) * 100);
 
   return (
@@ -55,18 +66,25 @@ export default async function Dashboard() {
         <div className="flex items-center gap-3">
           <div
             className="h-8 w-8 rounded-xl shadow-[0_8px_30px_rgba(100,186,226,0.35)]"
-            style={{ background: "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))" }}
+            style={{
+              background:
+                "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))",
+            }}
           />
           <span className="text-lg font-semibold">Dashboard</span>
         </div>
-        <Link href="/logout" className="text-sm text-slate-300 hover:text-white">Sign out</Link>
+        <Link href="/logout" className="text-sm text-slate-300 hover:text-white">
+          Sign out
+        </Link>
       </div>
 
       {/* content */}
       <div className="mx-auto max-w-7xl px-6 pb-16 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
         {/* Sidebar */}
         <aside className="lg:sticky lg:top-6 h-max rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md p-4">
-          <div className="text-sm text-slate-300 mb-3">Onboarding Progress</div>
+          <div className="text-sm text-slate-300 mb-3">
+            Onboarding Progress
+          </div>
 
           {/* progress bar */}
           <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
@@ -74,7 +92,8 @@ export default async function Dashboard() {
               className="h-full rounded-full"
               style={{
                 width: `${pct}%`,
-                background: "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))",
+                background:
+                  "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))",
               }}
             />
           </div>
@@ -92,7 +111,9 @@ export default async function Dashboard() {
                     : "border-white/10 bg-transparent text-slate-300 hover:bg-white/5"
                 }`}
               >
-                <span>{i + 1}. {s.label}</span>
+                <span>
+                  {i + 1}. {s.label}
+                </span>
                 <span
                   className={`ml-3 inline-flex h-5 min-w-[20px] items-center justify-center rounded-md text-[10px] ${
                     s.done
@@ -113,7 +134,8 @@ export default async function Dashboard() {
           <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md p-6">
             <h2 className="text-xl font-semibold">Welcome back</h2>
             <p className="mt-1 text-sm text-slate-300">
-              Finish onboarding to unlock report templates, tests, and team analytics.
+              Finish onboarding to unlock report templates, tests, and team
+              analytics.
             </p>
 
             <div className="mt-5 flex flex-wrap gap-3">
@@ -138,7 +160,10 @@ export default async function Dashboard() {
               <Link
                 href="/tests"
                 className="rounded-2xl bg-white text-slate-900 px-4 py-2 text-sm font-medium"
-                style={{ background: "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))" }}
+                style={{
+                  background:
+                    "linear-gradient(135deg, var(--mc-c1), var(--mc-c2) 60%, var(--mc-c3))",
+                }}
               >
                 Create a Test
               </Link>
@@ -149,11 +174,15 @@ export default async function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="text-sm text-slate-300 mb-2">Recent Tests</div>
-              <div className="text-xs text-slate-400">No tests yet — create your first one.</div>
+              <div className="text-xs text-slate-400">
+                No tests yet — create your first one.
+              </div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="text-sm text-slate-300 mb-2">Team Analytics</div>
-              <div className="text-xs text-slate-400">Insights will appear once results come in.</div>
+              <div className="text-xs text-slate-400">
+                Insights will appear once results come in.
+              </div>
             </div>
           </div>
         </section>
@@ -161,3 +190,4 @@ export default async function Dashboard() {
     </main>
   );
 }
+

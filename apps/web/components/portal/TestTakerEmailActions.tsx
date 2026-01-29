@@ -9,12 +9,11 @@ type Props = {
   compact?: boolean;
 };
 
-type SendType = "send_test_link" | "report" | "resend_report";
+type SendType = "send_test_link" | "report";
 
 const LABELS: Record<SendType, string> = {
   send_test_link: "Send Test Link",
   report: "Send Report Email",
-  resend_report: "Resend Report Email",
 };
 
 export default function TestTakerEmailActions({
@@ -91,15 +90,6 @@ export default function TestTakerEmailActions({
           onClick={() => send("report")}
         >
           {busyType === "report" ? "Sending…" : "Send Report"}
-        </button>
-
-        <button
-          type="button"
-          className={btnNeutral}
-          disabled={!!busyType}
-          onClick={() => send("resend_report")}
-        >
-          {busyType === "resend_report" ? "Resending…" : "Resend Report"}
         </button>
       </div>
 
