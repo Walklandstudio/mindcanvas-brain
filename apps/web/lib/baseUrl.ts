@@ -1,8 +1,15 @@
+// /apps/web/lib/baseUrl.ts
 export function getBaseUrl() {
-  // Prefer explicit
-  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
-  // Vercel provides this (no protocol)
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`.replace(/\/$/, '');
-  // Fallback for local
-  return 'http://localhost:3000';
+  const explicit =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.SITE_URL ||
+    process.env.APP_URL;
+
+  if (explicit) return explicit.replace(/\/+$/, "");
+
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`.replace(/\/+$/, "");
+
+  return "http://localhost:3000";
 }
+
