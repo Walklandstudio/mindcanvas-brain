@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { calculateQscScores } from "@/lib/qsc-scoring";
 import { sendTemplatedEmail } from "@/lib/server/emailTemplates";
+import { getBaseUrl } from "@/lib/baseUrl";
 
 type AB = "A" | "B" | "C" | "D";
 type PMEntry = { points?: number; profile?: string };
@@ -476,22 +477,27 @@ export async function POST(
       .eq("id", taker.id)
       .eq("link_token", token);
 
-    // Prefer APP_ORIGIN (public domain) for links in emails
-    const appOrigin = String(process.env.APP_ORIGIN || "").replace(/\/+$/, "");
-    const origin = appOrigin || new URL(req.url).origin;
+    // ✅ Canonical base for ALL absolute links (emails + internal links)
+    const origin = getBaseUrl();
 
-    // Base “results page”
+    // ✅ This is what you want emailed to the test taker
+    const baseReportUrl = `${origin}/t/${encodeURIComponent(
+      token
+    )}/report?tid=${encodeURIComponent(taker.id)}`;
+
+    // If you still need /result for API/UI response purposes, keep it separate:
     const baseResultUrl = `${origin}/t/${encodeURIComponent(
       token
     )}/result?tid=${encodeURIComponent(taker.id)}`;
 
-    // QSC report (internal)
+    // QSC report (public-facing)
     const qscReportPath = `/qsc/${encodeURIComponent(
       token
     )}/report?tid=${encodeURIComponent(taker.id)}`;
     const qscReportUrl = `${origin}${qscReportPath}`;
 
-    const reportUrlForEmail = isQscEntrepreneur ? qscReportUrl : baseResultUrl;
+    // Email the report page (not /result)
+    const reportUrlForEmail = isQscEntrepreneur ? qscReportUrl : baseReportUrl;
 
     // ✅ Decide redirect
     const redirectUrl: string | null = isQscEntrepreneur
@@ -520,7 +526,7 @@ export async function POST(
       if (linkBehavior.email_report && normalizeEmail(taker.email)) {
         takerEmailResult = await sendTemplatedEmail({
           orgId: taker.org_id,
-          type: "test_taker_report", // if you prefer, set this to "report"
+          type: "test_taker_report",
           to: String(taker.email),
           context: {
             first_name: taker.first_name || "there",
@@ -539,7 +545,7 @@ export async function POST(
       console.error("[submit] test_taker_report unexpected error", e);
     }
 
-    // ✅ Send internal notification (existing behavior)
+    // ✅ Send internal notification
     let ownerNotification: any = null;
     try {
       const sentTo =
@@ -598,7 +604,8 @@ export async function POST(
       },
 
       redirect: redirectUrl,
-      result_url: baseResultUrl,
+      result_url: baseResultUrl, // keep as-is (your flow may still use /result)
+      report_url: baseReportUrl, // handy for debugging
 
       owner_notification: ownerNotification,
       taker_email: takerEmailResult,
@@ -610,3 +617,4 @@ export async function POST(
     );
   }
 }
+
