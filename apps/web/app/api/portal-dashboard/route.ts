@@ -1,3 +1,4 @@
+// apps/web/app/api/portal-dashboard/route.ts
 import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -8,14 +9,13 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as strin
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// ----- helpers -----
 type KV = { key: string; value: number; percent?: string };
 type Payload = {
   frequencies: KV[];
   profiles: KV[];
   top3: KV[];
   bottom3: KV[];
-  overall?: { average?: number; count?: number };
+  overall: { average: number | null; count: number };
 };
 
 const sum = (rows: { value: number }[]) =>
@@ -24,193 +24,330 @@ const sum = (rows: { value: number }[]) =>
 const pct = (n: number, total: number) =>
   !total ? "0%" : `${((n * 100) / total).toFixed(1)}%`;
 
-// pick a label-ish field
-const pickKey = (row: any): string => {
-  const cands = [
-    "label","name","key",
-    "frequency_name","profile_name",
-    "frequency_code","profile_code",
-    "frequency","profile","code","id","slug"
-  ];
-  for (const k of cands) if (row && row[k] != null) return String(row[k]);
-  for (const [k, v] of Object.entries(row || {})) if (typeof v === "string") return v as string;
-  return "";
-};
-// pick a numeric field
-const pickValue = (row: any): number => {
-  const cands = ["value","avg","average","score","count","total"];
-  for (const k of cands) if (row && row[k] != null) return Number(row[k]);
-  for (const [, v] of Object.entries(row || {})) if (typeof v === "number") return v as number;
-  return 0;
-};
+function safeTrim(v: unknown) {
+  return typeof v === "string" ? v.trim() : "";
+}
 
-const toKV = (rows: any): KV[] =>
-  Array.isArray(rows) ? rows.map((r) => ({ key: pickKey(r), value: pickValue(r) })) : [];
-
-const parseMaybeJSON = (x: any) => {
-  if (Array.isArray(x)) return x;
-  if (typeof x === "string") {
-    try { const j = JSON.parse(x); return Array.isArray(j) ? j : []; } catch {}
+async function resolveOrgIdBySlug(portal: any, orgSlug: string): Promise<string | null> {
+  try {
+    const { data, error } = await portal
+      .from("orgs")
+      .select("id")
+      .eq("slug", orgSlug)
+      .maybeSingle();
+    if (error) return null;
+    return data?.id ? String(data.id) : null;
+  } catch {
+    return null;
   }
-  return [];
-};
+}
 
-const withPercent = (rows: KV[]): KV[] => {
-  const total = sum(rows);
-  return rows.map(r => ({ ...r, percent: pct(Number(r.value) || 0, total) }));
-};
+/**
+ * Pick a default test for an org.
+ * Priority:
+ *  1) portal.tests.is_default_dashboard = true
+ *  2) portal.tests.is_active = true
+ *  3) newest created_at
+ * Fallbacks are intentionally defensive so missing columns don't break login/dashboard.
+ */
+async function getDefaultTestIdForOrg(portal: any, orgSlug: string): Promise<string | null> {
+  const orgId = await resolveOrgIdBySlug(portal, orgSlug);
 
-async function getTestIdForOrg(portal: any, orgSlug: string) {
-  // Try view first (active test), then tests table
-  const v = await portal.from("v_org_tests")
-    .select("*").eq("org_slug", orgSlug)
-    .order("is_active", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (!v.error && v.data?.[0]?.test_id) return String(v.data[0].test_id);
+  // If we can't resolve orgId, fall back to legacy view (if it exists)
+  if (!orgId) {
+    try {
+      const v = await portal
+        .from("v_org_tests")
+        .select("test_id, is_active, created_at")
+        .eq("org_slug", orgSlug)
+        .limit(25);
 
-  const t = await portal.from("tests")
-    .select("id").eq("org_slug", orgSlug)
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (!t.error && t.data?.[0]?.id) return String(t.data[0].id);
+      if (!v.error && Array.isArray(v.data) && v.data.length) {
+        const rows = (v.data as any[]).slice();
+        rows.sort((a, b) => {
+          const aActive = a?.is_active ? 1 : 0;
+          const bActive = b?.is_active ? 1 : 0;
+          if (bActive !== aActive) return bActive - aActive;
+          const aTs = a?.created_at ? +new Date(a.created_at) : 0;
+          const bTs = b?.created_at ? +new Date(b.created_at) : 0;
+          return bTs - aTs;
+        });
+        const picked = rows[0]?.test_id;
+        return picked ? String(picked) : null;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  // Primary path: portal.tests by org_id
+  // Try with full ordering first; if schema differs, retry without ordering.
+  try {
+    const q = await portal
+      .from("tests")
+      .select("id, is_default_dashboard, is_active, created_at")
+      .eq("org_id", orgId)
+      .order("is_default_dashboard", { ascending: false })
+      .order("is_active", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(25);
+
+    if (!q.error && Array.isArray(q.data) && q.data.length) {
+      return String((q.data as any[])[0].id);
+    }
+  } catch {
+    // ignore and retry
+  }
+
+  try {
+    const q2 = await portal
+      .from("tests")
+      .select("id")
+      .eq("org_id", orgId)
+      .limit(1);
+
+    if (!q2.error && Array.isArray(q2.data) && q2.data[0]?.id) {
+      return String(q2.data[0].id);
+    }
+  } catch {
+    // ignore
+  }
 
   return null;
+}
+
+/**
+ * Count responses if possible.
+ * We try a couple of common tables. If none exist / columns differ, we safely return 0.
+ */
+async function getResponseCount(portal: any, testId: string | null): Promise<number> {
+  if (!testId) return 0;
+
+  // 1) portal.test_results (common)
+  try {
+    const { count, error } = await portal
+      .from("test_results")
+      .select("id", { count: "exact", head: true })
+      .eq("test_id", testId);
+
+    if (!error && typeof count === "number") return count;
+  } catch {}
+
+  // 2) portal.test_submissions (common)
+  try {
+    const { count, error } = await portal
+      .from("test_submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("test_id", testId);
+
+    if (!error && typeof count === "number") return count;
+  } catch {}
+
+  return 0;
 }
 
 export async function GET(req: Request) {
   try {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json({ ok: false, error: "Supabase env not configured" }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "Supabase env not configured" },
+        { status: 500 }
+      );
     }
-    const sb: any = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    const sb: any = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
     const portal = sb.schema("portal");
 
     const url = new URL(req.url);
-    const orgSlug = (url.searchParams.get("org") || "").trim();
-    const explicitTestId = (url.searchParams.get("testId") || "").trim() || null;
+    const orgSlug = safeTrim(url.searchParams.get("org"));
+    const explicitTestId = safeTrim(url.searchParams.get("testId")) || null;
+
+    // accepted but not applied (yet)
+    const rangeKey = safeTrim(url.searchParams.get("range")) || "all_time";
     const debugMode = url.searchParams.get("debug") === "1";
-    if (!orgSlug) return NextResponse.json({ ok: false, error: "Missing ?org=slug" }, { status: 400 });
 
-    // ---------- 1) consolidated fast-path ----------
-    let payload: Payload | null = null;
-    const c = await portal.from("v_dashboard_consolidated")
-      .select("*").eq("org_slug", orgSlug).limit(1);
-
-    let dbg: any = { steps: [] as any[] };
-
-    if (!c.error && Array.isArray(c.data) && c.data.length) {
-      const row: any = c.data[0] || {};
-      const frequencies = toKV(parseMaybeJSON(row.frequencies));
-      const profiles    = toKV(parseMaybeJSON(row.profiles));
-      const top3        = toKV(parseMaybeJSON(row.top3));
-      const bottom3     = toKV(parseMaybeJSON(row.bottom3));
-      const overall     = row.overall ?? undefined;
-
-      payload = { frequencies, profiles, top3, bottom3, overall };
-      dbg.steps.push({ src: "consolidated", sizes: {
-        frequencies: frequencies.length, profiles: profiles.length,
-        top3: top3.length, bottom3: bottom3.length, overall: overall ? 1 : 0
-      }});
+    if (!orgSlug) {
+      return NextResponse.json(
+        { ok: false, error: "Missing ?org=slug" },
+        { status: 400 }
+      );
     }
 
-    // ---------- 2) per-view fallback ----------
-    if (!payload || (
-      payload.frequencies.length === 0 &&
-      payload.profiles.length === 0 &&
-      payload.top3.length === 0 &&
-      payload.bottom3.length === 0
-    )) {
-      const [vf, vp, vt, vb, vo] = await Promise.all([
-        portal.from("v_dashboard_avg_frequency").select("*").eq("org_slug", orgSlug),
-        portal.from("v_dashboard_avg_profile").select("*").eq("org_slug", orgSlug),
-        portal.from("v_dashboard_top3_profiles").select("*").eq("org_slug", orgSlug),
-        portal.from("v_dashboard_bottom3_profiles").select("*").eq("org_slug", orgSlug),
-        portal.from("v_dashboard_overall_avg").select("*").eq("org_slug", orgSlug).limit(1),
-      ]);
+    const testId = explicitTestId || (await getDefaultTestIdForOrg(portal, orgSlug));
 
-      const frequencies = !vf.error ? toKV(vf.data) : [];
-      const profiles    = !vp.error ? toKV(vp.data) : [];
-      const top3        = !vt.error ? toKV(vt.data) : [];
-      const bottom3     = !vb.error ? toKV(vb.data) : [];
+    // ---------- MAIN DASHBOARD QUERIES (views are org_slug-scoped) ----------
+    let vfQuery = portal
+      .from("v_dashboard_avg_frequency")
+      .select("org_slug,test_id,frequency_code,frequency_name,avg_points")
+      .eq("org_slug", orgSlug);
 
-      let overall: Payload["overall"] = undefined;
-      if (!vo.error && Array.isArray(vo.data) && vo.data[0]) {
-        const o = vo.data[0] as any;
-        overall = { average: Number(o.average ?? o.avg ?? o.value) || undefined,
-                    count: Number(o.count ?? o.total) || undefined };
-      }
+    let vpQuery = portal
+      .from("v_dashboard_avg_profile")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points")
+      .eq("org_slug", orgSlug);
 
-      payload = { frequencies, profiles, top3, bottom3, overall };
-      dbg.steps.push({
-        src: "per_views",
-        sizes: {
-          frequencies: frequencies.length, profiles: profiles.length,
-          top3: top3.length, bottom3: bottom3.length, overall: overall ? 1 : 0
-        },
-        samples: {
-          avg_frequency: vf.data?.slice?.(0,2) ?? null,
-          avg_profile:   vp.data?.slice?.(0,2) ?? null
-        }
-      });
+    let vtQuery = portal
+      .from("v_dashboard_top3_profiles")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
+      .eq("org_slug", orgSlug);
+
+    let vbQuery = portal
+      .from("v_dashboard_bottom3_profiles")
+      .select("org_slug,test_id,profile_code,profile_name,avg_points,rnk")
+      .eq("org_slug", orgSlug);
+
+    let voQuery = portal
+      .from("v_dashboard_overall_avg")
+      .select("org_slug,test_id,overall_avg")
+      .eq("org_slug", orgSlug)
+      .limit(1);
+
+    if (testId) {
+      vfQuery = vfQuery.eq("test_id", testId);
+      vpQuery = vpQuery.eq("test_id", testId);
+      vtQuery = vtQuery.eq("test_id", testId);
+      vbQuery = vbQuery.eq("test_id", testId);
+      voQuery = voQuery.eq("test_id", testId);
     }
 
-    // ---------- 3) optional label maps ----------
-    const testId = explicitTestId || (await getTestIdForOrg(portal, orgSlug));
+    const [vf, vp, vt, vb, vo] = await Promise.all([
+      vfQuery,
+      vpQuery,
+      vtQuery,
+      vbQuery,
+      voQuery,
+    ]);
+
+    if (vf.error) throw vf.error;
+    if (vp.error) throw vp.error;
+    if (vt.error) throw vt.error;
+    if (vb.error) throw vb.error;
+    if (vo.error) throw vo.error;
+
+    const frequenciesRaw: KV[] = (vf.data || []).map((r: any) => ({
+      key: r.frequency_code || r.frequency_name || "",
+      value: Number(r.avg_points) || 0,
+    }));
+
+    const profilesRaw: KV[] = (vp.data || []).map((r: any) => ({
+      key: r.profile_code || r.profile_name || "",
+      value: Number(r.avg_points) || 0,
+    }));
+
+    const top3Raw: KV[] = (vt.data || [])
+      .slice()
+      .sort((a: any, b: any) => (a.rnk ?? 999) - (b.rnk ?? 999))
+      .map((r: any) => ({
+        key: r.profile_code || r.profile_name || "",
+        value: Number(r.avg_points) || 0,
+      }));
+
+    const bottom3Raw: KV[] = (vb.data || [])
+      .slice()
+      .sort((a: any, b: any) => (a.rnk ?? 999) - (b.rnk ?? 999))
+      .map((r: any) => ({
+        key: r.profile_code || r.profile_name || "",
+        value: Number(r.avg_points) || 0,
+      }));
+
+    // ---------- LABEL MAPS (code -> label) ----------
     let freqMap: Record<string, string> = {};
     let profileMap: Record<string, string> = {};
 
     if (testId) {
       const [freqLabels, profileLabels] = await Promise.all([
-        portal.from("test_frequency_labels")
-              .select("frequency_code,frequency_name").eq("test_id", testId),
-        portal.from("test_profile_labels")
-              .select("profile_code,profile_name").eq("test_id", testId),
+        portal
+          .from("test_frequency_labels")
+          .select("frequency_code,frequency_name")
+          .eq("test_id", testId),
+        portal
+          .from("test_profile_labels")
+          .select("profile_code,profile_name")
+          .eq("test_id", testId),
       ]);
+
       if (!freqLabels.error && Array.isArray(freqLabels.data)) {
         for (const r of freqLabels.data as any[]) {
-          if (r.frequency_code && r.frequency_name) freqMap[r.frequency_code] = r.frequency_name;
+          if (r.frequency_code && r.frequency_name) {
+            freqMap[String(r.frequency_code)] = String(r.frequency_name);
+          }
         }
       }
+
       if (!profileLabels.error && Array.isArray(profileLabels.data)) {
         for (const r of profileLabels.data as any[]) {
-          if (r.profile_code && r.profile_name) profileMap[r.profile_code] = r.profile_name;
+          if (r.profile_code && r.profile_name) {
+            profileMap[String(r.profile_code)] = String(r.profile_name);
+          }
         }
       }
-      dbg.steps.push({ src: "labels", testId, freqLabels: Object.keys(freqMap).length, profileLabels: Object.keys(profileMap).length });
-    } else {
-      dbg.steps.push({ src: "labels", testId: null });
     }
 
-    const mapWith = (rows: KV[], map: Record<string,string>) => {
+    const mapWith = (rows: KV[], map: Record<string, string>) => {
       const total = sum(rows);
-      return rows.map(r => ({
+      return rows.map((r) => ({
         ...r,
         key: map[r.key] || r.key,
         percent: pct(Number(r.value) || 0, total),
       }));
     };
 
+    const frequencies = mapWith(frequenciesRaw, freqMap);
+    const profiles = mapWith(profilesRaw, profileMap);
+    const top3 = mapWith(top3Raw, profileMap);
+    const bottom3 = mapWith(bottom3Raw, profileMap);
+
+    // ---------- OVERALL ----------
+    const avgFromView =
+      Array.isArray(vo.data) && vo.data[0]?.overall_avg != null
+        ? Number((vo.data[0] as any).overall_avg)
+        : null;
+
+    const count = await getResponseCount(portal, testId);
+
     const out: Payload = {
-      frequencies: mapWith(payload!.frequencies, freqMap),
-      profiles: mapWith(payload!.profiles, profileMap),
-      top3: mapWith(payload!.top3, profileMap),
-      bottom3: mapWith(payload!.bottom3, profileMap),
-      overall: payload!.overall,
+      frequencies,
+      profiles,
+      top3,
+      bottom3,
+      overall: {
+        average: Number.isFinite(avgFromView as any) ? (avgFromView as number) : null,
+        count,
+      },
     };
 
     if (debugMode) {
-      return NextResponse.json({ ok: true, org: orgSlug, testId, debug: dbg, data_preview: {
-        frequencies: out.frequencies.slice(0,4),
-        profiles: out.profiles.slice(0,4),
-        top3: out.top3,
-        bottom3: out.bottom3,
-        overall: out.overall
-      } }, { status: 200 });
+      return NextResponse.json(
+        {
+          ok: true,
+          org: orgSlug,
+          testId,
+          range: rangeKey,
+          data_preview: {
+            frequencies: out.frequencies.slice(0, 4),
+            profiles: out.profiles.slice(0, 4),
+            top3: out.top3,
+            bottom3: out.bottom3,
+            overall: out.overall,
+          },
+        },
+        { status: 200 }
+      );
     }
 
-    return NextResponse.json({ ok: true, org: orgSlug, testId, data: out }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, org: orgSlug, testId, range: rangeKey, data: out },
+      { status: 200 }
+    );
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Server error" },
+      { status: 500 }
+    );
   }
 }
+
+

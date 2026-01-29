@@ -1,83 +1,70 @@
-// apps/web/app/admin/page.tsx
-import Link from 'next/link';
-import { getAdminClient, getActiveOrgId } from '@/app/_lib/portal';
+// apps/web/app/portal/admin/page.tsx
+import Link from "next/link";
+import { createClient } from "@/lib/server/supabaseAdmin";
 
-export default async function AdminPage() {
-  const sb = await getAdminClient();
+export const dynamic = "force-dynamic";
 
-  // Load orgs
+export default async function AdminOrgsPage() {
+  const sb = createClient().schema("portal");
   const { data: orgs, error } = await sb
-    .from('organizations')
-    .select('id,name,slug')
-    .order('name', { ascending: true });
+    .from("v_organizations")
+    .select("id, slug, name")
+    .order("name");
 
-  const activeOrgId = await getActiveOrgId(sb);
+  if (error) {
+    return (
+      <div className="fixed inset-0 mc-bg text-red-400 flex items-center justify-center px-6">
+        <div>Load error: {error.message}</div>
+      </div>
+    );
+  }
 
   return (
-    <main style={{ maxWidth: 900, margin: '40px auto', padding: 16 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>Admin</h1>
-
-      {error && (
-        <p style={{ color: 'crimson' }}>
-          Error loading orgs: {error.message}
-        </p>
-      )}
-
-      <section style={{ marginTop: 16 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Organizations</h2>
-        <p style={{ marginTop: 6, color: '#555' }}>
-          Active org: <strong>{activeOrgId ?? 'none'}</strong>
-        </p>
-
-        <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-          {(orgs ?? []).map((o) => (
-            <form
-              key={o.id}
-              action="/api/admin/switch-org"
-              method="post"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: 12,
-                border: '1px solid #e5e5e5',
-                borderRadius: 10,
-              }}
+    <div className="fixed inset-0 mc-bg text-white overflow-auto">
+      <div className="mx-auto max-w-6xl px-6 py-10 space-y-6">
+        <header className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold">Organizations</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin/orgs/new"
+              className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition"
             >
-              <input type="hidden" name="orgId" value={o.id} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600 }}>{o.name}</div>
-                <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#666' }}>{o.slug}</div>
+              + Add organisation
+            </Link>
+            <Link
+              href="/"
+              className="text-sm text-sky-300 hover:text-sky-100 underline-offset-4 hover:underline"
+            >
+              Back to home
+            </Link>
+          </div>
+        </header>
+
+        <ul className="grid gap-4 md:grid-cols-2">
+          {orgs?.map((o: any) => (
+            <li
+              key={o.id}
+              className="rounded-2xl border border-white/10 bg-white/5 px-6 py-4 shadow-lg flex items-center justify-between"
+            >
+              <div>
+                <div className="font-medium">{o.name}</div>
+                <div className="text-xs text-slate-300">{o.slug}</div>
               </div>
-              <button
-                type="submit"
-                name="mode"
-                value="switch"
-                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
-              >
-                Set Active
-              </button>
               <Link
+                className="inline-flex items-center justify-center rounded-xl bg-gradient-to-b from-[#64bae2] to-[#2d8fc4] px-4 py-2 text-sm font-medium text-white shadow hover:brightness-110 transition"
                 href={`/portal/${o.slug}`}
-                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd' }}
               >
                 Open portal
               </Link>
-            </form>
+            </li>
           ))}
-        </div>
-      </section>
-
-      <section style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Diagnostics</h2>
-        <ul style={{ marginTop: 8 }}>
-          <li>
-            <a href="/api/debug/diag" target="_blank" rel="noreferrer">
-              /api/debug/diag
-            </a>
-          </li>
         </ul>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
+
+
+

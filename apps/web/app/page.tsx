@@ -1,6 +1,10 @@
+// apps/web/app/page.tsx
 import Link from "next/link";
 
 const P = { c1: "#64bae2", c2: "#2d8fc4", c3: "#015a8b" }; // your palette
+
+const CREATE_ACCOUNT_URL =
+  "https://profiletest.ai/order-qsc?utm_source=profiletest.app&utm_medium=organic&utm_campaign=none&utm_term=clicked_create_account";
 
 export default function Landing() {
   return (
@@ -46,18 +50,22 @@ export default function Landing() {
           <div className="flex items-center gap-3">
             <div
               className="h-9 w-9 rounded-xl shadow-[0_8px_30px_rgba(100,186,226,0.35)]"
-              style={{ background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})` }}
+              style={{
+                background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})`,
+              }}
             />
-            <span className="text-base font-semibold tracking-tight">MindCanvas</span>
+            <span className="text-base font-semibold tracking-tight">
+              MindCanvas
+            </span>
           </div>
 
-          {/* Quick links in header */}
-          <nav className="hidden md:flex items-center gap-3 text-sm">
-            <Link href="/portal" className="text-slate-300 hover:text-white">
-              Portals
+          {/* Header nav: Login + Admin (Admin is server-gated via /admin layout) */}
+          <nav className="hidden md:flex items-center gap-4 text-sm">
+            <Link href="/login" className="text-slate-300 hover:text-white">
+              Login
             </Link>
-            <Link href="/portal/admin" className="text-slate-300 hover:text-white">
-              Admin login
+            <Link href="/admin" className="text-slate-300 hover:text-white">
+              Admin
             </Link>
           </nav>
         </div>
@@ -83,29 +91,17 @@ export default function Landing() {
             profile tests
           </h1>
 
-          {/* CTAs */}
+          {/* CTAs – only Create Account + Login */}
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
-              href="/onboarding/create-account"
+              href={CREATE_ACCOUNT_URL}
               className="group inline-flex items-center justify-center rounded-2xl px-6 py-3 text-[15px] font-medium transition-transform hover:scale-[1.02] active:scale-100 shine"
-              style={{ background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})` }}
+              style={{
+                background: `linear-gradient(135deg, ${P.c1}, ${P.c2} 60%, ${P.c3})`,
+              }}
             >
-              Create an Account
+              Create Account
               <span className="ml-2 block h-[1px] w-4 translate-y-[1px] bg-white/70 group-hover:w-6 transition-all" />
-            </Link>
-
-            <Link
-              href="/portal"
-              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
-            >
-              Portals
-            </Link>
-
-            <Link
-              href="/portal/admin"
-              className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-[15px] font-medium text-slate-200 transition hover:bg-white/10"
-            >
-              Admin login
             </Link>
 
             <Link
@@ -119,9 +115,31 @@ export default function Landing() {
       </section>
 
       {/* --- FOOTER --- */}
-      <footer className="relative z-10 pb-10 text-center text-xs text-slate-500">
-        © {new Date().getFullYear()} MindCanvas. All rights reserved.
+      <footer className="relative z-10 pb-10 text-center text-xs text-slate-500 space-y-2">
+        <div>
+          © {new Date().getFullYear()} MindCanvas. All rights reserved.
+        </div>
+        <div className="space-x-3">
+          <a
+            href="https://profiletest.ai/privacy-policy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-slate-300"
+          >
+            Privacy Policy
+          </a>
+          <span>•</span>
+          <a
+            href="https://profiletest.ai/terms--conditions"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-slate-300"
+          >
+            Terms &amp; Conditions
+          </a>
+        </div>
       </footer>
     </main>
   );
 }
+

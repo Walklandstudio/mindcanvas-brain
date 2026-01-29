@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/server/supabaseAdmin";
 import { Resend } from "resend";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 
@@ -13,8 +14,16 @@ type Body = {
   showResults?: boolean;
   emailReport?: boolean;
   hiddenResultsMessage?: string | null;
+
+  // When results are hidden
   redirectUrl?: string | null;
+
+  // When results are shown (CTA link on report)
+  nextStepsUrl?: string | null;
+
   expiresAt?: string | null;
+
+  // Optional email via Resend
   recipientEmail?: string | null;
   recipientName?: string | null;
 };
@@ -38,8 +47,12 @@ function absoluteUrl(path: string) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
+
     if (!body.orgId || !body.testId) {
-      return NextResponse.json({ ok: false, error: "Missing orgId or testId" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing orgId or testId" },
+        { status: 400 }
+      );
     }
 
     const {
@@ -51,12 +64,15 @@ export async function POST(req: Request) {
       emailReport = true,
       hiddenResultsMessage,
       redirectUrl,
+      nextStepsUrl,
       expiresAt,
       recipientEmail,
       recipientName,
     } = body;
 
     const sb = createClient().schema("portal");
+
+    // 32-char-ish token, url-safe-ish (hex)
     const token = crypto.randomUUID().replace(/-/g, "");
 
     const insertPayload: any = {
@@ -67,18 +83,32 @@ export async function POST(req: Request) {
       contact_owner: contactOwner || null,
       show_results: !!showResults,
       email_report: !!emailReport,
+      is_active: true,
+
+      // When results are hidden
       hidden_results_message: showResults ? null : hiddenResultsMessage || null,
       redirect_url: showResults ? null : redirectUrl || null,
-      is_active: true,
+
+      // When results are shown (report CTA)
+      next_steps_url: showResults ? nextStepsUrl || null : null,
     };
-    if (expiresAt) insertPayload.expires_at = new Date(expiresAt).toISOString();
+
+    if (expiresAt) {
+      insertPayload.expires_at = new Date(expiresAt).toISOString();
+    }
 
     const { data: linkRow, error: insErr } = await sb
       .from("test_links")
       .insert(insertPayload)
-      .select("token")
+      .select("token, show_results, redirect_url, next_steps_url")
       .single();
-    if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
+
+    if (insErr) {
+      return NextResponse.json(
+        { ok: false, error: insErr.message },
+        { status: 500 }
+      );
+    }
 
     const publicUrl = absoluteUrl(`/t/${linkRow!.token}`);
 
@@ -87,17 +117,34 @@ export async function POST(req: Request) {
     if (recipientEmail) {
       if (!RESEND_API_KEY) {
         return NextResponse.json(
-          { ok: false, error: "Missing RESEND_API_KEY or EMAIL_FROM env vars.", url: publicUrl },
+          {
+            ok: false,
+            error: "Missing RESEND_API_KEY or EMAIL_FROM env vars.",
+            url: publicUrl,
+          },
           { status: 500 }
         );
       }
+
       const resend = new Resend(RESEND_API_KEY);
-      const to = recipientName?.trim() ? `${recipientName} <${recipientEmail}>` : recipientEmail;
-      const subject = testDisplayName ? `Your ${testDisplayName} link` : "Your MindCanvas test link";
+      const to = recipientName?.trim()
+        ? `${recipientName} <${recipientEmail}>`
+        : recipientEmail;
+
+      const subject = testDisplayName
+        ? `Your ${testDisplayName} link`
+        : "Your MindCanvas test link";
+
       const html = `
         <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height:1.6;">
           <h2 style="margin:0 0 12px;">You're invited to take a MindCanvas profile test</h2>
-          ${contactOwner ? `<p>Contact owner: <strong>${escapeHtml(contactOwner)}</strong></p>` : ""}
+          ${
+            contactOwner
+              ? `<p>Contact owner: <strong>${escapeHtml(
+                  contactOwner
+                )}</strong></p>`
+              : ""
+          }
           <p>Click below to start:</p>
           <p style="margin:16px 0;">
             <a href="${publicUrl}" style="background:#111;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Start your test</a>
@@ -107,18 +154,33 @@ export async function POST(req: Request) {
           </p>
         </div>
       `;
-      emailResult = await resend.emails.send({ from: EMAIL_FROM, to, subject, html });
+
+      emailResult = await resend.emails.send({
+        from: EMAIL_FROM,
+        to,
+        subject,
+        html,
+      });
     }
 
     return NextResponse.json({
       ok: true,
       token: linkRow!.token,
       url: publicUrl,
+
+      // Useful debug payload:
+      show_results: linkRow!.show_results,
+      redirect_url: linkRow!.redirect_url,
+      next_steps_url: linkRow!.next_steps_url,
+
       emailed: !!recipientEmail,
       emailResultId: emailResult?.id ?? null,
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Unexpected error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Unexpected error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -130,3 +192,4 @@ function escapeHtml(s: string) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+

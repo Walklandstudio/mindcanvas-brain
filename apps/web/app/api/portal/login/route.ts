@@ -1,62 +1,99 @@
-// apps/web/app/api/portal/login/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getServerSupabase } from "@/app/_lib/portal";
+import { getServerSupabase, getAdminClient } from "@/app/_lib/portal";
+
+export const dynamic = "force-dynamic";
+
+type LoginResponse =
+  | {
+      ok: true;
+      next: string;
+      is_superadmin: boolean;
+      org_slug: string | null;
+    }
+  | { ok: false; error: string };
 
 export async function POST(req: Request) {
   try {
-    const sb = await getServerSupabase();
+    const body = await req.json();
+    const email = (body?.email || "").trim();
+    const password = String(body?.password || "");
 
-    // Always parse JSON body; if it fails, return a clear error
-    const body = await req.json().catch(() => null as any);
-    if (!body || !body.email || !body.password) {
+    if (!email || !password) {
       return NextResponse.json(
         { ok: false, error: "Email and password required" },
         { status: 400 }
       );
     }
 
-    const { email, password } = body as { email: string; password: string };
+    // 1) Authenticate + set SSR cookies
+    const sb = await getServerSupabase();
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
 
-    // Sign in (SSR helper wires cookies)
-    const { data: auth, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 401 });
+    if (error || !data?.user) {
+      return NextResponse.json(
+        { ok: false, error: error?.message || "Invalid credentials" },
+        { status: 401 }
+      );
     }
 
-    // Find memberships; if exactly one, set active org cookie
-    const userId = auth.user.id;
-    const { data: mems, error: mErr } = await sb
-      .from("portal_members")
-      .select("org_id")
-      .eq("user_id", userId);
+    const userId = data.user.id;
 
-    if (mErr) {
-      return NextResponse.json({ ok: false, error: mErr.message }, { status: 400 });
-    }
+    // 2) Admin check (service role)
+    const admin = await getAdminClient();
+    const portal = admin.schema("portal");
 
-    let next = "/portal/home";
-    if (!mems || mems.length === 0) {
-      next = "/portal/orgs";
-    } else if (mems.length === 1) {
-      const cs = await cookies();
-      // @ts-ignore (Next server runtime supports set)
-      cs.set("portal_org_id", mems[0].org_id, {
-        httpOnly: true,
-        sameSite: "lax",
-        maxAge: 60 * 60,
+    const { data: adminRow } = await portal
+      .from("superadmin") // ✅ singular
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const is_superadmin = !!adminRow?.user_id;
+
+    if (is_superadmin) {
+      return NextResponse.json({
+        ok: true,
+        is_superadmin: true,
+        org_slug: null,
+        next: "/admin",
       });
-      next = "/portal/home";
-    } else {
-      next = "/portal/orgs";
     }
 
-    // ✅ Always respond with JSON (no redirects from the API)
-    return NextResponse.json({ ok: true, next }, { status: 200 });
+    // 3) Org user
+    const { data: mem } = await portal
+      .from("user_orgs")
+      .select("org_id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!mem?.org_id) {
+      return NextResponse.json({
+        ok: true,
+        is_superadmin: false,
+        org_slug: null,
+        next: "/onboarding",
+      });
+    }
+
+    const { data: org } = await portal
+      .from("orgs")
+      .select("slug")
+      .eq("id", mem.org_id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      ok: true,
+      is_superadmin: false,
+      org_slug: org?.slug ?? null,
+      next: org?.slug ? `/portal/${org.slug}/dashboard` : "/portal",
+    });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Unexpected error" },
+      { ok: false, error: e?.message || "Unexpected error" },
       { status: 500 }
     );
   }
 }
+
+

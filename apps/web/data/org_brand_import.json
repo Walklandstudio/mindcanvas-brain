@@ -1,0 +1,39 @@
+[
+    {
+      "slug": "team-puzzle",
+      "name": "Team Puzzle",
+      "brand_name": "Team Puzzle",
+      "brand_primary": "#2d8fc4",
+      "brand_secondary": "#015a8b",
+      "brand_accent": "#64bae2",
+      "brand_text": "#111827",
+      "logo_url": "https://cdn.example.com/team-puzzle/logo.png",
+      "cta_label": "Book a session",
+      "cta_url": "https://team-puzzle.example.com/book",
+      "report_cover_tagline": "Unlock your team’s unique rhythm.",
+      "report_disclaimer": "For guidance only; not a clinical assessment.",
+      "report_font_family": "Inter, sans-serif",
+      "report_font_size": "14px",
+      "report_layout_style": "modern",
+      "watermark": "https://cdn.example.com/team-puzzle/watermark.png"
+    },
+    {
+      "slug": "competency-coach",
+      "name": "Competency Coach",
+      "brand_name": "Competency Coach",
+      "brand_primary": "#0e7490",
+      "brand_secondary": "#164e63",
+      "brand_accent": "#22d3ee",
+      "brand_text": "#0b1324",
+      "logo_url": "https://cdn.example.com/competency-coach/logo.png",
+      "cta_label": "Book a discovery call",
+      "cta_url": "https://competencycoach.example.com/discovery",
+      "report_cover_tagline": "Elevate capability through clarity.",
+      "report_disclaimer": "Internal professional development tool.",
+      "report_font_family": "Inter, sans-serif",
+      "report_font_size": "14px",
+      "report_layout_style": "modern",
+      "watermark": "https://cdn.example.com/competency-coach/watermark.png"
+    }
+  ]
+  

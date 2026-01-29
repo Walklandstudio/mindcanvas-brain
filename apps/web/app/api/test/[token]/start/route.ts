@@ -24,6 +24,8 @@ type StartBody = {
   email?: string | null;
   // Optional — anything you want to store against the taker row
   meta?: Record<string, unknown> | null;
+  // NEW — whether the taker explicitly agreed to data use
+  dataConsent?: boolean | null;
 };
 
 function getAdminClient() {
@@ -70,11 +72,14 @@ export async function POST(
     } catch {
       // no body supplied is fine
     }
+
     const email =
       typeof body.email === "string" && body.email.trim().length > 0
         ? body.email.trim().toLowerCase()
         : null;
     const meta = body.meta ?? null;
+    const dataConsent = body.dataConsent === true; // normalised boolean
+    const nowIso = new Date().toISOString();
 
     // 1) Look up the link by token
     const { data: link, error: linkErr } = await supabase
@@ -173,7 +178,6 @@ export async function POST(
     // Strategy:
     //  - If email is provided: upsert on (org_id, test_id, email)
     //  - If no email: insert a new row each time (no unique clash)
-    const nowIso = new Date().toISOString();
 
     let takerId: string | null = null;
     let newlyCreated = false;
@@ -202,25 +206,41 @@ export async function POST(
       if (existing?.id) {
         takerId = existing.id;
         // Optionally bump status to 'started' if previously not started
-        if (existing.status !== "started") {
-          await supabase
-            .from("test_takers")
-            .update({ status: "started", started_at: nowIso, link_token: token })
-            .eq("id", takerId);
+        const updatePayload: Record<string, unknown> = {
+          status: "started",
+          started_at: nowIso,
+          link_token: token,
+        };
+
+        if (dataConsent) {
+          updatePayload.data_consent = true;
+          updatePayload.data_consent_at = nowIso;
         }
+
+        await supabase
+          .from("test_takers")
+          .update(updatePayload)
+          .eq("id", takerId);
       } else {
         // Insert new
+        const insertPayload: Record<string, unknown> = {
+          org_id: link.org_id,
+          test_id: link.test_id,
+          email,
+          status: "started",
+          started_at: nowIso,
+          link_token: token, // If you store which link was used
+          meta,
+        };
+
+        if (dataConsent) {
+          insertPayload.data_consent = true;
+          insertPayload.data_consent_at = nowIso;
+        }
+
         const { data: inserted, error: insErr } = await supabase
           .from("test_takers")
-          .insert({
-            org_id: link.org_id,
-            test_id: link.test_id,
-            email,
-            status: "started",
-            started_at: nowIso,
-            link_token: token, // If you store which link was used
-            meta,
-          })
+          .insert(insertPayload)
           .select("id")
           .maybeSingle();
 
@@ -255,17 +275,24 @@ export async function POST(
       }
     } else {
       // No email path — always insert a fresh row
+      const insertPayload: Record<string, unknown> = {
+        org_id: link.org_id,
+        test_id: link.test_id,
+        email: null, // keep null explicit for the unique constraint to ignore
+        status: "started",
+        started_at: nowIso,
+        link_token: token,
+        meta,
+      };
+
+      if (dataConsent) {
+        insertPayload.data_consent = true;
+        insertPayload.data_consent_at = nowIso;
+      }
+
       const { data: inserted, error: insErr } = await supabase
         .from("test_takers")
-        .insert({
-          org_id: link.org_id,
-          test_id: link.test_id,
-          email: null, // keep null explicit for the unique constraint to ignore
-          status: "started",
-          started_at: nowIso,
-          link_token: token,
-          meta,
-        })
+        .insert(insertPayload)
         .select("id")
         .maybeSingle();
 
@@ -333,3 +360,4 @@ export async function POST(
     );
   }
 }
+

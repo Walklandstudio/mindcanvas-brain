@@ -1,3 +1,2 @@
-export const flags = {
-  dashboard: process.env.NEXT_PUBLIC_FEATURE_DASHBOARD === '1',
-};
+export const enableDarkGrid =
+  process.env.NEXT_PUBLIC_ENABLE_DARKGRID === "1";

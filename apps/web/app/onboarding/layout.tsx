@@ -1,3 +1,4 @@
+// apps/web/app/onboarding/layout.tsx
 // Server layout that wraps all /onboarding/* pages
 import Link from "next/link";
 
@@ -7,12 +8,14 @@ type Onboarding = {
   goals?: Record<string, any>;
 };
 
+const CREATE_ACCOUNT_URL =
+  "https://profiletest.ai/order-qsc?utm_source=profiletest.app&utm_medium=organic&utm_campaign=none&utm_term=clicked_create_account";
+
 async function loadOnboarding(): Promise<Onboarding> {
   // Works both locally and on Vercel; falls back to relative
-  const base =
-    process.env.NEXT_PUBLIC_VERCEL_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : "";
+  const base = process.env.NEXT_PUBLIC_VERCEL_URL
+    ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+    : "";
   try {
     const r = await fetch(`${base}/api/onboarding`, { cache: "no-store" });
     if (!r.ok) return {};
@@ -25,14 +28,16 @@ async function loadOnboarding(): Promise<Onboarding> {
 
 export default async function OnboardingLayout({
   children,
-}: { children: React.ReactNode }) {
+}: {
+  children: React.ReactNode;
+}) {
   const ob = await loadOnboarding();
 
   const steps = [
     {
       key: "create-account",
       label: "Create Account",
-      href: "/onboarding/create-account",
+      href: CREATE_ACCOUNT_URL,
       done: !!(ob.company?.companyName && ob.company?.email),
     },
     {
@@ -54,6 +59,7 @@ export default async function OnboardingLayout({
       done: !!(ob.goals?.primaryGoal || ob.goals?.successMetric),
     },
   ];
+
   const pct = Math.round(
     (steps.filter((s) => s.done).length / steps.length) * 100
   );
