@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getBaseUrl } from "@/lib/baseUrl";
 
 type Test = {
   id: string;
@@ -54,9 +55,8 @@ export default function LinksClient(props: {
   const [loading, setLoading] = useState(false);
   const [loadingLinks, setLoadingLinks] = useState(false);
 
-  const baseUrl =
-    typeof window !== "undefined" ? window.location.origin : "https://mindcanvas.app";
-
+  const baseUrl = getBaseUrl();
+  
   // fetch helpers (uncached)
   const fetchJSON = async (url: string) => {
     const r = await fetch(`${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`);
