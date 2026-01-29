@@ -14,10 +14,11 @@ export const revalidate = 0;
 type AB = "A" | "B" | "C" | "D";
 
 type AnswerShape =
-  | { question_id: string; value: number }
-  | { question_id: string; index: number }
-  | { question_id: string; selected: number }
-  | { question_id: string; selected_index: number };
+  | { question_id: string; value: number | string }
+  | { question_id: string; index: number | string }
+  | { question_id: string; selected: number | string }
+  | { question_id: string; selected_index: number | string }
+  | { question_id: string; text: string };
 
 type MapEntry = { points: number; profile: string };
 
@@ -25,6 +26,16 @@ type QuestionMapRow = {
   id: string;
   profile_map: MapEntry[] | null;
   // Some orgs may store scoring here instead of profile_map
+  weights: any | null;
+};
+
+type QualQuestionRow = {
+  id: string;
+  idx: number | null;
+  category: string | null;
+  type: string | null;
+  text: string | null;
+  options: any | null;
   weights: any | null;
 };
 
@@ -54,10 +65,9 @@ type TestMeta = {
   orgSlug?: string;
   test?: string;
 
-  // ✅ NEW (recommended): a single string key that points to the JSON in Storage
-  // e.g. "framework.operatingframe.operatingframe_report_framework_v1.json"
+  // Preferred (meta-driven storage framework)
   report_framework_key?: string;
-  report_framework_bucket?: string; // optional override; otherwise defaults
+  report_framework_bucket?: string;
 
   // legacy
   frameworkKey?: string;
@@ -89,6 +99,12 @@ function safeNumber(x: any, d = 0) {
   return Number.isFinite(n) ? n : d;
 }
 
+function safeText(x: any): string {
+  if (typeof x === "string") return x;
+  if (x == null) return "";
+  return String(x);
+}
+
 function toPercentages<T extends string>(totals: Partial<Record<T, number>>): Record<T, number> {
   const vals = Object.values(totals || {}) as number[];
   const sum = vals.reduce((a, b) => a + (Number(b) || 0), 0);
@@ -112,14 +128,22 @@ function profileCodeToAB(pcode: string): AB | null {
 }
 
 function selectedIndex(a: any): number {
-  const v = a?.value != null ? Number(a.value) - 1 : undefined; // 1..N (1-based)
-  const idx =
-    v ??
-    (a?.index != null ? Number(a.index) : undefined) ??
-    (a?.selected != null ? Number(a.selected) : undefined) ??
-    (a?.selected_index != null ? Number(a.selected_index) : undefined);
+  // We allow various shapes; numeric answers should resolve to 0..N-1
+  const raw =
+    a?.value ??
+    a?.index ??
+    a?.selected ??
+    a?.selected_index ??
+    undefined;
 
-  return Math.max(0, safeNumber(idx, 0));
+  const n = Number(raw);
+  // If answer stored as 1..N (radio), convert to 0-based:
+  if (Number.isFinite(n)) {
+    // If it's a "value" field and looks 1-based, shift:
+    if (a?.value != null) return Math.max(0, n - 1);
+    return Math.max(0, n);
+  }
+  return 0;
 }
 
 function coerceMapEntries(x: any): MapEntry[] {
@@ -325,6 +349,55 @@ async function fetchQuestionMaps(test_id: string): Promise<Map<string, QuestionM
   return map;
 }
 
+async function fetchQualQuestions(test_id: string): Promise<QualQuestionRow[]> {
+  const sb = sbAdmin();
+  const q = await sb
+    .from("test_questions")
+    .select("id, idx, category, type, text, options, weights")
+    .eq("test_id", test_id)
+    .eq("category", "qual")
+    .order("idx", { ascending: true });
+
+  if (q.error || !Array.isArray(q.data)) return [];
+  return q.data as QualQuestionRow[];
+}
+
+async function fetchDbLabels(test_id: string): Promise<{
+  freqs: Array<{ code: AB; name: string }>;
+  profiles: Array<{ code: string; name: string; frequency_code?: AB | null }>;
+}> {
+  const sb = sbAdmin();
+
+  const freqsRes = await sb
+    .from("test_frequency_labels")
+    .select("frequency_code, frequency_name")
+    .eq("test_id", test_id);
+
+  const profRes = await sb
+    .from("test_profile_labels")
+    .select("profile_code, profile_name, frequency_code")
+    .eq("test_id", test_id);
+
+  const freqs =
+    Array.isArray(freqsRes.data)
+      ? (freqsRes.data as any[]).map((r) => ({
+          code: String(r.frequency_code || "").toUpperCase() as AB,
+          name: String(r.frequency_name || ""),
+        }))
+      : [];
+
+  const profiles =
+    Array.isArray(profRes.data)
+      ? (profRes.data as any[]).map((r) => ({
+          code: String(r.profile_code || "").toUpperCase(),
+          name: String(r.profile_name || ""),
+          frequency_code: (r.frequency_code ? (String(r.frequency_code).toUpperCase() as AB) : null),
+        }))
+      : [];
+
+  return { freqs, profiles };
+}
+
 async function fetchTestRow(test_id: string): Promise<TestRow | null> {
   const sb = sbAdmin();
   const q = await sb.from("tests").select("id, slug, name, meta").eq("id", test_id).maybeSingle();
@@ -357,21 +430,16 @@ async function downloadFrameworkJSON(bucket: string, path: string): Promise<any 
   }
 }
 
-// ✅ NEW: resolve which storage framework to use (test meta driven)
+// ✅ resolve which storage framework to use (test meta driven)
 function resolveStorageFramework(testMeta: TestMeta | null | undefined) {
   const meta = (testMeta || {}) as any;
 
-  // Preferred: report_framework_key (+ optional bucket)
   const key = typeof meta.report_framework_key === "string" ? meta.report_framework_key.trim() : "";
   const bucketOverride =
     typeof meta.report_framework_bucket === "string" ? meta.report_framework_bucket.trim() : "";
 
   if (key) {
-    const bucket =
-      bucketOverride ||
-      process.env.REPORT_FRAMEWORK_BUCKET ||
-      process.env.FRAMEWORK_BUCKET ||
-      "frameworks"; // sensible default
+    const bucket = bucketOverride || "framework";
     return {
       use: true as const,
       bucket,
@@ -403,7 +471,8 @@ function resolveStorageFramework(testMeta: TestMeta | null | undefined) {
 function pickCommonSections(frameworkJson: any): any[] | null {
   const fw = frameworkJson?.framework || frameworkJson;
   if (fw?.common?.sections && Array.isArray(fw.common.sections)) return fw.common.sections;
-  if (fw?.framework?.common?.sections && Array.isArray(fw.framework.common.sections)) return fw.framework.common.sections;
+  if (fw?.framework?.common?.sections && Array.isArray(fw.framework.common.sections))
+    return fw.framework.common.sections;
   return null;
 }
 
@@ -416,20 +485,17 @@ function findProfileReport(frameworkJson: any, profileCode: string) {
   const fw = frameworkJson?.framework || frameworkJson;
   const pc = String(profileCode || "").toUpperCase();
 
-  // ✅ LEAD v1 schema: profiles: { PROFILE_1: { title, sections } }
   if (fw?.profiles && typeof fw.profiles === "object") {
     const hit = fw.profiles[pc];
     if (hit) return hit;
   }
 
-  // older schema: reports_by_profile
   const reportsByProfile = fw?.reports_by_profile;
   if (reportsByProfile && typeof reportsByProfile === "object") {
     const hit = reportsByProfile[pc];
     if (hit) return hit;
   }
 
-  // older schema: reports list
   const reports = fw?.reports;
   if (reports && typeof reports === "object") {
     for (const v of Object.values(reports)) {
@@ -466,10 +532,9 @@ function enforceOptionA(commonIn: any[], profileIn: any[]) {
 
   const commonIds = new Set(common.map((s) => normaliseSectionId(s?.id)).filter(Boolean));
 
-  // Remove any “common” section accidentally repeated inside the profile list
   const filteredProfile = profile.filter((s) => {
     const id = normaliseSectionId(s?.id);
-    if (!id) return true; // if no id, keep (but your authoring should always include ids)
+    if (!id) return true;
     return !commonIds.has(id);
   });
 
@@ -477,6 +542,62 @@ function enforceOptionA(commonIn: any[], profileIn: any[]) {
     common: dedupeSectionsById(common),
     profile: dedupeSectionsById(filteredProfile),
     removed_overlap_count: profile.length - filteredProfile.length,
+  };
+}
+
+function buildSegmentationSection(
+  qualQs: QualQuestionRow[],
+  answers: AnswerShape[] | null | undefined,
+) {
+  const ansList = Array.isArray(answers) ? answers : [];
+  const ansByQid = new Map<string, any>();
+  for (const a of ansList) {
+    const qid = (a as any)?.question_id;
+    if (qid) ansByQid.set(String(qid), a);
+  }
+
+  const rows: string[] = [];
+
+  for (const q of qualQs) {
+    const w = (q.weights && typeof q.weights === "object") ? q.weights : {};
+    const captureKey = safeText((w as any).capture_key || "").trim() || `S${q.idx ?? ""}`.trim();
+    const questionText = safeText(q.text).trim();
+    const a = ansByQid.get(q.id);
+
+    let answerText = "";
+
+    // text input
+    if (String(q.type || "").toLowerCase() === "text") {
+      answerText =
+        safeText((a as any)?.text) ||
+        safeText((a as any)?.value) ||
+        safeText((a as any)?.answer) ||
+        "";
+    } else {
+      // radio/select -> map to option label
+      const opts = Array.isArray(q.options) ? q.options : [];
+      const sel = selectedIndex(a);
+      const picked = opts[sel];
+      answerText = safeText(picked);
+      if (!answerText && (a as any) != null) {
+        answerText = safeText((a as any)?.value ?? (a as any)?.selected ?? "");
+      }
+    }
+
+    const line = `${captureKey}: ${answerText || "—"}`;
+    // only include if we have any meaningful answer or it’s a text question
+    if (answerText || questionText) rows.push(line);
+  }
+
+  if (rows.length === 0) return null;
+
+  return {
+    id: "segmentation-responses",
+    title: "Your responses",
+    blocks: [
+      { type: "p", text: "These are the answers you provided to the initial questions." },
+      { type: "ul", items: rows },
+    ],
   };
 }
 
@@ -500,7 +621,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const testRow = await fetchTestRow(meta.test_id);
     const testMeta = (testRow?.meta || {}) as TestMeta;
 
-    // ✅ NEW: storage framework is chosen by meta.report_framework_key (preferred) or meta.reportFramework (legacy)
     const storageChoice = resolveStorageFramework(testMeta);
     const useStorageFramework = storageChoice.use;
 
@@ -510,14 +630,12 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     let fw: any = await loadFrameworkBySlug(orgSlug);
     let frameworkSource: "filesystem" | "storage" = "filesystem";
 
-    // If test opts into storage framework, download it
     if (useStorageFramework && storageChoice.bucket && storageChoice.path) {
       const storageFw = await downloadFrameworkJSON(storageChoice.bucket, storageChoice.path);
       if (storageFw) {
         fw = storageFw;
         frameworkSource = "storage";
       } else {
-        // keep filesystem fallback
         console.log("Storage framework missing; falling back to filesystem", {
           bucket: storageChoice.bucket,
           path: storageChoice.path,
@@ -527,21 +645,26 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 
     const look = buildLookups(fw);
 
+    // ✅ NEW: prefer DB labels (these are the source of truth for legacy tests)
+    const dbLabels = await fetchDbLabels(meta.test_id);
+
     const metaFreqs = Array.isArray(testMeta?.frequencies) ? testMeta.frequencies : null;
     const metaProfiles = Array.isArray(testMeta?.profiles) ? testMeta.profiles : null;
 
     const frequency_labels = (["A", "B", "C", "D"] as AB[]).map((code) => {
+      const fromDb = dbLabels.freqs.find((f) => f.code === code)?.name;
       const fromMeta = metaFreqs?.find((f) => f.code === code)?.label;
       const fromLegacy = look.freqByCode.get(code as FrequencyCode)?.name;
-      return { code, name: fromMeta || fromLegacy || `Frequency ${code}` };
+      return { code, name: fromDb || fromMeta || fromLegacy || `Frequency ${code}` };
     });
 
     const profile_labels = Array.from({ length: 8 }).map((_, i) => {
       const n = i + 1;
       const code = `PROFILE_${n}`;
+      const fromDb = dbLabels.profiles.find((p) => p.code === code)?.name;
       const fromMeta = metaProfiles?.find((p) => String(p.code).toUpperCase() === code)?.name;
       const fromLegacy = look.profileByCode.get(code)?.name;
-      return { code, name: fromMeta || fromLegacy || `Profile ${n}` };
+      return { code, name: fromDb || fromMeta || fromLegacy || `Profile ${n}` };
     });
 
     const subRes = await fetchLatestSubmission(takerId, token);
@@ -556,8 +679,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
             takerId,
             token,
             test_id: meta.test_id,
-            note:
-              "No submission matched link_token == token, and no legacy submission with link_token NULL was found for this taker.",
           },
         },
         { status: 404 },
@@ -601,8 +722,14 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       const fixed = enforceOptionA(commonRaw, profileRaw);
       removed_overlap_count = fixed.removed_overlap_count;
 
+      // ✅ NEW: build S1–S5 response section and append to common
+      const qualQs = await fetchQualQuestions(meta.test_id);
+      const segSection = buildSegmentationSection(qualQs, sub.answers_json);
+
+      const commonWithSeg = segSection ? [...fixed.common, segSection] : fixed.common;
+
       sections = {
-        common: fixed.common,
+        common: commonWithSeg,
         profile: fixed.profile,
         report_title: rep?.title || pickReportTitle(fw) || null,
         profile_missing: fixed.profile.length === 0,
@@ -679,11 +806,14 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           computed_from_qmap: comp.used,
           scoring_warning: scoringWarning,
 
-          // ✅ confirms Option A cleanup happened (useful while you transition JSON)
           removed_common_profile_overlap: removed_overlap_count,
+          db_labels: {
+            freq_count: dbLabels.freqs.length,
+            profile_count: dbLabels.profiles.length,
+          },
         },
 
-        version: useStorageFramework ? "portal-v2-storage-meta" : "portal-v1",
+        version: useStorageFramework ? "portal-v2-storage-meta+labels+qual" : "portal-v1",
       },
     });
   } catch (e: any) {
@@ -691,4 +821,5 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
 
