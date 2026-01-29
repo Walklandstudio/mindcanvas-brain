@@ -1,3 +1,4 @@
+//apps/web/app/t/[token]/PublicTestClient.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -14,6 +15,7 @@ type Question = {
 };
 
 type AnswersMap = Record<string, number>;
+type TextAnswersMap = Record<string, string>;
 type Step = 'details' | 'questions';
 
 async function fetchJson(url: string, init?: RequestInit) {
@@ -34,7 +36,21 @@ type SubmitResponse = {
   show_results?: boolean;
   next_steps_url?: string | null;
   hidden_results_message?: string | null;
+
+  // allow unknown keys from backend
+  [k: string]: any;
 };
+
+function isTextQuestion(q?: Question | null) {
+  const t = String(q?.type || '').toLowerCase().trim();
+  return t === 'text' || t === 'textarea' || t === 'longtext';
+}
+
+function safeString(x: any): string {
+  if (typeof x === 'string') return x;
+  if (x == null) return '';
+  return String(x);
+}
 
 export default function PublicTestClient({ token }: { token: string }) {
   const router = useRouter();
@@ -49,6 +65,7 @@ export default function PublicTestClient({ token }: { token: string }) {
 
   const [i, setI] = useState(0);
   const [answers, setAnswers] = useState<AnswersMap>({});
+  const [textAnswers, setTextAnswers] = useState<TextAnswersMap>({});
 
   // details
   const [firstName, setFirstName] = useState('');
@@ -108,12 +125,21 @@ export default function PublicTestClient({ token }: { token: string }) {
         const list: Question[] = Array.isArray(qRes?.questions) ? qRes.questions : [];
         setQuestions(list);
 
-        // 3) Restore local state (answers, details, taker_id)
+        // 3) Restore local state (answers, text answers, details, taker_id)
         if (typeof window !== 'undefined') {
           const savedAns = window.localStorage.getItem(key('answers'));
           if (savedAns) {
             try {
               setAnswers(JSON.parse(savedAns));
+            } catch {
+              // ignore
+            }
+          }
+
+          const savedText = window.localStorage.getItem(key('text_answers'));
+          if (savedText) {
+            try {
+              setTextAnswers(JSON.parse(savedText));
             } catch {
               // ignore
             }
@@ -162,6 +188,13 @@ export default function PublicTestClient({ token }: { token: string }) {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      window.localStorage.setItem(key('text_answers'), JSON.stringify(textAnswers));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textAnswers, token]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
       window.localStorage.setItem(
         key('details'),
         JSON.stringify({
@@ -180,13 +213,21 @@ export default function PublicTestClient({ token }: { token: string }) {
 
   const q = questions[i];
 
+  const isAnswered = (qq: Question) => {
+    if (isTextQuestion(qq)) return (textAnswers[qq.id] || '').trim().length > 0;
+    return Number(answers[qq.id]) >= 1;
+  };
+
   const allAnswered = useMemo(
-    () => questions.length > 0 && questions.every((qq) => Number(answers[qq.id]) >= 1),
-    [questions, answers]
+    () => questions.length > 0 && questions.every((qq) => isAnswered(qq)),
+    [questions, answers, textAnswers]
   );
 
   const setChoice = (qid: string, val: number) =>
     setAnswers((a) => ({ ...a, [qid]: val }));
+
+  const setText = (qid: string, val: string) =>
+    setTextAnswers((a) => ({ ...a, [qid]: val }));
 
   const validateDetails = (): string | null => {
     const fn = firstName.trim();
@@ -252,6 +293,35 @@ export default function PublicTestClient({ token }: { token: string }) {
     }
   };
 
+  function resolveRedirectAndNextSteps(j: SubmitResponse) {
+    // redirect can be named differently depending on route
+    const redirect =
+      safeString(j.redirect).trim() ||
+      safeString((j as any).redirect_url).trim() ||
+      safeString((j as any).redirectUrl).trim() ||
+      '';
+
+    // next steps can also be nested or named differently
+    const nextSteps =
+      safeString(j.next_steps_url).trim() ||
+      safeString((j as any).nextStepsUrl).trim() ||
+      safeString((j as any).next_steps?.url).trim() ||
+      safeString((j as any).link_meta?.next_steps_url).trim() ||
+      safeString((j as any).meta?.next_steps_url).trim() ||
+      safeString((j as any).link?.next_steps_url).trim() ||
+      '';
+
+    // Some backends return show_results + next steps under link meta
+    const showResults =
+      typeof j.show_results === 'boolean'
+        ? j.show_results
+        : typeof (j as any).showResults === 'boolean'
+        ? (j as any).showResults
+        : undefined;
+
+    return { redirect: redirect || null, nextSteps: nextSteps || null, showResults };
+  }
+
   const submit = async () => {
     try {
       setSubmitting(true);
@@ -260,11 +330,20 @@ export default function PublicTestClient({ token }: { token: string }) {
 
       if (!takerId) throw new Error('missing taker_id');
 
-      // send { question_id, selected } (0-based index)
-      const payloadAnswers = Object.entries(answers).map(([question_id, value]) => ({
-        question_id,
-        selected: Number(value) - 1,
-      }));
+      // Build answers_json that supports BOTH choice + text questions.
+      // Choice questions are sent as { selected: 0-based }, text questions as { text }.
+      const payloadAnswers = questions.map((qq) => {
+        if (isTextQuestion(qq)) {
+          return {
+            question_id: qq.id,
+            text: (textAnswers[qq.id] || '').trim(),
+          };
+        }
+        return {
+          question_id: qq.id,
+          selected: Number(answers[qq.id] || 0) - 1, // 0-based
+        };
+      });
 
       const res = await fetch(`/api/public/test/${token}/submit`, {
         method: 'POST',
@@ -278,26 +357,30 @@ export default function PublicTestClient({ token }: { token: string }) {
       // clear local state now that it’s submitted
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(key('answers'));
+        window.localStorage.removeItem(key('text_answers'));
         window.localStorage.removeItem(key('details'));
         // keep taker_id for debugging; you can remove if desired
       }
 
+      const { redirect, nextSteps, showResults } = resolveRedirectAndNextSteps(j);
+
       // 1) Redirect wins (either internal report redirect or external)
-      if (j.redirect) {
-        if (typeof window !== 'undefined') window.location.href = j.redirect;
+      if (redirect) {
+        if (typeof window !== 'undefined') window.location.href = redirect;
         return;
       }
 
       // 2) If results should be hidden, go to next steps or show a message
-      if (j.show_results === false) {
-        const ns = j.next_steps_url || null;
-        if (ns) {
-          if (typeof window !== 'undefined') window.location.href = ns;
+      // Some APIs omit show_results but still send next_steps_url; if nextSteps exists, treat it as intent.
+      if (showResults === false || (showResults === undefined && nextSteps)) {
+        if (nextSteps) {
+          if (typeof window !== 'undefined') window.location.href = nextSteps;
           return;
         }
 
         setCompletedMessage(
           j.hidden_results_message ||
+            (j as any).hiddenResultsMessage ||
             'Thanks — your results have been sent to your organisation. You can close this page.'
         );
         return;
@@ -366,6 +449,8 @@ export default function PublicTestClient({ token }: { token: string }) {
     email.trim().length > 0 &&
     dataConsent &&
     !savingDetails;
+
+  const currentAnswered = q ? isAnswered(q) : false;
 
   return (
     <div className="min-h-screen mc-bg text-white p-6 space-y-6">
@@ -481,9 +566,23 @@ export default function PublicTestClient({ token }: { token: string }) {
                 <span className="ml-2 uppercase text-[11px] px-2 py-0.5 rounded bg-white/10">{q.category}</span>
               )}
             </div>
+
             <div className="text-lg font-medium mb-4">{q.text || `Question ${i + 1}`}</div>
 
-            {Array.isArray(q.options) && q.options.length > 0 ? (
+            {/* ✅ TEXT QUESTION */}
+            {isTextQuestion(q) ? (
+              <div className="space-y-2">
+                <textarea
+                  className="w-full min-h-[140px] rounded-xl border border-white/20 bg-white/5 px-3 py-3 text-white placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-white/20"
+                  placeholder="Type your answer here…"
+                  value={textAnswers[q.id] || ''}
+                  onChange={(e) => setText(q.id, e.target.value)}
+                />
+                <div className="text-xs text-white/60">
+                  {((textAnswers[q.id] || '').trim().length === 0) ? 'Please enter a response to continue.' : null}
+                </div>
+              </div>
+            ) : Array.isArray(q.options) && q.options.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {q.options.map((label: string, idx: number) => {
                   const val = idx + 1;
@@ -533,7 +632,7 @@ export default function PublicTestClient({ token }: { token: string }) {
               <button
                 onClick={() => setI(Math.min(questions.length - 1, i + 1))}
                 className="px-4 py-2 rounded-xl bg-sky-700 hover:bg-sky-600 disabled:opacity-60"
-                disabled={!answers[q.id]}
+                disabled={!currentAnswered}
               >
                 Next
               </button>
@@ -552,6 +651,7 @@ export default function PublicTestClient({ token }: { token: string }) {
     </div>
   );
 }
+
 
 
 
