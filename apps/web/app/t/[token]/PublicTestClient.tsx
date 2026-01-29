@@ -1,4 +1,4 @@
-//apps/web/app/t/[token]/PublicTestClient.tsx
+// apps/web/app/t/[token]/PublicTestClient.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -223,11 +223,8 @@ export default function PublicTestClient({ token }: { token: string }) {
     [questions, answers, textAnswers]
   );
 
-  const setChoice = (qid: string, val: number) =>
-    setAnswers((a) => ({ ...a, [qid]: val }));
-
-  const setText = (qid: string, val: string) =>
-    setTextAnswers((a) => ({ ...a, [qid]: val }));
+  const setChoice = (qid: string, val: number) => setAnswers((a) => ({ ...a, [qid]: val }));
+  const setText = (qid: string, val: string) => setTextAnswers((a) => ({ ...a, [qid]: val }));
 
   const validateDetails = (): string | null => {
     const fn = firstName.trim();
@@ -364,30 +361,30 @@ export default function PublicTestClient({ token }: { token: string }) {
 
       const { redirect, nextSteps, showResults } = resolveRedirectAndNextSteps(j);
 
-      // 1) Redirect wins (either internal report redirect or external)
+      // ✅ NEW BEHAVIOUR:
+      // If results are visible (default), ALWAYS go to the report/result page.
+      // Redirect/Next-steps should only happen when show_results=false.
+      if (showResults !== false) {
+        router.replace(`/t/${token}/result?tid=${encodeURIComponent(takerId)}`);
+        return;
+      }
+
+      // Results hidden: redirect wins, then next steps, then completion message
       if (redirect) {
         if (typeof window !== 'undefined') window.location.href = redirect;
         return;
       }
 
-      // 2) If results should be hidden, go to next steps or show a message
-      // Some APIs omit show_results but still send next_steps_url; if nextSteps exists, treat it as intent.
-      if (showResults === false || (showResults === undefined && nextSteps)) {
-        if (nextSteps) {
-          if (typeof window !== 'undefined') window.location.href = nextSteps;
-          return;
-        }
-
-        setCompletedMessage(
-          j.hidden_results_message ||
-            (j as any).hiddenResultsMessage ||
-            'Thanks — your results have been sent to your organisation. You can close this page.'
-        );
+      if (nextSteps) {
+        if (typeof window !== 'undefined') window.location.href = nextSteps;
         return;
       }
 
-      // 3) Default behavior: show result screen
-      router.replace(`/t/${token}/result?tid=${encodeURIComponent(takerId)}`);
+      setCompletedMessage(
+        j.hidden_results_message ||
+          (j as any).hiddenResultsMessage ||
+          'Thanks — your results have been sent to your organisation. You can close this page.'
+      );
     } catch (e: any) {
       setError(String(e?.message || e));
     } finally {
@@ -500,15 +497,27 @@ export default function PublicTestClient({ token }: { token: string }) {
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Phone (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
             </label>
             <label className="block">
               <span className="text-sm text-white/80">Company (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={company} onChange={(e) => setCompany(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+              />
             </label>
             <label className="block md:col-span-2">
               <span className="text-sm text-white/80">Role / Department (optional)</span>
-              <input className="w-full rounded-xl bg-white text-black p-3 mt-1" value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} />
+              <input
+                className="w-full rounded-xl bg-white text-black p-3 mt-1"
+                value={roleTitle}
+                onChange={(e) => setRoleTitle(e.target.value)}
+              />
             </label>
           </div>
 
@@ -523,15 +532,27 @@ export default function PublicTestClient({ token }: { token: string }) {
                   setDetailsError(null);
                 }}
               />
-              <span className="text-sm text-white/90">I agree that my responses can be used to build my profile and report.</span>
+              <span className="text-sm text-white/90">
+                I agree that my responses can be used to build my profile and report.
+              </span>
             </label>
             <p className="text-xs text-white/70">
               You can read our{' '}
-              <a href="https://profiletest.ai/privacy-policy" target="_blank" className="underline" rel="noopener noreferrer">
+              <a
+                href="https://profiletest.ai/privacy-policy"
+                target="_blank"
+                className="underline"
+                rel="noopener noreferrer"
+              >
                 Privacy Policy
               </a>{' '}
               and{' '}
-              <a href="https://profiletest.ai/terms--conditions" target="_blank" className="underline" rel="noopener noreferrer">
+              <a
+                href="https://profiletest.ai/terms--conditions"
+                target="_blank"
+                className="underline"
+                rel="noopener noreferrer"
+              >
                 Terms &amp; Conditions
               </a>{' '}
               for more details on how we handle your data.
@@ -554,7 +575,8 @@ export default function PublicTestClient({ token }: { token: string }) {
         <div className="rounded-2xl bg-white/5 border border-white/10 p-5 max-w-2xl">
           <div className="text-lg font-semibold mb-2">This test isn&apos;t configured with any questions yet</div>
           <p className="text-sm text-white/70">
-            The link is valid, but no question set was found for this test. If you believe this is an error, please contact the organiser or MindCanvas support so they can add questions to this assessment.
+            The link is valid, but no question set was found for this test. If you believe this is an error, please
+            contact the organiser or MindCanvas support so they can add questions to this assessment.
           </p>
         </div>
       ) : (
@@ -579,7 +601,7 @@ export default function PublicTestClient({ token }: { token: string }) {
                   onChange={(e) => setText(q.id, e.target.value)}
                 />
                 <div className="text-xs text-white/60">
-                  {((textAnswers[q.id] || '').trim().length === 0) ? 'Please enter a response to continue.' : null}
+                  {(textAnswers[q.id] || '').trim().length === 0 ? 'Please enter a response to continue.' : null}
                 </div>
               </div>
             ) : Array.isArray(q.options) && q.options.length > 0 ? (
@@ -651,8 +673,3 @@ export default function PublicTestClient({ token }: { token: string }) {
     </div>
   );
 }
-
-
-
-
-
