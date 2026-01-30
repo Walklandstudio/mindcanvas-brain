@@ -372,10 +372,10 @@ export default async function TakerDetail({
     // ✅ QSC: always open the public Strategic report
     reportUrl = qscStrategicUrl;
   } else if (taker.link_token) {
-    // Non-QSC: open normal /t/... report
+    // ✅ Non-QSC: open the RESULT viewer (portal should NOT be subject to redirect_url/show_results)
     reportUrl = `/t/${encodeURIComponent(
       taker.link_token
-    )}/report?tid=${encodeURIComponent(taker.id)}`;
+    )}/result?tid=${encodeURIComponent(taker.id)}`;
   } else if (taker.last_result_url) {
     reportUrl = String(taker.last_result_url);
   }

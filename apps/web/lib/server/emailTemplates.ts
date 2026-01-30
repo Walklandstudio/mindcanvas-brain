@@ -61,14 +61,6 @@ Your personalised report is now ready.
   </a>
 </p>
 
-<p>
-If the button above does not work, copy and paste the link below into your browser:
-</p>
-
-<p style="word-break:break-all;">
-  {{report_link}}
-</p>
-
 <p style="margin-top:32px;">
 Regards,<br />
 <strong>{{org_name}}</strong>
@@ -111,14 +103,6 @@ Your personalised report is now ready.
   </a>
 </p>
 
-<p>
-If the button above does not work, copy and paste the link below into your browser:
-</p>
-
-<p style="word-break:break-all;">
-  {{report_link}}
-</p>
-
 <p style="margin-top:32px;">
 Regards,<br />
 <strong>{{org_name}}</strong>
@@ -158,14 +142,6 @@ As requested, here is your link to access the results for
   >
     View your report
   </a>
-</p>
-
-<p>
-If the button above does not work, copy and paste the link below into your browser:
-</p>
-
-<p style="word-break:break-all;">
-  {{report_link}}
 </p>
 
 <p style="margin-top:32px;">
@@ -378,5 +354,6 @@ export async function sendTemplatedEmail(args: {
     return { ok: false, error: "unexpected_error" };
   }
 }
+
 
 
