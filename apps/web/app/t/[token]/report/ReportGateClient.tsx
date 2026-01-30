@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import AppBackground from "@/components/ui/AppBackground";
 
 import LegacyReportClient from "./LegacyReportClient"; // ✅ LEAD storage renderer
@@ -16,11 +17,20 @@ type GateAPI = {
     debug?: { useStorageFramework?: boolean };
     version?: string;
   };
+  // some report routes also return these:
+  redirect?: string | null;
+  show_results?: boolean;
+  next_steps_url?: string | null;
+  hidden_results_message?: string | null;
+
   error?: string;
 };
 
 export default function ReportGateClient(props: { token: string; tid: string }) {
   const { token, tid } = props;
+
+  const searchParams = useSearchParams();
+  const src = (searchParams?.get("src") || "").trim(); // e.g. "portal"
 
   const [mode, setMode] = useState<GateMode>("loading");
   const [err, setErr] = useState<string | null>(null);
@@ -31,6 +41,7 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
     version?: string;
     useStorageFramework?: boolean;
     decided?: "storage" | "legacy";
+    src?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -48,12 +59,12 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
           return;
         }
 
-        // IMPORTANT:
-        // Use relative URL so we don't depend on base-url resolution,
-        // and we avoid any environment mismatch.
-        const url = `/api/public/test/${encodeURIComponent(
+        const baseUrl = `/api/public/test/${encodeURIComponent(
           token
         )}/report?tid=${encodeURIComponent(tid)}`;
+
+        // ✅ Forward portal signal (so backend can bypass redirect/show_results rules)
+        const url = src ? `${baseUrl}&src=${encodeURIComponent(src)}` : baseUrl;
 
         const res = await fetch(url, { cache: "no-store" });
         const ct = res.headers.get("content-type") ?? "";
@@ -69,6 +80,22 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
 
         if (!res.ok || json.ok === false) {
           throw new Error(json.error || `HTTP ${res.status}`);
+        }
+
+        // ✅ Optional safety:
+        // If API is telling public users to redirect (show_results=false),
+        // respect it for public viewers, but NEVER for portal viewers.
+        if (src !== "portal") {
+          const redirectUrl =
+            (typeof json.redirect === "string" ? json.redirect : "") ||
+            (typeof json.next_steps_url === "string" ? json.next_steps_url : "");
+
+          if (json.show_results === false && redirectUrl) {
+            if (!cancelled && typeof window !== "undefined") {
+              window.location.href = redirectUrl;
+              return;
+            }
+          }
         }
 
         // ✅ FIX:
@@ -92,6 +119,7 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
           version: json.data?.version,
           useStorageFramework: json.data?.debug?.useStorageFramework,
           decided: useStorage ? "storage" : "legacy",
+          src,
         });
 
         setMode(useStorage ? "storage" : "legacy");
@@ -106,7 +134,7 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
     return () => {
       cancelled = true;
     };
-  }, [token, tid]);
+  }, [token, tid, src]);
 
   if (mode === "loading") {
     return (
@@ -134,6 +162,7 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
             <div className="mt-2 space-y-2">
               <div>Error: {err ?? "Unknown"}</div>
               {decisionDebug?.url ? <div>URL: {decisionDebug.url}</div> : null}
+              {decisionDebug?.src ? <div>src: {decisionDebug.src}</div> : null}
             </div>
           </details>
         </main>
@@ -149,3 +178,4 @@ export default function ReportGateClient(props: { token: string; tid: string }) 
   // ✅ Team Puzzle / Competency Coach / base legacy renderer
   return <LegacyOrgReportClient token={token} tid={tid} />;
 }
+

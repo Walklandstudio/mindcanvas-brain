@@ -251,6 +251,33 @@ function readSavedTotals(totals: any) {
   };
 }
 
+// ✅ NEW: Portal bypass helper
+function sanitizeLinkMetaForPortal(linkMeta: any) {
+  const link = linkMeta && typeof linkMeta === "object" ? { ...linkMeta } : {};
+
+  // These are the fields most likely to drive redirect behavior in clients.
+  // We strip them / neutralize them for portal viewers.
+  if ("redirect_url" in link) link.redirect_url = null;
+  if ("redirectUrl" in link) link.redirectUrl = null;
+
+  if ("next_steps_url" in link) link.next_steps_url = null;
+  if ("nextStepsUrl" in link) link.nextStepsUrl = null;
+
+  if ("show_results" in link) link.show_results = true;
+  if ("showResults" in link) link.showResults = true;
+
+  // some orgs store this under meta too
+  if (link?.meta && typeof link.meta === "object") {
+    const m = { ...link.meta };
+    if ("redirect_url" in m) m.redirect_url = null;
+    if ("next_steps_url" in m) m.next_steps_url = null;
+    if ("show_results" in m) m.show_results = true;
+    link.meta = m;
+  }
+
+  return link;
+}
+
 // --- Supabase client (admin) ---
 function sbAdmin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -612,6 +639,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     const token = params.token;
     const takerId = searchParams.get("tid");
 
+    // ✅ NEW: portal bypass flag
+    const src = (searchParams.get("src") || "").trim().toLowerCase();
+    const isPortalViewer = src === "portal";
+
     if (!takerId) {
       return NextResponse.json({ ok: false, error: "Missing tid" }, { status: 400 });
     }
@@ -742,7 +773,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       };
     }
 
-    const linkMeta = meta.link_meta || null;
+    const rawLinkMeta = meta.link_meta || null;
+
+    // ✅ NEW: For portal viewers, strip redirect/show_results control flags
+    const linkMeta = isPortalViewer ? sanitizeLinkMetaForPortal(rawLinkMeta) : rawLinkMeta;
 
     const answersCount = Array.isArray(sub.answers_json) ? sub.answers_json.length : 0;
     const computedSum = Object.values(profileTotals || {}).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -769,6 +803,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
           last_name: taker?.last_name ?? null,
         },
 
+        // ✅ this is what Legacy clients use to decide redirects:
         link: linkMeta || undefined,
 
         frequency_labels,
@@ -814,6 +849,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
             freq_count: dbLabels.freqs.length,
             profile_count: dbLabels.profiles.length,
           },
+
+          // ✅ NEW: confirm bypass status in debug
+          src,
+          isPortalViewer,
         },
 
         version: useStorageFramework ? "portal-v2-storage-meta+labels+qual" : "portal-v1",
@@ -824,5 +863,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
+
 
 
