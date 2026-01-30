@@ -385,7 +385,7 @@ if (isQsc) {
     // ✅ Non-QSC: open the RESULT viewer (portal should NOT be subject to redirect_url/show_results)
     reportUrl = `/t/${encodeURIComponent(
       taker.link_token
-    )}/result?tid=${encodeURIComponent(taker.id)}`;
+    )}/report?tid=${encodeURIComponent(taker.id)}&src=portal`;
   } else if (taker.last_result_url) {
     reportUrl = String(taker.last_result_url);
   }
