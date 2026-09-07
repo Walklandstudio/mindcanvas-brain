@@ -43,6 +43,34 @@ const GAR_TONE = {
   RED: { colour: FIGMA.red, bg: "#f1ddd6", risk: "HIGH RISK" },
 } as const;
 
+function formatMoney(value: number, currency: string): string {
+  const code = (currency || "USD").trim().toUpperCase();
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `${code} ${Math.round(value).toLocaleString()}`;
+  }
+}
+
+function formatCustomerValues(
+  low: number | null,
+  high: number | null,
+): string | null {
+  if (low == null || high == null) return null;
+
+  const format = (value: number) =>
+    Number.isInteger(value) ? String(value) : String(value);
+
+  return low === high
+    ? format(low)
+    : `${format(low)}-${format(high)}`;
+}
+
 const PILLAR_ICON: Record<InsiderPillarSnapshot["key"], string> = {
   identity: "/inevitable-standard/snapshot/identitiy.png",
   positioning: "/inevitable-standard/snapshot/positioning.png",
@@ -352,7 +380,12 @@ export default function InsiderInsightsReportClient({
   backHref: string;
   nextStepsHref: string | null;
 }) {
-  const { meta, snapshot } = report;
+  const {
+    meta,
+    snapshot,
+    commercialContext,
+    revenueInStructure,
+  } = report;
   const [activeSection, setActiveSection] = useState<string>("snapshot");
 
   const indexItems = useMemo(
@@ -638,6 +671,203 @@ export default function InsiderInsightsReportClient({
                 {snapshot.priorityOrder.map((item) => item.label).join(" → ")}
               </QuickReferenceRow>
             </dl>
+
+            <div className="mt-7 grid gap-4 xl:grid-cols-2 print:grid-cols-2">
+              <div
+                className="rounded-[12px] border bg-white p-6"
+                style={{ borderColor: FIGMA.border }}
+              >
+                <p
+                  className="text-[9px] font-bold uppercase tracking-[0.16em]"
+                  style={{ color: FIGMA.gold }}
+                >
+                  Commercial context - {commercialContext.timeframeMonths}-month view
+                </p>
+
+                <h3
+                  className="mt-2 text-[23px]"
+                  style={{ ...serif, color: FIGMA.navy }}
+                >
+                  Commercial baseline
+                </h3>
+
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3 print:grid-cols-3">
+                  <div className="rounded-[9px] bg-[#f8f6f1] p-4">
+                    <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#736c5c]">
+                      Revenue baseline
+                    </p>
+                    <p className="mt-2 text-[17px] font-semibold text-[#182238]">
+                      {commercialContext.revenueBand
+                        ? `${commercialContext.currency} ${commercialContext.revenueBand}`
+                        : "—"}
+                    </p>
+                    <p className="mt-1 text-[9px] leading-4 text-[#66727d]">
+                      Reported for the last {commercialContext.timeframeMonths} months
+                    </p>
+                  </div>
+
+                  <div className="rounded-[9px] bg-[#f8f6f1] p-4">
+                    <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#736c5c]">
+                      Buying opportunities
+                    </p>
+                    <p className="mt-2 text-[17px] font-semibold text-[#182238]">
+                      {commercialContext.monthlyOpportunityBand
+                        ? `${commercialContext.monthlyOpportunityBand} / month`
+                        : "—"}
+                    </p>
+                    <p className="mt-1 text-[9px] leading-4 text-[#66727d]">
+                      Meaningful opportunities reaching a buying point
+                    </p>
+                  </div>
+
+                  <div className="rounded-[9px] bg-[#f8f6f1] p-4">
+                    <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#736c5c]">
+                      Typical customer value
+                    </p>
+                    <p className="mt-2 text-[17px] font-semibold text-[#182238]">
+                      {commercialContext.initialCustomerValueBand
+                        ? `${commercialContext.currency} ${commercialContext.initialCustomerValueBand}`
+                        : "—"}
+                    </p>
+                    <p className="mt-1 text-[9px] leading-4 text-[#66727d]">
+                      Initial value when a customer first buys
+                    </p>
+                  </div>
+                </div>
+
+                {commercialContext.twelveMonthPriority ? (
+                  <div
+                    className="mt-4 rounded-[9px] border-l-4 px-5 py-4"
+                    style={{
+                      borderColor: FIGMA.gold,
+                      backgroundColor: FIGMA.ivory,
+                    }}
+                  >
+                    <p
+                      className="text-[8px] font-bold uppercase tracking-[0.12em]"
+                      style={{ color: FIGMA.gold }}
+                    >
+                      Founder priority - next {commercialContext.timeframeMonths} months
+                    </p>
+                    <p className="mt-2 text-[13px] leading-5 text-[#33445a]">
+                      {commercialContext.twelveMonthPriority}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              <div
+                className="rounded-[12px] border p-6"
+                style={{
+                  borderColor: "#8a7952",
+                  backgroundColor: FIGMA.ivory,
+                }}
+              >
+                <p
+                  className="text-[9px] font-bold uppercase tracking-[0.16em]"
+                  style={{ color: FIGMA.gold }}
+                >
+                  Revenue in your structure
+                </p>
+
+                <h3
+                  className="mt-2 text-[23px]"
+                  style={{ ...serif, color: FIGMA.navy }}
+                >
+                  Modelled commercial value - 12-month view
+                </h3>
+
+                {revenueInStructure ? (
+                  <>
+                    {revenueInStructure.needsRevenueConfirmation ? (
+                      <div className="mt-5 rounded-[9px] bg-[#f1e5cc] p-5">
+                        <p className="text-[17px] font-semibold text-[#8a6426]">
+                          Revenue confirmation needed
+                        </p>
+                        <p className="mt-2 text-[11px] leading-5 text-[#66727d]">
+                          The reported revenue band is open-ended. Confirm an
+                          approximate revenue figure before using a modelled
+                          commercial-value range.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <p
+                          className="mt-5 text-[32px] leading-tight sm:text-[36px]"
+                          style={{ ...serif, color: FIGMA.navy }}
+                        >
+                          {formatMoney(
+                            revenueInStructure.rangeLow,
+                            revenueInStructure.currency,
+                          )}{" "}
+                          -{" "}
+                          {formatMoney(
+                            revenueInStructure.rangeHigh,
+                            revenueInStructure.currency,
+                          )}
+                        </p>
+
+                        <p className="mt-2 text-[11px] leading-5 text-[#66727d]">
+                          Potential commercial value associated with the current
+                          structure over a {revenueInStructure.timeframeMonths}-month
+                          view.
+                        </p>
+                      </>
+                    )}
+
+                    <div className="mt-5 grid grid-cols-2 gap-3">
+                      <div className="rounded-[9px] bg-white p-4">
+                        <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#736c5c]">
+                          Primary constraint
+                        </p>
+                        <p className="mt-2 text-[14px] font-semibold text-[#182238]">
+                          {revenueInStructure.primaryConstraintLabel || "—"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-[9px] bg-white p-4">
+                        <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#736c5c]">
+                          Confidence
+                        </p>
+                        <p className="mt-2 text-[14px] font-semibold text-[#182238]">
+                          {revenueInStructure.confidenceLabel || "—"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {formatCustomerValues(
+                      revenueInStructure.customerValuesLow,
+                      revenueInStructure.customerValuesHigh,
+                    ) ? (
+                      <div className="mt-3 rounded-[9px] bg-white p-4">
+                        <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#736c5c]">
+                          Equivalent scale
+                        </p>
+                        <p className="mt-2 text-[14px] font-semibold text-[#182238]">
+                          Approximately{" "}
+                          {formatCustomerValues(
+                            revenueInStructure.customerValuesLow,
+                            revenueInStructure.customerValuesHigh,
+                          )}{" "}
+                          typical customer values
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {revenueInStructure.disclaimer ? (
+                      <p className="mt-4 text-[8px] leading-[13px] text-[#8a8f95]">
+                        {revenueInStructure.disclaimer}
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="mt-5 text-[12px] leading-5 text-[#66727d]">
+                    A modelled commercial-value range is not available for this result.
+                    The commercial baseline above can still be used in the conversation.
+                  </p>
+                )}
+              </div>
+            </div>
 
             <div className="mt-7">
               <PillarStrip pillars={snapshot.pillars} />

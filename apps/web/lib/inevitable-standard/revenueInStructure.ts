@@ -114,6 +114,9 @@ export const RRE_TRANSLATION_MIN_CUSTOMER_VALUES = 1;
 /** Currency used when the submission carries none. */
 export const RRE_DEFAULT_CURRENCY = "USD";
 
+/** Fixed commercial timeframe used by C1 and the RRE model. */
+export const RRE_TIMEFRAME_MONTHS = 12 as const;
+
 /**
  * Standard disclaimer (Revenue Module section 6). Framing is deliberately
  * "scale and location of commercial value", never "lost" or "guaranteed".
@@ -140,6 +143,7 @@ export type InevitableStandardRevenueInStructureResult = {
   range_low: number;
   range_high: number;
   currency: string;
+  timeframe_months: typeof RRE_TIMEFRAME_MONTHS;
   severity_factor: number;
   opportunity_factor: number;
   /** True whenever C1 is the 10m+ band (spec: figure should be confirmed). */
@@ -286,6 +290,7 @@ export function calculateInevitableStandardRevenueInStructure(
     range_low: rangeLow,
     range_high: rangeHigh,
     currency,
+    timeframe_months: RRE_TIMEFRAME_MONTHS,
     severity_factor: roundFactor(severityFactor),
     opportunity_factor: roundFactor(opportunityFactor),
     needs_revenue_confirmation: needsRevenueConfirmation,

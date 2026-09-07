@@ -47,11 +47,13 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
     const report = buildInsiderInsightsReport({ score: fakeScore() })!;
     expect(Object.keys(report).sort()).toEqual(
       [
+        "commercialContext",
         "foundersWords",
         "meta",
         "objective",
         "predictiveSignals",
         "qaFlags",
+        "revenueInStructure",
         "sequenceCaution",
         "sequenceIntro",
         "snapshot",
@@ -74,7 +76,9 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
   });
 
   it("snapshot carries the live constraint and strongest-pillar evidence", () => {
-    const { snapshot, meta } = buildInsiderInsightsReport({ score: fakeScore() })!;
+    const { snapshot, meta } = buildInsiderInsightsReport({
+      score: fakeScore(),
+    })!;
     expect(meta.approachLabel).toBe("Future-Led");
     expect(snapshot.primaryConstraint?.label).toBe("Sales");
     expect(snapshot.primaryConstraint?.gar).toBe("RED");
@@ -84,7 +88,10 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
   });
 
   it("renders a False Constraint only when the evidence rule matched", () => {
-    expect(buildInsiderInsightsReport({ score: fakeScore() })!.snapshot.falseConstraint).toBeNull();
+    expect(
+      buildInsiderInsightsReport({ score: fakeScore() })!.snapshot
+        .falseConstraint,
+    ).toBeNull();
 
     const report = buildInsiderInsightsReport({
       score: fakeScore({
@@ -102,7 +109,9 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
       }),
     })!;
 
-    expect(report.snapshot.falseConstraint?.label.toLowerCase()).toContain("leads");
+    expect(report.snapshot.falseConstraint?.label.toLowerCase()).toContain(
+      "leads",
+    );
     expect(report.snapshot.falseConstraint?.note).toBeTruthy();
   });
 
@@ -133,7 +142,10 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
           },
         }),
       })!;
-      expect(report.predictiveSignals.map((row) => row.label), dominant).toEqual(expected);
+      expect(
+        report.predictiveSignals.map((row) => row.label),
+        dominant,
+      ).toEqual(expected);
     }
   });
 
@@ -164,8 +176,13 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
     })!;
 
     const greenSales = selectPillarState("B", "sales", "GREEN")!;
-    const row = report.predictiveSignals.find((item) => item.label === "How they buy")!;
-    const evidenceLead = (greenSales.howThisAffectsBuying ?? "").replace(/\s+/g, " ").trim().slice(0, 45);
+    const row = report.predictiveSignals.find(
+      (item) => item.label === "How they buy",
+    )!;
+    const evidenceLead = (greenSales.howThisAffectsBuying ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 45);
     expect(evidenceLead.length).toBeGreaterThan(15);
     expect(row.text).toContain(evidenceLead);
   });
@@ -182,8 +199,13 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
     })!;
 
     const redSales = selectPillarState("B", "sales", "RED")!;
-    const row = report.predictiveSignals.find((item) => item.label === "How they buy")!;
-    const evidenceLead = (redSales.howThisAffectsBuying ?? "").replace(/\s+/g, " ").trim().slice(0, 45);
+    const row = report.predictiveSignals.find(
+      (item) => item.label === "How they buy",
+    )!;
+    const evidenceLead = (redSales.howThisAffectsBuying ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 45);
     expect(row.text).toContain(evidenceLead);
   });
 
@@ -204,7 +226,9 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
       }),
     })!;
 
-    const q13 = report.foundersWords.find((item) => item.questionNumber === 13)!;
+    const q13 = report.foundersWords.find(
+      (item) => item.questionNumber === 13,
+    )!;
     expect(q13.evidencePillars.map((pillar) => pillar.key)).toEqual([
       "positioning",
       "offer",
@@ -224,7 +248,9 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
 
   it("Q29 is the answer-level risk surface, matching the approved Figma treatment", () => {
     const report = buildInsiderInsightsReport({ score: fakeScore() })!;
-    const q29 = report.foundersWords.find((item) => item.questionNumber === 29)!;
+    const q29 = report.foundersWords.find(
+      (item) => item.questionNumber === 29,
+    )!;
     expect(q29.evidencePillars).toHaveLength(0);
     expect(q29.tags).toHaveLength(0);
   });
@@ -244,7 +270,9 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
       }),
     })!;
 
-    const q29 = report.foundersWords.find((item) => item.questionNumber === 29)!;
+    const q29 = report.foundersWords.find(
+      (item) => item.questionNumber === 29,
+    )!;
     expect(q29.riskSignal).toBeNull();
     expect(report.qaFlags.join(" ")).toContain("too brief");
   });
@@ -279,7 +307,9 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
       }),
     })!;
 
-    const q13 = report.foundersWords.find((item) => item.questionNumber === 13)!;
+    const q13 = report.foundersWords.find(
+      (item) => item.questionNumber === 13,
+    )!;
     expect(q13.tags.map((tag) => tag.kind)).not.toContain("GREEN LEVERAGE");
     expect(report.snapshot.strongestPillar?.gar).toBe("AMBER");
   });
@@ -354,7 +384,12 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
       /\bappendix\s+[a-z]\b/i,
     ];
 
-    for (const primary of ["identity", "sales", "revenue_model", "decision"]) {
+    for (const primary of [
+      "identity",
+      "sales",
+      "revenue_model",
+      "decision",
+    ]) {
       for (const dominant of ["A", "B", "C", "D"]) {
         const report = buildInsiderInsightsReport({
           score: fakeScore({
@@ -365,7 +400,8 @@ describe("buildInsiderInsightsReport — approved five-section playbook", () => 
             },
             constraints: {
               primary_constraint: primary,
-              secondary_constraint: primary === "sales" ? "decision" : "sales",
+              secondary_constraint:
+                primary === "sales" ? "decision" : "sales",
               false_constraint_rule_id: "lead_volume",
               false_constraint: { explanation: "x" },
               priority_fix_order: [],

@@ -42,6 +42,10 @@ describe("The Inevitable Standard revenue model", () => {
 });
 
 describe("calculateInevitableStandardRevenueInStructure", () => {
+  it("carries the fixed 12-month commercial timeframe", () => {
+    expect(calc().timeframe_months).toBe(12);
+  });
+
   it("applies the correct opportunity factor for each primary constraint pillar", () => {
     // Under 100k midpoint = 50000, primary pillar at 40% => severity 0.5.
     const cases: Array<[InevitableStandardPillar, number, number]> = [
