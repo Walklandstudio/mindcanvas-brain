@@ -34,6 +34,7 @@ type CheckoutRequest = {
 
 function getStripeSecretKey(): string {
   const stripeMode = getStripeMode();
+
   const key =
     stripeMode === "live"
       ? process.env.STRIPE_SECRET_KEY
@@ -47,7 +48,8 @@ function getStripeSecretKey(): string {
     );
   }
 
-  const expectedPrefix = stripeMode === "live" ? "sk_live_" : "sk_test_";
+  const expectedPrefix =
+    stripeMode === "live" ? "sk_live_" : "sk_test_";
 
   if (!key.startsWith(expectedPrefix)) {
     throw new Error(
@@ -65,7 +67,9 @@ function isMissingStripeResource(error: unknown): boolean {
 
   const candidate = error as {
     code?: string;
-    raw?: { code?: string };
+    raw?: {
+      code?: string;
+    };
   };
 
   return (
@@ -82,7 +86,9 @@ function getCheckoutErrorMessage(error: unknown): string {
   if (error && typeof error === "object") {
     const candidate = error as {
       message?: unknown;
-      raw?: { message?: unknown };
+      raw?: {
+        message?: unknown;
+      };
     };
 
     if (typeof candidate.message === "string") {
@@ -97,7 +103,9 @@ function getCheckoutErrorMessage(error: unknown): string {
   return "Unable to create Stripe Checkout session.";
 }
 
-async function readCheckoutRequest(req: Request): Promise<CheckoutRequest> {
+async function readCheckoutRequest(
+  req: Request,
+): Promise<CheckoutRequest> {
   try {
     return (await req.json()) as CheckoutRequest;
   } catch {
@@ -108,15 +116,25 @@ async function readCheckoutRequest(req: Request): Promise<CheckoutRequest> {
 export async function POST(req: Request) {
   try {
     const orgId = await requireActiveOrgId();
-    const requestBody = await readCheckoutRequest(req);
+
+    const requestBody =
+      await readCheckoutRequest(req);
 
     const presentation =
-      requestBody.presentation === "hosted" ? "hosted" : "embedded";
+      requestBody.presentation === "hosted"
+        ? "hosted"
+        : "embedded";
 
-    const admin = await getAdminClient();
-    const portal = admin.schema("portal");
+    const admin =
+      await getAdminClient();
 
-    const { data: org, error: orgError } = await portal
+    const portal =
+      admin.schema("portal");
+
+    const {
+      data: org,
+      error: orgError,
+    } = await portal
       .from("orgs")
       .select("id, name, slug")
       .eq("id", orgId)
@@ -126,13 +144,20 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: orgError?.message || "Organisation not found.",
+          error:
+            orgError?.message ||
+            "Organisation not found.",
         },
-        { status: 404 },
+        {
+          status: 404,
+        },
       );
     }
 
-    const { data: billingData, error: billingError } = await portal
+    const {
+      data: billingData,
+      error: billingError,
+    } = await portal
       .from("billing_accounts")
       .select(
         [
@@ -151,13 +176,19 @@ export async function POST(req: Request) {
       .eq("org_id", orgId)
       .eq("billing_type", "owner")
       .eq("billing_source", "legacy")
-      .order("created_at", { ascending: false })
+      .order("created_at", {
+        ascending: false,
+      })
       .limit(1)
       .maybeSingle();
 
-    const billingAccount = billingData as BillingAccountRow | null;
+    const billingAccount =
+      billingData as BillingAccountRow | null;
 
-    if (billingError || !billingAccount) {
+    if (
+      billingError ||
+      !billingAccount
+    ) {
       return NextResponse.json(
         {
           ok: false,
@@ -165,26 +196,38 @@ export async function POST(req: Request) {
             billingError?.message ||
             "No legacy billing account exists for this organisation.",
         },
-        { status: 404 },
+        {
+          status: 404,
+        },
       );
     }
 
     const stripeStatus =
-      billingAccount.stripe_status?.trim().toLowerCase() ?? "";
+      billingAccount.stripe_status
+        ?.trim()
+        .toLowerCase() ?? "";
 
-    if (stripeStatus === "active" || stripeStatus === "trialing") {
+    if (
+      stripeStatus === "active" ||
+      stripeStatus === "trialing"
+    ) {
       return NextResponse.json(
         {
           ok: false,
-          error: "This organisation already has an active subscription.",
+          error:
+            "This organisation already has an active subscription.",
         },
-        { status: 409 },
+        {
+          status: 409,
+        },
       );
     }
 
     if (
-      billingAccount.billing_interval !== "monthly" &&
-      billingAccount.billing_interval !== "month"
+      billingAccount.billing_interval !==
+        "monthly" &&
+      billingAccount.billing_interval !==
+        "month"
     ) {
       return NextResponse.json(
         {
@@ -192,37 +235,57 @@ export async function POST(req: Request) {
           error:
             "This legacy checkout currently supports monthly subscriptions only.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
-    const { monthly } = await getOwnerPricesForTier(billingAccount.tier);
+    const { monthly } =
+      await getOwnerPricesForTier(
+        billingAccount.tier,
+      );
 
-    if (!monthly?.stripe_price_id) {
+    if (
+      !monthly?.stripe_price_id
+    ) {
       return NextResponse.json(
         {
           ok: false,
           error: `No active monthly Stripe price is configured for Tier ${billingAccount.tier}.`,
         },
-        { status: 409 },
+        {
+          status: 409,
+        },
       );
     }
 
-    const stripe = new Stripe(getStripeSecretKey());
+    const stripe =
+      new Stripe(
+        getStripeSecretKey(),
+      );
 
     let stripePrice: Stripe.Price;
 
     try {
-      stripePrice = await stripe.prices.retrieve(monthly.stripe_price_id);
+      stripePrice =
+        await stripe.prices.retrieve(
+          monthly.stripe_price_id,
+        );
     } catch (error) {
-      if (isMissingStripeResource(error)) {
+      if (
+        isMissingStripeResource(error)
+      ) {
         return NextResponse.json(
           {
             ok: false,
             error: `The Tier ${billingAccount.tier} monthly Price ID does not exist in the configured ${getStripeMode()} Stripe account.`,
-            code: "stripe_price_mode_mismatch",
+            code:
+              "stripe_price_mode_mismatch",
           },
-          { status: 409 },
+          {
+            status: 409,
+          },
         );
       }
 
@@ -231,31 +294,45 @@ export async function POST(req: Request) {
 
     if (
       !stripePrice.active ||
-      stripePrice.type !== "recurring" ||
-      stripePrice.recurring?.interval !== "month"
+      stripePrice.type !==
+        "recurring" ||
+      stripePrice.recurring
+        ?.interval !== "month"
     ) {
       return NextResponse.json(
         {
           ok: false,
           error: `The Tier ${billingAccount.tier} Stripe price is not an active monthly recurring price.`,
-          code: "invalid_stripe_price",
+          code:
+            "invalid_stripe_price",
         },
-        { status: 409 },
+        {
+          status: 409,
+        },
       );
     }
 
-    let stripeCustomerId = billingAccount.stripe_customer_id;
+    let stripeCustomerId =
+      billingAccount.stripe_customer_id;
 
     if (stripeCustomerId) {
       try {
         const existingCustomer =
-          await stripe.customers.retrieve(stripeCustomerId);
+          await stripe.customers.retrieve(
+            stripeCustomerId,
+          );
 
-        if (existingCustomer.deleted) {
+        if (
+          existingCustomer.deleted
+        ) {
           stripeCustomerId = null;
         }
       } catch (error) {
-        if (isMissingStripeResource(error)) {
+        if (
+          isMissingStripeResource(
+            error,
+          )
+        ) {
           stripeCustomerId = null;
         } else {
           throw error;
@@ -264,106 +341,166 @@ export async function POST(req: Request) {
     }
 
     if (!stripeCustomerId) {
-      const customer = await stripe.customers.create({
-        name: org.name,
-        metadata: {
-          org_id: org.id,
-          org_slug: org.slug,
-          billing_account_id: billingAccount.id,
-          billing_source: "legacy",
-        },
-      });
+      const customer =
+        await stripe.customers.create(
+          {
+            name: org.name,
+            metadata: {
+              org_id: org.id,
+              org_slug: org.slug,
+              billing_account_id:
+                billingAccount.id,
+              billing_source:
+                "legacy",
+            },
+          },
+        );
 
-      stripeCustomerId = customer.id;
+      stripeCustomerId =
+        customer.id;
 
-      const { error: customerUpdateError } = await portal
+      const {
+        error:
+          customerUpdateError,
+      } = await portal
         .from("billing_accounts")
         .update({
-          stripe_customer_id: stripeCustomerId,
+          stripe_customer_id:
+            stripeCustomerId,
         })
-        .eq("id", billingAccount.id);
+        .eq(
+          "id",
+          billingAccount.id,
+        );
 
-      if (customerUpdateError) {
+      if (
+        customerUpdateError
+      ) {
         throw new Error(
           `Unable to save Stripe customer: ${customerUpdateError.message}`,
         );
       }
     }
 
-    const origin = await getAppOrigin();
+    const origin =
+      await getAppOrigin();
 
-    const commonParams: Stripe.Checkout.SessionCreateParams = {
-      mode: "subscription",
-      customer: stripeCustomerId,
-      client_reference_id: org.id,
+    const commonParams: Stripe.Checkout.SessionCreateParams =
+      {
+        mode: "subscription",
+        customer:
+          stripeCustomerId,
+        client_reference_id:
+          org.id,
 
-      line_items: [
-        {
-          price: monthly.stripe_price_id,
-          quantity: 1,
-        },
-      ],
+        // Allow customers to enter Stripe promotion codes
+        // during subscription checkout.
+        allow_promotion_codes:
+          true,
 
-      metadata: {
-        org_id: org.id,
-        org_slug: org.slug,
-        billing_account_id: billingAccount.id,
-        billing_source: "legacy",
-        billing_interval: "monthly",
-        tier: String(billingAccount.tier),
-      },
+        line_items: [
+          {
+            price:
+              monthly.stripe_price_id,
+            quantity: 1,
+          },
+        ],
 
-      subscription_data: {
         metadata: {
           org_id: org.id,
-          org_slug: org.slug,
-          billing_account_id: billingAccount.id,
-          billing_source: "legacy",
-          billing_interval: "monthly",
-          tier: String(billingAccount.tier),
+          org_slug:
+            org.slug,
+          billing_account_id:
+            billingAccount.id,
+          billing_source:
+            "legacy",
+          billing_interval:
+            "monthly",
+          tier: String(
+            billingAccount.tier,
+          ),
         },
-      },
-    };
+
+        subscription_data: {
+          metadata: {
+            org_id:
+              org.id,
+            org_slug:
+              org.slug,
+            billing_account_id:
+              billingAccount.id,
+            billing_source:
+              "legacy",
+            billing_interval:
+              "monthly",
+            tier: String(
+              billingAccount.tier,
+            ),
+          },
+        },
+      };
 
     const sessionParams: Stripe.Checkout.SessionCreateParams =
-      presentation === "hosted"
+      presentation ===
+      "hosted"
         ? {
             ...commonParams,
+
             success_url:
               `${origin}/portal/billing` +
               `?billing=success` +
-              `&orgId=${encodeURIComponent(org.id)}` +
+              `&orgId=${encodeURIComponent(
+                org.id,
+              )}` +
               `&session_id={CHECKOUT_SESSION_ID}`,
+
             cancel_url:
               `${origin}/portal/billing` +
               `?billing=cancelled` +
-              `&orgId=${encodeURIComponent(org.id)}`,
+              `&orgId=${encodeURIComponent(
+                org.id,
+              )}`,
           }
         : {
             ...commonParams,
-            ui_mode: "embedded",
-            redirect_on_completion: "if_required",
+
+            ui_mode:
+              "embedded",
+
+            redirect_on_completion:
+              "if_required",
+
             return_url:
               `${origin}/portal/${org.slug}` +
               `?billing=return` +
               `&session_id={CHECKOUT_SESSION_ID}`,
           };
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    const session =
+      await stripe.checkout.sessions.create(
+        sessionParams,
+      );
 
-    if (presentation === "hosted") {
+    if (
+      presentation === "hosted"
+    ) {
       if (!session.url) {
-        throw new Error("Stripe did not return a Checkout URL.");
+        throw new Error(
+          "Stripe did not return a Checkout URL.",
+        );
       }
 
       return NextResponse.json({
         ok: true,
         url: session.url,
-        session_id: session.id,
+        session_id:
+          session.id,
       });
     }
 
-    if (!session.client_secret) {
+    if (
+      !session.client_secret
+    ) {
       throw new Error(
         "Stripe did not return an Embedded Checkout client secret.",
       );
@@ -371,19 +508,30 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      client_secret: session.client_secret,
-      session_id: session.id,
+      client_secret:
+        session.client_secret,
+      session_id:
+        session.id,
     });
   } catch (error) {
-    console.error("[legacy-checkout]", error);
+    console.error(
+      "[legacy-checkout]",
+      error,
+    );
 
     return NextResponse.json(
       {
         ok: false,
-        error: getCheckoutErrorMessage(error),
-        code: "stripe_checkout_failed",
+        error:
+          getCheckoutErrorMessage(
+            error,
+          ),
+        code:
+          "stripe_checkout_failed",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }
