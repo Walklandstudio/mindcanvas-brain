@@ -3649,6 +3649,7 @@ export async function POST(
         completedAt,
         score: inevitableStandardScore,
         constraints: inevitableStandardConstraints,
+        revenueInStructure: inevitableStandardRevenue,
       });
 
       if (

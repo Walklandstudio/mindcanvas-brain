@@ -8,6 +8,9 @@ import type {
   InevitableStandardPillar,
   InevitableStandardApproachCode,
 } from "@/lib/inevitable-standard/definition";
+import type {
+  InevitableStandardRevenueInStructureResult,
+} from "@/lib/inevitable-standard/revenueInStructure";
 
 export type InevitableStandardGhlSyncResult = {
   ok: boolean;
@@ -141,6 +144,28 @@ function falseConstraintLabel(
   );
 }
 
+function formatCommercialValueRange(
+  revenue: InevitableStandardRevenueInStructureResult | null,
+): string | null {
+  if (!revenue || revenue.needs_revenue_confirmation) return null;
+
+  const currency = cleanText(revenue.currency) || "USD";
+
+  const formatValue = (value: number) => {
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency,
+        maximumFractionDigits: 0,
+      }).format(value);
+    } catch {
+      return `${currency} ${Math.round(value).toLocaleString("en-US")}`;
+    }
+  };
+
+  return `${formatValue(revenue.range_low)}–${formatValue(revenue.range_high)}`;
+}
+
 export async function syncInevitableStandardToGhl(args: {
   taker: Taker;
   testLinkName: string | null;
@@ -149,6 +174,7 @@ export async function syncInevitableStandardToGhl(args: {
   completedAt: string;
   score: InevitableStandardScoreResult;
   constraints: InevitableStandardConstraintResult | null;
+  revenueInStructure: InevitableStandardRevenueInStructureResult | null;
 }): Promise<InevitableStandardGhlSyncResult> {
   const serviceBase =
     cleanText(process.env.INEVITABLE_STANDARD_SERVICE_BASE_URL) ||
@@ -186,6 +212,7 @@ export async function syncInevitableStandardToGhl(args: {
 
   const score = args.score;
   const constraints = args.constraints;
+  const revenueInStructure = args.revenueInStructure;
   const primaryApproach = score.approaches.dominant;
   const secondaryApproach = score.approaches.secondary;
   const strongest = strongestPillar(score);
@@ -261,6 +288,40 @@ export async function syncInevitableStandardToGhl(args: {
     customFields,
     process.env.INEVITABLE_STANDARD_CF_Q29_RESPONSE,
     score.context_answers?.[29],
+  );
+
+  const hasCommercialValue =
+    revenueInStructure != null &&
+    !revenueInStructure.needs_revenue_confirmation;
+
+  pushCustomField(
+    customFields,
+    process.env.INEVITABLE_STANDARD_CF_COMMERCIAL_VALUE_RANGE,
+    hasCommercialValue
+      ? formatCommercialValueRange(revenueInStructure)
+      : null,
+  );
+  pushCustomField(
+    customFields,
+    process.env.INEVITABLE_STANDARD_CF_COMMERCIAL_VALUE_LOW,
+    hasCommercialValue ? revenueInStructure?.range_low : null,
+  );
+  pushCustomField(
+    customFields,
+    process.env.INEVITABLE_STANDARD_CF_COMMERCIAL_VALUE_HIGH,
+    hasCommercialValue ? revenueInStructure?.range_high : null,
+  );
+  pushCustomField(
+    customFields,
+    process.env.INEVITABLE_STANDARD_CF_COMMERCIAL_VALUE_CURRENCY,
+    revenueInStructure?.currency,
+  );
+  pushCustomField(
+    customFields,
+    process.env.INEVITABLE_STANDARD_CF_COMMERCIAL_VALUE_TIMEFRAME,
+    revenueInStructure
+      ? `${revenueInStructure.timeframe_months} months`
+      : null,
   );
 
   pushCustomField(

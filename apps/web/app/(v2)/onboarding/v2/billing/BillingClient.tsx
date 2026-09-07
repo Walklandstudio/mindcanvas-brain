@@ -73,12 +73,8 @@ export function BillingClient(_: { tiers: BillingTier[] }) {
         json.billing?.stripe_status === "active" &&
         json.billing?.is_pilot === false;
       if (active) {
-        if (orgId && json?.org?.slug) {
-          router.replace(`/portal/${json.org.slug}/billing`);
-        } else {
-          router.replace(ORGANISATION_PATH);
-        }
-        return;
+       router.replace(ORGANISATION_PATH);
+       return;
       }
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
