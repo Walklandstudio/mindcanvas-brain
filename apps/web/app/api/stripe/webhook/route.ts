@@ -21,6 +21,7 @@ type EventMeta = {
   stripePriceId: string | null;
   periodStart: string | null;
   periodEnd: string | null;
+  offerKey: string | null;
 };
 
 type SubscriptionWithPeriods = Stripe.Subscription & {
@@ -173,6 +174,8 @@ function applySubscriptionMeta(
   meta.subId = subscription.id;
   meta.customer = getExpandableId(subscription.customer);
   meta.orgId = subscription.metadata?.org_id?.trim() || meta.orgId;
+  meta.offerKey =
+    subscription.metadata?.offer_key?.trim() || meta.offerKey;
   meta.stripeStatus = subscription.status;
   meta.stripePriceId =
     subscription.items.data[0]?.price?.id ?? null;
@@ -234,6 +237,7 @@ async function extractMeta(
     stripePriceId: null,
     periodStart: null,
     periodEnd: null,
+    offerKey: null,
   };
 
   switch (event.type) {
@@ -244,6 +248,7 @@ async function extractMeta(
 
       meta.orgId =
         session.metadata?.org_id?.trim() || session.client_reference_id || null;
+      meta.offerKey = session.metadata?.offer_key?.trim() || null;
       meta.customer = getExpandableId(session.customer);
       meta.subId = getExpandableId(session.subscription);
 
@@ -764,6 +769,30 @@ export async function POST(req: Request) {
         { ok: false, error: `rpc_failed:${rpcError.message}` },
         { status: 500 },
       );
+    }
+
+    if (
+      meta.offerKey === "first_link_70_3m" &&
+      ["active", "trialing"].includes(meta.stripeStatus || "")
+    ) {
+      const { error: redeemError } = await portalAdmin()
+        .from("first_link_offers")
+        .update({
+          status: "redeemed",
+          redeemed_at: new Date().toISOString(),
+        })
+        .eq("org_id", meta.orgId)
+        .eq("offer_key", "first_link_70_3m")
+        .in("status", ["offered", "claimed"]);
+
+      if (redeemError) {
+        // Billing has already succeeded. Never roll back or fail a valid
+        // subscription because campaign tracking could not be updated.
+        console.error(
+          "[stripe-webhook] First-link offer redemption tracking failed:",
+          redeemError,
+        );
+      }
     }
 
     // The subscription RPC marks the event complete transactionally. This is
