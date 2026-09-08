@@ -246,7 +246,7 @@ export async function POST(req: Request) {
         const [
           activeEntitlementResult,
           activeEnginesResult,
-          trialAllocationResult,
+          trialAllocationsResult,
         ] = await Promise.all([
           sb
             .from("entitlements")
@@ -262,9 +262,7 @@ export async function POST(req: Request) {
             .from("engine_trial_allocations")
             .select("engine_key, reference")
             .eq("org_id", orgId)
-            .eq("engine_key", "sales")
-            .eq("allocation_type", "trial")
-            .maybeSingle(),
+            .eq("allocation_type", "trial"),
         ]);
 
         if (activeEntitlementResult.error) {
@@ -273,21 +271,31 @@ export async function POST(req: Request) {
         if (activeEnginesResult.error) {
           throw activeEnginesResult.error;
         }
-        if (trialAllocationResult.error) {
-          throw trialAllocationResult.error;
+        if (trialAllocationsResult.error) {
+          throw trialAllocationsResult.error;
         }
 
         const activeEngines = activeEnginesResult.data ?? [];
-        const trialAllocation = trialAllocationResult.data;
+        const trialAllocations = trialAllocationsResult.data ?? [];
+
+        const onboardingTrialEngines = new Set(
+          trialAllocations
+            .filter(
+              (allocation) =>
+                typeof allocation.reference === "string" &&
+                allocation.reference.startsWith("onboarding:"),
+            )
+            .map((allocation) => allocation.engine_key),
+        );
 
         const isFreeTrial =
           (activeEntitlementResult.count ?? 0) === 0 &&
-          activeEngines.length === 1 &&
-          activeEngines[0]?.engine_key === "sales" &&
-          activeEngines[0]?.source === "onboarding" &&
-          trialAllocation?.engine_key === "sales" &&
-          typeof trialAllocation.reference === "string" &&
-          trialAllocation.reference.startsWith("onboarding:");
+          activeEngines.length > 0 &&
+          activeEngines.every(
+            (engine) =>
+              engine.source === "onboarding" &&
+              onboardingTrialEngines.has(engine.engine_key),
+          );
 
         if (isFreeTrial) {
           const { error: offerError } = await sb
