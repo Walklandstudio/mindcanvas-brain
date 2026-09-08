@@ -340,6 +340,37 @@ export async function createOnboardingPlaceholderOrg(user: {
     return { ok: false, status: 500, code: "org_create_failed", error: rpcErr.message };
   }
 
+  // Founding 100 enrollment begins after email verification, before the
+  // onboarding organisation exists. Attach that existing campaign offer to
+  // the new organisation as soon as the placeholder org is created.
+  //
+  // Normal onboarding users never carry this metadata, so their flow is
+  // unchanged.
+  const campaignKey =
+    user.user_metadata?.campaign_key === "founding_100"
+      ? "founding_100"
+      : null;
+
+  if (campaignKey) {
+    const { error: campaignAttachError } = await admin.rpc(
+      "fn_attach_campaign_offer_org",
+      {
+        p_user_id: user.id,
+        p_org_id: newOrgId as string,
+        p_campaign_key: campaignKey,
+      }
+    );
+
+    if (campaignAttachError) {
+      return {
+        ok: false,
+        status: 500,
+        code: "campaign_offer_attach_failed",
+        error: campaignAttachError.message,
+      };
+    }
+  }
+
   const nowIso = new Date().toISOString();
   await admin
     .from("orgs")
