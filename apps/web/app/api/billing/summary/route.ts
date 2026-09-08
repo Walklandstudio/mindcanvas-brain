@@ -61,6 +61,26 @@ type FallbackPlan = {
   currency: string | null;
 };
 
+type Founding100OfferRow = {
+  status:
+    | "eligible"
+    | "claimed"
+    | "redeemed"
+    | "expired";
+  starts_at: string;
+  expires_at: string;
+  redeemed_at: string | null;
+};
+
+type Founding100CampaignRow = {
+  name: string;
+  status: "active" | "inactive";
+  target_tier: number;
+  max_redemptions: number;
+  monthly_allowance_override: number | null;
+  engine_keys: string[];
+};
+
 const TIER_NAMES: Record<number, string> = {
   1: "MindCanvas Starter",
   2: "MindCanvas Pro",
@@ -327,6 +347,142 @@ async function getIncludedTrialAllowance(
     : null;
 }
 
+async function loadFounding100Offer(
+  orgId: string
+) {
+  const admin = portalAdmin();
+
+  const { data: offer, error: offerError } =
+    await admin
+      .from("campaign_offers")
+      .select(
+        "status, starts_at, expires_at, redeemed_at"
+      )
+      .eq("campaign_key", "founding_100")
+      .eq("org_id", orgId)
+      .maybeSingle<Founding100OfferRow>();
+
+  // Campaign display must never make the normal billing page fail.
+  if (offerError) {
+    console.error(
+      "[billing-summary] Unable to load Founding 100 offer:",
+      offerError
+    );
+    return null;
+  }
+
+  if (!offer) {
+    return null;
+  }
+
+  const [
+    campaignResult,
+    redeemedResult,
+  ] = await Promise.all([
+    admin
+      .from("campaigns")
+      .select(
+        "name, status, target_tier, max_redemptions, monthly_allowance_override, engine_keys"
+      )
+      .eq("campaign_key", "founding_100")
+      .maybeSingle<Founding100CampaignRow>(),
+
+    admin
+      .from("campaign_offers")
+      .select("id", {
+        count: "exact",
+        head: true,
+      })
+      .eq("campaign_key", "founding_100")
+      .eq("status", "redeemed"),
+  ]);
+
+  if (campaignResult.error) {
+    console.error(
+      "[billing-summary] Unable to load Founding 100 campaign:",
+      campaignResult.error
+    );
+    return null;
+  }
+
+  if (redeemedResult.error) {
+    console.error(
+      "[billing-summary] Unable to count Founding 100 redemptions:",
+      redeemedResult.error
+    );
+    return null;
+  }
+
+  const campaign = campaignResult.data;
+
+  if (!campaign) {
+    return null;
+  }
+
+  const redeemedCount =
+    redeemedResult.count ?? 0;
+
+  const remainingSlots = Math.max(
+    0,
+    campaign.max_redemptions -
+      redeemedCount
+  );
+
+  const expiresAtMs =
+    Date.parse(offer.expires_at);
+
+  const windowExpired =
+    Number.isFinite(expiresAtMs) &&
+    Date.now() >= expiresAtMs;
+
+  // Redemption is permanent. Otherwise the persisted seven-day expiry is
+  // authoritative even if the database status has not yet been swept to
+  // "expired".
+  const effectiveStatus =
+    offer.status === "redeemed"
+      ? "redeemed"
+      : windowExpired
+        ? "expired"
+        : offer.status;
+
+  const availabilityReason =
+    effectiveStatus === "redeemed"
+      ? "redeemed"
+      : campaign.status !== "active"
+        ? "inactive"
+        : effectiveStatus === "expired"
+          ? "expired"
+          : remainingSlots <= 0
+            ? "sold_out"
+            : effectiveStatus ===
+                  "eligible" ||
+                effectiveStatus ===
+                  "claimed"
+              ? null
+              : "unavailable";
+
+  return {
+    campaign_key: "founding_100",
+    name: campaign.name,
+    status: effectiveStatus,
+    available:
+      availabilityReason === null,
+    availability_reason:
+      availabilityReason,
+    starts_at: offer.starts_at,
+    expires_at: offer.expires_at,
+    redeemed_at: offer.redeemed_at,
+    target_tier: campaign.target_tier,
+    monthly_allowance_override:
+      campaign.monthly_allowance_override,
+    engine_keys: campaign.engine_keys,
+    max_redemptions:
+      campaign.max_redemptions,
+    redeemed_count: redeemedCount,
+    remaining_slots: remainingSlots,
+  };
+}
+
 async function loadStripeDetails({
   customerId,
   subscriptionId,
@@ -591,6 +747,9 @@ export async function GET(req: Request) {
         )
       : null;
 
+  const founding100Offer =
+    await loadFounding100Offer(orgId);
+
   const stripeDetails =
     await loadStripeDetails({
       customerId:
@@ -615,6 +774,8 @@ export async function GET(req: Request) {
     },
 
     usage,
+
+    campaign_offer: founding100Offer,
 
     billing: billingAccount
       ? {
