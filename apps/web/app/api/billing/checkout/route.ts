@@ -298,16 +298,19 @@ export async function POST(req: Request) {
         line_items: lineItems,
         success_url: `${successUrl}${successUrl.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: cancelUrl,
-        allow_promotion_codes: wantsFirstLinkOffer ? false : true,
-        ...(wantsFirstLinkOffer && firstLinkPromotionCodeId
-          ? {
-              discounts: [
-                {
-                  promotion_code: firstLinkPromotionCodeId,
-                },
-              ],
-            }
-          : {}),
+        ...(wantsFirstLinkOffer
+          ? firstLinkPromotionCodeId
+            ? {
+                discounts: [
+                  {
+                    promotion_code: firstLinkPromotionCodeId,
+                  },
+                ],
+              }
+            : {}
+          : {
+              allow_promotion_codes: true,
+            }),
         subscription_data: {
           metadata: {
             org_id: orgId,
