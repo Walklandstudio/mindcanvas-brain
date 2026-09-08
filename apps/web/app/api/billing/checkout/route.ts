@@ -90,6 +90,12 @@ export async function POST(req: Request) {
 
   const org = await getOrgRow(orgId);
   if (!org) return jerr("Org not found", "org_not_found", 404);
+
+  const orgSlug = org.slug?.trim();
+  if (!orgSlug) {
+    return jerr("Org slug missing", "org_slug_missing", 500);
+  }
+
   if (org.status === "archived") return jerr("Org archived", "org_archived", 409);
   if (org.status === "suspended") return jerr("Org suspended", "org_suspended", 409);
   // Pilot orgs are 'active' but haven't paid — let them upgrade to a paid plan.
@@ -275,14 +281,23 @@ export async function POST(req: Request) {
   const isOnboarding = body.flow === "onboarding";
   const requestOrigin = new URL(req.url).origin;
   const baseUrl = isOnboarding ? requestOrigin : getBaseUrl();
+
+  const orgBillingUrl =
+    `${requestOrigin}/portal/${encodeURIComponent(orgSlug)}/billing`;
+
   const successBase = isOnboarding
     ? `${baseUrl}/onboarding/v2/billing?status=success&interval=${interval}`
-    : process.env.STRIPE_CHECKOUT_SUCCESS_URL ||
-      `${baseUrl}/portal/billing?status=success`;
+    : wantsFirstLinkOffer
+      ? `${orgBillingUrl}?status=success`
+      : process.env.STRIPE_CHECKOUT_SUCCESS_URL ||
+        `${baseUrl}/portal/billing?status=success`;
+
   const cancelBase = isOnboarding
     ? `${baseUrl}/onboarding/v2/billing?status=cancelled&interval=${interval}`
-    : process.env.STRIPE_CHECKOUT_CANCEL_URL ||
-      `${baseUrl}/portal/billing?status=cancelled`;
+    : wantsFirstLinkOffer
+      ? `${orgBillingUrl}?status=cancelled`
+      : process.env.STRIPE_CHECKOUT_CANCEL_URL ||
+        `${baseUrl}/portal/billing?status=cancelled`;
   const successUrl = `${successBase}${successBase.includes("?") ? "&" : "?"}${orgQs}`;
   const cancelUrl = `${cancelBase}${cancelBase.includes("?") ? "&" : "?"}${orgQs}`;
 
