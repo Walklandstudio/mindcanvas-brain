@@ -58,7 +58,17 @@ export default function AccountPage() {
   });
 
   const onSubmit = handleSubmit(async (values) => {
-    const res = await api.signup(values);
+    const campaign =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("campaign") ===
+        "founding_100"
+        ? ("founding_100" as const)
+        : undefined;
+
+    const res = await api.signup({
+      ...values,
+      ...(campaign ? { campaign } : {}),
+    });
 
     if (isErr(res)) {
       setError("root", { message: res.error });

@@ -1,6 +1,7 @@
 //apps/web/app/api/onboarding/v2/verify-otp/route.ts
 import { NextResponse } from "next/server";
 import { getServerSupabase } from "@/app/_lib/portal";
+import { portalAdmin } from "@/app/_lib/supabaseAdmin";
 import { verifyOtpSchema } from "@/app/(v2)/onboarding/v2/_lib/schema";
 import { syncOnboardingAccountToGhl } from "@/lib/server/ghl/onboardingContact";
 
@@ -39,6 +40,30 @@ export async function POST(req: Request) {
     }
 
     const metadata = data.user.user_metadata ?? {};
+
+    const campaignKey =
+      metadata.campaign_key === "founding_100"
+        ? "founding_100"
+        : null;
+
+    if (campaignKey) {
+      const { error: campaignError } = await portalAdmin().rpc(
+        "fn_enroll_campaign_offer",
+        {
+          p_user_id: data.user.id,
+          p_campaign_key: campaignKey,
+        }
+      );
+
+      if (campaignError) {
+        // Verification has already succeeded, so never strand the user here.
+        // The campaign marker remains in auth metadata and can be reconciled.
+        console.error(
+          `[verify-otp] campaign enrollment failed user_id=${data.user.id} campaign=${campaignKey}`,
+          campaignError
+        );
+      }
+    }
 
     const ghlResult = await syncOnboardingAccountToGhl({
       userId: data.user.id,

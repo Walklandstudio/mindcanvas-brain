@@ -30,6 +30,7 @@ export async function POST(req: Request) {
       last_name,
       email,
       password,
+      campaign,
     } = parsed.data;
 
     const acceptedAt = new Date().toISOString();
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
             last_name,
             terms_accepted_at: acceptedAt,
             privacy_accepted_at: acceptedAt,
+            ...(campaign ? { campaign_key: campaign } : {}),
           },
         });
 
@@ -99,6 +101,7 @@ export async function POST(req: Request) {
             last_name,
             terms_accepted_at: acceptedAt,
             privacy_accepted_at: acceptedAt,
+            ...(campaign ? { campaign_key: campaign } : {}),
           },
         });
 
