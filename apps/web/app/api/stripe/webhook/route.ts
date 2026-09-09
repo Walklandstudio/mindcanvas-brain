@@ -940,30 +940,6 @@ export async function POST(req: Request) {
       }
     }
 
-    if (
-      meta.offerKey === "first_link_70_3m" &&
-      ["active", "trialing"].includes(meta.stripeStatus || "")
-    ) {
-      const { error: redeemError } = await portalAdmin()
-        .from("first_link_offers")
-        .update({
-          status: "redeemed",
-          redeemed_at: new Date().toISOString(),
-        })
-        .eq("org_id", meta.orgId)
-        .eq("offer_key", "first_link_70_3m")
-        .in("status", ["offered", "claimed"]);
-
-      if (redeemError) {
-        // Billing has already succeeded. Never roll back or fail a valid
-        // subscription because campaign tracking could not be updated.
-        console.error(
-          "[stripe-webhook] First-link offer redemption tracking failed:",
-          redeemError,
-        );
-      }
-    }
-
     // The subscription RPC marks the event complete transactionally. This is
     // a harmless second write and preserves rolling-deployment compatibility.
     await finishEvent(event.id, "ok");

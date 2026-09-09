@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     tier?: number;
     flow?: string;
     interval?: "month" | "year";
-    offer?: "first-link-70" | "founding-100";
+    offer?: "founding-100";
     addCertification?: boolean;
   } = {};
   try {
@@ -64,7 +64,6 @@ export async function POST(req: Request) {
 
   if (
     body.offer !== undefined &&
-    body.offer !== "first-link-70" &&
     body.offer !== "founding-100"
   ) {
     return jerr("Unknown checkout offer", "invalid_offer", 400);
@@ -81,21 +80,12 @@ export async function POST(req: Request) {
     );
   }
 
-  const wantsFirstLinkOffer = body.offer === "first-link-70";
   const wantsFounding100Offer = body.offer === "founding-100";
 
   if (body.addCertification && !wantsFounding100Offer) {
     return jerr(
       "Certification is only available with the Founding 100 offer",
       "certification_requires_founding_offer",
-      400
-    );
-  }
-
-  if (wantsFirstLinkOffer && interval !== "month") {
-    return jerr(
-      "The first-link offer is available on monthly subscriptions only",
-      "offer_monthly_only",
       400
     );
   }
@@ -224,77 +214,10 @@ export async function POST(req: Request) {
   }
   if (!user.email) return jerr("User has no email", "email_required", 400);
 
-  let firstLinkOfferId: string | null = null;
-  let firstLinkPromotionCodeId: string | null = null;
-
   let founding100OfferId: string | null = null;
   let founding100PromotionCodeId: string | null = null;
   let founding100ClaimExpiresAt: number | null = null;
   let certificationPriceId: string | null = null;
-
-  if (wantsFirstLinkOffer) {
-    firstLinkPromotionCodeId =
-      process.env.STRIPE_FIRST_LINK_PROMOTION_CODE_ID?.trim() || null;
-
-    if (!firstLinkPromotionCodeId) {
-      return jerr(
-        "The first-link promotion is not configured",
-        "first_link_offer_not_configured",
-        503
-      );
-    }
-
-    const { data: offerRow, error: offerErr } = await portalAdmin()
-      .from("first_link_offers")
-      .select("id, status")
-      .eq("org_id", orgId)
-      .eq("offer_key", "first_link_70_3m")
-      .maybeSingle<{ id: string; status: string }>();
-
-    if (offerErr) {
-      return jerr(
-        offerErr.message,
-        "first_link_offer_lookup_failed",
-        500
-      );
-    }
-
-    if (
-      !offerRow ||
-      !["offered", "claimed"].includes(offerRow.status)
-    ) {
-      return jerr(
-        "This organisation is not eligible for the first-link offer",
-        "first_link_offer_not_eligible",
-        403
-      );
-    }
-
-    const { count: paidEntitlementCount, error: entitlementErr } =
-      await portalAdmin()
-        .from("entitlements")
-        .select("id", { count: "exact", head: true })
-        .eq("org_id", orgId)
-        .eq("status", "active");
-
-    if (entitlementErr) {
-      return jerr(
-        entitlementErr.message,
-        "first_link_offer_entitlement_check_failed",
-        500
-      );
-    }
-
-    if ((paidEntitlementCount ?? 0) > 0) {
-      return jerr(
-        "This organisation already has an active subscription",
-        "first_link_offer_already_subscribed",
-        409
-      );
-    }
-
-    firstLinkOfferId = offerRow.id;
-  }
 
   if (wantsFounding100Offer) {
     founding100PromotionCodeId =
@@ -512,8 +435,7 @@ export async function POST(req: Request) {
   const orgBillingUrl =
     `${requestOrigin}/portal/${encodeURIComponent(orgSlug)}/billing`;
 
-  const returnsToOrgBilling =
-    wantsFirstLinkOffer || wantsFounding100Offer;
+  const returnsToOrgBilling = wantsFounding100Offer;
 
   const successBase = isOnboarding
     ? `${baseUrl}/onboarding/v2/billing?status=success&interval=${interval}`
@@ -580,9 +502,7 @@ export async function POST(req: Request) {
             ? "true"
             : "false",
         }
-      : wantsFirstLinkOffer
-        ? { offer_key: "first_link_70_3m" }
-        : {};
+      : {};
 
   let session: Stripe.Checkout.Session;
   try {
@@ -605,19 +525,9 @@ export async function POST(req: Request) {
               // deadline and the database reservation.
               expires_at: founding100CheckoutExpiresAt!,
             }
-          : wantsFirstLinkOffer
-            ? firstLinkPromotionCodeId
-              ? {
-                  discounts: [
-                    {
-                      promotion_code: firstLinkPromotionCodeId,
-                    },
-                  ],
-                }
-              : {}
-            : {
-                allow_promotion_codes: true,
-              }),
+          : {
+              allow_promotion_codes: true,
+            }),
         subscription_data: {
           metadata: {
             org_id: orgId,
@@ -638,9 +548,7 @@ export async function POST(req: Request) {
         idempotencyKey: `mc-checkout-${orgId}-${ba.id}-${interval}-${
           wantsFounding100Offer
             ? `founding100-${body.addCertification ? "cert" : "base"}`
-            : wantsFirstLinkOffer
-              ? "firstlink70"
-              : "standard"
+            : "standard"
         }-${bucket}`,
       }
     );
@@ -664,24 +572,6 @@ export async function POST(req: Request) {
         "Founding 100 Checkout Session tracking failed",
         foundingTrackErr
       );
-    }
-  }
-
-  if (wantsFirstLinkOffer && firstLinkOfferId) {
-    const { error: claimErr } = await portalAdmin()
-      .from("first_link_offers")
-      .update({
-        status: "claimed",
-        claimed_at: new Date().toISOString(),
-        stripe_checkout_session_id: session.id,
-      })
-      .eq("id", firstLinkOfferId)
-      .in("status", ["offered", "claimed"]);
-
-    if (claimErr) {
-      // Checkout itself is already valid and discounted. Do not strand the
-      // customer because optional campaign tracking could not be updated.
-      console.error("First-link offer claim tracking failed", claimErr);
     }
   }
 
