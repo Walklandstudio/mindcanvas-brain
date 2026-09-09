@@ -236,92 +236,162 @@ export async function POST(req: Request) {
 
     const publicUrl = absoluteUrl(`/t/${linkRow.token}`);
 
-    let firstLinkOfferEligible = false;
+    let founding100OfferEligible = false;
 
-    if (
-      isFirstEverLink &&
-      Boolean(process.env.STRIPE_FIRST_LINK_PROMOTION_CODE_ID)
-    ) {
+    if (isFirstEverLink) {
       try {
-        const [
-          activeEntitlementResult,
-          activeEnginesResult,
-          trialAllocationsResult,
-        ] = await Promise.all([
-          sb
-            .from("entitlements")
-            .select("id", { count: "exact", head: true })
-            .eq("org_id", orgId)
-            .eq("status", "active"),
-          sb
-            .from("org_engines")
-            .select("engine_key, source")
-            .eq("org_id", orgId)
-            .eq("status", "active"),
-          sb
-            .from("engine_trial_allocations")
-            .select("engine_key, reference")
-            .eq("org_id", orgId)
-            .eq("allocation_type", "trial"),
-        ]);
+        const {
+          data: campaignOffer,
+          error: campaignOfferError,
+        } = await sb
+          .from("campaign_offers")
+          .select(
+            "status, expires_at, claim_expires_at",
+          )
+          .eq(
+            "campaign_key",
+            "founding_100",
+          )
+          .eq("org_id", orgId)
+          .maybeSingle();
 
-        if (activeEntitlementResult.error) {
-          throw activeEntitlementResult.error;
-        }
-        if (activeEnginesResult.error) {
-          throw activeEnginesResult.error;
-        }
-        if (trialAllocationsResult.error) {
-          throw trialAllocationsResult.error;
+        if (campaignOfferError) {
+          throw campaignOfferError;
         }
 
-        const activeEngines = activeEnginesResult.data ?? [];
-        const trialAllocations = trialAllocationsResult.data ?? [];
-
-        const onboardingTrialEngines = new Set(
-          trialAllocations
-            .filter(
-              (allocation) =>
-                typeof allocation.reference === "string" &&
-                allocation.reference.startsWith("onboarding:"),
-            )
-            .map((allocation) => allocation.engine_key),
-        );
-
-        const isFreeTrial =
-          (activeEntitlementResult.count ?? 0) === 0 &&
-          activeEngines.length > 0 &&
-          activeEngines.every(
-            (engine) =>
-              engine.source === "onboarding" &&
-              onboardingTrialEngines.has(engine.engine_key),
+        if (
+          campaignOffer &&
+          ["eligible", "claimed"].includes(
+            String(campaignOffer.status),
+          )
+        ) {
+          const offerExpiry = Date.parse(
+            String(
+              campaignOffer.expires_at,
+            ),
           );
 
-        if (isFreeTrial) {
-          const { error: offerError } = await sb
-            .from("first_link_offers")
-            .upsert(
-              {
-                org_id: orgId,
-                offer_key: "first_link_70_3m",
-                status: "offered",
-              },
-              {
-                onConflict: "org_id,offer_key",
-                ignoreDuplicates: true,
-              },
-            );
+          const now = Date.now();
 
-          if (offerError) {
-            throw offerError;
+          if (
+            Number.isFinite(
+              offerExpiry,
+            ) &&
+            offerExpiry > now
+          ) {
+            const [
+              campaignResult,
+              reservedResult,
+            ] = await Promise.all([
+              sb
+                .from("campaigns")
+                .select(
+                  "status, max_redemptions",
+                )
+                .eq(
+                  "campaign_key",
+                  "founding_100",
+                )
+                .maybeSingle(),
+
+              sb
+                .from("campaign_offers")
+                .select(
+                  "status, claim_expires_at",
+                )
+                .eq(
+                  "campaign_key",
+                  "founding_100",
+                )
+                .in(
+                  "status",
+                  [
+                    "redeemed",
+                    "claimed",
+                  ],
+                ),
+            ]);
+
+            if (campaignResult.error) {
+              throw campaignResult.error;
+            }
+
+            if (reservedResult.error) {
+              throw reservedResult.error;
+            }
+
+            const campaign =
+              campaignResult.data;
+
+            if (
+              campaign &&
+              campaign.status === "active"
+            ) {
+              const reservedCount =
+                (
+                  reservedResult.data ?? []
+                ).filter((row) => {
+                  if (
+                    row.status ===
+                    "redeemed"
+                  ) {
+                    return true;
+                  }
+
+                  if (
+                    row.status !==
+                      "claimed" ||
+                    !row.claim_expires_at
+                  ) {
+                    return false;
+                  }
+
+                  const claimExpiry =
+                    Date.parse(
+                      row.claim_expires_at,
+                    );
+
+                  return (
+                    Number.isFinite(
+                      claimExpiry,
+                    ) &&
+                    claimExpiry > now
+                  );
+                }).length;
+
+              const ownClaimExpiry =
+                campaignOffer
+                  .claim_expires_at
+                  ? Date.parse(
+                      String(
+                        campaignOffer
+                          .claim_expires_at,
+                      ),
+                    )
+                  : NaN;
+
+              const hasLiveOwnClaim =
+                campaignOffer.status ===
+                  "claimed" &&
+                Number.isFinite(
+                  ownClaimExpiry,
+                ) &&
+                ownClaimExpiry > now;
+
+              founding100OfferEligible =
+                hasLiveOwnClaim ||
+                reservedCount <
+                  campaign.max_redemptions;
+            }
           }
-
-          firstLinkOfferEligible = true;
         }
       } catch (offerError) {
         // Never break successful test-link creation because the optional
-        // activation offer could not be evaluated or recorded.
-        console.error("First-link offer eligibility failed", offerError);
+        // Founding 100 conversion offer could not be evaluated.
+        console.error(
+          "Founding 100 first-link eligibility failed",
+          offerError,
+        );
       }
     }
 
@@ -386,7 +456,7 @@ export async function POST(req: Request) {
       emailed: !!recipientEmail && !emailError,
       emailResultId: emailResult?.id ?? null,
       emailError,
-      firstLinkOfferEligible,
+      founding100OfferEligible,
     });
   } catch (e: any) {
     return NextResponse.json(

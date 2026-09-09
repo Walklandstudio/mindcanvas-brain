@@ -12,7 +12,7 @@ export default function StepSuccess({
   orgId,
   orgSlug,
   testName,
-  firstLinkOfferEligible,
+  founding100OfferEligible,
 }: {
   createdToken: string | null;
   copied: boolean;
@@ -20,7 +20,7 @@ export default function StepSuccess({
   orgId: string;
   orgSlug: string;
   testName?: string | null;
-  firstLinkOfferEligible: boolean;
+  founding100OfferEligible: boolean;
 }) {
   const url = createdToken ? `${getBaseUrl()}/t/${createdToken}` : null;
 
@@ -32,6 +32,10 @@ export default function StepSuccess({
   const [claimingOffer, setClaimingOffer] = useState(false);
   const [offerError, setOfferError] = useState<string | null>(null);
   const [offerDismissed, setOfferDismissed] = useState(false);
+  const [billingInterval, setBillingInterval] =
+    useState<"month" | "year">("month");
+  const [addCertification, setAddCertification] =
+    useState(false);
 
   const claimOffer = async () => {
     if (claimingOffer) return;
@@ -48,8 +52,10 @@ export default function StepSuccess({
         },
         body: JSON.stringify({
           orgId,
-          interval: "month",
-          offer: "first-link-70",
+          tier: 2,
+          interval: billingInterval,
+          offer: "founding-100",
+          addCertification,
         }),
       });
 
@@ -57,7 +63,7 @@ export default function StepSuccess({
 
       if (!res.ok || !json?.ok || !json?.url) {
         throw new Error(
-          json?.error || "Could not start your discounted checkout.",
+          json?.error || "Could not start your Founding Member checkout.",
         );
       }
 
@@ -66,7 +72,7 @@ export default function StepSuccess({
       setOfferError(
         error instanceof Error
           ? error.message
-          : "Could not start your discounted checkout.",
+          : "Could not start your Founding Member checkout.",
       );
       setClaimingOffer(false);
     }
@@ -112,7 +118,7 @@ export default function StepSuccess({
     }
   };
 
-  const showOffer = firstLinkOfferEligible && !offerDismissed;
+  const showOffer = founding100OfferEligible && !offerDismissed;
 
   return (
     <div className="flex flex-col items-center py-2 text-center">
@@ -150,19 +156,94 @@ export default function StepSuccess({
       </p>
 
       {showOffer && (
-        <div className="mt-5 w-full rounded-[16px] border border-[#54AFE0]/20 bg-[#54AFE0]/[0.07] p-5 text-center">
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#54AFE0]">
-            A little something to help you get started
+        <div className="mt-5 w-full rounded-[16px] border border-[#54AFE0]/25 bg-[#54AFE0]/[0.07] p-5 text-left">
+          <p className="text-center text-[10px] font-bold uppercase tracking-[0.16em] text-[#54AFE0]">
+            Founding 100 invitation
           </p>
 
-          <div className="mt-3 text-[30px] font-extrabold leading-none text-white">
-            70% OFF
+          <h4 className="mt-3 text-center text-[17px] font-extrabold leading-6 text-white">
+            Become one of our first 100 Founding Members
+          </h4>
+
+          <p className="mt-2 text-center text-[12.5px] leading-5 text-white/[0.68]">
+            Secure{" "}
+            <strong className="font-bold text-white">
+              70% off Tier 2 for life
+            </strong>
+            .
+          </p>
+
+          <div className="mt-4 space-y-1.5 rounded-xl border border-white/[0.08] bg-[#06182a] p-3.5 text-[11.5px] leading-5 text-white/[0.7]">
+            <p>✓ 35 test submissions every month</p>
+            <p>✓ Sales Engine profiling</p>
+            <p>✓ Coaching Engine profiling</p>
+            <p>
+              ✓ Consultant training, expert sessions
+              &amp; community access
+            </p>
           </div>
 
-          <p className="mt-2 text-[13px] leading-5 text-white/[0.72]">
-            Upgrade your MindCanvas subscription and save 70% for your first{" "}
-            <strong className="font-bold text-white">3 months</strong>.
+          <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.12em] text-white/[0.55]">
+            Billing cycle
           </p>
+
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setBillingInterval("month")
+              }
+              disabled={claimingOffer}
+              className={`rounded-xl border px-3 py-2.5 text-center text-[11.5px] font-bold transition ${
+                billingInterval === "month"
+                  ? "border-[#54AFE0] bg-[#54AFE0]/15 text-white"
+                  : "border-white/[0.09] bg-white/[0.04] text-white/[0.55]"
+              }`}
+            >
+              Monthly
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setBillingInterval("year")
+              }
+              disabled={claimingOffer}
+              className={`rounded-xl border px-3 py-2.5 text-center text-[11.5px] font-bold transition ${
+                billingInterval === "year"
+                  ? "border-[#54AFE0] bg-[#54AFE0]/15 text-white"
+                  : "border-white/[0.09] bg-white/[0.04] text-white/[0.55]"
+              }`}
+            >
+              Annual
+            </button>
+          </div>
+
+          <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+            <input
+              type="checkbox"
+              checked={addCertification}
+              disabled={claimingOffer}
+              onChange={(event) =>
+                setAddCertification(
+                  event.target.checked
+                )
+              }
+              className="mt-0.5 h-4 w-4 accent-[#54AFE0]"
+            />
+
+            <span className="text-[11.5px] leading-5 text-white/[0.62]">
+              Add{" "}
+              <strong className="font-bold text-white">
+                Certified Profiletest.ai Consultant
+              </strong>{" "}
+              for a one-time{" "}
+              <strong className="font-bold text-white">
+                $997
+              </strong>
+              .
+            </span>
+          </label>
 
           <button
             type="button"
@@ -171,27 +252,30 @@ export default function StepSuccess({
             className="mt-4 inline-flex h-[42px] w-full items-center justify-center rounded-xl bg-[linear-gradient(101.83deg,#54AFE0_0%,#54AFE0_100%)] px-4 text-[13px] font-bold text-white shadow-[0_6px_20px_0_rgba(26,106,232,0.32)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {claimingOffer
-              ? "Preparing your discount…"
-              : "Claim my 70% discount →"}
+              ? "Opening secure checkout…"
+              : "Secure my Founding Membership →"}
           </button>
 
           {offerError && (
-            <p className="mt-2 text-[11.5px] text-rose-400">
+            <p className="mt-2 text-center text-[11.5px] text-rose-400">
               {offerError}
             </p>
           )}
 
           <button
             type="button"
-            onClick={() => setOfferDismissed(true)}
+            onClick={() =>
+              setOfferDismissed(true)
+            }
             disabled={claimingOffer}
-            className="mt-3 text-[11.5px] font-medium text-white/[0.5] transition hover:text-white/[0.8]"
+            className="mt-3 w-full text-center text-[11.5px] font-medium text-white/[0.5] transition hover:text-white/[0.8]"
           >
             No thanks — I’ll continue on the free trial
           </button>
 
-          <p className="mt-3 text-[10.5px] leading-4 text-white/[0.38]">
-            Monthly subscription. Discount applies to the first 3 months.
+          <p className="mt-3 text-center text-[10.5px] leading-4 text-white/[0.38]">
+            7-day invitation · Limited to the first
+            100 paid Founding Members
           </p>
         </div>
       )}
