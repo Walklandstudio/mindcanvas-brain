@@ -26,7 +26,7 @@ const PLANS: UpgradePlan[] = [
   {
     tier: 2,
     name: "Pro",
-    allowance: 35,
+    allowance: 10,
     engines: "Sales + Coaching",
     unlocks:
       "Unlock the MPS Coaching Engine",

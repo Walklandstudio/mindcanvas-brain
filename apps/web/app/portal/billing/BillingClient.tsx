@@ -3,6 +3,9 @@
 
 import UsageBundlesSection from "./UsageBundlesSection";
 import UpgradePlansSection from "./UpgradePlansSection";
+import Founding100OfferCard, {
+  type Founding100Offer,
+} from "./Founding100OfferCard";
 import Link from "next/link";
 
 import {
@@ -46,6 +49,10 @@ type Summary = {
     period_start: string | null;
     period_end: string | null;
   };
+
+  campaign_offer?:
+    | Founding100Offer
+    | null;
 
   billing: {
     tier: number | null;
@@ -412,8 +419,10 @@ export default function BillingClient({
     STATUS_STYLE[displayStatus];
 
   const allowance =
-    billing?.included_trials_per_month ??
-    usage.allowance;
+    displayStatus === "active"
+      ? usage.allowance
+      : billing?.included_trials_per_month ??
+        usage.allowance;
 
   const invoices =
     billing?.invoices ?? [];
@@ -497,6 +506,13 @@ export default function BillingClient({
               ? "This subscription has been cancelled. Please contact MindCanvas support."
               : "Payment is required to activate this subscription and its monthly test allocation."}
         </div>
+      )}
+
+      {!isInternal && (
+        <Founding100OfferCard
+          orgId={org.id}
+          offer={summary.campaign_offer}
+        />
       )}
 
       <section className="grid gap-5 lg:grid-cols-2">
