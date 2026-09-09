@@ -107,7 +107,10 @@ BEGIN
   UPDATE portal.campaign_offers
      SET status = 'claimed',
          claimed_at = v_now,
-         claim_expires_at = v_now + interval '30 minutes'
+         claim_expires_at = LEAST(
+           v_now + interval '30 minutes',
+           v_offer.expires_at
+         )
    WHERE id = v_offer.id
    RETURNING *
     INTO v_offer;
