@@ -108,7 +108,7 @@ BEGIN
      SET status = 'claimed',
          claimed_at = v_now,
          claim_expires_at = LEAST(
-           v_now + interval '30 minutes',
+           v_now + interval '35 minutes',
            v_offer.expires_at
          )
    WHERE id = v_offer.id
