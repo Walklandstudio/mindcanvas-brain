@@ -62,6 +62,50 @@ export async function POST(req: Request) {
           { status: 409 }
         );
       }
+
+      // The Auth identity may survive after its previous MindCanvas
+      // organisation has been removed. Refresh the onboarding metadata
+      // without changing the existing password. Campaign enrollment still
+      // happens only after successful OTP verification.
+      const {
+        data: existingAuthData,
+        error: existingAuthError,
+      } = await admin.auth.admin.getUserById(existing.id);
+
+      if (existingAuthError || !existingAuthData?.user) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              existingAuthError?.message ||
+              "Could not load the existing account.",
+          },
+          { status: 500 }
+        );
+      }
+
+      const { error: updateError } =
+        await admin.auth.admin.updateUserById(existing.id, {
+          user_metadata: {
+            ...(existingAuthData.user.user_metadata ?? {}),
+            first_name,
+            last_name,
+            terms_accepted_at: acceptedAt,
+            privacy_accepted_at: acceptedAt,
+            campaign_key: campaign ?? null,
+          },
+        });
+
+      if (updateError) {
+        return NextResponse.json(
+          { ok: false, error: updateError.message },
+          { status: 400 }
+        );
+      }
+
+      console.log(
+        `[signup] resumed existing confirmed user email=${email} campaign=${campaign ?? "none"}`
+      );
     } else if (existing) {
       // Support an interrupted signup attempt. The account is still
       // unverified, so update its password and signup details before
