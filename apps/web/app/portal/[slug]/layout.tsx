@@ -9,6 +9,7 @@ import {
   getServerSupabase,
 } from "@/app/_lib/portal";
 import LegacyBillingCheckoutModal from "@/components/billing/LegacyBillingCheckoutModal";
+import Founding100CountdownBanner from "@/components/portal/Founding100CountdownBanner";
 import PortalHeader from "@/components/portal/PortalHeader";
 import PortalSidebar from "@/components/portal/PortalSidebar";
 import BackgroundGrid from "@/components/ui/BackgroundGrid";
@@ -50,6 +51,10 @@ type BillingAccount = {
   billing_required_from: string | null;
 };
 
+type Founding100BannerOffer = {
+  expires_at: string;
+};
+
 async function loadOrg(
   slug: string,
 ): Promise<Org | null> {
@@ -81,6 +86,194 @@ async function loadOrg(
       "[portal-layout] Organisation lookup failed:",
       {
         slug,
+        error,
+      },
+    );
+
+    return null;
+  }
+}
+
+async function loadFounding100BannerOffer(
+  org: Org,
+): Promise<Founding100BannerOffer | null> {
+  try {
+    const admin =
+      await getAdminClient();
+
+    const {
+      data: offer,
+      error: offerError,
+    } = await admin
+      .schema("portal")
+      .from("campaign_offers")
+      .select(
+        "status, expires_at, claim_expires_at",
+      )
+      .eq(
+        "campaign_key",
+        "founding_100",
+      )
+      .eq("org_id", org.id)
+      .maybeSingle();
+
+    if (offerError) {
+      console.error(
+        "[portal-layout] Unable to load Founding 100 offer:",
+        {
+          orgId: org.id,
+          error: offerError,
+        },
+      );
+
+      return null;
+    }
+
+    if (
+      !offer ||
+      !["eligible", "claimed"].includes(
+        String(offer.status),
+      )
+    ) {
+      return null;
+    }
+
+    const expiry = Date.parse(
+      String(offer.expires_at),
+    );
+
+    if (
+      !Number.isFinite(expiry) ||
+      expiry <= Date.now()
+    ) {
+      return null;
+    }
+
+    const [
+      campaignResult,
+      redeemedResult,
+    ] = await Promise.all([
+      admin
+        .schema("portal")
+        .from("campaigns")
+        .select(
+          "status, max_redemptions",
+        )
+        .eq(
+          "campaign_key",
+          "founding_100",
+        )
+        .maybeSingle(),
+
+      admin
+        .schema("portal")
+        .from("campaign_offers")
+        .select(
+          "status, claim_expires_at",
+        )
+        .eq(
+          "campaign_key",
+          "founding_100",
+        )
+        .in(
+          "status",
+          ["redeemed", "claimed"],
+        ),
+    ]);
+
+    if (
+      campaignResult.error ||
+      redeemedResult.error
+    ) {
+      console.error(
+        "[portal-layout] Unable to load Founding 100 campaign availability:",
+        {
+          orgId: org.id,
+          campaignError:
+            campaignResult.error,
+          redeemedError:
+            redeemedResult.error,
+        },
+      );
+
+      return null;
+    }
+
+    const campaign =
+      campaignResult.data;
+
+    if (
+      !campaign ||
+      campaign.status !== "active"
+    ) {
+      return null;
+    }
+
+    const now = Date.now();
+
+    const reservedCount =
+      (
+        redeemedResult.data ?? []
+      ).filter((row) => {
+        if (
+          row.status === "redeemed"
+        ) {
+          return true;
+        }
+
+        if (
+          row.status !== "claimed" ||
+          !row.claim_expires_at
+        ) {
+          return false;
+        }
+
+        const claimExpiry =
+          Date.parse(
+            row.claim_expires_at,
+          );
+
+        return (
+          Number.isFinite(
+            claimExpiry,
+          ) &&
+          claimExpiry > now
+        );
+      }).length;
+
+    const ownClaimExpiry =
+      offer.claim_expires_at
+        ? Date.parse(
+            String(
+              offer.claim_expires_at,
+            ),
+          )
+        : NaN;
+
+    const hasLiveOwnClaim =
+      offer.status === "claimed" &&
+      Number.isFinite(
+        ownClaimExpiry,
+      ) &&
+      ownClaimExpiry > now;
+
+    if (
+      !hasLiveOwnClaim &&
+      reservedCount >=
+        campaign.max_redemptions
+    ) {
+      return null;
+    }
+
+    return {
+      expires_at:
+        String(offer.expires_at),
+    };
+  } catch (error) {
+    console.error(
+      "[portal-layout] Founding 100 banner lookup failed:",
+      {
+        orgId: org.id,
         error,
       },
     );
@@ -221,6 +414,13 @@ export default async function OrgLayout({
   const mustCompleteLegacyBilling = org
     ? await requiresLegacyBilling(org)
     : false;
+
+  const founding100BannerOffer =
+    org && !mustCompleteLegacyBilling
+      ? await loadFounding100BannerOffer(
+          org,
+        )
+      : null;
 
   let firstName: string | null = null;
   let fullName: string | null = null;
@@ -370,6 +570,15 @@ export default async function OrgLayout({
             avatarUrl={avatarUrl}
             isSuperadmin={isSuperadmin}
           />
+
+          {founding100BannerOffer && (
+            <Founding100CountdownBanner
+              expiresAt={
+                founding100BannerOffer.expires_at
+              }
+              billingHref={`/portal/${slug}/billing`}
+            />
+          )}
 
           <div className="px-5 pb-10 pt-4">
             {children}
