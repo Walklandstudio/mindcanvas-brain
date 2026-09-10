@@ -3,6 +3,9 @@
 
 import UsageBundlesSection from "./UsageBundlesSection";
 import UpgradePlansSection from "./UpgradePlansSection";
+import Founding100OfferCard, {
+  type Founding100Offer,
+} from "./Founding100OfferCard";
 import Link from "next/link";
 
 import {
@@ -46,6 +49,10 @@ type Summary = {
     period_start: string | null;
     period_end: string | null;
   };
+
+  campaign_offer?:
+    | Founding100Offer
+    | null;
 
   billing: {
     tier: number | null;
@@ -412,8 +419,10 @@ export default function BillingClient({
     STATUS_STYLE[displayStatus];
 
   const allowance =
-    billing?.included_trials_per_month ??
-    usage.allowance;
+    displayStatus === "active"
+      ? usage.allowance
+      : billing?.included_trials_per_month ??
+        usage.allowance;
 
   const invoices =
     billing?.invoices ?? [];
@@ -444,6 +453,18 @@ export default function BillingClient({
           "year"
         ? " / year"
         : "";
+
+  const isRedeemedFoundingMember =
+    summary.campaign_offer?.status === "redeemed";
+
+  const standardAmountCents =
+    billing?.plan.amount_cents ?? null;
+
+  const foundingAmountCents =
+    isRedeemedFoundingMember &&
+    standardAmountCents !== null
+      ? Math.round(standardAmountCents * 0.3)
+      : null;
 
   return (
     <div className="space-y-5 text-white">
@@ -499,6 +520,13 @@ export default function BillingClient({
         </div>
       )}
 
+      {!isInternal && (
+        <Founding100OfferCard
+          orgId={org.id}
+          offer={summary.campaign_offer}
+        />
+      )}
+
       <section className="grid gap-5 lg:grid-cols-2">
         <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-6 backdrop-blur">
           <h2 className="text-base font-semibold">
@@ -527,20 +555,48 @@ export default function BillingClient({
             <DetailRow
               label="Amount"
               value={
-                isInternal ? "No charge" : <>
-                  {formatMoney(
-                    billing?.plan
-                      .amount_cents ?? null,
-                    billing?.plan.currency ??
-                      null
-                  )}
+                isInternal ? (
+                  "No charge"
+                ) : isRedeemedFoundingMember &&
+                  foundingAmountCents !== null ? (
+                  <span className="flex flex-col items-end gap-1">
+                    <span>
+                      {formatMoney(
+                        foundingAmountCents,
+                        billing?.plan.currency ?? null
+                      )}
 
-                  {recurringSuffix && (
-                    <span className="text-white/50">
-                      {recurringSuffix}
+                      {recurringSuffix && (
+                        <span className="text-white/50">
+                          {recurringSuffix}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </>
+
+                    <span className="text-xs font-normal text-emerald-300/80">
+                      Founding rate · 70% off{" "}
+                      <span className="line-through text-white/40">
+                        {formatMoney(
+                          standardAmountCents,
+                          billing?.plan.currency ?? null
+                        )}
+                      </span>
+                    </span>
+                  </span>
+                ) : (
+                  <>
+                    {formatMoney(
+                      standardAmountCents,
+                      billing?.plan.currency ?? null
+                    )}
+
+                    {recurringSuffix && (
+                      <span className="text-white/50">
+                        {recurringSuffix}
+                      </span>
+                    )}
+                  </>
+                )
               }
             />
 

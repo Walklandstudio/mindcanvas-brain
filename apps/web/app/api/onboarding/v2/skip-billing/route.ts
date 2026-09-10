@@ -7,7 +7,7 @@
 //
 // The server overwrites any previously saved onboarding selection before
 // creating or updating the organisation. This prevents a crafted request from
-// obtaining Pro or Niche engine access without payment.
+// obtaining Pro or Growth engine access without payment.
 
 import { NextResponse } from "next/server";
 import { portalAdmin } from "@/app/_lib/supabaseAdmin";

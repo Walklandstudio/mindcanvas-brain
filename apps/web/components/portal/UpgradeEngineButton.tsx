@@ -5,7 +5,7 @@ import { useState } from "react";
 type Props = {
   orgId: string;
   targetTier: 2 | 3;
-  planName: "Pro" | "Niche";
+  planName: "Pro" | "Growth";
   compact?: boolean;
 };
 

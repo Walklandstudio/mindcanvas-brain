@@ -30,8 +30,8 @@ import { ProgressBar } from "@/components/portal/ProgressBar";
 // Tier → plan naming. Tier 1 = Starter (analytics locked); tier >= 2 unlocks
 // analytics (2 = Pro, 3 = Niche, 4 = Enterprise). Mirrors profile/billing.
 const TIER_PLANS = [
-  { tier: 2, label: "Pro", submissions: 35, next: "Niche" },
-  { tier: 3, label: "Niche", submissions: 50, next: "Enterprise" },
+  { tier: 2, label: "Pro", submissions: 35, next: "Growth" },
+  { tier: 3, label: "Growth", submissions: 50, next: "Enterprise" },
   { tier: 4, label: "Enterprise", submissions: 100, next: null as string | null },
 ];
 
@@ -134,12 +134,64 @@ export default async function DashboardPage({
     } catch {
       usage = null;
     }
-    const used = usage?.used ?? 0;
-    const allowance = usage?.allowance ?? null;
-    const remaining = usage?.remaining ?? null;
+    const subscriptionUsed = usage?.used ?? 0;
+    const subscriptionAllowance = usage?.allowance ?? null;
+    const subscriptionRemaining = usage?.remaining ?? null;
     const resetDate = usage?.period_end ?? null;
     const isInternal = usage?.exempt === true;
-    const needsBilling = !isInternal && status === "pending_activation";
+
+    // Free-trial organisations intentionally have no active subscription.
+    // Their usable submissions live in engine_trial_allocations instead.
+    let trialRemaining = Math.max(usage?.trial_remaining ?? 0, 0);
+    let trialAllocated = trialRemaining;
+
+    if (!isInternal && status === "pending_activation") {
+      const { data: trialRows, error: trialError } = await sb
+        .from("engine_trial_allocations")
+        .select("quantity_allocated, quantity_remaining")
+        .eq("org_id", org.id)
+        .eq("allocation_type", "trial");
+
+      if (!trialError && trialRows) {
+        trialAllocated = trialRows.reduce(
+          (sum: number, row: any) =>
+            sum + Number(row.quantity_allocated ?? 0),
+          0,
+        );
+
+        trialRemaining = trialRows.reduce(
+          (sum: number, row: any) =>
+            sum + Number(row.quantity_remaining ?? 0),
+          0,
+        );
+      }
+    }
+
+    const isFreeTrial =
+      !isInternal &&
+      status === "pending_activation" &&
+      trialAllocated > 0;
+
+    const hasTrialRemaining =
+      isFreeTrial && trialRemaining > 0;
+
+    const used = isFreeTrial
+      ? Math.max(trialAllocated - trialRemaining, 0)
+      : subscriptionUsed;
+
+    const allowance = isFreeTrial
+      ? trialAllocated
+      : subscriptionAllowance;
+
+    const remaining = isFreeTrial
+      ? trialRemaining
+      : subscriptionRemaining;
+
+    const needsBilling =
+      !isInternal &&
+      status === "pending_activation" &&
+      !hasTrialRemaining;
+
     const pastDue = !isInternal && status === "past_due";
 
     // --- Plan tier (drives Starter vs Pro analytics variant) ------------
@@ -245,7 +297,13 @@ export default async function DashboardPage({
         <StatCard
           label="Submissions used"
           value={String(used)}
-          caption={allowance != null ? `of ${allowance} included` : "this period"}
+          caption={
+            isFreeTrial
+              ? `of ${allowance ?? 0} trial submissions`
+              : allowance != null
+                ? `of ${allowance} included`
+                : "this period"
+          }
         />
         <StatCard
           label="Reports generated"
@@ -438,7 +496,7 @@ export default async function DashboardPage({
         <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-[14px] border border-white/[0.08] bg-white/[0.02] px-5 py-3">
           <div className="flex flex-col">
             <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
-              Used this month
+              {isFreeTrial ? "Trial used" : "Used this month"}
             </span>
             <span className="text-[13px] font-semibold text-white/85">
               {used} of {allowance ?? "∞"}
@@ -452,7 +510,7 @@ export default async function DashboardPage({
             ) : null}
           </div>
           <UsageItem
-            label="Included remaining"
+            label={isFreeTrial ? "Trial remaining" : "Included remaining"}
             value={remaining != null ? `${remaining} remaining` : "Unlimited"}
           />
           <UsageItem label="Additional credits" value="0" />

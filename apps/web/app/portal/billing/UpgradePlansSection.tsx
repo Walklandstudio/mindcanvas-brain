@@ -33,7 +33,7 @@ const PLANS: UpgradePlan[] = [
   },
   {
     tier: 3,
-    name: "Niche",
+    name: "Growth",
     allowance: 50,
     engines: "Sales + Coaching + People",
     unlocks:
@@ -259,7 +259,7 @@ export default function UpgradePlansSection({
               className="flex flex-col rounded-2xl border border-white/10 bg-[#06182a] p-5"
             >
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#54AFE0]">
-                Tier {plan.tier}
+                MindCanvas plan
               </p>
 
               <h3 className="mt-2 text-xl font-bold text-white">

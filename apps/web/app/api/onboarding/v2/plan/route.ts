@@ -5,7 +5,7 @@
 //
 // Tier 1 / Starter -> Sales
 // Tier 2 / Pro     -> Sales + Coaching
-// Tier 3 / Niche   -> Sales + Coaching + People
+// Tier 3 / Growth   -> Sales + Coaching + People
 //
 // Any `engines` value submitted by an older browser session is ignored.
 

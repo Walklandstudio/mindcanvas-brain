@@ -91,7 +91,7 @@ export async function POST(req: Request) {
       ![2, 3].includes(body.targetTier as number)
     ) {
       return jerr(
-        "Select Pro or Niche as the upgrade plan.",
+        "Select Pro or Growth as the upgrade plan.",
         "invalid_target_tier",
         400,
       );

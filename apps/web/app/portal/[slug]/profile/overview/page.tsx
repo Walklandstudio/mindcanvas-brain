@@ -34,7 +34,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   const completedFields = [org?.name, org?.website_url, org?.industry, org?.primary_contact_name, org?.primary_contact_email, org?.logo_url, org?.brand_primary, org?.brand_secondary].filter(Boolean).length;
   const organisationPercent = Math.round((completedFields / 8) * 100);
   const tier = billing.data?.tier;
-  const planName = tier ? ["", "Starter", "Pro", "Niche", "Enterprise"][tier] ?? `Tier ${tier}` : "Not set up";
+  const planName = tier ? ["", "Starter", "Pro", "Growth", "Enterprise"][tier] ?? `Tier ${tier}` : "Not set up";
   const status = billing.data?.stripe_status ?? "Not set up";
   const allowance = (entitlement.data?.included_trials_per_month ?? 0) + (entitlement.data?.extra_trials_purchased ?? 0);
   const used = submissions.count ?? 0;

@@ -34,7 +34,7 @@ const PLAN_TAGLINES: Record<string, string> = {
     "For independent consultants and coaches ready to sell smarter.",
   Pro:
     "For growing service businesses scaling their sales and delivery.",
-  Niche:
+  Growth:
     "For niche experts building authority and licensing their IP.",
 };
 

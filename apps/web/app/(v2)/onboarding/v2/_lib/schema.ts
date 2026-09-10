@@ -117,6 +117,7 @@ export const signupSchema = z
     first_name: nonEmptyTrimmed,
     last_name: nonEmptyTrimmed,
     email: emailSchema,
+    campaign: z.literal("founding_100").optional(),
     password: passwordSchema,
     confirm_password: z.string().min(1, {
       message: "Please confirm your password.",

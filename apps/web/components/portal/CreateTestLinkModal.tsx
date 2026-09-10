@@ -81,6 +81,7 @@ export default function CreateTestLinkModal({
   const [error, setError] = useState<string | null>(null);
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [founding100OfferEligible, setFounding100OfferEligible] = useState(false);
 
   const modelId = watch("modelId");
   const limitMode = watch("limitMode");
@@ -198,6 +199,7 @@ export default function CreateTestLinkModal({
       }
 
       setCreatedToken(data.token || null);
+      setFounding100OfferEligible(data.founding100OfferEligible === true);
       setStep(STEP_SUCCESS);
       try {
         window.dispatchEvent(new CustomEvent("links:changed"));
@@ -325,6 +327,7 @@ export default function CreateTestLinkModal({
               orgId={orgId}
               orgSlug={orgSlug}
               testName={selectedModel?.name}
+              founding100OfferEligible={founding100OfferEligible}
             />
           )}
         </div>

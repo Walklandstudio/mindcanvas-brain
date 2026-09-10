@@ -69,10 +69,10 @@ export const PLAN_CARDS: PlanCardContent[] = [
   },
   {
     tier: 3,
-    name: "Niche",
+    name: "Growth",
     tagline: "Experts building niche authority",
     badge: { label: "Best value", color: "teal" },
-    cta: "Select Niche",
+    cta: "Select Growth",
     fallbackAmountCents: 54700,
     features: [
       inc("3 Test Engines"),

@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 type LockedModel = ModelOption & {
   locked: true;
   requiredTier: 2 | 3;
-  requiredPlan: "Pro" | "Niche";
+  requiredPlan: "Pro" | "Growth";
   descriptionName: string;
 };
 
@@ -49,7 +49,7 @@ const LOCKED_CATALOG: LockedModel[] = [
       "Predictive Team Design Intelligence",
     locked: true,
     requiredTier: 3,
-    requiredPlan: "Niche",
+    requiredPlan: "Growth",
     descriptionName: "MCAS",
   },
 ];
