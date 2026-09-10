@@ -7,7 +7,7 @@ export type ModelOption = {
   category?: string;
   locked?: boolean;
   requiredTier?: 2 | 3;
-  requiredPlan?: "Pro" | "Niche";
+  requiredPlan?: "Pro" | "Growth";
 };
 
 export type Experience = "show" | "hide" | "host" | "review";

@@ -81,7 +81,7 @@ export default function Founding100CountdownBanner({
           </p>
 
           <h3 className="mt-1 text-lg font-extrabold text-white">
-            Secure 70% off Tier 2 for life
+            Secure 70% off Pro for life
           </h3>
 
           <p className="mt-1 text-sm text-white/70">

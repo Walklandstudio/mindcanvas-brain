@@ -128,7 +128,7 @@ export default function Founding100OfferCard({
 
         <p className="mt-2 max-w-3xl text-sm leading-6 text-white/65">
           Your Founding 100 membership is active.
-          Your permanent Tier 2 Founding benefits
+          Your permanent Pro Founding benefits
           remain attached to this organisation.
         </p>
 
@@ -142,7 +142,7 @@ export default function Founding100OfferCard({
           </Benefit>
 
           <Benefit>
-            70% off Tier 2 for life
+            70% off Pro for life
           </Benefit>
         </div>
       </section>
@@ -258,7 +258,7 @@ export default function Founding100OfferCard({
 
         <div className="mt-6 rounded-2xl border border-[#54AFE0]/25 bg-[#06182a] p-5">
           <p className="text-sm font-semibold text-[#64bae2]">
-            Get 70% off Tier 2 for life
+            Get 70% off Pro for life
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -290,7 +290,7 @@ export default function Founding100OfferCard({
 
         <div className="mt-6">
           <p className="text-sm font-semibold text-white">
-            Choose your Tier 2 billing cycle
+            Choose your Pro billing cycle
           </p>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -400,7 +400,7 @@ export default function Founding100OfferCard({
         </div>
 
         <p className="mt-4 text-xs leading-5 text-white/40">
-          Stripe will show the exact Tier 2 price
+          Stripe will show the exact Pro price
           and 70% lifetime discount before you pay.
         </p>
       </div>

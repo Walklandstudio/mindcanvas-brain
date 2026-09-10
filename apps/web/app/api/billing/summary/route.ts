@@ -84,7 +84,7 @@ type Founding100CampaignRow = {
 const TIER_NAMES: Record<number, string> = {
   1: "MindCanvas Starter",
   2: "MindCanvas Pro",
-  3: "MindCanvas Niche",
+  3: "MindCanvas Growth",
   4: "MindCanvas Enterprise",
 };
 

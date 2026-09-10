@@ -223,7 +223,7 @@ export default function StepSuccess({
           <p className="mt-1 text-center text-[12px] leading-5 text-white/[0.68]">
             Secure{" "}
             <strong className="font-bold text-white">
-              70% off Tier 2 for life
+              70% off Pro for life
             </strong>
             .
           </p>

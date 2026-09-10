@@ -30,8 +30,8 @@ import { ProgressBar } from "@/components/portal/ProgressBar";
 // Tier → plan naming. Tier 1 = Starter (analytics locked); tier >= 2 unlocks
 // analytics (2 = Pro, 3 = Niche, 4 = Enterprise). Mirrors profile/billing.
 const TIER_PLANS = [
-  { tier: 2, label: "Pro", submissions: 35, next: "Niche" },
-  { tier: 3, label: "Niche", submissions: 50, next: "Enterprise" },
+  { tier: 2, label: "Pro", submissions: 35, next: "Growth" },
+  { tier: 3, label: "Growth", submissions: 50, next: "Enterprise" },
   { tier: 4, label: "Enterprise", submissions: 100, next: null as string | null },
 ];
 
