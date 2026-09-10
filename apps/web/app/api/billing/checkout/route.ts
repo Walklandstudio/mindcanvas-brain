@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     tier?: number;
     flow?: string;
     interval?: "month" | "year";
-    offer?: "founding-100";
+    offer?: "founding-100" | "first-link-70";
     addCertification?: boolean;
   } = {};
   try {
@@ -64,9 +64,24 @@ export async function POST(req: Request) {
 
   if (
     body.offer !== undefined &&
-    body.offer !== "founding-100"
+    body.offer !== "founding-100" &&
+    body.offer !== "first-link-70"
   ) {
     return jerr("Unknown checkout offer", "invalid_offer", 400);
+  }
+
+  const wantsFounding100Offer =
+    body.offer === "founding-100";
+
+  const wantsFirstLinkOffer =
+    body.offer === "first-link-70";
+
+  if (wantsFirstLinkOffer && body.interval === "year") {
+    return jerr(
+      "The first-link offer is available on monthly subscriptions only",
+      "first_link_offer_monthly_only",
+      400
+    );
   }
 
   if (
@@ -79,8 +94,6 @@ export async function POST(req: Request) {
       400
     );
   }
-
-  const wantsFounding100Offer = body.offer === "founding-100";
 
   if (body.addCertification && !wantsFounding100Offer) {
     return jerr(
@@ -213,6 +226,9 @@ export async function POST(req: Request) {
     );
   }
   if (!user.email) return jerr("User has no email", "email_required", 400);
+
+  let firstLinkOfferId: string | null = null;
+  let firstLinkPromotionCodeId: string | null = null;
 
   let founding100OfferId: string | null = null;
   let founding100PromotionCodeId: string | null = null;
@@ -400,6 +416,85 @@ export async function POST(req: Request) {
     }
   }
 
+  if (wantsFirstLinkOffer) {
+    firstLinkPromotionCodeId =
+      process.env.STRIPE_FIRST_LINK_PROMOTION_CODE_ID?.trim() ||
+      null;
+
+    if (!firstLinkPromotionCodeId) {
+      return jerr(
+        "The first-link promotion is not configured",
+        "first_link_offer_not_configured",
+        503
+      );
+    }
+
+    const admin = portalAdmin();
+
+    const { data: offerRow, error: offerErr } =
+      await admin
+        .from("first_link_offers")
+        .select("id, status")
+        .eq("org_id", orgId)
+        .eq("offer_key", "first_link_70_3m")
+        .maybeSingle<{
+          id: string;
+          status: string;
+        }>();
+
+    if (offerErr) {
+      return jerr(
+        offerErr.message,
+        "first_link_offer_lookup_failed",
+        500
+      );
+    }
+
+    if (
+      !offerRow ||
+      !["offered", "claimed"].includes(
+        offerRow.status
+      )
+    ) {
+      return jerr(
+        "This organisation is not eligible for the first-link offer",
+        "first_link_offer_not_eligible",
+        403
+      );
+    }
+
+    const {
+      count: paidEntitlementCount,
+      error: entitlementErr,
+    } = await admin
+      .from("entitlements")
+      .select("id", {
+        count: "exact",
+        head: true,
+      })
+      .eq("org_id", orgId)
+      .eq("status", "active")
+      .neq("tier", PILOT_TIER);
+
+    if (entitlementErr) {
+      return jerr(
+        entitlementErr.message,
+        "first_link_offer_entitlement_check_failed",
+        500
+      );
+    }
+
+    if ((paidEntitlementCount ?? 0) > 0) {
+      return jerr(
+        "This organisation already has an active paid subscription",
+        "first_link_offer_already_subscribed",
+        409
+      );
+    }
+
+    firstLinkOfferId = offerRow.id;
+  }
+
   let customerId: string;
   try {
     customerId = await ensureStripeCustomer(orgId, user.email, org.name);
@@ -435,7 +530,8 @@ export async function POST(req: Request) {
   const orgBillingUrl =
     `${requestOrigin}/portal/${encodeURIComponent(orgSlug)}/billing`;
 
-  const returnsToOrgBilling = wantsFounding100Offer;
+  const returnsToOrgBilling =
+    wantsFounding100Offer || wantsFirstLinkOffer;
 
   const successBase = isOnboarding
     ? `${baseUrl}/onboarding/v2/billing?status=success&interval=${interval}`
@@ -498,11 +594,16 @@ export async function POST(req: Request) {
       ? {
           campaign_key: "founding_100",
           offer_key: "founding_100",
-          certified_consultant_add_on: body.addCertification
-            ? "true"
-            : "false",
+          certified_consultant_add_on:
+            body.addCertification
+              ? "true"
+              : "false",
         }
-      : {};
+      : wantsFirstLinkOffer
+        ? {
+            offer_key: "first_link_70_3m",
+          }
+        : {};
 
   let session: Stripe.Checkout.Session;
   try {
@@ -517,17 +618,28 @@ export async function POST(req: Request) {
           ? {
               discounts: [
                 {
-                  promotion_code: founding100PromotionCodeId!,
+                  promotion_code:
+                    founding100PromotionCodeId!,
                 },
               ],
               // Stripe requires Checkout expiry to be at least 30 minutes.
               // The 31-minute session always ends before both the campaign
               // deadline and the database reservation.
-              expires_at: founding100CheckoutExpiresAt!,
+              expires_at:
+                founding100CheckoutExpiresAt!,
             }
-          : {
-              allow_promotion_codes: true,
-            }),
+          : wantsFirstLinkOffer
+            ? {
+                discounts: [
+                  {
+                    promotion_code:
+                      firstLinkPromotionCodeId!,
+                  },
+                ],
+              }
+            : {
+                allow_promotion_codes: true,
+              }),
         subscription_data: {
           metadata: {
             org_id: orgId,
@@ -548,7 +660,9 @@ export async function POST(req: Request) {
         idempotencyKey: `mc-checkout-${orgId}-${ba.id}-${interval}-${
           wantsFounding100Offer
             ? `founding100-${body.addCertification ? "cert" : "base"}`
-            : "standard"
+            : wantsFirstLinkOffer
+              ? "firstlink70"
+              : "standard"
         }-${bucket}`,
       }
     );
@@ -571,6 +685,35 @@ export async function POST(req: Request) {
       console.error(
         "Founding 100 Checkout Session tracking failed",
         foundingTrackErr
+      );
+    }
+  }
+
+  if (
+    wantsFirstLinkOffer &&
+    firstLinkOfferId
+  ) {
+    const { error: firstLinkTrackErr } =
+      await portalAdmin()
+        .from("first_link_offers")
+        .update({
+          status: "claimed",
+          claimed_at: new Date().toISOString(),
+          stripe_checkout_session_id:
+            session.id,
+        })
+        .eq("id", firstLinkOfferId)
+        .in("status", [
+          "offered",
+          "claimed",
+        ]);
+
+    if (firstLinkTrackErr) {
+      // Stripe Checkout is already valid and discounted.
+      // Tracking failure must not strand the customer.
+      console.error(
+        "First-link Checkout Session tracking failed",
+        firstLinkTrackErr
       );
     }
   }
