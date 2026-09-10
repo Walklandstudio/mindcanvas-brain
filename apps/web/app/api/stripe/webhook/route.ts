@@ -889,6 +889,41 @@ export async function POST(req: Request) {
     }
 
     if (
+      meta.offerKey === "first_link_70_3m" &&
+      meta.subId &&
+      isPaidFoundingEvent(event) &&
+      ["active", "trialing"].includes(
+        meta.stripeStatus || "",
+      )
+    ) {
+      const { error: firstLinkRedeemError } =
+        await portalAdmin()
+          .from("first_link_offers")
+          .update({
+            status: "redeemed",
+            redeemed_at: new Date().toISOString(),
+          })
+          .eq("org_id", meta.orgId)
+          .eq(
+            "offer_key",
+            "first_link_70_3m",
+          )
+          .in("status", [
+            "offered",
+            "claimed",
+          ]);
+
+      if (firstLinkRedeemError) {
+        // Billing has already succeeded. Do not invalidate a valid
+        // subscription because conversion-offer tracking failed.
+        console.error(
+          "[stripe-webhook] First-link offer redemption tracking failed:",
+          firstLinkRedeemError,
+        );
+      }
+    }
+
+    if (
       meta.offerKey === "founding_100" &&
       event.type === "checkout.session.async_payment_failed"
     ) {

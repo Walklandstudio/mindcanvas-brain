@@ -51,6 +51,7 @@ export default function StepSuccess({
   orgSlug,
   testName,
   founding100OfferEligible,
+  firstLinkOfferEligible,
 }: {
   createdToken: string | null;
   copied: boolean;
@@ -59,6 +60,7 @@ export default function StepSuccess({
   orgSlug: string;
   testName?: string | null;
   founding100OfferEligible: boolean;
+  firstLinkOfferEligible: boolean;
 }) {
   const url = createdToken ? `${getBaseUrl()}/t/${createdToken}` : null;
   const dashboardHref = `/portal/${orgSlug}/dashboard`;
@@ -75,9 +77,18 @@ export default function StepSuccess({
     useState<"month" | "year">("month");
   const [addCertification, setAddCertification] = useState(false);
 
-  const showOffer = founding100OfferEligible && !offerDismissed;
+  const showFoundingOffer =
+    founding100OfferEligible && !offerDismissed;
 
-  async function claimOffer() {
+  const showFirstLinkOffer =
+    !founding100OfferEligible &&
+    firstLinkOfferEligible &&
+    !offerDismissed;
+
+  const showOffer =
+    showFoundingOffer || showFirstLinkOffer;
+
+  async function claimFoundingOffer() {
     if (claimingOffer) return;
 
     setClaimingOffer(true);
@@ -113,6 +124,46 @@ export default function StepSuccess({
         error instanceof Error
           ? error.message
           : "Could not start your Founding Member checkout.",
+      );
+      setClaimingOffer(false);
+    }
+  }
+
+  async function claimFirstLinkOffer() {
+    if (claimingOffer) return;
+
+    setClaimingOffer(true);
+    setOfferError(null);
+
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orgId,
+          interval: "month",
+          offer: "first-link-70",
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json?.ok || !json?.url) {
+        throw new Error(
+          json?.error ||
+            "Could not start your discounted checkout.",
+        );
+      }
+
+      window.location.href = String(json.url);
+    } catch (error: unknown) {
+      setOfferError(
+        error instanceof Error
+          ? error.message
+          : "Could not start your discounted checkout.",
       );
       setClaimingOffer(false);
     }
@@ -210,7 +261,7 @@ export default function StepSuccess({
           : "You can now activate, copy, and share your test link."}
       </p>
 
-      {showOffer && (
+      {showFoundingOffer && (
         <div className="mt-4 w-full rounded-[16px] border border-[#54AFE0]/25 bg-[#54AFE0]/[0.07] p-4 text-left">
           <p className="text-center text-[10px] font-bold uppercase tracking-[0.16em] text-[#54AFE0]">
             Founding 100 invitation
@@ -292,7 +343,7 @@ export default function StepSuccess({
 
           <button
             type="button"
-            onClick={claimOffer}
+            onClick={claimFoundingOffer}
             disabled={claimingOffer}
             className="mt-3 inline-flex h-[42px] w-full items-center justify-center rounded-xl bg-[linear-gradient(101.83deg,#54AFE0_0%,#54AFE0_100%)] px-4 text-[13px] font-bold text-white shadow-[0_6px_20px_0_rgba(26,106,232,0.32)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -318,6 +369,57 @@ export default function StepSuccess({
 
           <p className="mt-2 text-center text-[10px] leading-4 text-white/[0.38]">
             7-day invitation · Limited to the first 100 paid Founding Members
+          </p>
+        </div>
+      )}
+
+      {showFirstLinkOffer && (
+        <div className="mt-4 w-full rounded-[16px] border border-[#54AFE0]/25 bg-[#54AFE0]/[0.07] p-4 text-center">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#54AFE0]">
+            A little something to help you get started
+          </p>
+
+          <div className="mt-3 text-[30px] font-extrabold leading-none text-white">
+            70% OFF
+          </div>
+
+          <h4 className="mt-2 text-[15px] font-extrabold leading-6 text-white">
+            Save 70% for your first 3 months
+          </h4>
+
+          <p className="mt-1 text-[12px] leading-5 text-white/[0.68]">
+            Upgrade your MindCanvas subscription now and we’ll
+            automatically apply your first-link discount.
+          </p>
+
+          <button
+            type="button"
+            onClick={claimFirstLinkOffer}
+            disabled={claimingOffer}
+            className="mt-4 inline-flex h-[42px] w-full items-center justify-center rounded-xl bg-[linear-gradient(101.83deg,#54AFE0_0%,#54AFE0_100%)] px-4 text-[13px] font-bold text-white shadow-[0_6px_20px_0_rgba(26,106,232,0.32)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {claimingOffer
+              ? "Opening secure checkout…"
+              : "Claim my 70% discount →"}
+          </button>
+
+          {offerError && (
+            <p className="mt-2 text-[11.5px] text-rose-400">
+              {offerError}
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setOfferDismissed(true)}
+            disabled={claimingOffer}
+            className="mt-3 text-[11.5px] font-medium text-white/[0.5] transition hover:text-white/[0.8]"
+          >
+            No thanks — I’ll continue on the free trial
+          </button>
+
+          <p className="mt-3 text-[10.5px] leading-4 text-white/[0.38]">
+            Monthly subscription · Discount applies to your first 3 months
           </p>
         </div>
       )}

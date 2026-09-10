@@ -237,6 +237,7 @@ export async function POST(req: Request) {
     const publicUrl = absoluteUrl(`/t/${linkRow.token}`);
 
     let founding100OfferEligible = false;
+    let firstLinkOfferEligible = false;
 
     if (isFirstEverLink) {
       try {
@@ -395,6 +396,111 @@ export async function POST(req: Request) {
       }
     }
 
+    if (
+      isFirstEverLink &&
+      !founding100OfferEligible &&
+      Boolean(process.env.STRIPE_FIRST_LINK_PROMOTION_CODE_ID)
+    ) {
+      try {
+        const [
+          activeEntitlementResult,
+          activeEnginesResult,
+          trialAllocationsResult,
+        ] = await Promise.all([
+          sb
+            .from("entitlements")
+            .select("id", { count: "exact", head: true })
+            .eq("org_id", orgId)
+            .eq("status", "active"),
+          sb
+            .from("org_engines")
+            .select("engine_key, source")
+            .eq("org_id", orgId)
+            .eq("status", "active"),
+          sb
+            .from("engine_trial_allocations")
+            .select("engine_key, reference")
+            .eq("org_id", orgId)
+            .eq("allocation_type", "trial"),
+        ]);
+
+        if (activeEntitlementResult.error) {
+          throw activeEntitlementResult.error;
+        }
+
+        if (activeEnginesResult.error) {
+          throw activeEnginesResult.error;
+        }
+
+        if (trialAllocationsResult.error) {
+          throw trialAllocationsResult.error;
+        }
+
+        const activeEngines =
+          activeEnginesResult.data ?? [];
+
+        const trialAllocations =
+          trialAllocationsResult.data ?? [];
+
+        const onboardingTrialEngines =
+          new Set(
+            trialAllocations
+              .filter(
+                (allocation) =>
+                  typeof allocation.reference === "string" &&
+                  allocation.reference.startsWith("onboarding:"),
+              )
+              .map(
+                (allocation) =>
+                  allocation.engine_key,
+              ),
+          );
+
+        const isFreeTrial =
+          (activeEntitlementResult.count ?? 0) === 0 &&
+          activeEngines.length > 0 &&
+          activeEngines.every(
+            (engine) =>
+              engine.source === "onboarding" &&
+              onboardingTrialEngines.has(
+                engine.engine_key,
+              ),
+          );
+
+        if (isFreeTrial) {
+          const { error: offerError } =
+            await sb
+              .from("first_link_offers")
+              .upsert(
+                {
+                  org_id: orgId,
+                  offer_key:
+                    "first_link_70_3m",
+                  status: "offered",
+                },
+                {
+                  onConflict:
+                    "org_id,offer_key",
+                  ignoreDuplicates: true,
+                },
+              );
+
+          if (offerError) {
+            throw offerError;
+          }
+
+          firstLinkOfferEligible = true;
+        }
+      } catch (offerError) {
+        // Never break successful test-link creation because the optional
+        // first-link conversion offer could not be evaluated.
+        console.error(
+          "First-link offer eligibility failed",
+          offerError,
+        );
+      }
+    }
+
     let emailResult: any = null;
     let emailError: string | null = null;
 
@@ -457,6 +563,7 @@ export async function POST(req: Request) {
       emailResultId: emailResult?.id ?? null,
       emailError,
       founding100OfferEligible,
+      firstLinkOfferEligible,
     });
   } catch (e: any) {
     return NextResponse.json(
