@@ -454,6 +454,18 @@ export default function BillingClient({
         ? " / year"
         : "";
 
+  const isRedeemedFoundingMember =
+    summary.campaign_offer?.status === "redeemed";
+
+  const standardAmountCents =
+    billing?.plan.amount_cents ?? null;
+
+  const foundingAmountCents =
+    isRedeemedFoundingMember &&
+    standardAmountCents !== null
+      ? Math.round(standardAmountCents * 0.3)
+      : null;
+
   return (
     <div className="space-y-5 text-white">
       <header>
@@ -543,20 +555,48 @@ export default function BillingClient({
             <DetailRow
               label="Amount"
               value={
-                isInternal ? "No charge" : <>
-                  {formatMoney(
-                    billing?.plan
-                      .amount_cents ?? null,
-                    billing?.plan.currency ??
-                      null
-                  )}
+                isInternal ? (
+                  "No charge"
+                ) : isRedeemedFoundingMember &&
+                  foundingAmountCents !== null ? (
+                  <span className="flex flex-col items-end gap-1">
+                    <span>
+                      {formatMoney(
+                        foundingAmountCents,
+                        billing?.plan.currency ?? null
+                      )}
 
-                  {recurringSuffix && (
-                    <span className="text-white/50">
-                      {recurringSuffix}
+                      {recurringSuffix && (
+                        <span className="text-white/50">
+                          {recurringSuffix}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </>
+
+                    <span className="text-xs font-normal text-emerald-300/80">
+                      Founding rate · 70% off{" "}
+                      <span className="line-through text-white/40">
+                        {formatMoney(
+                          standardAmountCents,
+                          billing?.plan.currency ?? null
+                        )}
+                      </span>
+                    </span>
+                  </span>
+                ) : (
+                  <>
+                    {formatMoney(
+                      standardAmountCents,
+                      billing?.plan.currency ?? null
+                    )}
+
+                    {recurringSuffix && (
+                      <span className="text-white/50">
+                        {recurringSuffix}
+                      </span>
+                    )}
+                  </>
+                )
               }
             />
 
