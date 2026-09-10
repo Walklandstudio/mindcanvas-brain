@@ -90,18 +90,24 @@ export default function Founding100CountdownBanner({
         </div>
 
         <div className="flex flex-col items-center gap-3 sm:flex-row">
-          <div className="flex items-center gap-2">
-            {countdown ? (
-              <>
-                <TimerTile label="Days" value={countdown.days} />
-                <TimerTile label="Hrs" value={countdown.hours} />
-                <TimerTile label="Min" value={countdown.minutes} />
-              </>
-            ) : (
-              <div className="rounded-2xl border border-[#ff5a86]/45 bg-[#120814] px-5 py-3 text-sm font-semibold text-[#ff5a86] shadow-[0_0_18px_rgba(255,73,118,0.45),inset_0_0_18px_rgba(255,73,118,0.08)]">
-                7-day invitation active
-              </div>
-            )}
+          <div className="flex flex-col items-center gap-1.5">
+            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#ff9ab5]/80">
+              Founding rate expires in
+            </span>
+
+            <div className="flex items-center gap-2">
+              {countdown ? (
+                <>
+                  <TimerTile label="Days" value={countdown.days} />
+                  <TimerTile label="Hrs" value={countdown.hours} />
+                  <TimerTile label="Min" value={countdown.minutes} />
+                </>
+              ) : (
+                <div className="rounded-2xl border border-[#ff5a86]/45 bg-[#120814] px-5 py-3 text-sm font-semibold text-[#ff5a86] shadow-[0_0_18px_rgba(255,73,118,0.45),inset_0_0_18px_rgba(255,73,118,0.08)]">
+                  7-day invitation active
+                </div>
+              )}
+            </div>
           </div>
 
           <Link
