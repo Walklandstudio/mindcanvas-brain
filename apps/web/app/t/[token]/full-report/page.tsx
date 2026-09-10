@@ -2,6 +2,7 @@
 import InevitableStandardFullDiagnosticClient from "./InevitableStandardFullDiagnosticClient";
 import ReportPaywall from "./ReportPaywall";
 import { portalAdmin } from "@/app/_lib/supabaseAdmin";
+import { requireOrgAccess } from "@/lib/server/orgAccess";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,7 +20,7 @@ export default async function InevitableStandardFullReportPage({
     const sb = portalAdmin();
     const link = await sb
       .from("test_links")
-      .select("id, meta")
+      .select("id, org_id, meta")
       .eq("token", params.token)
       .maybeSingle();
 
@@ -46,14 +47,29 @@ export default async function InevitableStandardFullReportPage({
         : { data: null };
 
       if (!paid.data) {
-        return (
-          <ReportPaywall
-            token={params.token}
-            tid={tid}
-            amountCents={Number(meta.report_price_cents || 0)}
-            currency={String(meta.report_currency || "gbp")}
-          />
-        );
+        // The paygate restricts the test taker, not the organisation
+        // that owns the diagnostic. A signed-in org member or platform
+        // superadmin may inspect the Full Diagnostic Report without
+        // unlocking it for the test taker.
+        const orgId =
+          typeof link.data?.org_id === "string"
+            ? link.data.org_id
+            : "";
+
+        const ownerAccess = orgId
+          ? await requireOrgAccess(orgId)
+          : null;
+
+        if (!ownerAccess?.ok) {
+          return (
+            <ReportPaywall
+              token={params.token}
+              tid={tid}
+              amountCents={Number(meta.report_price_cents || 0)}
+              currency={String(meta.report_currency || "gbp")}
+            />
+          );
+        }
       }
     }
   }
