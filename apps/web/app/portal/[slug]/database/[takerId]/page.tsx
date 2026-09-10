@@ -554,6 +554,15 @@ export default async function TakerDetail({
         )}/profile-extended-report`
       : null;
 
+  const fullDiagnosticReportUrl =
+    isInevitableStandard && taker.link_token
+      ? `/t/${encodeURIComponent(
+          taker.link_token,
+        )}/full-report?tid=${encodeURIComponent(
+          taker.id,
+        )}&src=portal`
+      : null;
+
   const insiderInsightsUrl =
     isInevitableStandard && latest?.id
       ? `/portal/insider-insights/${encodeURIComponent(slug)}/${encodeURIComponent(
@@ -749,6 +758,17 @@ export default async function TakerDetail({
                   {isVisibility
                     ? "Open Visibility Report"
                     : "Open test-taker report in new tab"}
+                </Link>
+              )}
+
+              {fullDiagnosticReportUrl && (
+                <Link
+                  href={fullDiagnosticReportUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-50 hover:bg-slate-800"
+                >
+                  Open Full Diagnostic Report
                 </Link>
               )}
 
